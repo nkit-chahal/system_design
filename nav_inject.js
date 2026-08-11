@@ -3,6 +3,8 @@
  */
 (function () {
   'use strict';
+  
+  console.log('[nav_inject] Script started loading');
 
   const SK_DONE = 'ipmh_done_v2';
   const SK_TH = 'ipmh_th_v2';
@@ -63,16 +65,27 @@
     const style = document.createElement('style');
     style.id = 'unified-nav-styles';
     style.textContent = `
-      /* Hide original broken ByteByteGo sidebars */
-      .ant-layout-sider, aside.ant-layout-sider, .style_sider__ucgEf, .style_codingPatternsSider___CRHA {
+      /* Hide original broken ByteByteGo sidebars and headers */
+      header:not(#nav-topbar), aside:not(#custom-nav-sidebar),
+      .ant-layout-sider, .style_sider__ucgEf, .style_codingPatternsSider___CRHA,
+      .style-module-scss-module__INvXTW__sider, .style_sider__Hlcz3,
+      .ant-layout-header, .style_header__IrB9Y, .style_header__xmG1P,
+      .style-module-scss-module__nG5F8W__courseHeader {
         display: none !important;
       }
       
-      /* Ensure main content takes full width */
-      .ant-layout-has-sider > .ant-layout, .ant-layout-content {
+      /* Ensure main content takes full width and resets old layouts */
+      .ant-layout-has-sider > .ant-layout, .ant-layout-content, main {
         margin-left: 0 !important;
+        margin-top: 0 !important;
         width: 100% !important;
         max-width: 100% !important;
+      }
+
+      /* Clean up old layout background if any */
+      .ant-layout {
+        background: transparent !important;
+        min-height: auto !important;
       }
 
       body {
@@ -593,18 +606,25 @@
 
   // Init
   function init() {
-    injectStyles();
-    injectTopBar();
-    injectSidebar();
-    setupKeyboardShortcuts();
+    console.log('[nav_inject] init() called');
+    try {
+      injectStyles();
+      injectTopBar();
+      injectSidebar();
+      setupKeyboardShortcuts();
 
-    // Auto-open sidebar if user previously kept it open
-    if (localStorage.getItem(SK_SB_OPEN) === 'true') {
-      const sb = document.getElementById('custom-nav-sidebar');
-      if (sb) sb.classList.add('open');
+      // Auto-open sidebar if user previously kept it open
+      if (localStorage.getItem(SK_SB_OPEN) === 'true') {
+        const sb = document.getElementById('custom-nav-sidebar');
+        if (sb) sb.classList.add('open');
+      }
+      console.log('[nav_inject] init() completed successfully');
+    } catch (e) {
+      console.error('[nav_inject] Error in init:', e);
     }
   }
 
+  console.log('[nav_inject] Checking readyState:', document.readyState);
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
