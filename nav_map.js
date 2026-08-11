@@ -1,446 +1,3514 @@
-// Auto-generated navigation mapping
-const NAV_MAP = {
-  "/courses/behavioral-interview/introduction": "Behavioral Interview/01 Introduction.html",
-  "/courses/behavioral-interview/the-behavioral-interview-roadmap": "Behavioral Interview/02 The Behavioral Interview Roadmap.html",
-  "/courses/behavioral-interview/what-companies-are-looking-for": "Behavioral Interview/03 What Companies Are Looking For.html",
-  "/courses/behavioral-interview/high-signal-storytelling": "Behavioral Interview/04 High-Signal Storytelling.html",
-  "/courses/behavioral-interview/the-essential-questions": "Behavioral Interview/05 The Essential Questions.html",
-  "/courses/behavioral-interview/taking-initiative": "Behavioral Interview/06 Taking Initiative.html",
-  "/courses/behavioral-interview/delivery": "Behavioral Interview/07 Delivery.html",
-  "/courses/behavioral-interview/problem-solving-and-deep-dive": "Behavioral Interview/08 Problem Solving and Deep Dive.html",
-  "/courses/behavioral-interview/earning-trust-and-dealing-with-conflict": "Behavioral Interview/09 Earning Trust and Dealing with Conflict.html",
-  "/courses/behavioral-interview/learning-and-growth": "Behavioral Interview/10 Learning and Growth.html",
-  "/courses/behavioral-interview/customer-and-user-focus": "Behavioral Interview/11 Customer and User Focus.html",
-  "/courses/behavioral-interview/innovation": "Behavioral Interview/12 Innovation.html",
-  "/courses/behavioral-interview/developing-others": "Behavioral Interview/13 Developing Others.html",
-  "/courses/behavioral-interview/strategic-leadership-and-thinking-big": "Behavioral Interview/14 Strategic Leadership and Thinking Big.html",
-  "/courses/behavioral-interview/nailing-the-interview": "Behavioral Interview/15 Nailing the Interview.html",
-  "/courses/coding-patterns/two-pointers/introduction-to-two-pointers": "Coding Interview Patterns/001 Introduction to Two Pointers.html",
-  "/courses/coding-patterns/two-pointers/pair-sum-sorted": "Coding Interview Patterns/002 Pair Sum - Sorted.html",
-  "/courses/coding-patterns/two-pointers/triplet-sum": "Coding Interview Patterns/003 Triplet Sum.html",
-  "/courses/coding-patterns/two-pointers/is-palindrome-valid": "Coding Interview Patterns/004 Is Palindrome Valid.html",
-  "/courses/coding-patterns/two-pointers/largest-container": "Coding Interview Patterns/005 Largest Container.html",
-  "/courses/coding-patterns/two-pointers/shift-zeros-to-the-end": "Coding Interview Patterns/006 Shift Zeros to the End.html",
-  "/courses/coding-patterns/two-pointers/next-lexicographical-sequence": "Coding Interview Patterns/007 Next Lexicographical Sequence.html",
-  "/courses/coding-patterns/hash-maps-and-sets/introduction-to-hash-maps-and-sets": "Coding Interview Patterns/008 Introduction to Hash Maps and Sets.html",
-  "/courses/coding-patterns/hash-maps-and-sets/pair-sum-unsorted": "Coding Interview Patterns/009 Pair Sum - Unsorted.html",
-  "/courses/coding-patterns/hash-maps-and-sets/verify-sudoku-board": "Coding Interview Patterns/010 Verify Sudoku Board.html",
-  "/courses/coding-patterns/hash-maps-and-sets/zero-striping": "Coding Interview Patterns/011 Zero Striping.html",
-  "/courses/coding-patterns/hash-maps-and-sets/longest-chain-of-consecutive-numbers": "Coding Interview Patterns/012 Longest Chain of Consecutive Numbers.html",
-  "/courses/coding-patterns/hash-maps-and-sets/geometric-sequence-triplets": "Coding Interview Patterns/013 Geometric Sequence Triplets.html",
-  "/courses/coding-patterns/linked-lists/introduction-to-linked-lists": "Coding Interview Patterns/014 Introduction to Linked Lists.html",
-  "/courses/coding-patterns/linked-lists/linked-list-reversal": "Coding Interview Patterns/015 Linked List Reversal.html",
-  "/courses/coding-patterns/linked-lists/remove-the-kth-last-node-from-a-linked-list": "Coding Interview Patterns/016 Remove the Kth Last Node From a Linked List.html",
-  "/courses/coding-patterns/linked-lists/linked-list-intersection": "Coding Interview Patterns/017 Linked List Intersection.html",
-  "/courses/coding-patterns/linked-lists/lru-cache": "Coding Interview Patterns/018 LRU Cache.html",
-  "/courses/coding-patterns/linked-lists/palindromic-linked-list": "Coding Interview Patterns/019 Palindromic Linked List.html",
-  "/courses/coding-patterns/linked-lists/flatten-a-multi-level-linked-list": "Coding Interview Patterns/020 Flatten a Multi-Level Linked List.html",
-  "/courses/coding-patterns/fast-and-slow-pointers/introduction-to-fast-and-slow-pointers": "Coding Interview Patterns/021 Introduction to Fast and Slow Pointers.html",
-  "/courses/coding-patterns/fast-and-slow-pointers/linked-list-loop": "Coding Interview Patterns/022 Linked List Loop.html",
-  "/courses/coding-patterns/fast-and-slow-pointers/linked-list-midpoint": "Coding Interview Patterns/023 Linked List Midpoint.html",
-  "/courses/coding-patterns/fast-and-slow-pointers/happy-number": "Coding Interview Patterns/024 Happy Number.html",
-  "/courses/coding-patterns/sliding-windows/introduction-to-sliding-windows": "Coding Interview Patterns/025 Introduction to Sliding Windows.html",
-  "/courses/coding-patterns/sliding-windows/substring-anagrams": "Coding Interview Patterns/026 Substring Anagrams.html",
-  "/courses/coding-patterns/sliding-windows/longest-substring-with-unique-characters": "Coding Interview Patterns/027 Longest Substring With Unique Characters.html",
-  "/courses/coding-patterns/sliding-windows/longest-uniform-substring-after-replacements": "Coding Interview Patterns/028 Longest Uniform Substring After Replacements.html",
-  "/courses/coding-patterns/binary-search/introduction-to-binary-search": "Coding Interview Patterns/029 Introduction to Binary Search.html",
-  "/courses/coding-patterns/binary-search/find-the-insertion-index": "Coding Interview Patterns/030 Find the Insertion Index.html",
-  "/courses/coding-patterns/binary-search/first-and-last-occurrences-of-a-number": "Coding Interview Patterns/031 First and Last Occurrences of a Number.html",
-  "/courses/coding-patterns/binary-search/cutting-wood": "Coding Interview Patterns/032 Cutting Wood.html",
-  "/courses/coding-patterns/binary-search/find-the-target-in-a-rotated-sorted-array": "Coding Interview Patterns/033 Find the Target in a Rotated Sorted Array.html",
-  "/courses/coding-patterns/binary-search/find-the-median-from-two-sorted-arrays": "Coding Interview Patterns/034 Find the Median From Two Sorted Arrays.html",
-  "/courses/coding-patterns/binary-search/matrix-search": "Coding Interview Patterns/035 Matrix Search.html",
-  "/courses/coding-patterns/binary-search/local-maxima-in-array": "Coding Interview Patterns/036 Local Maxima in Array.html",
-  "/courses/coding-patterns/binary-search/weighted-random-selection": "Coding Interview Patterns/037 Weighted Random Selection.html",
-  "/courses/coding-patterns/stacks/introduction-to-stacks": "Coding Interview Patterns/038 Introduction to Stacks.html",
-  "/courses/coding-patterns/stacks/valid-parenthesis-expression": "Coding Interview Patterns/039 Valid Parenthesis Expression.html",
-  "/courses/coding-patterns/stacks/next-largest-number-to-the-right": "Coding Interview Patterns/040 Next Largest Number to the Right.html",
-  "/courses/coding-patterns/stacks/evaluate-expression": "Coding Interview Patterns/041 Evaluate Expression.html",
-  "/courses/coding-patterns/stacks/repeated-removal-of-adjacent-duplicates": "Coding Interview Patterns/042 Repeated Removal of Adjacent Duplicates.html",
-  "/courses/coding-patterns/stacks/implement-a-queue-using-stacks": "Coding Interview Patterns/043 Implement a Queue using Stacks.html",
-  "/courses/coding-patterns/stacks/maximums-of-sliding-window": "Coding Interview Patterns/044 Maximums of Sliding Window.html",
-  "/courses/coding-patterns/heaps/introduction-to-heaps": "Coding Interview Patterns/045 Introduction to Heaps.html",
-  "/courses/coding-patterns/heaps/k-most-frequent-strings": "Coding Interview Patterns/046 K Most Frequent Strings.html",
-  "/courses/coding-patterns/heaps/combine-sorted-linked-lists": "Coding Interview Patterns/047 Combine Sorted Linked Lists.html",
-  "/courses/coding-patterns/heaps/median-of-an-integer-stream": "Coding Interview Patterns/048 Median of an Integer Stream.html",
-  "/courses/coding-patterns/heaps/sort-a-k-sorted-array": "Coding Interview Patterns/049 Sort a K-Sorted Array.html",
-  "/courses/coding-patterns/intervals/introduction-to-intervals": "Coding Interview Patterns/050 Introduction to Intervals.html",
-  "/courses/coding-patterns/intervals/merge-overlapping-intervals": "Coding Interview Patterns/051 Merge Overlapping Intervals.html",
-  "/courses/coding-patterns/intervals/identify-all-interval-overlaps": "Coding Interview Patterns/052 Identify All Interval Overlaps.html",
-  "/courses/coding-patterns/intervals/largest-overlap-of-intervals": "Coding Interview Patterns/053 Largest Overlap of Intervals.html",
-  "/courses/coding-patterns/prefix-sums/introduction-to-prefix-sums": "Coding Interview Patterns/054 Introduction to Prefix Sums.html",
-  "/courses/coding-patterns/prefix-sums/sum-between-range": "Coding Interview Patterns/055 Sum Between Range.html",
-  "/courses/coding-patterns/prefix-sums/k-sum-subarrays": "Coding Interview Patterns/056 K-Sum Subarrays.html",
-  "/courses/coding-patterns/prefix-sums/product-array-without-current-element": "Coding Interview Patterns/057 Product Array Without Current Element.html",
-  "/courses/coding-patterns/trees/introduction-to-trees": "Coding Interview Patterns/058 Introduction to Trees.html",
-  "/courses/coding-patterns/trees/invert-binary-tree": "Coding Interview Patterns/059 Invert Binary Tree.html",
-  "/courses/coding-patterns/trees/balanced-binary-tree-validation": "Coding Interview Patterns/060 Balanced Binary Tree Validation.html",
-  "/courses/coding-patterns/trees/rightmost-nodes-of-a-binary-tree": "Coding Interview Patterns/061 Rightmost Nodes of a Binary Tree.html",
-  "/courses/coding-patterns/trees/widest-binary-tree-level": "Coding Interview Patterns/062 Widest Binary Tree Level.html",
-  "/courses/coding-patterns/trees/binary-search-tree-validation": "Coding Interview Patterns/063 Binary Search Tree Validation.html",
-  "/courses/coding-patterns/trees/lowest-common-ancestor": "Coding Interview Patterns/064 Lowest Common Ancestor.html",
-  "/courses/coding-patterns/trees/build-binary-tree-from-preorder-and-inorder-traversals": "Coding Interview Patterns/065 Build Binary Tree From Preorder and Inorder Traversals.html",
-  "/courses/coding-patterns/trees/maximum-sum-of-a-continuous-path-in-a-binary-tree": "Coding Interview Patterns/066 Maximum Sum of a Continuous Path in a Binary Tree.html",
-  "/courses/coding-patterns/trees/binary-tree-symmetry": "Coding Interview Patterns/067 Binary Tree Symmetry.html",
-  "/courses/coding-patterns/trees/binary-tree-columns": "Coding Interview Patterns/068 Binary Tree Columns.html",
-  "/courses/coding-patterns/trees/kth-smallest-number-in-a-binary-search-tree": "Coding Interview Patterns/069 Kth Smallest Number in a Binary Search Tree.html",
-  "/courses/coding-patterns/trees/serialize-and-deserialize-a-binary-tree": "Coding Interview Patterns/070 Serialize and Deserialize a Binary Tree.html",
-  "/courses/coding-patterns/tries/introduction-to-tries": "Coding Interview Patterns/071 Introduction to Tries.html",
-  "/courses/coding-patterns/tries/design-a-trie": "Coding Interview Patterns/072 Design a Trie.html",
-  "/courses/coding-patterns/tries/insert-and-search-words-with-wildcards": "Coding Interview Patterns/073 Insert and Search Words with Wildcards.html",
-  "/courses/coding-patterns/tries/find-all-words-on-a-board": "Coding Interview Patterns/074 Find All Words on a Board.html",
-  "/courses/coding-patterns/graphs/introduction-to-graphs": "Coding Interview Patterns/075 Introduction to Graphs.html",
-  "/courses/coding-patterns/graphs/graph-deep-copy": "Coding Interview Patterns/076 Graph Deep Copy.html",
-  "/courses/coding-patterns/graphs/count-islands": "Coding Interview Patterns/077 Count Islands.html",
-  "/courses/coding-patterns/graphs/matrix-infection": "Coding Interview Patterns/078 Matrix Infection.html",
-  "/courses/coding-patterns/graphs/bipartite-graph-validation": "Coding Interview Patterns/079 Bipartite Graph Validation.html",
-  "/courses/coding-patterns/graphs/longest-increasing-path": "Coding Interview Patterns/080 Longest Increasing Path.html",
-  "/courses/coding-patterns/graphs/shortest-transformation-sequence": "Coding Interview Patterns/081 Shortest Transformation Sequence.html",
-  "/courses/coding-patterns/graphs/merging-communities": "Coding Interview Patterns/082 Merging Communities.html",
-  "/courses/coding-patterns/graphs/prerequisites": "Coding Interview Patterns/083 Prerequisites.html",
-  "/courses/coding-patterns/graphs/shortest-path": "Coding Interview Patterns/084 Shortest Path.html",
-  "/courses/coding-patterns/graphs/connect-the-dots": "Coding Interview Patterns/085 Connect the Dots.html",
-  "/courses/coding-patterns/backtracking/introduction-to-backtracking": "Coding Interview Patterns/086 Introduction to Backtracking.html",
-  "/courses/coding-patterns/backtracking/find-all-permutations": "Coding Interview Patterns/087 Find All Permutations.html",
-  "/courses/coding-patterns/backtracking/find-all-subsets": "Coding Interview Patterns/088 Find All Subsets.html",
-  "/courses/coding-patterns/backtracking/n-queens": "Coding Interview Patterns/089 N Queens.html",
-  "/courses/coding-patterns/backtracking/combinations-of-a-sum": "Coding Interview Patterns/090 Combinations of a Sum.html",
-  "/courses/coding-patterns/backtracking/phone-keypad-combinations": "Coding Interview Patterns/091 Phone Keypad Combinations.html",
-  "/courses/coding-patterns/dynamic-programming/introduction-to-dynamic-programming": "Coding Interview Patterns/092 Introduction to Dynamic Programming.html",
-  "/courses/coding-patterns/dynamic-programming/climbing-stairs": "Coding Interview Patterns/093 Climbing Stairs.html",
-  "/courses/coding-patterns/dynamic-programming/minimum-coin-combination": "Coding Interview Patterns/094 Minimum Coin Combination.html",
-  "/courses/coding-patterns/dynamic-programming/matrix-pathways": "Coding Interview Patterns/095 Matrix Pathways.html",
-  "/courses/coding-patterns/dynamic-programming/neighborhood-burglary": "Coding Interview Patterns/096 Neighborhood Burglary.html",
-  "/courses/coding-patterns/dynamic-programming/longest-common-subsequence": "Coding Interview Patterns/097 Longest Common Subsequence.html",
-  "/courses/coding-patterns/dynamic-programming/longest-palindrome-in-a-string": "Coding Interview Patterns/098 Longest Palindrome in a String.html",
-  "/courses/coding-patterns/dynamic-programming/maximum-subarray-sum": "Coding Interview Patterns/099 Maximum Subarray Sum.html",
-  "/courses/coding-patterns/dynamic-programming/01-knapsack": "Coding Interview Patterns/100 01 Knapsack.html",
-  "/courses/coding-patterns/dynamic-programming/largest-square-in-a-matrix": "Coding Interview Patterns/101 Largest Square in a Matrix.html",
-  "/courses/coding-patterns/greedy/introduction-to-greedy-algorithms": "Coding Interview Patterns/102 Introduction to Greedy Algorithms.html",
-  "/courses/coding-patterns/greedy/jump-to-the-end": "Coding Interview Patterns/103 Jump to the End.html",
-  "/courses/coding-patterns/greedy/gas-stations": "Coding Interview Patterns/104 Gas Stations.html",
-  "/courses/coding-patterns/greedy/candies": "Coding Interview Patterns/105 Candies.html",
-  "/courses/coding-patterns/sort-and-search/introduction-to-sort-and-search": "Coding Interview Patterns/106 Introduction to Sort and Search.html",
-  "/courses/coding-patterns/sort-and-search/sort-linked-list": "Coding Interview Patterns/107 Sort Linked List.html",
-  "/courses/coding-patterns/sort-and-search/sort-array": "Coding Interview Patterns/108 Sort Array.html",
-  "/courses/coding-patterns/sort-and-search/kth-largest-integer": "Coding Interview Patterns/109 Kth Largest Integer.html",
-  "/courses/coding-patterns/sort-and-search/dutch-national-flag": "Coding Interview Patterns/110 Dutch National Flag.html",
-  "/courses/coding-patterns/bit-manipulation/introduction-to-bit-manipulation": "Coding Interview Patterns/111 Introduction to Bit Manipulation.html",
-  "/courses/coding-patterns/bit-manipulation/hamming-weights-of-integers": "Coding Interview Patterns/112 Hamming Weights of Integers.html",
-  "/courses/coding-patterns/bit-manipulation/lonely-integer": "Coding Interview Patterns/113 Lonely Integer.html",
-  "/courses/coding-patterns/bit-manipulation/swap-odd-and-even-bits": "Coding Interview Patterns/114 Swap Odd and Even Bits.html",
-  "/courses/coding-patterns/math-and-geometry/introduction-to-math-and-geometry": "Coding Interview Patterns/115 Introduction to Math and Geometry.html",
-  "/courses/coding-patterns/math-and-geometry/spiral-traversal": "Coding Interview Patterns/116 Spiral Traversal.html",
-  "/courses/coding-patterns/math-and-geometry/reverse-32-bit-integer": "Coding Interview Patterns/117 Reverse 32-Bit Integer.html",
-  "/courses/coding-patterns/math-and-geometry/maximum-collinear-points": "Coding Interview Patterns/118 Maximum Collinear Points.html",
-  "/courses/coding-patterns/math-and-geometry/the-josephus-problem": "Coding Interview Patterns/119 The Josephus Problem.html",
-  "/courses/coding-patterns/math-and-geometry/triangle-numbers": "Coding Interview Patterns/120 Triangle Numbers.html",
-  "/courses/genai-system-design-interview/introduction-and-overview": "Generative AI System Design Interview/001 Introduction and Overview.html",
-  "/courses/genai-system-design-interview/gmail-smart-compose": "Generative AI System Design Interview/002 Gmail Smart Compose.html",
-  "/courses/genai-system-design-interview/google-translate": "Generative AI System Design Interview/003 Google Translate.html",
-  "/courses/genai-system-design-interview/chatgpt-personal-assistant-chatbot": "Generative AI System Design Interview/004 ChatGPT Personal Assistant Chatbot.html",
-  "/courses/genai-system-design-interview/image-captioning": "Generative AI System Design Interview/005 Image Captioning.html",
-  "/courses/genai-system-design-interview/retrieval-augmented-generation": "Generative AI System Design Interview/006 Retrieval-Augmented Generation.html",
-  "/courses/genai-system-design-interview/realistic-face-generation": "Generative AI System Design Interview/007 Realistic Face Generation.html",
-  "/courses/genai-system-design-interview/high-resolution-image-synthesis": "Generative AI System Design Interview/008 High-Resolution Image Synthesis.html",
-  "/courses/genai-system-design-interview/text-to-image-generation": "Generative AI System Design Interview/009 Text-to-Image Generation.html",
-  "/courses/genai-system-design-interview/personalized-headshot-generation": "Generative AI System Design Interview/010 Personalized Headshot Generation.html",
-  "/courses/genai-system-design-interview/text-to-video-generation": "Generative AI System Design Interview/011 Text-to-Video Generation.html",
-  "/courses/machine-learning-system-design-interview/introduction-and-overview": "Machine Learning System Design Interview/01. Introduction and Overview.html",
-  "/courses/machine-learning-system-design-interview/visual-search-system": "Machine Learning System Design Interview/02. Visual Search System.html",
-  "/courses/machine-learning-system-design-interview/google-street-view-blurring-system": "Machine Learning System Design Interview/03. Google Street View Blurring System.html",
-  "/courses/machine-learning-system-design-interview/youtube-video-search": "Machine Learning System Design Interview/04. YouTube Video Search.html",
-  "/courses/machine-learning-system-design-interview/harmful-content-detection": "Machine Learning System Design Interview/05.Harmful Content Detection.html",
-  "/courses/machine-learning-system-design-interview/video-recommendation-system": "Machine Learning System Design Interview/06. Video Recommendation System.html",
-  "/courses/machine-learning-system-design-interview/event-recommendation-system": "Machine Learning System Design Interview/07. Event Recommendation System.html",
-  "/courses/machine-learning-system-design-interview/ad-click-prediction-on-social-platforms": "Machine Learning System Design Interview/08. Ad Click Prediction on Social Platforms.html",
-  "/courses/machine-learning-system-design-interview/similar-listings-on-vacation-rental-platforms": "Machine Learning System Design Interview/09. Similar Listings on Vacation Rental Platforms.html",
-  "/courses/machine-learning-system-design-interview/personalized-news-feed": "Machine Learning System Design Interview/10. Personalized News Feed.html",
-  "/courses/machine-learning-system-design-interview/people-you-may-know": "Machine Learning System Design Interview/11. People You May Know.html",
-  "/courses/mobile-system-design-interview/introduction": "Mobile System Design Interview/001 Introduction.html",
-  "/courses/mobile-system-design-interview/a-framework-for-mobile-sd-interviews": "Mobile System Design Interview/002 A framework for Mobile SD interviews.html",
-  "/courses/mobile-system-design-interview/news-feed-app": "Mobile System Design Interview/003 News feed app.html",
-  "/courses/mobile-system-design-interview/chat-app": "Mobile System Design Interview/004 Chat app.html",
-  "/courses/mobile-system-design-interview/stock-trading-app": "Mobile System Design Interview/005 Stock trading app.html",
-  "/courses/mobile-system-design-interview/pagination-library": "Mobile System Design Interview/006 Pagination library.html",
-  "/courses/mobile-system-design-interview/hotel-reservation-app": "Mobile System Design Interview/007 Hotel reservation app.html",
-  "/courses/mobile-system-design-interview/google-drive-app": "Mobile System Design Interview/008 Google Drive app.html",
-  "/courses/mobile-system-design-interview/youtube-app": "Mobile System Design Interview/009 YouTube app.html",
-  "/courses/mobile-system-design-interview/mobile-system-design-building-blocks": "Mobile System Design Interview/010 Mobile System Design Building Blocks.html",
-  "/courses/mobile-system-design-interview/quick-reference-cheat-sheet-for-msd-interview": "Mobile System Design Interview/011 Quick Reference Cheat Sheet for MSD Interview.html",
-  "/courses/object-oriented-design-interview/what-is-an-object-oriented-design-interview": "Object-Oriented Design Interview/001 What is an Object-Oriented Design Interview.html",
-  "/courses/object-oriented-design-interview/a-framework-for-the-ood-interview": "Object-Oriented Design Interview/002 A Framework for the OOD Interview.html",
-  "/courses/object-oriented-design-interview/oop-fundamentals": "Object-Oriented Design Interview/003 OOP Fundamentals.html",
-  "/courses/object-oriented-design-interview/design-a-parking-lot": "Object-Oriented Design Interview/004 Design a Parking Lot.html",
-  "/courses/object-oriented-design-interview/movie-ticket-booking-system": "Object-Oriented Design Interview/005 Design a Movie Ticket Booking System.html",
-  "/courses/object-oriented-design-interview/design-a-unix-file-search": "Object-Oriented Design Interview/006 Design a Unix File Search System.html",
-  "/courses/object-oriented-design-interview/design-a-vending-machine": "Object-Oriented Design Interview/007 Design a Vending Machine.html",
-  "/courses/object-oriented-design-interview/design-an-elevator-system": "Object-Oriented Design Interview/008 Design an Elevator System.html",
-  "/courses/object-oriented-design-interview/grocery-store-system": "Object-Oriented Design Interview/009 Design a Grocery Store System.html",
-  "/courses/object-oriented-design-interview/design-a-tic-tac-toe-game": "Object-Oriented Design Interview/010 Design a Tic Tac Toe Game.html",
-  "/courses/object-oriented-design-interview/design-a-blackjack-game": "Object-Oriented Design Interview/011 Design a Blackjack Game.html",
-  "/courses/object-oriented-design-interview/design-a-shipping-locker": "Object-Oriented Design Interview/012 Design a Shipping Locker System.html",
-  "/courses/object-oriented-design-interview/design-an-automated-teller-machine-atm": "Object-Oriented Design Interview/013 Design an ATM System.html",
-  "/courses/object-oriented-design-interview/design-a-restaurant-management-system": "Object-Oriented Design Interview/014 Design a Restaurant Management System.html",
-  "/courses/system-design-interview/foreword": "System Design Interview/0. Foreword.html",
-  "/courses/system-design-interview/join-discord-community": "System Design Interview/1. Join the Community.html",
-  "/courses/system-design-interview/design-a-web-crawler": "System Design Interview/10. Design A Web Crawler.html",
-  "/courses/system-design-interview/design-a-notification-system": "System Design Interview/11. Design A Notification System.html",
-  "/courses/system-design-interview/design-a-news-feed-system": "System Design Interview/12. Design A News Feed System.html",
-  "/courses/system-design-interview/design-a-chat-system": "System Design Interview/13. Design A Chat System.html",
-  "/courses/system-design-interview/design-a-search-autocomplete-system": "System Design Interview/14. Design A Search Autocomplete System.html",
-  "/courses/system-design-interview/design-youtube": "System Design Interview/15. Design YouTube.html",
-  "/courses/system-design-interview/design-google-drive": "System Design Interview/16. Design Google Drive.html",
-  "/courses/system-design-interview/proximity-service": "System Design Interview/17. Proximity Service.html",
-  "/courses/system-design-interview/nearby-friends": "System Design Interview/18. Nearby Friends.html",
-  "/courses/system-design-interview/google-maps": "System Design Interview/19. Google Maps.html",
-  "/courses/system-design-interview/scale-from-zero-to-millions-of-users": "System Design Interview/2. Scale From Zero To Millions Of Users.html",
-  "/courses/system-design-interview/distributed-message-queue": "System Design Interview/20. Distributed Message Queue.html",
-  "/courses/system-design-interview/metrics-monitoring-and-alerting-system": "System Design Interview/21. Metrics Monitoring and Alerting System.html",
-  "/courses/system-design-interview/ad-click-event-aggregation": "System Design Interview/22. Ad Click Event Aggregation.html",
-  "/courses/system-design-interview/hotel-reservation-system": "System Design Interview/23. Hotel Reservation System.html",
-  "/courses/system-design-interview/distributed-email-service": "System Design Interview/24. Distributed Email Service.html",
-  "/courses/system-design-interview/s3-like-object-storage": "System Design Interview/25. S3-like Object Storage.html",
-  "/courses/system-design-interview/real-time-gaming-leaderboard": "System Design Interview/26. Real-time Gaming Leaderboard.html",
-  "/courses/system-design-interview/payment-system": "System Design Interview/27. Payment System.html",
-  "/courses/system-design-interview/digital-wallet": "System Design Interview/28. Digital Wallet.html",
-  "/courses/system-design-interview/stock-exchange": "System Design Interview/29. Stock Exchange.html",
-  "/courses/system-design-interview/back-of-the-envelope-estimation": "System Design Interview/3. Back-of-the-envelope Estimation.html",
-  "/courses/system-design-interview/the-learning-continues": "System Design Interview/30. The Learning Continues.html",
-  "/courses/system-design-interview/a-framework-for-system-design-interviews": "System Design Interview/4. A Framework For System Design Interviews.html",
-  "/courses/system-design-interview/design-a-rate-limiter": "System Design Interview/5. Design A Rate Limiter.html",
-  "/courses/system-design-interview/design-consistent-hashing": "System Design Interview/6. Design Consistent Hashing.html",
-  "/courses/system-design-interview/design-a-key-value-store": "System Design Interview/7. Design A Key-value Store.html",
-  "/courses/system-design-interview/design-a-unique-id-generator-in-distributed-systems": "System Design Interview/8. Design A Unique ID Generator In Distributed Systems.html",
-  "/courses/system-design-interview/design-a-url-shortener": "System Design Interview/9. Design A URL Shortener.html"
+// Auto-generated by build_unified_nav_data.py
+const NAV_LESSONS = [
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 1,
+    "title": "Introduction",
+    "filename": "01 Introduction.html",
+    "path": "Behavioral Interview/01 Introduction.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 2,
+    "title": "The Behavioral Interview Roadmap",
+    "filename": "02 The Behavioral Interview Roadmap.html",
+    "path": "Behavioral Interview/02 The Behavioral Interview Roadmap.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 3,
+    "title": "What Companies Are Looking For",
+    "filename": "03 What Companies Are Looking For.html",
+    "path": "Behavioral Interview/03 What Companies Are Looking For.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 4,
+    "title": "High-Signal Storytelling",
+    "filename": "04 High-Signal Storytelling.html",
+    "path": "Behavioral Interview/04 High-Signal Storytelling.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 5,
+    "title": "The Essential Questions",
+    "filename": "05 The Essential Questions.html",
+    "path": "Behavioral Interview/05 The Essential Questions.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 6,
+    "title": "Taking Initiative",
+    "filename": "06 Taking Initiative.html",
+    "path": "Behavioral Interview/06 Taking Initiative.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 7,
+    "title": "Delivery",
+    "filename": "07 Delivery.html",
+    "path": "Behavioral Interview/07 Delivery.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 8,
+    "title": "Problem Solving and Deep Dive",
+    "filename": "08 Problem Solving and Deep Dive.html",
+    "path": "Behavioral Interview/08 Problem Solving and Deep Dive.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 9,
+    "title": "Earning Trust and Dealing with Conflict",
+    "filename": "09 Earning Trust and Dealing with Conflict.html",
+    "path": "Behavioral Interview/09 Earning Trust and Dealing with Conflict.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 10,
+    "title": "Learning and Growth",
+    "filename": "10 Learning and Growth.html",
+    "path": "Behavioral Interview/10 Learning and Growth.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 11,
+    "title": "Customer and User Focus",
+    "filename": "11 Customer and User Focus.html",
+    "path": "Behavioral Interview/11 Customer and User Focus.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 12,
+    "title": "Innovation",
+    "filename": "12 Innovation.html",
+    "path": "Behavioral Interview/12 Innovation.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 13,
+    "title": "Developing Others",
+    "filename": "13 Developing Others.html",
+    "path": "Behavioral Interview/13 Developing Others.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 14,
+    "title": "Strategic Leadership and Thinking Big",
+    "filename": "14 Strategic Leadership and Thinking Big.html",
+    "path": "Behavioral Interview/14 Strategic Leadership and Thinking Big.html"
+  },
+  {
+    "category": "Behavioral Interview",
+    "subgroup": "General",
+    "num": 15,
+    "title": "Nailing the Interview",
+    "filename": "15 Nailing the Interview.html",
+    "path": "Behavioral Interview/15 Nailing the Interview.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Two Pointers",
+    "num": 1,
+    "title": "Introduction to Two Pointers",
+    "filename": "001 Introduction to Two Pointers.html",
+    "path": "Coding Interview Patterns/001 Introduction to Two Pointers.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Two Pointers",
+    "num": 2,
+    "title": "Pair Sum - Sorted",
+    "filename": "002 Pair Sum - Sorted.html",
+    "path": "Coding Interview Patterns/002 Pair Sum - Sorted.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Two Pointers",
+    "num": 3,
+    "title": "Triplet Sum",
+    "filename": "003 Triplet Sum.html",
+    "path": "Coding Interview Patterns/003 Triplet Sum.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Two Pointers",
+    "num": 4,
+    "title": "Is Palindrome Valid",
+    "filename": "004 Is Palindrome Valid.html",
+    "path": "Coding Interview Patterns/004 Is Palindrome Valid.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Two Pointers",
+    "num": 5,
+    "title": "Largest Container",
+    "filename": "005 Largest Container.html",
+    "path": "Coding Interview Patterns/005 Largest Container.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Two Pointers",
+    "num": 6,
+    "title": "Shift Zeros to the End",
+    "filename": "006 Shift Zeros to the End.html",
+    "path": "Coding Interview Patterns/006 Shift Zeros to the End.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Two Pointers",
+    "num": 7,
+    "title": "Next Lexicographical Sequence",
+    "filename": "007 Next Lexicographical Sequence.html",
+    "path": "Coding Interview Patterns/007 Next Lexicographical Sequence.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Hash Maps and Sets",
+    "num": 8,
+    "title": "Introduction to Hash Maps and Sets",
+    "filename": "008 Introduction to Hash Maps and Sets.html",
+    "path": "Coding Interview Patterns/008 Introduction to Hash Maps and Sets.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Hash Maps and Sets",
+    "num": 9,
+    "title": "Pair Sum - Unsorted",
+    "filename": "009 Pair Sum - Unsorted.html",
+    "path": "Coding Interview Patterns/009 Pair Sum - Unsorted.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Hash Maps and Sets",
+    "num": 10,
+    "title": "Verify Sudoku Board",
+    "filename": "010 Verify Sudoku Board.html",
+    "path": "Coding Interview Patterns/010 Verify Sudoku Board.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Hash Maps and Sets",
+    "num": 11,
+    "title": "Zero Striping",
+    "filename": "011 Zero Striping.html",
+    "path": "Coding Interview Patterns/011 Zero Striping.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Hash Maps and Sets",
+    "num": 12,
+    "title": "Longest Chain of Consecutive Numbers",
+    "filename": "012 Longest Chain of Consecutive Numbers.html",
+    "path": "Coding Interview Patterns/012 Longest Chain of Consecutive Numbers.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Hash Maps and Sets",
+    "num": 13,
+    "title": "Geometric Sequence Triplets",
+    "filename": "013 Geometric Sequence Triplets.html",
+    "path": "Coding Interview Patterns/013 Geometric Sequence Triplets.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Linked Lists",
+    "num": 14,
+    "title": "Introduction to Linked Lists",
+    "filename": "014 Introduction to Linked Lists.html",
+    "path": "Coding Interview Patterns/014 Introduction to Linked Lists.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Linked Lists",
+    "num": 15,
+    "title": "Linked List Reversal",
+    "filename": "015 Linked List Reversal.html",
+    "path": "Coding Interview Patterns/015 Linked List Reversal.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Linked Lists",
+    "num": 16,
+    "title": "Remove the Kth Last Node From a Linked List",
+    "filename": "016 Remove the Kth Last Node From a Linked List.html",
+    "path": "Coding Interview Patterns/016 Remove the Kth Last Node From a Linked List.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Linked Lists",
+    "num": 17,
+    "title": "Linked List Intersection",
+    "filename": "017 Linked List Intersection.html",
+    "path": "Coding Interview Patterns/017 Linked List Intersection.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Linked Lists",
+    "num": 18,
+    "title": "LRU Cache",
+    "filename": "018 LRU Cache.html",
+    "path": "Coding Interview Patterns/018 LRU Cache.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Linked Lists",
+    "num": 19,
+    "title": "Palindromic Linked List",
+    "filename": "019 Palindromic Linked List.html",
+    "path": "Coding Interview Patterns/019 Palindromic Linked List.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Linked Lists",
+    "num": 20,
+    "title": "Flatten a Multi-Level Linked List",
+    "filename": "020 Flatten a Multi-Level Linked List.html",
+    "path": "Coding Interview Patterns/020 Flatten a Multi-Level Linked List.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Fast and Slow Pointers",
+    "num": 21,
+    "title": "Introduction to Fast and Slow Pointers",
+    "filename": "021 Introduction to Fast and Slow Pointers.html",
+    "path": "Coding Interview Patterns/021 Introduction to Fast and Slow Pointers.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Fast and Slow Pointers",
+    "num": 22,
+    "title": "Linked List Loop",
+    "filename": "022 Linked List Loop.html",
+    "path": "Coding Interview Patterns/022 Linked List Loop.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Fast and Slow Pointers",
+    "num": 23,
+    "title": "Linked List Midpoint",
+    "filename": "023 Linked List Midpoint.html",
+    "path": "Coding Interview Patterns/023 Linked List Midpoint.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Fast and Slow Pointers",
+    "num": 24,
+    "title": "Happy Number",
+    "filename": "024 Happy Number.html",
+    "path": "Coding Interview Patterns/024 Happy Number.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Sliding Windows",
+    "num": 25,
+    "title": "Introduction to Sliding Windows",
+    "filename": "025 Introduction to Sliding Windows.html",
+    "path": "Coding Interview Patterns/025 Introduction to Sliding Windows.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Sliding Windows",
+    "num": 26,
+    "title": "Substring Anagrams",
+    "filename": "026 Substring Anagrams.html",
+    "path": "Coding Interview Patterns/026 Substring Anagrams.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Sliding Windows",
+    "num": 27,
+    "title": "Longest Substring With Unique Characters",
+    "filename": "027 Longest Substring With Unique Characters.html",
+    "path": "Coding Interview Patterns/027 Longest Substring With Unique Characters.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Sliding Windows",
+    "num": 28,
+    "title": "Longest Uniform Substring After Replacements",
+    "filename": "028 Longest Uniform Substring After Replacements.html",
+    "path": "Coding Interview Patterns/028 Longest Uniform Substring After Replacements.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Binary Search",
+    "num": 29,
+    "title": "Introduction to Binary Search",
+    "filename": "029 Introduction to Binary Search.html",
+    "path": "Coding Interview Patterns/029 Introduction to Binary Search.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Binary Search",
+    "num": 30,
+    "title": "Find the Insertion Index",
+    "filename": "030 Find the Insertion Index.html",
+    "path": "Coding Interview Patterns/030 Find the Insertion Index.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Binary Search",
+    "num": 31,
+    "title": "First and Last Occurrences of a Number",
+    "filename": "031 First and Last Occurrences of a Number.html",
+    "path": "Coding Interview Patterns/031 First and Last Occurrences of a Number.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Binary Search",
+    "num": 32,
+    "title": "Cutting Wood",
+    "filename": "032 Cutting Wood.html",
+    "path": "Coding Interview Patterns/032 Cutting Wood.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Binary Search",
+    "num": 33,
+    "title": "Find the Target in a Rotated Sorted Array",
+    "filename": "033 Find the Target in a Rotated Sorted Array.html",
+    "path": "Coding Interview Patterns/033 Find the Target in a Rotated Sorted Array.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Binary Search",
+    "num": 34,
+    "title": "Find the Median From Two Sorted Arrays",
+    "filename": "034 Find the Median From Two Sorted Arrays.html",
+    "path": "Coding Interview Patterns/034 Find the Median From Two Sorted Arrays.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Binary Search",
+    "num": 35,
+    "title": "Matrix Search",
+    "filename": "035 Matrix Search.html",
+    "path": "Coding Interview Patterns/035 Matrix Search.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Binary Search",
+    "num": 36,
+    "title": "Local Maxima in Array",
+    "filename": "036 Local Maxima in Array.html",
+    "path": "Coding Interview Patterns/036 Local Maxima in Array.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Binary Search",
+    "num": 37,
+    "title": "Weighted Random Selection",
+    "filename": "037 Weighted Random Selection.html",
+    "path": "Coding Interview Patterns/037 Weighted Random Selection.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Stacks",
+    "num": 38,
+    "title": "Introduction to Stacks",
+    "filename": "038 Introduction to Stacks.html",
+    "path": "Coding Interview Patterns/038 Introduction to Stacks.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Stacks",
+    "num": 39,
+    "title": "Valid Parenthesis Expression",
+    "filename": "039 Valid Parenthesis Expression.html",
+    "path": "Coding Interview Patterns/039 Valid Parenthesis Expression.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Stacks",
+    "num": 40,
+    "title": "Next Largest Number to the Right",
+    "filename": "040 Next Largest Number to the Right.html",
+    "path": "Coding Interview Patterns/040 Next Largest Number to the Right.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Stacks",
+    "num": 41,
+    "title": "Evaluate Expression",
+    "filename": "041 Evaluate Expression.html",
+    "path": "Coding Interview Patterns/041 Evaluate Expression.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Stacks",
+    "num": 42,
+    "title": "Repeated Removal of Adjacent Duplicates",
+    "filename": "042 Repeated Removal of Adjacent Duplicates.html",
+    "path": "Coding Interview Patterns/042 Repeated Removal of Adjacent Duplicates.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Stacks",
+    "num": 43,
+    "title": "Implement a Queue using Stacks",
+    "filename": "043 Implement a Queue using Stacks.html",
+    "path": "Coding Interview Patterns/043 Implement a Queue using Stacks.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Stacks",
+    "num": 44,
+    "title": "Maximums of Sliding Window",
+    "filename": "044 Maximums of Sliding Window.html",
+    "path": "Coding Interview Patterns/044 Maximums of Sliding Window.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Heaps",
+    "num": 45,
+    "title": "Introduction to Heaps",
+    "filename": "045 Introduction to Heaps.html",
+    "path": "Coding Interview Patterns/045 Introduction to Heaps.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Heaps",
+    "num": 46,
+    "title": "K Most Frequent Strings",
+    "filename": "046 K Most Frequent Strings.html",
+    "path": "Coding Interview Patterns/046 K Most Frequent Strings.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Heaps",
+    "num": 47,
+    "title": "Combine Sorted Linked Lists",
+    "filename": "047 Combine Sorted Linked Lists.html",
+    "path": "Coding Interview Patterns/047 Combine Sorted Linked Lists.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Heaps",
+    "num": 48,
+    "title": "Median of an Integer Stream",
+    "filename": "048 Median of an Integer Stream.html",
+    "path": "Coding Interview Patterns/048 Median of an Integer Stream.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Heaps",
+    "num": 49,
+    "title": "Sort a K-Sorted Array",
+    "filename": "049 Sort a K-Sorted Array.html",
+    "path": "Coding Interview Patterns/049 Sort a K-Sorted Array.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Intervals",
+    "num": 50,
+    "title": "Introduction to Intervals",
+    "filename": "050 Introduction to Intervals.html",
+    "path": "Coding Interview Patterns/050 Introduction to Intervals.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Intervals",
+    "num": 51,
+    "title": "Merge Overlapping Intervals",
+    "filename": "051 Merge Overlapping Intervals.html",
+    "path": "Coding Interview Patterns/051 Merge Overlapping Intervals.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Intervals",
+    "num": 52,
+    "title": "Identify All Interval Overlaps",
+    "filename": "052 Identify All Interval Overlaps.html",
+    "path": "Coding Interview Patterns/052 Identify All Interval Overlaps.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Intervals",
+    "num": 53,
+    "title": "Largest Overlap of Intervals",
+    "filename": "053 Largest Overlap of Intervals.html",
+    "path": "Coding Interview Patterns/053 Largest Overlap of Intervals.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Prefix Sums",
+    "num": 54,
+    "title": "Introduction to Prefix Sums",
+    "filename": "054 Introduction to Prefix Sums.html",
+    "path": "Coding Interview Patterns/054 Introduction to Prefix Sums.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Prefix Sums",
+    "num": 55,
+    "title": "Sum Between Range",
+    "filename": "055 Sum Between Range.html",
+    "path": "Coding Interview Patterns/055 Sum Between Range.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Prefix Sums",
+    "num": 56,
+    "title": "K-Sum Subarrays",
+    "filename": "056 K-Sum Subarrays.html",
+    "path": "Coding Interview Patterns/056 K-Sum Subarrays.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Prefix Sums",
+    "num": 57,
+    "title": "Product Array Without Current Element",
+    "filename": "057 Product Array Without Current Element.html",
+    "path": "Coding Interview Patterns/057 Product Array Without Current Element.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Trees",
+    "num": 58,
+    "title": "Introduction to Trees",
+    "filename": "058 Introduction to Trees.html",
+    "path": "Coding Interview Patterns/058 Introduction to Trees.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Trees",
+    "num": 59,
+    "title": "Invert Binary Tree",
+    "filename": "059 Invert Binary Tree.html",
+    "path": "Coding Interview Patterns/059 Invert Binary Tree.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Trees",
+    "num": 60,
+    "title": "Balanced Binary Tree Validation",
+    "filename": "060 Balanced Binary Tree Validation.html",
+    "path": "Coding Interview Patterns/060 Balanced Binary Tree Validation.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Trees",
+    "num": 61,
+    "title": "Rightmost Nodes of a Binary Tree",
+    "filename": "061 Rightmost Nodes of a Binary Tree.html",
+    "path": "Coding Interview Patterns/061 Rightmost Nodes of a Binary Tree.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Trees",
+    "num": 62,
+    "title": "Widest Binary Tree Level",
+    "filename": "062 Widest Binary Tree Level.html",
+    "path": "Coding Interview Patterns/062 Widest Binary Tree Level.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Trees",
+    "num": 63,
+    "title": "Binary Search Tree Validation",
+    "filename": "063 Binary Search Tree Validation.html",
+    "path": "Coding Interview Patterns/063 Binary Search Tree Validation.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Trees",
+    "num": 64,
+    "title": "Lowest Common Ancestor",
+    "filename": "064 Lowest Common Ancestor.html",
+    "path": "Coding Interview Patterns/064 Lowest Common Ancestor.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Trees",
+    "num": 65,
+    "title": "Build Binary Tree From Preorder and Inorder Traversals",
+    "filename": "065 Build Binary Tree From Preorder and Inorder Traversals.html",
+    "path": "Coding Interview Patterns/065 Build Binary Tree From Preorder and Inorder Traversals.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Trees",
+    "num": 66,
+    "title": "Maximum Sum of a Continuous Path in a Binary Tree",
+    "filename": "066 Maximum Sum of a Continuous Path in a Binary Tree.html",
+    "path": "Coding Interview Patterns/066 Maximum Sum of a Continuous Path in a Binary Tree.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Trees",
+    "num": 67,
+    "title": "Binary Tree Symmetry",
+    "filename": "067 Binary Tree Symmetry.html",
+    "path": "Coding Interview Patterns/067 Binary Tree Symmetry.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Trees",
+    "num": 68,
+    "title": "Binary Tree Columns",
+    "filename": "068 Binary Tree Columns.html",
+    "path": "Coding Interview Patterns/068 Binary Tree Columns.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Trees",
+    "num": 69,
+    "title": "Kth Smallest Number in a Binary Search Tree",
+    "filename": "069 Kth Smallest Number in a Binary Search Tree.html",
+    "path": "Coding Interview Patterns/069 Kth Smallest Number in a Binary Search Tree.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Trees",
+    "num": 70,
+    "title": "Serialize and Deserialize a Binary Tree",
+    "filename": "070 Serialize and Deserialize a Binary Tree.html",
+    "path": "Coding Interview Patterns/070 Serialize and Deserialize a Binary Tree.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Tries",
+    "num": 71,
+    "title": "Introduction to Tries",
+    "filename": "071 Introduction to Tries.html",
+    "path": "Coding Interview Patterns/071 Introduction to Tries.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Tries",
+    "num": 72,
+    "title": "Design a Trie",
+    "filename": "072 Design a Trie.html",
+    "path": "Coding Interview Patterns/072 Design a Trie.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Tries",
+    "num": 73,
+    "title": "Insert and Search Words with Wildcards",
+    "filename": "073 Insert and Search Words with Wildcards.html",
+    "path": "Coding Interview Patterns/073 Insert and Search Words with Wildcards.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Tries",
+    "num": 74,
+    "title": "Find All Words on a Board",
+    "filename": "074 Find All Words on a Board.html",
+    "path": "Coding Interview Patterns/074 Find All Words on a Board.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Graphs",
+    "num": 75,
+    "title": "Introduction to Graphs",
+    "filename": "075 Introduction to Graphs.html",
+    "path": "Coding Interview Patterns/075 Introduction to Graphs.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Graphs",
+    "num": 76,
+    "title": "Graph Deep Copy",
+    "filename": "076 Graph Deep Copy.html",
+    "path": "Coding Interview Patterns/076 Graph Deep Copy.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Graphs",
+    "num": 77,
+    "title": "Count Islands",
+    "filename": "077 Count Islands.html",
+    "path": "Coding Interview Patterns/077 Count Islands.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Graphs",
+    "num": 78,
+    "title": "Matrix Infection",
+    "filename": "078 Matrix Infection.html",
+    "path": "Coding Interview Patterns/078 Matrix Infection.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Graphs",
+    "num": 79,
+    "title": "Bipartite Graph Validation",
+    "filename": "079 Bipartite Graph Validation.html",
+    "path": "Coding Interview Patterns/079 Bipartite Graph Validation.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Graphs",
+    "num": 80,
+    "title": "Longest Increasing Path",
+    "filename": "080 Longest Increasing Path.html",
+    "path": "Coding Interview Patterns/080 Longest Increasing Path.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Graphs",
+    "num": 81,
+    "title": "Shortest Transformation Sequence",
+    "filename": "081 Shortest Transformation Sequence.html",
+    "path": "Coding Interview Patterns/081 Shortest Transformation Sequence.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Graphs",
+    "num": 82,
+    "title": "Merging Communities",
+    "filename": "082 Merging Communities.html",
+    "path": "Coding Interview Patterns/082 Merging Communities.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Graphs",
+    "num": 83,
+    "title": "Prerequisites",
+    "filename": "083 Prerequisites.html",
+    "path": "Coding Interview Patterns/083 Prerequisites.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Graphs",
+    "num": 84,
+    "title": "Shortest Path",
+    "filename": "084 Shortest Path.html",
+    "path": "Coding Interview Patterns/084 Shortest Path.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Graphs",
+    "num": 85,
+    "title": "Connect the Dots",
+    "filename": "085 Connect the Dots.html",
+    "path": "Coding Interview Patterns/085 Connect the Dots.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Backtracking",
+    "num": 86,
+    "title": "Introduction to Backtracking",
+    "filename": "086 Introduction to Backtracking.html",
+    "path": "Coding Interview Patterns/086 Introduction to Backtracking.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Backtracking",
+    "num": 87,
+    "title": "Find All Permutations",
+    "filename": "087 Find All Permutations.html",
+    "path": "Coding Interview Patterns/087 Find All Permutations.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Backtracking",
+    "num": 88,
+    "title": "Find All Subsets",
+    "filename": "088 Find All Subsets.html",
+    "path": "Coding Interview Patterns/088 Find All Subsets.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Backtracking",
+    "num": 89,
+    "title": "N Queens",
+    "filename": "089 N Queens.html",
+    "path": "Coding Interview Patterns/089 N Queens.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Backtracking",
+    "num": 90,
+    "title": "Combinations of a Sum",
+    "filename": "090 Combinations of a Sum.html",
+    "path": "Coding Interview Patterns/090 Combinations of a Sum.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Backtracking",
+    "num": 91,
+    "title": "Phone Keypad Combinations",
+    "filename": "091 Phone Keypad Combinations.html",
+    "path": "Coding Interview Patterns/091 Phone Keypad Combinations.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Dynamic Programming",
+    "num": 92,
+    "title": "Introduction to Dynamic Programming",
+    "filename": "092 Introduction to Dynamic Programming.html",
+    "path": "Coding Interview Patterns/092 Introduction to Dynamic Programming.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Dynamic Programming",
+    "num": 93,
+    "title": "Climbing Stairs",
+    "filename": "093 Climbing Stairs.html",
+    "path": "Coding Interview Patterns/093 Climbing Stairs.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Dynamic Programming",
+    "num": 94,
+    "title": "Minimum Coin Combination",
+    "filename": "094 Minimum Coin Combination.html",
+    "path": "Coding Interview Patterns/094 Minimum Coin Combination.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Dynamic Programming",
+    "num": 95,
+    "title": "Matrix Pathways",
+    "filename": "095 Matrix Pathways.html",
+    "path": "Coding Interview Patterns/095 Matrix Pathways.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Dynamic Programming",
+    "num": 96,
+    "title": "Neighborhood Burglary",
+    "filename": "096 Neighborhood Burglary.html",
+    "path": "Coding Interview Patterns/096 Neighborhood Burglary.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Dynamic Programming",
+    "num": 97,
+    "title": "Longest Common Subsequence",
+    "filename": "097 Longest Common Subsequence.html",
+    "path": "Coding Interview Patterns/097 Longest Common Subsequence.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Dynamic Programming",
+    "num": 98,
+    "title": "Longest Palindrome in a String",
+    "filename": "098 Longest Palindrome in a String.html",
+    "path": "Coding Interview Patterns/098 Longest Palindrome in a String.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Dynamic Programming",
+    "num": 99,
+    "title": "Maximum Subarray Sum",
+    "filename": "099 Maximum Subarray Sum.html",
+    "path": "Coding Interview Patterns/099 Maximum Subarray Sum.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Dynamic Programming",
+    "num": 100,
+    "title": "01 Knapsack",
+    "filename": "100 01 Knapsack.html",
+    "path": "Coding Interview Patterns/100 01 Knapsack.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Dynamic Programming",
+    "num": 101,
+    "title": "Largest Square in a Matrix",
+    "filename": "101 Largest Square in a Matrix.html",
+    "path": "Coding Interview Patterns/101 Largest Square in a Matrix.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Greedy Algorithms",
+    "num": 102,
+    "title": "Introduction to Greedy Algorithms",
+    "filename": "102 Introduction to Greedy Algorithms.html",
+    "path": "Coding Interview Patterns/102 Introduction to Greedy Algorithms.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Greedy Algorithms",
+    "num": 103,
+    "title": "Jump to the End",
+    "filename": "103 Jump to the End.html",
+    "path": "Coding Interview Patterns/103 Jump to the End.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Greedy Algorithms",
+    "num": 104,
+    "title": "Gas Stations",
+    "filename": "104 Gas Stations.html",
+    "path": "Coding Interview Patterns/104 Gas Stations.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Greedy Algorithms",
+    "num": 105,
+    "title": "Candies",
+    "filename": "105 Candies.html",
+    "path": "Coding Interview Patterns/105 Candies.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Sort and Search",
+    "num": 106,
+    "title": "Introduction to Sort and Search",
+    "filename": "106 Introduction to Sort and Search.html",
+    "path": "Coding Interview Patterns/106 Introduction to Sort and Search.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Sort and Search",
+    "num": 107,
+    "title": "Sort Linked List",
+    "filename": "107 Sort Linked List.html",
+    "path": "Coding Interview Patterns/107 Sort Linked List.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Sort and Search",
+    "num": 108,
+    "title": "Sort Array",
+    "filename": "108 Sort Array.html",
+    "path": "Coding Interview Patterns/108 Sort Array.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Sort and Search",
+    "num": 109,
+    "title": "Kth Largest Integer",
+    "filename": "109 Kth Largest Integer.html",
+    "path": "Coding Interview Patterns/109 Kth Largest Integer.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Sort and Search",
+    "num": 110,
+    "title": "Dutch National Flag",
+    "filename": "110 Dutch National Flag.html",
+    "path": "Coding Interview Patterns/110 Dutch National Flag.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Bit Manipulation",
+    "num": 111,
+    "title": "Introduction to Bit Manipulation",
+    "filename": "111 Introduction to Bit Manipulation.html",
+    "path": "Coding Interview Patterns/111 Introduction to Bit Manipulation.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Bit Manipulation",
+    "num": 112,
+    "title": "Hamming Weights of Integers",
+    "filename": "112 Hamming Weights of Integers.html",
+    "path": "Coding Interview Patterns/112 Hamming Weights of Integers.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Bit Manipulation",
+    "num": 113,
+    "title": "Lonely Integer",
+    "filename": "113 Lonely Integer.html",
+    "path": "Coding Interview Patterns/113 Lonely Integer.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Bit Manipulation",
+    "num": 114,
+    "title": "Swap Odd and Even Bits",
+    "filename": "114 Swap Odd and Even Bits.html",
+    "path": "Coding Interview Patterns/114 Swap Odd and Even Bits.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Math and Geometry",
+    "num": 115,
+    "title": "Introduction to Math and Geometry",
+    "filename": "115 Introduction to Math and Geometry.html",
+    "path": "Coding Interview Patterns/115 Introduction to Math and Geometry.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Math and Geometry",
+    "num": 116,
+    "title": "Spiral Traversal",
+    "filename": "116 Spiral Traversal.html",
+    "path": "Coding Interview Patterns/116 Spiral Traversal.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Math and Geometry",
+    "num": 117,
+    "title": "Reverse 32-Bit Integer",
+    "filename": "117 Reverse 32-Bit Integer.html",
+    "path": "Coding Interview Patterns/117 Reverse 32-Bit Integer.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Math and Geometry",
+    "num": 118,
+    "title": "Maximum Collinear Points",
+    "filename": "118 Maximum Collinear Points.html",
+    "path": "Coding Interview Patterns/118 Maximum Collinear Points.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Math and Geometry",
+    "num": 119,
+    "title": "The Josephus Problem",
+    "filename": "119 The Josephus Problem.html",
+    "path": "Coding Interview Patterns/119 The Josephus Problem.html"
+  },
+  {
+    "category": "Coding Interview Patterns",
+    "subgroup": "Math and Geometry",
+    "num": 120,
+    "title": "Triangle Numbers",
+    "filename": "120 Triangle Numbers.html",
+    "path": "Coding Interview Patterns/120 Triangle Numbers.html"
+  },
+  {
+    "category": "Generative AI System Design Interview",
+    "subgroup": "General",
+    "num": 1,
+    "title": "Introduction and Overview",
+    "filename": "001 Introduction and Overview.html",
+    "path": "Generative AI System Design Interview/001 Introduction and Overview.html"
+  },
+  {
+    "category": "Generative AI System Design Interview",
+    "subgroup": "General",
+    "num": 2,
+    "title": "Gmail Smart Compose",
+    "filename": "002 Gmail Smart Compose.html",
+    "path": "Generative AI System Design Interview/002 Gmail Smart Compose.html"
+  },
+  {
+    "category": "Generative AI System Design Interview",
+    "subgroup": "General",
+    "num": 3,
+    "title": "Google Translate",
+    "filename": "003 Google Translate.html",
+    "path": "Generative AI System Design Interview/003 Google Translate.html"
+  },
+  {
+    "category": "Generative AI System Design Interview",
+    "subgroup": "General",
+    "num": 4,
+    "title": "ChatGPT Personal Assistant Chatbot",
+    "filename": "004 ChatGPT Personal Assistant Chatbot.html",
+    "path": "Generative AI System Design Interview/004 ChatGPT Personal Assistant Chatbot.html"
+  },
+  {
+    "category": "Generative AI System Design Interview",
+    "subgroup": "General",
+    "num": 5,
+    "title": "Image Captioning",
+    "filename": "005 Image Captioning.html",
+    "path": "Generative AI System Design Interview/005 Image Captioning.html"
+  },
+  {
+    "category": "Generative AI System Design Interview",
+    "subgroup": "General",
+    "num": 6,
+    "title": "Retrieval-Augmented Generation",
+    "filename": "006 Retrieval-Augmented Generation.html",
+    "path": "Generative AI System Design Interview/006 Retrieval-Augmented Generation.html"
+  },
+  {
+    "category": "Generative AI System Design Interview",
+    "subgroup": "General",
+    "num": 7,
+    "title": "Realistic Face Generation",
+    "filename": "007 Realistic Face Generation.html",
+    "path": "Generative AI System Design Interview/007 Realistic Face Generation.html"
+  },
+  {
+    "category": "Generative AI System Design Interview",
+    "subgroup": "General",
+    "num": 8,
+    "title": "High-Resolution Image Synthesis",
+    "filename": "008 High-Resolution Image Synthesis.html",
+    "path": "Generative AI System Design Interview/008 High-Resolution Image Synthesis.html"
+  },
+  {
+    "category": "Generative AI System Design Interview",
+    "subgroup": "General",
+    "num": 9,
+    "title": "Text-to-Image Generation",
+    "filename": "009 Text-to-Image Generation.html",
+    "path": "Generative AI System Design Interview/009 Text-to-Image Generation.html"
+  },
+  {
+    "category": "Generative AI System Design Interview",
+    "subgroup": "General",
+    "num": 10,
+    "title": "Personalized Headshot Generation",
+    "filename": "010 Personalized Headshot Generation.html",
+    "path": "Generative AI System Design Interview/010 Personalized Headshot Generation.html"
+  },
+  {
+    "category": "Generative AI System Design Interview",
+    "subgroup": "General",
+    "num": 11,
+    "title": "Text-to-Video Generation",
+    "filename": "011 Text-to-Video Generation.html",
+    "path": "Generative AI System Design Interview/011 Text-to-Video Generation.html"
+  },
+  {
+    "category": "Machine Learning System Design Interview",
+    "subgroup": "General",
+    "num": 1,
+    "title": "Introduction and Overview",
+    "filename": "01. Introduction and Overview.html",
+    "path": "Machine Learning System Design Interview/01. Introduction and Overview.html"
+  },
+  {
+    "category": "Machine Learning System Design Interview",
+    "subgroup": "General",
+    "num": 2,
+    "title": "Visual Search System",
+    "filename": "02. Visual Search System.html",
+    "path": "Machine Learning System Design Interview/02. Visual Search System.html"
+  },
+  {
+    "category": "Machine Learning System Design Interview",
+    "subgroup": "General",
+    "num": 3,
+    "title": "Google Street View Blurring System",
+    "filename": "03. Google Street View Blurring System.html",
+    "path": "Machine Learning System Design Interview/03. Google Street View Blurring System.html"
+  },
+  {
+    "category": "Machine Learning System Design Interview",
+    "subgroup": "General",
+    "num": 4,
+    "title": "YouTube Video Search",
+    "filename": "04. YouTube Video Search.html",
+    "path": "Machine Learning System Design Interview/04. YouTube Video Search.html"
+  },
+  {
+    "category": "Machine Learning System Design Interview",
+    "subgroup": "General",
+    "num": 5,
+    "title": "Harmful Content Detection",
+    "filename": "05.Harmful Content Detection.html",
+    "path": "Machine Learning System Design Interview/05.Harmful Content Detection.html"
+  },
+  {
+    "category": "Machine Learning System Design Interview",
+    "subgroup": "General",
+    "num": 6,
+    "title": "Video Recommendation System",
+    "filename": "06. Video Recommendation System.html",
+    "path": "Machine Learning System Design Interview/06. Video Recommendation System.html"
+  },
+  {
+    "category": "Machine Learning System Design Interview",
+    "subgroup": "General",
+    "num": 7,
+    "title": "Event Recommendation System",
+    "filename": "07. Event Recommendation System.html",
+    "path": "Machine Learning System Design Interview/07. Event Recommendation System.html"
+  },
+  {
+    "category": "Machine Learning System Design Interview",
+    "subgroup": "General",
+    "num": 8,
+    "title": "Ad Click Prediction on Social Platforms",
+    "filename": "08. Ad Click Prediction on Social Platforms.html",
+    "path": "Machine Learning System Design Interview/08. Ad Click Prediction on Social Platforms.html"
+  },
+  {
+    "category": "Machine Learning System Design Interview",
+    "subgroup": "General",
+    "num": 9,
+    "title": "Similar Listings on Vacation Rental Platforms",
+    "filename": "09. Similar Listings on Vacation Rental Platforms.html",
+    "path": "Machine Learning System Design Interview/09. Similar Listings on Vacation Rental Platforms.html"
+  },
+  {
+    "category": "Machine Learning System Design Interview",
+    "subgroup": "General",
+    "num": 10,
+    "title": "Personalized News Feed",
+    "filename": "10. Personalized News Feed.html",
+    "path": "Machine Learning System Design Interview/10. Personalized News Feed.html"
+  },
+  {
+    "category": "Machine Learning System Design Interview",
+    "subgroup": "General",
+    "num": 11,
+    "title": "People You May Know",
+    "filename": "11. People You May Know.html",
+    "path": "Machine Learning System Design Interview/11. People You May Know.html"
+  },
+  {
+    "category": "Mobile System Design Interview",
+    "subgroup": "General",
+    "num": 1,
+    "title": "Introduction",
+    "filename": "001 Introduction.html",
+    "path": "Mobile System Design Interview/001 Introduction.html"
+  },
+  {
+    "category": "Mobile System Design Interview",
+    "subgroup": "General",
+    "num": 2,
+    "title": "A framework for Mobile SD interviews",
+    "filename": "002 A framework for Mobile SD interviews.html",
+    "path": "Mobile System Design Interview/002 A framework for Mobile SD interviews.html"
+  },
+  {
+    "category": "Mobile System Design Interview",
+    "subgroup": "General",
+    "num": 3,
+    "title": "News feed app",
+    "filename": "003 News feed app.html",
+    "path": "Mobile System Design Interview/003 News feed app.html"
+  },
+  {
+    "category": "Mobile System Design Interview",
+    "subgroup": "General",
+    "num": 4,
+    "title": "Chat app",
+    "filename": "004 Chat app.html",
+    "path": "Mobile System Design Interview/004 Chat app.html"
+  },
+  {
+    "category": "Mobile System Design Interview",
+    "subgroup": "General",
+    "num": 5,
+    "title": "Stock trading app",
+    "filename": "005 Stock trading app.html",
+    "path": "Mobile System Design Interview/005 Stock trading app.html"
+  },
+  {
+    "category": "Mobile System Design Interview",
+    "subgroup": "General",
+    "num": 6,
+    "title": "Pagination library",
+    "filename": "006 Pagination library.html",
+    "path": "Mobile System Design Interview/006 Pagination library.html"
+  },
+  {
+    "category": "Mobile System Design Interview",
+    "subgroup": "General",
+    "num": 7,
+    "title": "Hotel reservation app",
+    "filename": "007 Hotel reservation app.html",
+    "path": "Mobile System Design Interview/007 Hotel reservation app.html"
+  },
+  {
+    "category": "Mobile System Design Interview",
+    "subgroup": "General",
+    "num": 8,
+    "title": "Google Drive app",
+    "filename": "008 Google Drive app.html",
+    "path": "Mobile System Design Interview/008 Google Drive app.html"
+  },
+  {
+    "category": "Mobile System Design Interview",
+    "subgroup": "General",
+    "num": 9,
+    "title": "YouTube app",
+    "filename": "009 YouTube app.html",
+    "path": "Mobile System Design Interview/009 YouTube app.html"
+  },
+  {
+    "category": "Mobile System Design Interview",
+    "subgroup": "General",
+    "num": 10,
+    "title": "Mobile System Design Building Blocks",
+    "filename": "010 Mobile System Design Building Blocks.html",
+    "path": "Mobile System Design Interview/010 Mobile System Design Building Blocks.html"
+  },
+  {
+    "category": "Mobile System Design Interview",
+    "subgroup": "General",
+    "num": 11,
+    "title": "Quick Reference Cheat Sheet for MSD Interview",
+    "filename": "011 Quick Reference Cheat Sheet for MSD Interview.html",
+    "path": "Mobile System Design Interview/011 Quick Reference Cheat Sheet for MSD Interview.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 1,
+    "title": "What is an Object-Oriented Design Interview",
+    "filename": "001 What is an Object-Oriented Design Interview.html",
+    "path": "Object-Oriented Design Interview/001 What is an Object-Oriented Design Interview.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 2,
+    "title": "A Framework for the OOD Interview",
+    "filename": "002 A Framework for the OOD Interview.html",
+    "path": "Object-Oriented Design Interview/002 A Framework for the OOD Interview.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 3,
+    "title": "OOP Fundamentals",
+    "filename": "003 OOP Fundamentals.html",
+    "path": "Object-Oriented Design Interview/003 OOP Fundamentals.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 4,
+    "title": "Design a Parking Lot",
+    "filename": "004 Design a Parking Lot.html",
+    "path": "Object-Oriented Design Interview/004 Design a Parking Lot.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 5,
+    "title": "Design a Movie Ticket Booking System",
+    "filename": "005 Design a Movie Ticket Booking System.html",
+    "path": "Object-Oriented Design Interview/005 Design a Movie Ticket Booking System.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 6,
+    "title": "Design a Unix File Search System",
+    "filename": "006 Design a Unix File Search System.html",
+    "path": "Object-Oriented Design Interview/006 Design a Unix File Search System.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 7,
+    "title": "Design a Vending Machine",
+    "filename": "007 Design a Vending Machine.html",
+    "path": "Object-Oriented Design Interview/007 Design a Vending Machine.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 8,
+    "title": "Design an Elevator System",
+    "filename": "008 Design an Elevator System.html",
+    "path": "Object-Oriented Design Interview/008 Design an Elevator System.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 9,
+    "title": "Design a Grocery Store System",
+    "filename": "009 Design a Grocery Store System.html",
+    "path": "Object-Oriented Design Interview/009 Design a Grocery Store System.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 10,
+    "title": "Design a Tic Tac Toe Game",
+    "filename": "010 Design a Tic Tac Toe Game.html",
+    "path": "Object-Oriented Design Interview/010 Design a Tic Tac Toe Game.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 11,
+    "title": "Design a Blackjack Game",
+    "filename": "011 Design a Blackjack Game.html",
+    "path": "Object-Oriented Design Interview/011 Design a Blackjack Game.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 12,
+    "title": "Design a Shipping Locker System",
+    "filename": "012 Design a Shipping Locker System.html",
+    "path": "Object-Oriented Design Interview/012 Design a Shipping Locker System.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 13,
+    "title": "Design an ATM System",
+    "filename": "013 Design an ATM System.html",
+    "path": "Object-Oriented Design Interview/013 Design an ATM System.html"
+  },
+  {
+    "category": "Object-Oriented Design Interview",
+    "subgroup": "General",
+    "num": 14,
+    "title": "Design a Restaurant Management System",
+    "filename": "014 Design a Restaurant Management System.html",
+    "path": "Object-Oriented Design Interview/014 Design a Restaurant Management System.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 0,
+    "title": "Foreword",
+    "filename": "0. Foreword.html",
+    "path": "System Design Interview/0. Foreword.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 1,
+    "title": "Join the Community",
+    "filename": "1. Join the Community.html",
+    "path": "System Design Interview/1. Join the Community.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 10,
+    "title": "Design A Web Crawler",
+    "filename": "10. Design A Web Crawler.html",
+    "path": "System Design Interview/10. Design A Web Crawler.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 11,
+    "title": "Design A Notification System",
+    "filename": "11. Design A Notification System.html",
+    "path": "System Design Interview/11. Design A Notification System.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 12,
+    "title": "Design A News Feed System",
+    "filename": "12. Design A News Feed System.html",
+    "path": "System Design Interview/12. Design A News Feed System.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 13,
+    "title": "Design A Chat System",
+    "filename": "13. Design A Chat System.html",
+    "path": "System Design Interview/13. Design A Chat System.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 14,
+    "title": "Design A Search Autocomplete System",
+    "filename": "14. Design A Search Autocomplete System.html",
+    "path": "System Design Interview/14. Design A Search Autocomplete System.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 15,
+    "title": "Design YouTube",
+    "filename": "15. Design YouTube.html",
+    "path": "System Design Interview/15. Design YouTube.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 16,
+    "title": "Design Google Drive",
+    "filename": "16. Design Google Drive.html",
+    "path": "System Design Interview/16. Design Google Drive.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 17,
+    "title": "Proximity Service",
+    "filename": "17. Proximity Service.html",
+    "path": "System Design Interview/17. Proximity Service.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 18,
+    "title": "Nearby Friends",
+    "filename": "18. Nearby Friends.html",
+    "path": "System Design Interview/18. Nearby Friends.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 19,
+    "title": "Google Maps",
+    "filename": "19. Google Maps.html",
+    "path": "System Design Interview/19. Google Maps.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 2,
+    "title": "Scale From Zero To Millions Of Users",
+    "filename": "2. Scale From Zero To Millions Of Users.html",
+    "path": "System Design Interview/2. Scale From Zero To Millions Of Users.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 20,
+    "title": "Distributed Message Queue",
+    "filename": "20. Distributed Message Queue.html",
+    "path": "System Design Interview/20. Distributed Message Queue.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 21,
+    "title": "Metrics Monitoring and Alerting System",
+    "filename": "21. Metrics Monitoring and Alerting System.html",
+    "path": "System Design Interview/21. Metrics Monitoring and Alerting System.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 22,
+    "title": "Ad Click Event Aggregation",
+    "filename": "22. Ad Click Event Aggregation.html",
+    "path": "System Design Interview/22. Ad Click Event Aggregation.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 23,
+    "title": "Hotel Reservation System",
+    "filename": "23. Hotel Reservation System.html",
+    "path": "System Design Interview/23. Hotel Reservation System.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 24,
+    "title": "Distributed Email Service",
+    "filename": "24. Distributed Email Service.html",
+    "path": "System Design Interview/24. Distributed Email Service.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 25,
+    "title": "S3-like Object Storage",
+    "filename": "25. S3-like Object Storage.html",
+    "path": "System Design Interview/25. S3-like Object Storage.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 26,
+    "title": "Real-time Gaming Leaderboard",
+    "filename": "26. Real-time Gaming Leaderboard.html",
+    "path": "System Design Interview/26. Real-time Gaming Leaderboard.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 27,
+    "title": "Payment System",
+    "filename": "27. Payment System.html",
+    "path": "System Design Interview/27. Payment System.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 28,
+    "title": "Digital Wallet",
+    "filename": "28. Digital Wallet.html",
+    "path": "System Design Interview/28. Digital Wallet.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 29,
+    "title": "Stock Exchange",
+    "filename": "29. Stock Exchange.html",
+    "path": "System Design Interview/29. Stock Exchange.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 3,
+    "title": "Back-of-the-envelope Estimation",
+    "filename": "3. Back-of-the-envelope Estimation.html",
+    "path": "System Design Interview/3. Back-of-the-envelope Estimation.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 30,
+    "title": "The Learning Continues",
+    "filename": "30. The Learning Continues.html",
+    "path": "System Design Interview/30. The Learning Continues.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 4,
+    "title": "A Framework For System Design Interviews",
+    "filename": "4. A Framework For System Design Interviews.html",
+    "path": "System Design Interview/4. A Framework For System Design Interviews.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 5,
+    "title": "Design A Rate Limiter",
+    "filename": "5. Design A Rate Limiter.html",
+    "path": "System Design Interview/5. Design A Rate Limiter.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 6,
+    "title": "Design Consistent Hashing",
+    "filename": "6. Design Consistent Hashing.html",
+    "path": "System Design Interview/6. Design Consistent Hashing.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 7,
+    "title": "Design A Key-value Store",
+    "filename": "7. Design A Key-value Store.html",
+    "path": "System Design Interview/7. Design A Key-value Store.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 8,
+    "title": "Design A Unique ID Generator In Distributed Systems",
+    "filename": "8. Design A Unique ID Generator In Distributed Systems.html",
+    "path": "System Design Interview/8. Design A Unique ID Generator In Distributed Systems.html"
+  },
+  {
+    "category": "System Design Interview",
+    "subgroup": "General",
+    "num": 9,
+    "title": "Design A URL Shortener",
+    "filename": "9. Design A URL Shortener.html",
+    "path": "System Design Interview/9. Design A URL Shortener.html"
+  }
+];
+const NAV_TREE = {
+  "Behavioral Interview": {
+    "General": [
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 1,
+        "title": "Introduction",
+        "filename": "01 Introduction.html",
+        "path": "Behavioral Interview/01 Introduction.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 2,
+        "title": "The Behavioral Interview Roadmap",
+        "filename": "02 The Behavioral Interview Roadmap.html",
+        "path": "Behavioral Interview/02 The Behavioral Interview Roadmap.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 3,
+        "title": "What Companies Are Looking For",
+        "filename": "03 What Companies Are Looking For.html",
+        "path": "Behavioral Interview/03 What Companies Are Looking For.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 4,
+        "title": "High-Signal Storytelling",
+        "filename": "04 High-Signal Storytelling.html",
+        "path": "Behavioral Interview/04 High-Signal Storytelling.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 5,
+        "title": "The Essential Questions",
+        "filename": "05 The Essential Questions.html",
+        "path": "Behavioral Interview/05 The Essential Questions.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 6,
+        "title": "Taking Initiative",
+        "filename": "06 Taking Initiative.html",
+        "path": "Behavioral Interview/06 Taking Initiative.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 7,
+        "title": "Delivery",
+        "filename": "07 Delivery.html",
+        "path": "Behavioral Interview/07 Delivery.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 8,
+        "title": "Problem Solving and Deep Dive",
+        "filename": "08 Problem Solving and Deep Dive.html",
+        "path": "Behavioral Interview/08 Problem Solving and Deep Dive.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 9,
+        "title": "Earning Trust and Dealing with Conflict",
+        "filename": "09 Earning Trust and Dealing with Conflict.html",
+        "path": "Behavioral Interview/09 Earning Trust and Dealing with Conflict.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 10,
+        "title": "Learning and Growth",
+        "filename": "10 Learning and Growth.html",
+        "path": "Behavioral Interview/10 Learning and Growth.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 11,
+        "title": "Customer and User Focus",
+        "filename": "11 Customer and User Focus.html",
+        "path": "Behavioral Interview/11 Customer and User Focus.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 12,
+        "title": "Innovation",
+        "filename": "12 Innovation.html",
+        "path": "Behavioral Interview/12 Innovation.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 13,
+        "title": "Developing Others",
+        "filename": "13 Developing Others.html",
+        "path": "Behavioral Interview/13 Developing Others.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 14,
+        "title": "Strategic Leadership and Thinking Big",
+        "filename": "14 Strategic Leadership and Thinking Big.html",
+        "path": "Behavioral Interview/14 Strategic Leadership and Thinking Big.html"
+      },
+      {
+        "category": "Behavioral Interview",
+        "subgroup": "General",
+        "num": 15,
+        "title": "Nailing the Interview",
+        "filename": "15 Nailing the Interview.html",
+        "path": "Behavioral Interview/15 Nailing the Interview.html"
+      }
+    ]
+  },
+  "Coding Interview Patterns": {
+    "Two Pointers": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Two Pointers",
+        "num": 1,
+        "title": "Introduction to Two Pointers",
+        "filename": "001 Introduction to Two Pointers.html",
+        "path": "Coding Interview Patterns/001 Introduction to Two Pointers.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Two Pointers",
+        "num": 2,
+        "title": "Pair Sum - Sorted",
+        "filename": "002 Pair Sum - Sorted.html",
+        "path": "Coding Interview Patterns/002 Pair Sum - Sorted.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Two Pointers",
+        "num": 3,
+        "title": "Triplet Sum",
+        "filename": "003 Triplet Sum.html",
+        "path": "Coding Interview Patterns/003 Triplet Sum.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Two Pointers",
+        "num": 4,
+        "title": "Is Palindrome Valid",
+        "filename": "004 Is Palindrome Valid.html",
+        "path": "Coding Interview Patterns/004 Is Palindrome Valid.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Two Pointers",
+        "num": 5,
+        "title": "Largest Container",
+        "filename": "005 Largest Container.html",
+        "path": "Coding Interview Patterns/005 Largest Container.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Two Pointers",
+        "num": 6,
+        "title": "Shift Zeros to the End",
+        "filename": "006 Shift Zeros to the End.html",
+        "path": "Coding Interview Patterns/006 Shift Zeros to the End.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Two Pointers",
+        "num": 7,
+        "title": "Next Lexicographical Sequence",
+        "filename": "007 Next Lexicographical Sequence.html",
+        "path": "Coding Interview Patterns/007 Next Lexicographical Sequence.html"
+      }
+    ],
+    "Hash Maps and Sets": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Hash Maps and Sets",
+        "num": 8,
+        "title": "Introduction to Hash Maps and Sets",
+        "filename": "008 Introduction to Hash Maps and Sets.html",
+        "path": "Coding Interview Patterns/008 Introduction to Hash Maps and Sets.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Hash Maps and Sets",
+        "num": 9,
+        "title": "Pair Sum - Unsorted",
+        "filename": "009 Pair Sum - Unsorted.html",
+        "path": "Coding Interview Patterns/009 Pair Sum - Unsorted.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Hash Maps and Sets",
+        "num": 10,
+        "title": "Verify Sudoku Board",
+        "filename": "010 Verify Sudoku Board.html",
+        "path": "Coding Interview Patterns/010 Verify Sudoku Board.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Hash Maps and Sets",
+        "num": 11,
+        "title": "Zero Striping",
+        "filename": "011 Zero Striping.html",
+        "path": "Coding Interview Patterns/011 Zero Striping.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Hash Maps and Sets",
+        "num": 12,
+        "title": "Longest Chain of Consecutive Numbers",
+        "filename": "012 Longest Chain of Consecutive Numbers.html",
+        "path": "Coding Interview Patterns/012 Longest Chain of Consecutive Numbers.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Hash Maps and Sets",
+        "num": 13,
+        "title": "Geometric Sequence Triplets",
+        "filename": "013 Geometric Sequence Triplets.html",
+        "path": "Coding Interview Patterns/013 Geometric Sequence Triplets.html"
+      }
+    ],
+    "Linked Lists": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Linked Lists",
+        "num": 14,
+        "title": "Introduction to Linked Lists",
+        "filename": "014 Introduction to Linked Lists.html",
+        "path": "Coding Interview Patterns/014 Introduction to Linked Lists.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Linked Lists",
+        "num": 15,
+        "title": "Linked List Reversal",
+        "filename": "015 Linked List Reversal.html",
+        "path": "Coding Interview Patterns/015 Linked List Reversal.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Linked Lists",
+        "num": 16,
+        "title": "Remove the Kth Last Node From a Linked List",
+        "filename": "016 Remove the Kth Last Node From a Linked List.html",
+        "path": "Coding Interview Patterns/016 Remove the Kth Last Node From a Linked List.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Linked Lists",
+        "num": 17,
+        "title": "Linked List Intersection",
+        "filename": "017 Linked List Intersection.html",
+        "path": "Coding Interview Patterns/017 Linked List Intersection.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Linked Lists",
+        "num": 18,
+        "title": "LRU Cache",
+        "filename": "018 LRU Cache.html",
+        "path": "Coding Interview Patterns/018 LRU Cache.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Linked Lists",
+        "num": 19,
+        "title": "Palindromic Linked List",
+        "filename": "019 Palindromic Linked List.html",
+        "path": "Coding Interview Patterns/019 Palindromic Linked List.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Linked Lists",
+        "num": 20,
+        "title": "Flatten a Multi-Level Linked List",
+        "filename": "020 Flatten a Multi-Level Linked List.html",
+        "path": "Coding Interview Patterns/020 Flatten a Multi-Level Linked List.html"
+      }
+    ],
+    "Fast and Slow Pointers": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Fast and Slow Pointers",
+        "num": 21,
+        "title": "Introduction to Fast and Slow Pointers",
+        "filename": "021 Introduction to Fast and Slow Pointers.html",
+        "path": "Coding Interview Patterns/021 Introduction to Fast and Slow Pointers.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Fast and Slow Pointers",
+        "num": 22,
+        "title": "Linked List Loop",
+        "filename": "022 Linked List Loop.html",
+        "path": "Coding Interview Patterns/022 Linked List Loop.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Fast and Slow Pointers",
+        "num": 23,
+        "title": "Linked List Midpoint",
+        "filename": "023 Linked List Midpoint.html",
+        "path": "Coding Interview Patterns/023 Linked List Midpoint.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Fast and Slow Pointers",
+        "num": 24,
+        "title": "Happy Number",
+        "filename": "024 Happy Number.html",
+        "path": "Coding Interview Patterns/024 Happy Number.html"
+      }
+    ],
+    "Sliding Windows": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Sliding Windows",
+        "num": 25,
+        "title": "Introduction to Sliding Windows",
+        "filename": "025 Introduction to Sliding Windows.html",
+        "path": "Coding Interview Patterns/025 Introduction to Sliding Windows.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Sliding Windows",
+        "num": 26,
+        "title": "Substring Anagrams",
+        "filename": "026 Substring Anagrams.html",
+        "path": "Coding Interview Patterns/026 Substring Anagrams.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Sliding Windows",
+        "num": 27,
+        "title": "Longest Substring With Unique Characters",
+        "filename": "027 Longest Substring With Unique Characters.html",
+        "path": "Coding Interview Patterns/027 Longest Substring With Unique Characters.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Sliding Windows",
+        "num": 28,
+        "title": "Longest Uniform Substring After Replacements",
+        "filename": "028 Longest Uniform Substring After Replacements.html",
+        "path": "Coding Interview Patterns/028 Longest Uniform Substring After Replacements.html"
+      }
+    ],
+    "Binary Search": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Binary Search",
+        "num": 29,
+        "title": "Introduction to Binary Search",
+        "filename": "029 Introduction to Binary Search.html",
+        "path": "Coding Interview Patterns/029 Introduction to Binary Search.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Binary Search",
+        "num": 30,
+        "title": "Find the Insertion Index",
+        "filename": "030 Find the Insertion Index.html",
+        "path": "Coding Interview Patterns/030 Find the Insertion Index.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Binary Search",
+        "num": 31,
+        "title": "First and Last Occurrences of a Number",
+        "filename": "031 First and Last Occurrences of a Number.html",
+        "path": "Coding Interview Patterns/031 First and Last Occurrences of a Number.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Binary Search",
+        "num": 32,
+        "title": "Cutting Wood",
+        "filename": "032 Cutting Wood.html",
+        "path": "Coding Interview Patterns/032 Cutting Wood.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Binary Search",
+        "num": 33,
+        "title": "Find the Target in a Rotated Sorted Array",
+        "filename": "033 Find the Target in a Rotated Sorted Array.html",
+        "path": "Coding Interview Patterns/033 Find the Target in a Rotated Sorted Array.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Binary Search",
+        "num": 34,
+        "title": "Find the Median From Two Sorted Arrays",
+        "filename": "034 Find the Median From Two Sorted Arrays.html",
+        "path": "Coding Interview Patterns/034 Find the Median From Two Sorted Arrays.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Binary Search",
+        "num": 35,
+        "title": "Matrix Search",
+        "filename": "035 Matrix Search.html",
+        "path": "Coding Interview Patterns/035 Matrix Search.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Binary Search",
+        "num": 36,
+        "title": "Local Maxima in Array",
+        "filename": "036 Local Maxima in Array.html",
+        "path": "Coding Interview Patterns/036 Local Maxima in Array.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Binary Search",
+        "num": 37,
+        "title": "Weighted Random Selection",
+        "filename": "037 Weighted Random Selection.html",
+        "path": "Coding Interview Patterns/037 Weighted Random Selection.html"
+      }
+    ],
+    "Stacks": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Stacks",
+        "num": 38,
+        "title": "Introduction to Stacks",
+        "filename": "038 Introduction to Stacks.html",
+        "path": "Coding Interview Patterns/038 Introduction to Stacks.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Stacks",
+        "num": 39,
+        "title": "Valid Parenthesis Expression",
+        "filename": "039 Valid Parenthesis Expression.html",
+        "path": "Coding Interview Patterns/039 Valid Parenthesis Expression.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Stacks",
+        "num": 40,
+        "title": "Next Largest Number to the Right",
+        "filename": "040 Next Largest Number to the Right.html",
+        "path": "Coding Interview Patterns/040 Next Largest Number to the Right.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Stacks",
+        "num": 41,
+        "title": "Evaluate Expression",
+        "filename": "041 Evaluate Expression.html",
+        "path": "Coding Interview Patterns/041 Evaluate Expression.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Stacks",
+        "num": 42,
+        "title": "Repeated Removal of Adjacent Duplicates",
+        "filename": "042 Repeated Removal of Adjacent Duplicates.html",
+        "path": "Coding Interview Patterns/042 Repeated Removal of Adjacent Duplicates.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Stacks",
+        "num": 43,
+        "title": "Implement a Queue using Stacks",
+        "filename": "043 Implement a Queue using Stacks.html",
+        "path": "Coding Interview Patterns/043 Implement a Queue using Stacks.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Stacks",
+        "num": 44,
+        "title": "Maximums of Sliding Window",
+        "filename": "044 Maximums of Sliding Window.html",
+        "path": "Coding Interview Patterns/044 Maximums of Sliding Window.html"
+      }
+    ],
+    "Heaps": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Heaps",
+        "num": 45,
+        "title": "Introduction to Heaps",
+        "filename": "045 Introduction to Heaps.html",
+        "path": "Coding Interview Patterns/045 Introduction to Heaps.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Heaps",
+        "num": 46,
+        "title": "K Most Frequent Strings",
+        "filename": "046 K Most Frequent Strings.html",
+        "path": "Coding Interview Patterns/046 K Most Frequent Strings.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Heaps",
+        "num": 47,
+        "title": "Combine Sorted Linked Lists",
+        "filename": "047 Combine Sorted Linked Lists.html",
+        "path": "Coding Interview Patterns/047 Combine Sorted Linked Lists.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Heaps",
+        "num": 48,
+        "title": "Median of an Integer Stream",
+        "filename": "048 Median of an Integer Stream.html",
+        "path": "Coding Interview Patterns/048 Median of an Integer Stream.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Heaps",
+        "num": 49,
+        "title": "Sort a K-Sorted Array",
+        "filename": "049 Sort a K-Sorted Array.html",
+        "path": "Coding Interview Patterns/049 Sort a K-Sorted Array.html"
+      }
+    ],
+    "Intervals": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Intervals",
+        "num": 50,
+        "title": "Introduction to Intervals",
+        "filename": "050 Introduction to Intervals.html",
+        "path": "Coding Interview Patterns/050 Introduction to Intervals.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Intervals",
+        "num": 51,
+        "title": "Merge Overlapping Intervals",
+        "filename": "051 Merge Overlapping Intervals.html",
+        "path": "Coding Interview Patterns/051 Merge Overlapping Intervals.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Intervals",
+        "num": 52,
+        "title": "Identify All Interval Overlaps",
+        "filename": "052 Identify All Interval Overlaps.html",
+        "path": "Coding Interview Patterns/052 Identify All Interval Overlaps.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Intervals",
+        "num": 53,
+        "title": "Largest Overlap of Intervals",
+        "filename": "053 Largest Overlap of Intervals.html",
+        "path": "Coding Interview Patterns/053 Largest Overlap of Intervals.html"
+      }
+    ],
+    "Prefix Sums": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Prefix Sums",
+        "num": 54,
+        "title": "Introduction to Prefix Sums",
+        "filename": "054 Introduction to Prefix Sums.html",
+        "path": "Coding Interview Patterns/054 Introduction to Prefix Sums.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Prefix Sums",
+        "num": 55,
+        "title": "Sum Between Range",
+        "filename": "055 Sum Between Range.html",
+        "path": "Coding Interview Patterns/055 Sum Between Range.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Prefix Sums",
+        "num": 56,
+        "title": "K-Sum Subarrays",
+        "filename": "056 K-Sum Subarrays.html",
+        "path": "Coding Interview Patterns/056 K-Sum Subarrays.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Prefix Sums",
+        "num": 57,
+        "title": "Product Array Without Current Element",
+        "filename": "057 Product Array Without Current Element.html",
+        "path": "Coding Interview Patterns/057 Product Array Without Current Element.html"
+      }
+    ],
+    "Trees": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Trees",
+        "num": 58,
+        "title": "Introduction to Trees",
+        "filename": "058 Introduction to Trees.html",
+        "path": "Coding Interview Patterns/058 Introduction to Trees.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Trees",
+        "num": 59,
+        "title": "Invert Binary Tree",
+        "filename": "059 Invert Binary Tree.html",
+        "path": "Coding Interview Patterns/059 Invert Binary Tree.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Trees",
+        "num": 60,
+        "title": "Balanced Binary Tree Validation",
+        "filename": "060 Balanced Binary Tree Validation.html",
+        "path": "Coding Interview Patterns/060 Balanced Binary Tree Validation.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Trees",
+        "num": 61,
+        "title": "Rightmost Nodes of a Binary Tree",
+        "filename": "061 Rightmost Nodes of a Binary Tree.html",
+        "path": "Coding Interview Patterns/061 Rightmost Nodes of a Binary Tree.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Trees",
+        "num": 62,
+        "title": "Widest Binary Tree Level",
+        "filename": "062 Widest Binary Tree Level.html",
+        "path": "Coding Interview Patterns/062 Widest Binary Tree Level.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Trees",
+        "num": 63,
+        "title": "Binary Search Tree Validation",
+        "filename": "063 Binary Search Tree Validation.html",
+        "path": "Coding Interview Patterns/063 Binary Search Tree Validation.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Trees",
+        "num": 64,
+        "title": "Lowest Common Ancestor",
+        "filename": "064 Lowest Common Ancestor.html",
+        "path": "Coding Interview Patterns/064 Lowest Common Ancestor.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Trees",
+        "num": 65,
+        "title": "Build Binary Tree From Preorder and Inorder Traversals",
+        "filename": "065 Build Binary Tree From Preorder and Inorder Traversals.html",
+        "path": "Coding Interview Patterns/065 Build Binary Tree From Preorder and Inorder Traversals.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Trees",
+        "num": 66,
+        "title": "Maximum Sum of a Continuous Path in a Binary Tree",
+        "filename": "066 Maximum Sum of a Continuous Path in a Binary Tree.html",
+        "path": "Coding Interview Patterns/066 Maximum Sum of a Continuous Path in a Binary Tree.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Trees",
+        "num": 67,
+        "title": "Binary Tree Symmetry",
+        "filename": "067 Binary Tree Symmetry.html",
+        "path": "Coding Interview Patterns/067 Binary Tree Symmetry.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Trees",
+        "num": 68,
+        "title": "Binary Tree Columns",
+        "filename": "068 Binary Tree Columns.html",
+        "path": "Coding Interview Patterns/068 Binary Tree Columns.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Trees",
+        "num": 69,
+        "title": "Kth Smallest Number in a Binary Search Tree",
+        "filename": "069 Kth Smallest Number in a Binary Search Tree.html",
+        "path": "Coding Interview Patterns/069 Kth Smallest Number in a Binary Search Tree.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Trees",
+        "num": 70,
+        "title": "Serialize and Deserialize a Binary Tree",
+        "filename": "070 Serialize and Deserialize a Binary Tree.html",
+        "path": "Coding Interview Patterns/070 Serialize and Deserialize a Binary Tree.html"
+      }
+    ],
+    "Tries": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Tries",
+        "num": 71,
+        "title": "Introduction to Tries",
+        "filename": "071 Introduction to Tries.html",
+        "path": "Coding Interview Patterns/071 Introduction to Tries.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Tries",
+        "num": 72,
+        "title": "Design a Trie",
+        "filename": "072 Design a Trie.html",
+        "path": "Coding Interview Patterns/072 Design a Trie.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Tries",
+        "num": 73,
+        "title": "Insert and Search Words with Wildcards",
+        "filename": "073 Insert and Search Words with Wildcards.html",
+        "path": "Coding Interview Patterns/073 Insert and Search Words with Wildcards.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Tries",
+        "num": 74,
+        "title": "Find All Words on a Board",
+        "filename": "074 Find All Words on a Board.html",
+        "path": "Coding Interview Patterns/074 Find All Words on a Board.html"
+      }
+    ],
+    "Graphs": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Graphs",
+        "num": 75,
+        "title": "Introduction to Graphs",
+        "filename": "075 Introduction to Graphs.html",
+        "path": "Coding Interview Patterns/075 Introduction to Graphs.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Graphs",
+        "num": 76,
+        "title": "Graph Deep Copy",
+        "filename": "076 Graph Deep Copy.html",
+        "path": "Coding Interview Patterns/076 Graph Deep Copy.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Graphs",
+        "num": 77,
+        "title": "Count Islands",
+        "filename": "077 Count Islands.html",
+        "path": "Coding Interview Patterns/077 Count Islands.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Graphs",
+        "num": 78,
+        "title": "Matrix Infection",
+        "filename": "078 Matrix Infection.html",
+        "path": "Coding Interview Patterns/078 Matrix Infection.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Graphs",
+        "num": 79,
+        "title": "Bipartite Graph Validation",
+        "filename": "079 Bipartite Graph Validation.html",
+        "path": "Coding Interview Patterns/079 Bipartite Graph Validation.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Graphs",
+        "num": 80,
+        "title": "Longest Increasing Path",
+        "filename": "080 Longest Increasing Path.html",
+        "path": "Coding Interview Patterns/080 Longest Increasing Path.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Graphs",
+        "num": 81,
+        "title": "Shortest Transformation Sequence",
+        "filename": "081 Shortest Transformation Sequence.html",
+        "path": "Coding Interview Patterns/081 Shortest Transformation Sequence.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Graphs",
+        "num": 82,
+        "title": "Merging Communities",
+        "filename": "082 Merging Communities.html",
+        "path": "Coding Interview Patterns/082 Merging Communities.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Graphs",
+        "num": 83,
+        "title": "Prerequisites",
+        "filename": "083 Prerequisites.html",
+        "path": "Coding Interview Patterns/083 Prerequisites.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Graphs",
+        "num": 84,
+        "title": "Shortest Path",
+        "filename": "084 Shortest Path.html",
+        "path": "Coding Interview Patterns/084 Shortest Path.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Graphs",
+        "num": 85,
+        "title": "Connect the Dots",
+        "filename": "085 Connect the Dots.html",
+        "path": "Coding Interview Patterns/085 Connect the Dots.html"
+      }
+    ],
+    "Backtracking": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Backtracking",
+        "num": 86,
+        "title": "Introduction to Backtracking",
+        "filename": "086 Introduction to Backtracking.html",
+        "path": "Coding Interview Patterns/086 Introduction to Backtracking.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Backtracking",
+        "num": 87,
+        "title": "Find All Permutations",
+        "filename": "087 Find All Permutations.html",
+        "path": "Coding Interview Patterns/087 Find All Permutations.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Backtracking",
+        "num": 88,
+        "title": "Find All Subsets",
+        "filename": "088 Find All Subsets.html",
+        "path": "Coding Interview Patterns/088 Find All Subsets.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Backtracking",
+        "num": 89,
+        "title": "N Queens",
+        "filename": "089 N Queens.html",
+        "path": "Coding Interview Patterns/089 N Queens.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Backtracking",
+        "num": 90,
+        "title": "Combinations of a Sum",
+        "filename": "090 Combinations of a Sum.html",
+        "path": "Coding Interview Patterns/090 Combinations of a Sum.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Backtracking",
+        "num": 91,
+        "title": "Phone Keypad Combinations",
+        "filename": "091 Phone Keypad Combinations.html",
+        "path": "Coding Interview Patterns/091 Phone Keypad Combinations.html"
+      }
+    ],
+    "Dynamic Programming": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Dynamic Programming",
+        "num": 92,
+        "title": "Introduction to Dynamic Programming",
+        "filename": "092 Introduction to Dynamic Programming.html",
+        "path": "Coding Interview Patterns/092 Introduction to Dynamic Programming.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Dynamic Programming",
+        "num": 93,
+        "title": "Climbing Stairs",
+        "filename": "093 Climbing Stairs.html",
+        "path": "Coding Interview Patterns/093 Climbing Stairs.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Dynamic Programming",
+        "num": 94,
+        "title": "Minimum Coin Combination",
+        "filename": "094 Minimum Coin Combination.html",
+        "path": "Coding Interview Patterns/094 Minimum Coin Combination.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Dynamic Programming",
+        "num": 95,
+        "title": "Matrix Pathways",
+        "filename": "095 Matrix Pathways.html",
+        "path": "Coding Interview Patterns/095 Matrix Pathways.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Dynamic Programming",
+        "num": 96,
+        "title": "Neighborhood Burglary",
+        "filename": "096 Neighborhood Burglary.html",
+        "path": "Coding Interview Patterns/096 Neighborhood Burglary.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Dynamic Programming",
+        "num": 97,
+        "title": "Longest Common Subsequence",
+        "filename": "097 Longest Common Subsequence.html",
+        "path": "Coding Interview Patterns/097 Longest Common Subsequence.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Dynamic Programming",
+        "num": 98,
+        "title": "Longest Palindrome in a String",
+        "filename": "098 Longest Palindrome in a String.html",
+        "path": "Coding Interview Patterns/098 Longest Palindrome in a String.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Dynamic Programming",
+        "num": 99,
+        "title": "Maximum Subarray Sum",
+        "filename": "099 Maximum Subarray Sum.html",
+        "path": "Coding Interview Patterns/099 Maximum Subarray Sum.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Dynamic Programming",
+        "num": 100,
+        "title": "01 Knapsack",
+        "filename": "100 01 Knapsack.html",
+        "path": "Coding Interview Patterns/100 01 Knapsack.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Dynamic Programming",
+        "num": 101,
+        "title": "Largest Square in a Matrix",
+        "filename": "101 Largest Square in a Matrix.html",
+        "path": "Coding Interview Patterns/101 Largest Square in a Matrix.html"
+      }
+    ],
+    "Greedy Algorithms": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Greedy Algorithms",
+        "num": 102,
+        "title": "Introduction to Greedy Algorithms",
+        "filename": "102 Introduction to Greedy Algorithms.html",
+        "path": "Coding Interview Patterns/102 Introduction to Greedy Algorithms.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Greedy Algorithms",
+        "num": 103,
+        "title": "Jump to the End",
+        "filename": "103 Jump to the End.html",
+        "path": "Coding Interview Patterns/103 Jump to the End.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Greedy Algorithms",
+        "num": 104,
+        "title": "Gas Stations",
+        "filename": "104 Gas Stations.html",
+        "path": "Coding Interview Patterns/104 Gas Stations.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Greedy Algorithms",
+        "num": 105,
+        "title": "Candies",
+        "filename": "105 Candies.html",
+        "path": "Coding Interview Patterns/105 Candies.html"
+      }
+    ],
+    "Sort and Search": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Sort and Search",
+        "num": 106,
+        "title": "Introduction to Sort and Search",
+        "filename": "106 Introduction to Sort and Search.html",
+        "path": "Coding Interview Patterns/106 Introduction to Sort and Search.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Sort and Search",
+        "num": 107,
+        "title": "Sort Linked List",
+        "filename": "107 Sort Linked List.html",
+        "path": "Coding Interview Patterns/107 Sort Linked List.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Sort and Search",
+        "num": 108,
+        "title": "Sort Array",
+        "filename": "108 Sort Array.html",
+        "path": "Coding Interview Patterns/108 Sort Array.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Sort and Search",
+        "num": 109,
+        "title": "Kth Largest Integer",
+        "filename": "109 Kth Largest Integer.html",
+        "path": "Coding Interview Patterns/109 Kth Largest Integer.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Sort and Search",
+        "num": 110,
+        "title": "Dutch National Flag",
+        "filename": "110 Dutch National Flag.html",
+        "path": "Coding Interview Patterns/110 Dutch National Flag.html"
+      }
+    ],
+    "Bit Manipulation": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Bit Manipulation",
+        "num": 111,
+        "title": "Introduction to Bit Manipulation",
+        "filename": "111 Introduction to Bit Manipulation.html",
+        "path": "Coding Interview Patterns/111 Introduction to Bit Manipulation.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Bit Manipulation",
+        "num": 112,
+        "title": "Hamming Weights of Integers",
+        "filename": "112 Hamming Weights of Integers.html",
+        "path": "Coding Interview Patterns/112 Hamming Weights of Integers.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Bit Manipulation",
+        "num": 113,
+        "title": "Lonely Integer",
+        "filename": "113 Lonely Integer.html",
+        "path": "Coding Interview Patterns/113 Lonely Integer.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Bit Manipulation",
+        "num": 114,
+        "title": "Swap Odd and Even Bits",
+        "filename": "114 Swap Odd and Even Bits.html",
+        "path": "Coding Interview Patterns/114 Swap Odd and Even Bits.html"
+      }
+    ],
+    "Math and Geometry": [
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Math and Geometry",
+        "num": 115,
+        "title": "Introduction to Math and Geometry",
+        "filename": "115 Introduction to Math and Geometry.html",
+        "path": "Coding Interview Patterns/115 Introduction to Math and Geometry.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Math and Geometry",
+        "num": 116,
+        "title": "Spiral Traversal",
+        "filename": "116 Spiral Traversal.html",
+        "path": "Coding Interview Patterns/116 Spiral Traversal.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Math and Geometry",
+        "num": 117,
+        "title": "Reverse 32-Bit Integer",
+        "filename": "117 Reverse 32-Bit Integer.html",
+        "path": "Coding Interview Patterns/117 Reverse 32-Bit Integer.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Math and Geometry",
+        "num": 118,
+        "title": "Maximum Collinear Points",
+        "filename": "118 Maximum Collinear Points.html",
+        "path": "Coding Interview Patterns/118 Maximum Collinear Points.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Math and Geometry",
+        "num": 119,
+        "title": "The Josephus Problem",
+        "filename": "119 The Josephus Problem.html",
+        "path": "Coding Interview Patterns/119 The Josephus Problem.html"
+      },
+      {
+        "category": "Coding Interview Patterns",
+        "subgroup": "Math and Geometry",
+        "num": 120,
+        "title": "Triangle Numbers",
+        "filename": "120 Triangle Numbers.html",
+        "path": "Coding Interview Patterns/120 Triangle Numbers.html"
+      }
+    ]
+  },
+  "Generative AI System Design Interview": {
+    "General": [
+      {
+        "category": "Generative AI System Design Interview",
+        "subgroup": "General",
+        "num": 1,
+        "title": "Introduction and Overview",
+        "filename": "001 Introduction and Overview.html",
+        "path": "Generative AI System Design Interview/001 Introduction and Overview.html"
+      },
+      {
+        "category": "Generative AI System Design Interview",
+        "subgroup": "General",
+        "num": 2,
+        "title": "Gmail Smart Compose",
+        "filename": "002 Gmail Smart Compose.html",
+        "path": "Generative AI System Design Interview/002 Gmail Smart Compose.html"
+      },
+      {
+        "category": "Generative AI System Design Interview",
+        "subgroup": "General",
+        "num": 3,
+        "title": "Google Translate",
+        "filename": "003 Google Translate.html",
+        "path": "Generative AI System Design Interview/003 Google Translate.html"
+      },
+      {
+        "category": "Generative AI System Design Interview",
+        "subgroup": "General",
+        "num": 4,
+        "title": "ChatGPT Personal Assistant Chatbot",
+        "filename": "004 ChatGPT Personal Assistant Chatbot.html",
+        "path": "Generative AI System Design Interview/004 ChatGPT Personal Assistant Chatbot.html"
+      },
+      {
+        "category": "Generative AI System Design Interview",
+        "subgroup": "General",
+        "num": 5,
+        "title": "Image Captioning",
+        "filename": "005 Image Captioning.html",
+        "path": "Generative AI System Design Interview/005 Image Captioning.html"
+      },
+      {
+        "category": "Generative AI System Design Interview",
+        "subgroup": "General",
+        "num": 6,
+        "title": "Retrieval-Augmented Generation",
+        "filename": "006 Retrieval-Augmented Generation.html",
+        "path": "Generative AI System Design Interview/006 Retrieval-Augmented Generation.html"
+      },
+      {
+        "category": "Generative AI System Design Interview",
+        "subgroup": "General",
+        "num": 7,
+        "title": "Realistic Face Generation",
+        "filename": "007 Realistic Face Generation.html",
+        "path": "Generative AI System Design Interview/007 Realistic Face Generation.html"
+      },
+      {
+        "category": "Generative AI System Design Interview",
+        "subgroup": "General",
+        "num": 8,
+        "title": "High-Resolution Image Synthesis",
+        "filename": "008 High-Resolution Image Synthesis.html",
+        "path": "Generative AI System Design Interview/008 High-Resolution Image Synthesis.html"
+      },
+      {
+        "category": "Generative AI System Design Interview",
+        "subgroup": "General",
+        "num": 9,
+        "title": "Text-to-Image Generation",
+        "filename": "009 Text-to-Image Generation.html",
+        "path": "Generative AI System Design Interview/009 Text-to-Image Generation.html"
+      },
+      {
+        "category": "Generative AI System Design Interview",
+        "subgroup": "General",
+        "num": 10,
+        "title": "Personalized Headshot Generation",
+        "filename": "010 Personalized Headshot Generation.html",
+        "path": "Generative AI System Design Interview/010 Personalized Headshot Generation.html"
+      },
+      {
+        "category": "Generative AI System Design Interview",
+        "subgroup": "General",
+        "num": 11,
+        "title": "Text-to-Video Generation",
+        "filename": "011 Text-to-Video Generation.html",
+        "path": "Generative AI System Design Interview/011 Text-to-Video Generation.html"
+      }
+    ]
+  },
+  "Machine Learning System Design Interview": {
+    "General": [
+      {
+        "category": "Machine Learning System Design Interview",
+        "subgroup": "General",
+        "num": 1,
+        "title": "Introduction and Overview",
+        "filename": "01. Introduction and Overview.html",
+        "path": "Machine Learning System Design Interview/01. Introduction and Overview.html"
+      },
+      {
+        "category": "Machine Learning System Design Interview",
+        "subgroup": "General",
+        "num": 2,
+        "title": "Visual Search System",
+        "filename": "02. Visual Search System.html",
+        "path": "Machine Learning System Design Interview/02. Visual Search System.html"
+      },
+      {
+        "category": "Machine Learning System Design Interview",
+        "subgroup": "General",
+        "num": 3,
+        "title": "Google Street View Blurring System",
+        "filename": "03. Google Street View Blurring System.html",
+        "path": "Machine Learning System Design Interview/03. Google Street View Blurring System.html"
+      },
+      {
+        "category": "Machine Learning System Design Interview",
+        "subgroup": "General",
+        "num": 4,
+        "title": "YouTube Video Search",
+        "filename": "04. YouTube Video Search.html",
+        "path": "Machine Learning System Design Interview/04. YouTube Video Search.html"
+      },
+      {
+        "category": "Machine Learning System Design Interview",
+        "subgroup": "General",
+        "num": 5,
+        "title": "Harmful Content Detection",
+        "filename": "05.Harmful Content Detection.html",
+        "path": "Machine Learning System Design Interview/05.Harmful Content Detection.html"
+      },
+      {
+        "category": "Machine Learning System Design Interview",
+        "subgroup": "General",
+        "num": 6,
+        "title": "Video Recommendation System",
+        "filename": "06. Video Recommendation System.html",
+        "path": "Machine Learning System Design Interview/06. Video Recommendation System.html"
+      },
+      {
+        "category": "Machine Learning System Design Interview",
+        "subgroup": "General",
+        "num": 7,
+        "title": "Event Recommendation System",
+        "filename": "07. Event Recommendation System.html",
+        "path": "Machine Learning System Design Interview/07. Event Recommendation System.html"
+      },
+      {
+        "category": "Machine Learning System Design Interview",
+        "subgroup": "General",
+        "num": 8,
+        "title": "Ad Click Prediction on Social Platforms",
+        "filename": "08. Ad Click Prediction on Social Platforms.html",
+        "path": "Machine Learning System Design Interview/08. Ad Click Prediction on Social Platforms.html"
+      },
+      {
+        "category": "Machine Learning System Design Interview",
+        "subgroup": "General",
+        "num": 9,
+        "title": "Similar Listings on Vacation Rental Platforms",
+        "filename": "09. Similar Listings on Vacation Rental Platforms.html",
+        "path": "Machine Learning System Design Interview/09. Similar Listings on Vacation Rental Platforms.html"
+      },
+      {
+        "category": "Machine Learning System Design Interview",
+        "subgroup": "General",
+        "num": 10,
+        "title": "Personalized News Feed",
+        "filename": "10. Personalized News Feed.html",
+        "path": "Machine Learning System Design Interview/10. Personalized News Feed.html"
+      },
+      {
+        "category": "Machine Learning System Design Interview",
+        "subgroup": "General",
+        "num": 11,
+        "title": "People You May Know",
+        "filename": "11. People You May Know.html",
+        "path": "Machine Learning System Design Interview/11. People You May Know.html"
+      }
+    ]
+  },
+  "Mobile System Design Interview": {
+    "General": [
+      {
+        "category": "Mobile System Design Interview",
+        "subgroup": "General",
+        "num": 1,
+        "title": "Introduction",
+        "filename": "001 Introduction.html",
+        "path": "Mobile System Design Interview/001 Introduction.html"
+      },
+      {
+        "category": "Mobile System Design Interview",
+        "subgroup": "General",
+        "num": 2,
+        "title": "A framework for Mobile SD interviews",
+        "filename": "002 A framework for Mobile SD interviews.html",
+        "path": "Mobile System Design Interview/002 A framework for Mobile SD interviews.html"
+      },
+      {
+        "category": "Mobile System Design Interview",
+        "subgroup": "General",
+        "num": 3,
+        "title": "News feed app",
+        "filename": "003 News feed app.html",
+        "path": "Mobile System Design Interview/003 News feed app.html"
+      },
+      {
+        "category": "Mobile System Design Interview",
+        "subgroup": "General",
+        "num": 4,
+        "title": "Chat app",
+        "filename": "004 Chat app.html",
+        "path": "Mobile System Design Interview/004 Chat app.html"
+      },
+      {
+        "category": "Mobile System Design Interview",
+        "subgroup": "General",
+        "num": 5,
+        "title": "Stock trading app",
+        "filename": "005 Stock trading app.html",
+        "path": "Mobile System Design Interview/005 Stock trading app.html"
+      },
+      {
+        "category": "Mobile System Design Interview",
+        "subgroup": "General",
+        "num": 6,
+        "title": "Pagination library",
+        "filename": "006 Pagination library.html",
+        "path": "Mobile System Design Interview/006 Pagination library.html"
+      },
+      {
+        "category": "Mobile System Design Interview",
+        "subgroup": "General",
+        "num": 7,
+        "title": "Hotel reservation app",
+        "filename": "007 Hotel reservation app.html",
+        "path": "Mobile System Design Interview/007 Hotel reservation app.html"
+      },
+      {
+        "category": "Mobile System Design Interview",
+        "subgroup": "General",
+        "num": 8,
+        "title": "Google Drive app",
+        "filename": "008 Google Drive app.html",
+        "path": "Mobile System Design Interview/008 Google Drive app.html"
+      },
+      {
+        "category": "Mobile System Design Interview",
+        "subgroup": "General",
+        "num": 9,
+        "title": "YouTube app",
+        "filename": "009 YouTube app.html",
+        "path": "Mobile System Design Interview/009 YouTube app.html"
+      },
+      {
+        "category": "Mobile System Design Interview",
+        "subgroup": "General",
+        "num": 10,
+        "title": "Mobile System Design Building Blocks",
+        "filename": "010 Mobile System Design Building Blocks.html",
+        "path": "Mobile System Design Interview/010 Mobile System Design Building Blocks.html"
+      },
+      {
+        "category": "Mobile System Design Interview",
+        "subgroup": "General",
+        "num": 11,
+        "title": "Quick Reference Cheat Sheet for MSD Interview",
+        "filename": "011 Quick Reference Cheat Sheet for MSD Interview.html",
+        "path": "Mobile System Design Interview/011 Quick Reference Cheat Sheet for MSD Interview.html"
+      }
+    ]
+  },
+  "Object-Oriented Design Interview": {
+    "General": [
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 1,
+        "title": "What is an Object-Oriented Design Interview",
+        "filename": "001 What is an Object-Oriented Design Interview.html",
+        "path": "Object-Oriented Design Interview/001 What is an Object-Oriented Design Interview.html"
+      },
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 2,
+        "title": "A Framework for the OOD Interview",
+        "filename": "002 A Framework for the OOD Interview.html",
+        "path": "Object-Oriented Design Interview/002 A Framework for the OOD Interview.html"
+      },
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 3,
+        "title": "OOP Fundamentals",
+        "filename": "003 OOP Fundamentals.html",
+        "path": "Object-Oriented Design Interview/003 OOP Fundamentals.html"
+      },
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 4,
+        "title": "Design a Parking Lot",
+        "filename": "004 Design a Parking Lot.html",
+        "path": "Object-Oriented Design Interview/004 Design a Parking Lot.html"
+      },
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 5,
+        "title": "Design a Movie Ticket Booking System",
+        "filename": "005 Design a Movie Ticket Booking System.html",
+        "path": "Object-Oriented Design Interview/005 Design a Movie Ticket Booking System.html"
+      },
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 6,
+        "title": "Design a Unix File Search System",
+        "filename": "006 Design a Unix File Search System.html",
+        "path": "Object-Oriented Design Interview/006 Design a Unix File Search System.html"
+      },
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 7,
+        "title": "Design a Vending Machine",
+        "filename": "007 Design a Vending Machine.html",
+        "path": "Object-Oriented Design Interview/007 Design a Vending Machine.html"
+      },
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 8,
+        "title": "Design an Elevator System",
+        "filename": "008 Design an Elevator System.html",
+        "path": "Object-Oriented Design Interview/008 Design an Elevator System.html"
+      },
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 9,
+        "title": "Design a Grocery Store System",
+        "filename": "009 Design a Grocery Store System.html",
+        "path": "Object-Oriented Design Interview/009 Design a Grocery Store System.html"
+      },
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 10,
+        "title": "Design a Tic Tac Toe Game",
+        "filename": "010 Design a Tic Tac Toe Game.html",
+        "path": "Object-Oriented Design Interview/010 Design a Tic Tac Toe Game.html"
+      },
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 11,
+        "title": "Design a Blackjack Game",
+        "filename": "011 Design a Blackjack Game.html",
+        "path": "Object-Oriented Design Interview/011 Design a Blackjack Game.html"
+      },
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 12,
+        "title": "Design a Shipping Locker System",
+        "filename": "012 Design a Shipping Locker System.html",
+        "path": "Object-Oriented Design Interview/012 Design a Shipping Locker System.html"
+      },
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 13,
+        "title": "Design an ATM System",
+        "filename": "013 Design an ATM System.html",
+        "path": "Object-Oriented Design Interview/013 Design an ATM System.html"
+      },
+      {
+        "category": "Object-Oriented Design Interview",
+        "subgroup": "General",
+        "num": 14,
+        "title": "Design a Restaurant Management System",
+        "filename": "014 Design a Restaurant Management System.html",
+        "path": "Object-Oriented Design Interview/014 Design a Restaurant Management System.html"
+      }
+    ]
+  },
+  "System Design Interview": {
+    "General": [
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 0,
+        "title": "Foreword",
+        "filename": "0. Foreword.html",
+        "path": "System Design Interview/0. Foreword.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 1,
+        "title": "Join the Community",
+        "filename": "1. Join the Community.html",
+        "path": "System Design Interview/1. Join the Community.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 10,
+        "title": "Design A Web Crawler",
+        "filename": "10. Design A Web Crawler.html",
+        "path": "System Design Interview/10. Design A Web Crawler.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 11,
+        "title": "Design A Notification System",
+        "filename": "11. Design A Notification System.html",
+        "path": "System Design Interview/11. Design A Notification System.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 12,
+        "title": "Design A News Feed System",
+        "filename": "12. Design A News Feed System.html",
+        "path": "System Design Interview/12. Design A News Feed System.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 13,
+        "title": "Design A Chat System",
+        "filename": "13. Design A Chat System.html",
+        "path": "System Design Interview/13. Design A Chat System.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 14,
+        "title": "Design A Search Autocomplete System",
+        "filename": "14. Design A Search Autocomplete System.html",
+        "path": "System Design Interview/14. Design A Search Autocomplete System.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 15,
+        "title": "Design YouTube",
+        "filename": "15. Design YouTube.html",
+        "path": "System Design Interview/15. Design YouTube.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 16,
+        "title": "Design Google Drive",
+        "filename": "16. Design Google Drive.html",
+        "path": "System Design Interview/16. Design Google Drive.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 17,
+        "title": "Proximity Service",
+        "filename": "17. Proximity Service.html",
+        "path": "System Design Interview/17. Proximity Service.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 18,
+        "title": "Nearby Friends",
+        "filename": "18. Nearby Friends.html",
+        "path": "System Design Interview/18. Nearby Friends.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 19,
+        "title": "Google Maps",
+        "filename": "19. Google Maps.html",
+        "path": "System Design Interview/19. Google Maps.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 2,
+        "title": "Scale From Zero To Millions Of Users",
+        "filename": "2. Scale From Zero To Millions Of Users.html",
+        "path": "System Design Interview/2. Scale From Zero To Millions Of Users.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 20,
+        "title": "Distributed Message Queue",
+        "filename": "20. Distributed Message Queue.html",
+        "path": "System Design Interview/20. Distributed Message Queue.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 21,
+        "title": "Metrics Monitoring and Alerting System",
+        "filename": "21. Metrics Monitoring and Alerting System.html",
+        "path": "System Design Interview/21. Metrics Monitoring and Alerting System.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 22,
+        "title": "Ad Click Event Aggregation",
+        "filename": "22. Ad Click Event Aggregation.html",
+        "path": "System Design Interview/22. Ad Click Event Aggregation.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 23,
+        "title": "Hotel Reservation System",
+        "filename": "23. Hotel Reservation System.html",
+        "path": "System Design Interview/23. Hotel Reservation System.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 24,
+        "title": "Distributed Email Service",
+        "filename": "24. Distributed Email Service.html",
+        "path": "System Design Interview/24. Distributed Email Service.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 25,
+        "title": "S3-like Object Storage",
+        "filename": "25. S3-like Object Storage.html",
+        "path": "System Design Interview/25. S3-like Object Storage.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 26,
+        "title": "Real-time Gaming Leaderboard",
+        "filename": "26. Real-time Gaming Leaderboard.html",
+        "path": "System Design Interview/26. Real-time Gaming Leaderboard.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 27,
+        "title": "Payment System",
+        "filename": "27. Payment System.html",
+        "path": "System Design Interview/27. Payment System.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 28,
+        "title": "Digital Wallet",
+        "filename": "28. Digital Wallet.html",
+        "path": "System Design Interview/28. Digital Wallet.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 29,
+        "title": "Stock Exchange",
+        "filename": "29. Stock Exchange.html",
+        "path": "System Design Interview/29. Stock Exchange.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 3,
+        "title": "Back-of-the-envelope Estimation",
+        "filename": "3. Back-of-the-envelope Estimation.html",
+        "path": "System Design Interview/3. Back-of-the-envelope Estimation.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 30,
+        "title": "The Learning Continues",
+        "filename": "30. The Learning Continues.html",
+        "path": "System Design Interview/30. The Learning Continues.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 4,
+        "title": "A Framework For System Design Interviews",
+        "filename": "4. A Framework For System Design Interviews.html",
+        "path": "System Design Interview/4. A Framework For System Design Interviews.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 5,
+        "title": "Design A Rate Limiter",
+        "filename": "5. Design A Rate Limiter.html",
+        "path": "System Design Interview/5. Design A Rate Limiter.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 6,
+        "title": "Design Consistent Hashing",
+        "filename": "6. Design Consistent Hashing.html",
+        "path": "System Design Interview/6. Design Consistent Hashing.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 7,
+        "title": "Design A Key-value Store",
+        "filename": "7. Design A Key-value Store.html",
+        "path": "System Design Interview/7. Design A Key-value Store.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 8,
+        "title": "Design A Unique ID Generator In Distributed Systems",
+        "filename": "8. Design A Unique ID Generator In Distributed Systems.html",
+        "path": "System Design Interview/8. Design A Unique ID Generator In Distributed Systems.html"
+      },
+      {
+        "category": "System Design Interview",
+        "subgroup": "General",
+        "num": 9,
+        "title": "Design A URL Shortener",
+        "filename": "9. Design A URL Shortener.html",
+        "path": "System Design Interview/9. Design A URL Shortener.html"
+      }
+    ]
+  }
 };
-
-const CATEGORY_ORDER = {
-  "Behavioral Interview": [
-    "Behavioral Interview/01 Introduction.html",
-    "Behavioral Interview/02 The Behavioral Interview Roadmap.html",
-    "Behavioral Interview/03 What Companies Are Looking For.html",
-    "Behavioral Interview/04 High-Signal Storytelling.html",
-    "Behavioral Interview/05 The Essential Questions.html",
-    "Behavioral Interview/06 Taking Initiative.html",
-    "Behavioral Interview/07 Delivery.html",
-    "Behavioral Interview/08 Problem Solving and Deep Dive.html",
-    "Behavioral Interview/09 Earning Trust and Dealing with Conflict.html",
-    "Behavioral Interview/10 Learning and Growth.html",
-    "Behavioral Interview/11 Customer and User Focus.html",
-    "Behavioral Interview/12 Innovation.html",
-    "Behavioral Interview/13 Developing Others.html",
-    "Behavioral Interview/14 Strategic Leadership and Thinking Big.html",
-    "Behavioral Interview/15 Nailing the Interview.html"
-  ],
-  "Coding Interview Patterns": [
-    "Coding Interview Patterns/001 Introduction to Two Pointers.html",
-    "Coding Interview Patterns/002 Pair Sum - Sorted.html",
-    "Coding Interview Patterns/003 Triplet Sum.html",
-    "Coding Interview Patterns/004 Is Palindrome Valid.html",
-    "Coding Interview Patterns/005 Largest Container.html",
-    "Coding Interview Patterns/006 Shift Zeros to the End.html",
-    "Coding Interview Patterns/007 Next Lexicographical Sequence.html",
-    "Coding Interview Patterns/008 Introduction to Hash Maps and Sets.html",
-    "Coding Interview Patterns/009 Pair Sum - Unsorted.html",
-    "Coding Interview Patterns/010 Verify Sudoku Board.html",
-    "Coding Interview Patterns/011 Zero Striping.html",
-    "Coding Interview Patterns/012 Longest Chain of Consecutive Numbers.html",
-    "Coding Interview Patterns/013 Geometric Sequence Triplets.html",
-    "Coding Interview Patterns/014 Introduction to Linked Lists.html",
-    "Coding Interview Patterns/015 Linked List Reversal.html",
-    "Coding Interview Patterns/016 Remove the Kth Last Node From a Linked List.html",
-    "Coding Interview Patterns/017 Linked List Intersection.html",
-    "Coding Interview Patterns/018 LRU Cache.html",
-    "Coding Interview Patterns/019 Palindromic Linked List.html",
-    "Coding Interview Patterns/020 Flatten a Multi-Level Linked List.html",
-    "Coding Interview Patterns/021 Introduction to Fast and Slow Pointers.html",
-    "Coding Interview Patterns/022 Linked List Loop.html",
-    "Coding Interview Patterns/023 Linked List Midpoint.html",
-    "Coding Interview Patterns/024 Happy Number.html",
-    "Coding Interview Patterns/025 Introduction to Sliding Windows.html",
-    "Coding Interview Patterns/026 Substring Anagrams.html",
-    "Coding Interview Patterns/027 Longest Substring With Unique Characters.html",
-    "Coding Interview Patterns/028 Longest Uniform Substring After Replacements.html",
-    "Coding Interview Patterns/029 Introduction to Binary Search.html",
-    "Coding Interview Patterns/030 Find the Insertion Index.html",
-    "Coding Interview Patterns/031 First and Last Occurrences of a Number.html",
-    "Coding Interview Patterns/032 Cutting Wood.html",
-    "Coding Interview Patterns/033 Find the Target in a Rotated Sorted Array.html",
-    "Coding Interview Patterns/034 Find the Median From Two Sorted Arrays.html",
-    "Coding Interview Patterns/035 Matrix Search.html",
-    "Coding Interview Patterns/036 Local Maxima in Array.html",
-    "Coding Interview Patterns/037 Weighted Random Selection.html",
-    "Coding Interview Patterns/038 Introduction to Stacks.html",
-    "Coding Interview Patterns/039 Valid Parenthesis Expression.html",
-    "Coding Interview Patterns/040 Next Largest Number to the Right.html",
-    "Coding Interview Patterns/041 Evaluate Expression.html",
-    "Coding Interview Patterns/042 Repeated Removal of Adjacent Duplicates.html",
-    "Coding Interview Patterns/043 Implement a Queue using Stacks.html",
-    "Coding Interview Patterns/044 Maximums of Sliding Window.html",
-    "Coding Interview Patterns/045 Introduction to Heaps.html",
-    "Coding Interview Patterns/046 K Most Frequent Strings.html",
-    "Coding Interview Patterns/047 Combine Sorted Linked Lists.html",
-    "Coding Interview Patterns/048 Median of an Integer Stream.html",
-    "Coding Interview Patterns/049 Sort a K-Sorted Array.html",
-    "Coding Interview Patterns/050 Introduction to Intervals.html",
-    "Coding Interview Patterns/051 Merge Overlapping Intervals.html",
-    "Coding Interview Patterns/052 Identify All Interval Overlaps.html",
-    "Coding Interview Patterns/053 Largest Overlap of Intervals.html",
-    "Coding Interview Patterns/054 Introduction to Prefix Sums.html",
-    "Coding Interview Patterns/055 Sum Between Range.html",
-    "Coding Interview Patterns/056 K-Sum Subarrays.html",
-    "Coding Interview Patterns/057 Product Array Without Current Element.html",
-    "Coding Interview Patterns/058 Introduction to Trees.html",
-    "Coding Interview Patterns/059 Invert Binary Tree.html",
-    "Coding Interview Patterns/060 Balanced Binary Tree Validation.html",
-    "Coding Interview Patterns/061 Rightmost Nodes of a Binary Tree.html",
-    "Coding Interview Patterns/062 Widest Binary Tree Level.html",
-    "Coding Interview Patterns/063 Binary Search Tree Validation.html",
-    "Coding Interview Patterns/064 Lowest Common Ancestor.html",
-    "Coding Interview Patterns/065 Build Binary Tree From Preorder and Inorder Traversals.html",
-    "Coding Interview Patterns/066 Maximum Sum of a Continuous Path in a Binary Tree.html",
-    "Coding Interview Patterns/067 Binary Tree Symmetry.html",
-    "Coding Interview Patterns/068 Binary Tree Columns.html",
-    "Coding Interview Patterns/069 Kth Smallest Number in a Binary Search Tree.html",
-    "Coding Interview Patterns/070 Serialize and Deserialize a Binary Tree.html",
-    "Coding Interview Patterns/071 Introduction to Tries.html",
-    "Coding Interview Patterns/072 Design a Trie.html",
-    "Coding Interview Patterns/073 Insert and Search Words with Wildcards.html",
-    "Coding Interview Patterns/074 Find All Words on a Board.html",
-    "Coding Interview Patterns/075 Introduction to Graphs.html",
-    "Coding Interview Patterns/076 Graph Deep Copy.html",
-    "Coding Interview Patterns/077 Count Islands.html",
-    "Coding Interview Patterns/078 Matrix Infection.html",
-    "Coding Interview Patterns/079 Bipartite Graph Validation.html",
-    "Coding Interview Patterns/080 Longest Increasing Path.html",
-    "Coding Interview Patterns/081 Shortest Transformation Sequence.html",
-    "Coding Interview Patterns/082 Merging Communities.html",
-    "Coding Interview Patterns/083 Prerequisites.html",
-    "Coding Interview Patterns/084 Shortest Path.html",
-    "Coding Interview Patterns/085 Connect the Dots.html",
-    "Coding Interview Patterns/086 Introduction to Backtracking.html",
-    "Coding Interview Patterns/087 Find All Permutations.html",
-    "Coding Interview Patterns/088 Find All Subsets.html",
-    "Coding Interview Patterns/089 N Queens.html",
-    "Coding Interview Patterns/090 Combinations of a Sum.html",
-    "Coding Interview Patterns/091 Phone Keypad Combinations.html",
-    "Coding Interview Patterns/092 Introduction to Dynamic Programming.html",
-    "Coding Interview Patterns/093 Climbing Stairs.html",
-    "Coding Interview Patterns/094 Minimum Coin Combination.html",
-    "Coding Interview Patterns/095 Matrix Pathways.html",
-    "Coding Interview Patterns/096 Neighborhood Burglary.html",
-    "Coding Interview Patterns/097 Longest Common Subsequence.html",
-    "Coding Interview Patterns/098 Longest Palindrome in a String.html",
-    "Coding Interview Patterns/099 Maximum Subarray Sum.html",
-    "Coding Interview Patterns/100 01 Knapsack.html",
-    "Coding Interview Patterns/101 Largest Square in a Matrix.html",
-    "Coding Interview Patterns/102 Introduction to Greedy Algorithms.html",
-    "Coding Interview Patterns/103 Jump to the End.html",
-    "Coding Interview Patterns/104 Gas Stations.html",
-    "Coding Interview Patterns/105 Candies.html",
-    "Coding Interview Patterns/106 Introduction to Sort and Search.html",
-    "Coding Interview Patterns/107 Sort Linked List.html",
-    "Coding Interview Patterns/108 Sort Array.html",
-    "Coding Interview Patterns/109 Kth Largest Integer.html",
-    "Coding Interview Patterns/110 Dutch National Flag.html",
-    "Coding Interview Patterns/111 Introduction to Bit Manipulation.html",
-    "Coding Interview Patterns/112 Hamming Weights of Integers.html",
-    "Coding Interview Patterns/113 Lonely Integer.html",
-    "Coding Interview Patterns/114 Swap Odd and Even Bits.html",
-    "Coding Interview Patterns/115 Introduction to Math and Geometry.html",
-    "Coding Interview Patterns/116 Spiral Traversal.html",
-    "Coding Interview Patterns/117 Reverse 32-Bit Integer.html",
-    "Coding Interview Patterns/118 Maximum Collinear Points.html",
-    "Coding Interview Patterns/119 The Josephus Problem.html",
-    "Coding Interview Patterns/120 Triangle Numbers.html"
-  ],
-  "Generative AI System Design Interview": [
-    "Generative AI System Design Interview/001 Introduction and Overview.html",
-    "Generative AI System Design Interview/002 Gmail Smart Compose.html",
-    "Generative AI System Design Interview/003 Google Translate.html",
-    "Generative AI System Design Interview/004 ChatGPT Personal Assistant Chatbot.html",
-    "Generative AI System Design Interview/005 Image Captioning.html",
-    "Generative AI System Design Interview/006 Retrieval-Augmented Generation.html",
-    "Generative AI System Design Interview/007 Realistic Face Generation.html",
-    "Generative AI System Design Interview/008 High-Resolution Image Synthesis.html",
-    "Generative AI System Design Interview/009 Text-to-Image Generation.html",
-    "Generative AI System Design Interview/010 Personalized Headshot Generation.html",
-    "Generative AI System Design Interview/011 Text-to-Video Generation.html"
-  ],
-  "Machine Learning System Design Interview": [
-    "Machine Learning System Design Interview/01. Introduction and Overview.html",
-    "Machine Learning System Design Interview/02. Visual Search System.html",
-    "Machine Learning System Design Interview/03. Google Street View Blurring System.html",
-    "Machine Learning System Design Interview/04. YouTube Video Search.html",
-    "Machine Learning System Design Interview/05.Harmful Content Detection.html",
-    "Machine Learning System Design Interview/06. Video Recommendation System.html",
-    "Machine Learning System Design Interview/07. Event Recommendation System.html",
-    "Machine Learning System Design Interview/08. Ad Click Prediction on Social Platforms.html",
-    "Machine Learning System Design Interview/09. Similar Listings on Vacation Rental Platforms.html",
-    "Machine Learning System Design Interview/10. Personalized News Feed.html",
-    "Machine Learning System Design Interview/11. People You May Know.html"
-  ],
-  "Mobile System Design Interview": [
-    "Mobile System Design Interview/001 Introduction.html",
-    "Mobile System Design Interview/002 A framework for Mobile SD interviews.html",
-    "Mobile System Design Interview/003 News feed app.html",
-    "Mobile System Design Interview/004 Chat app.html",
-    "Mobile System Design Interview/005 Stock trading app.html",
-    "Mobile System Design Interview/006 Pagination library.html",
-    "Mobile System Design Interview/007 Hotel reservation app.html",
-    "Mobile System Design Interview/008 Google Drive app.html",
-    "Mobile System Design Interview/009 YouTube app.html",
-    "Mobile System Design Interview/010 Mobile System Design Building Blocks.html",
-    "Mobile System Design Interview/011 Quick Reference Cheat Sheet for MSD Interview.html"
-  ],
-  "Object-Oriented Design Interview": [
-    "Object-Oriented Design Interview/001 What is an Object-Oriented Design Interview.html",
-    "Object-Oriented Design Interview/002 A Framework for the OOD Interview.html",
-    "Object-Oriented Design Interview/003 OOP Fundamentals.html",
-    "Object-Oriented Design Interview/004 Design a Parking Lot.html",
-    "Object-Oriented Design Interview/005 Design a Movie Ticket Booking System.html",
-    "Object-Oriented Design Interview/006 Design a Unix File Search System.html",
-    "Object-Oriented Design Interview/007 Design a Vending Machine.html",
-    "Object-Oriented Design Interview/008 Design an Elevator System.html",
-    "Object-Oriented Design Interview/009 Design a Grocery Store System.html",
-    "Object-Oriented Design Interview/010 Design a Tic Tac Toe Game.html",
-    "Object-Oriented Design Interview/011 Design a Blackjack Game.html",
-    "Object-Oriented Design Interview/012 Design a Shipping Locker System.html",
-    "Object-Oriented Design Interview/013 Design an ATM System.html",
-    "Object-Oriented Design Interview/014 Design a Restaurant Management System.html"
-  ],
-  "System Design Interview": [
-    "System Design Interview/0. Foreword.html",
-    "System Design Interview/1. Join the Community.html",
-    "System Design Interview/10. Design A Web Crawler.html",
-    "System Design Interview/11. Design A Notification System.html",
-    "System Design Interview/12. Design A News Feed System.html",
-    "System Design Interview/13. Design A Chat System.html",
-    "System Design Interview/14. Design A Search Autocomplete System.html",
-    "System Design Interview/15. Design YouTube.html",
-    "System Design Interview/16. Design Google Drive.html",
-    "System Design Interview/17. Proximity Service.html",
-    "System Design Interview/18. Nearby Friends.html",
-    "System Design Interview/19. Google Maps.html",
-    "System Design Interview/2. Scale From Zero To Millions Of Users.html",
-    "System Design Interview/20. Distributed Message Queue.html",
-    "System Design Interview/21. Metrics Monitoring and Alerting System.html",
-    "System Design Interview/22. Ad Click Event Aggregation.html",
-    "System Design Interview/23. Hotel Reservation System.html",
-    "System Design Interview/24. Distributed Email Service.html",
-    "System Design Interview/25. S3-like Object Storage.html",
-    "System Design Interview/26. Real-time Gaming Leaderboard.html",
-    "System Design Interview/27. Payment System.html",
-    "System Design Interview/28. Digital Wallet.html",
-    "System Design Interview/29. Stock Exchange.html",
-    "System Design Interview/3. Back-of-the-envelope Estimation.html",
-    "System Design Interview/30. The Learning Continues.html",
-    "System Design Interview/4. A Framework For System Design Interviews.html",
-    "System Design Interview/5. Design A Rate Limiter.html",
-    "System Design Interview/6. Design Consistent Hashing.html",
-    "System Design Interview/7. Design A Key-value Store.html",
-    "System Design Interview/8. Design A Unique ID Generator In Distributed Systems.html",
-    "System Design Interview/9. Design A URL Shortener.html"
-  ]
+const NAV_META = {
+  "Behavioral Interview": {
+    "name": "Behavioral Interview",
+    "icon": "\ud83d\udc65",
+    "color": "#f59e0b"
+  },
+  "Coding Interview Patterns": {
+    "name": "Coding Interview Patterns",
+    "icon": "\u26a1",
+    "color": "#3b82f6"
+  },
+  "Generative AI System Design Interview": {
+    "name": "Generative AI System Design",
+    "icon": "\ud83e\udd16",
+    "color": "#8b5cf6"
+  },
+  "Machine Learning System Design Interview": {
+    "name": "ML System Design",
+    "icon": "\ud83d\udcca",
+    "color": "#10b981"
+  },
+  "Mobile System Design Interview": {
+    "name": "Mobile System Design",
+    "icon": "\ud83d\udcf1",
+    "color": "#06b6d4"
+  },
+  "Object-Oriented Design Interview": {
+    "name": "Object-Oriented Design",
+    "icon": "\ud83e\udde9",
+    "color": "#f43f5e"
+  },
+  "System Design Interview": {
+    "name": "System Design Interview",
+    "icon": "\ud83c\udfd7\ufe0f",
+    "color": "#ec4899"
+  }
 };

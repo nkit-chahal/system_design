@@ -1,6 +1,6 @@
-# Temp/utility files
-_analyze.py
-_path_mapping.json
+# Temp/utility audit scripts
+_*.py
+_*.json
 __pycache__/
 *.pyc
 
