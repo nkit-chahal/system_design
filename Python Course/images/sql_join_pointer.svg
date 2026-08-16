@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="120" viewBox="0 0 520 120" fill="none">
+  <rect width="520" height="120" fill="white"/>
+  <rect x="236" y="8" width="28" height="28" rx="6" fill="#FFF4EF" stroke="#FF5500" stroke-width="2"/>
+  <text x="250" y="28" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="16" fill="#FF5500">i</text>
+  <path d="M250 36 L250 58" stroke="#FF5500" stroke-width="2"/>
+  <text x="250" y="88" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="20" fill="#111">users JOIN events  [ u1  u2  u2  u3 ]</text>
+</svg>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="170" viewBox="0 0 560 170" fill="none">
+  <rect width="560" height="170" fill="white"/>
+  <rect x="266" y="8" width="28" height="28" rx="6" fill="#FFF4EF" stroke="#FF5500" stroke-width="2"/>
+  <text x="280" y="28" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="16" fill="#FF5500">d</text>
+  <path d="M280 36 L280 58" stroke="#FF5500" stroke-width="2"/>
+  <text x="280" y="88" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="18" fill="#111">control 12.5%    treatment 13.2%</text>
+  <text x="280" y="118" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#666">n = 20000 per arm</text>
+  <rect x="70" y="132" width="420" height="28" rx="6" stroke="#111" stroke-dasharray="5 4" fill="white"/>
+  <text x="280" y="151" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">decision: significance then effect size then guardrails</text>
+</svg>

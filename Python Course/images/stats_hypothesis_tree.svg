@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="280" viewBox="0 0 720 280" fill="none">
+  <rect width="720" height="280" fill="white"/>
+  <rect x="270" y="12" width="180" height="36" rx="18" stroke="#111" stroke-width="1.6" fill="white"/>
+  <text x="360" y="35" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="15" fill="#111">Hypothesis Testing</text>
+  <path d="M300 48 L160 92" stroke="#111" stroke-dasharray="5 4" fill="none"/>
+  <path d="M360 48 L360 92" stroke="#111" stroke-dasharray="5 4" fill="none"/>
+  <path d="M420 48 L560 92" stroke="#111" stroke-dasharray="5 4" fill="none"/>
+  <polygon points="160,92 156,84 164,84" fill="#111"/>
+  <polygon points="360,92 356,84 364,84" fill="#111"/>
+  <polygon points="560,92 556,84 564,84" fill="#111"/>
+  <rect x="40" y="96" width="240" height="150" rx="10" stroke="#111" stroke-width="1.4" stroke-dasharray="6 4" fill="white"/>
+  <text x="160" y="122" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="14" font-weight="700" fill="#111">Significance tests</text>
+  <text x="58" y="150" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- z-test / t-test</text>
+  <text x="58" y="172" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- chi-square</text>
+  <text x="58" y="194" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- ANOVA</text>
+  <text x="58" y="216" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- Type I / Type II</text>
+  <rect x="300" y="96" width="120" height="150" rx="10" stroke="#111" stroke-width="1.4" stroke-dasharray="6 4" fill="white"/>
+  <text x="360" y="122" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="14" font-weight="700" fill="#111">Intervals</text>
+  <text x="312" y="156" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- CI</text>
+  <text x="312" y="178" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- CLT</text>
+  <text x="312" y="200" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- power</text>
+  <rect x="440" y="96" width="240" height="150" rx="10" stroke="#111" stroke-width="1.4" stroke-dasharray="6 4" fill="white"/>
+  <text x="560" y="122" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="14" font-weight="700" fill="#111">Experimentation</text>
+  <text x="458" y="150" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- A/B test</text>
+  <text x="458" y="172" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- sample size</text>
+  <text x="458" y="194" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- guardrails</text>
+  <text x="458" y="216" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- multiple testing</text>
+</svg>

@@ -1,6 +1,7 @@
 import os, glob, re, json
 
 DIRS = [
+    'Python Course',
     'Behavioral Interview',
     'Coding Interview Patterns',
     'Generative AI System Design Interview',
@@ -11,6 +12,7 @@ DIRS = [
 ]
 
 CATEGORY_COLORS = {
+    'Python Course': '#05673d',
     'Behavioral Interview': '#f59e0b',
     'Coding Interview Patterns': '#3b82f6',
     'Generative AI System Design Interview': '#8b5cf6',
@@ -27,6 +29,8 @@ def generate_index():
         current_subgroup = 'General'
         for f in files:
             fname = os.path.basename(f)
+            if fname.lower() == 'index.html':
+                continue
             m = re.match(r'^(\d+)[.\s]*(.*)\.html$', fname, re.IGNORECASE)
             if m:
                 num = int(m.group(1))

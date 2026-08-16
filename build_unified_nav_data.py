@@ -4,6 +4,7 @@ import re
 import json
 
 DIRS = [
+    'Python Course',
     'Behavioral Interview',
     'Coding Interview Patterns',
     'Generative AI System Design Interview',
@@ -15,6 +16,7 @@ DIRS = [
 
 # Category Display Names & Icons
 CATEGORY_META = {
+    'Python Course': {'name': 'Python Masterclass', 'icon': '🐍', 'color': '#05673d'},
     'Behavioral Interview': {'name': 'Behavioral Interview', 'icon': '👥', 'color': '#f59e0b'},
     'Coding Interview Patterns': {'name': 'Coding Interview Patterns', 'icon': '⚡', 'color': '#3b82f6'},
     'Generative AI System Design Interview': {'name': 'Generative AI System Design', 'icon': '🤖', 'color': '#8b5cf6'},
@@ -36,6 +38,8 @@ def generate_unified_nav_data():
         
         for f in files:
             fname = os.path.basename(f)
+            if fname.lower() == 'index.html':
+                continue
             rel_path = f"{dir_name}/{fname}".replace('\\', '/')
             
             # Extract number prefix

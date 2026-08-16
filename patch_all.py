@@ -6,6 +6,7 @@ import glob
 import os
 
 DIRS = [
+    'Python Course',
     'Behavioral Interview',
     'Coding Interview Patterns',
     'Generative AI System Design Interview',

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="150" viewBox="0 0 640 150" fill="none">
+  <rect width="640" height="150" fill="white"/>
+  <rect x="188" y="8" width="28" height="28" rx="6" fill="#FFF4EF" stroke="#FF5500" stroke-width="2"/>
+  <text x="202" y="28" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="16" fill="#FF5500">i</text>
+  <path d="M202 36 L202 70" stroke="#FF5500" stroke-width="2"/>
+  <text x="40" y="92" font-family="ui-monospace,Consolas,monospace" font-size="18" fill="#111">user_id  [ a  a  a  b  b ]</text>
+  <text x="40" y="122" font-family="ui-monospace,Consolas,monospace" font-size="18" fill="#111">row_n    [ 1  2  3  1  2 ]</text>
+  <text x="430" y="92" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#666">PARTITION BY user_id</text>
+  <text x="430" y="112" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#666">ORDER BY event_ts</text>
+</svg>

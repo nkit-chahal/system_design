@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="250" viewBox="0 0 720 250" fill="none">
+  <rect width="720" height="250" fill="white"/>
+  <rect x="285" y="12" width="150" height="36" rx="18" stroke="#111" stroke-width="1.6" fill="white"/>
+  <text x="360" y="35" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="15" fill="#111">Product SQL</text>
+  <path d="M310 48 L150 88" stroke="#111" stroke-dasharray="5 4"/>
+  <path d="M360 48 L360 88" stroke="#111" stroke-dasharray="5 4"/>
+  <path d="M410 48 L570 88" stroke="#111" stroke-dasharray="5 4"/>
+  <rect x="40" y="92" width="220" height="130" rx="10" stroke="#111" stroke-dasharray="6 4" fill="white"/>
+  <text x="150" y="118" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="14" font-weight="700" fill="#111">Retention</text>
+  <text x="58" y="146" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- D1 / D7 / D30</text>
+  <text x="58" y="168" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- cohort_dt</text>
+  <text x="58" y="190" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- return day N</text>
+  <rect x="280" y="92" width="160" height="130" rx="10" stroke="#111" stroke-dasharray="6 4" fill="white"/>
+  <text x="360" y="118" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="14" font-weight="700" fill="#111">Funnels</text>
+  <text x="292" y="146" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- feature A</text>
+  <text x="292" y="168" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- before B</text>
+  <text x="292" y="190" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- conversion</text>
+  <rect x="460" y="92" width="220" height="130" rx="10" stroke="#111" stroke-dasharray="6 4" fill="white"/>
+  <text x="570" y="118" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="14" font-weight="700" fill="#111">Windows</text>
+  <text x="478" y="146" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- ROW_NUMBER</text>
+  <text x="478" y="168" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- LAG / LEAD</text>
+  <text x="478" y="190" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#111">- top 10%</text>
+</svg>

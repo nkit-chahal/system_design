@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="110" viewBox="0 0 420 110" fill="none">
+  <rect width="420" height="110" fill="white"/>
+  <rect x="186" y="8" width="28" height="28" rx="6" fill="#FFF4EF" stroke="#FF5500" stroke-width="2"/>
+  <text x="200" y="28" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="16" fill="#FF5500">i</text>
+  <path d="M200 36 L200 58" stroke="#FF5500" stroke-width="2"/>
+  <text x="210" y="88" text-anchor="middle" font-family="ui-monospace,Consolas,monospace" font-size="22" fill="#111">[ ...  14  5  5  20  ... ]</text>
+</svg>
