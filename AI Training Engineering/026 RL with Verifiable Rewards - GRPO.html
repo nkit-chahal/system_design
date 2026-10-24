@@ -365,7 +365,7 @@ trainer = GRPOTrainer(
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing verifiable rewards and GRPO: programmatic verifiers, the GRPO algorithm, memory savings from critic elimination, reasoning emergence in DeepSeek-R1, and the systems rollout bottleneck." loading="lazy" decoding="async" src="images/026-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Verifiable rewards and GRPO summary</figcaption></div></figure>
 <ul>
 <li>Verifiable rewards evaluate model outputs using deterministic programs—SymPy math solvers, unit test harnesses, and compilers—eliminating neural reward model drift and reward hacking on objective tasks.</li>
 <li>Group Relative Policy Optimization (GRPO) samples a group of <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>G</mi></mrow></math> completions per prompt and calculates relative advantages by standardizing rewards against the group mean and standard deviation.</li>
