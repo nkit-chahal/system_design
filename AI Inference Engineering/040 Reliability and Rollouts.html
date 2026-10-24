@@ -286,7 +286,7 @@ and
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the reliability lesson: failure modes, health checks, draining and retries, rollout strategies, capacity for failure, and error budgets." loading="lazy" decoding="async" src="images/040-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 8: Reliability and rollouts summary</figcaption></div></figure>
 <ul>
 <li>GPU inference fails through hardware faults (XID and ECC errors), hangs that leave the process alive, runaway requests, driver mismatches, bad releases, and missing capacity. Hardware faults are routine at scale, about one per 4,000 GPU-days in Meta's training fleet.</li>
 <li>vLLM's <code>/health</code> proves the engine core is alive, not that it computes correct tokens. Add a synthetic canary prompt and a progress watchdog, and keep generation out of liveness probes.</li>

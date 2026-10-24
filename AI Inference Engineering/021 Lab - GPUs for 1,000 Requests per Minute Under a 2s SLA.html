@@ -400,7 +400,7 @@ cap = calc.replica_capacity(llama, h100, short)
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the lab: pinning down the SLA, Little&#x27;s law, one GPU&#x27;s capacity, GPU count with headroom, tensor parallelism for 70B, and validation with a load test." loading="lazy" decoding="async" src="images/021-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 9: GPU capacity planning summary</figcaption></div></figure>
 <ul>
 <li>Pin down the SLA before doing math. Under a 2 s end-to-end SLA, the output length sets the per-token budget: (2 s − 0.5 s) ÷ 150 tokens = 10 ms.</li>
 <li>1,000 requests per minute is 16.7 per second. Little's law turns it into about 18 requests in flight for short answers, or about 210 for streamed 500-token chat.</li>

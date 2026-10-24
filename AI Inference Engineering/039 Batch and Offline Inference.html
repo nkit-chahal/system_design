@@ -295,7 +295,7 @@ asyncio.run(main({<span class="hljs-string">"doc-1"</span>: <span class="hljs-st
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the batch inference lesson: the workloads, throughput settings, offline APIs, sharing GPUs with chat, spot capacity, and cost." loading="lazy" decoding="async" src="images/039-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 6: Batch and offline inference summary</figcaption></div></figure>
 <ul>
 <li>Batch workloads have no waiting user, so they optimize tokens per GPU-hour, cost per million tokens, and job completion time instead of TTFT and TPOT.</li>
 <li>Offline settings let KV memory, not a latency cap, limit the batch. For Llama 3.1 8B on an H100, decode rises from about 3,640 tokens per second at 53 streams to 5,590 with a full BF16 cache and 11,180 with an FP8 cache.</li>

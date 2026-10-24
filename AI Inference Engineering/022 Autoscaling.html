@@ -350,7 +350,7 @@ night_in_flight = <span class="hljs-number">480</span> / <span class="hljs-numbe
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the autoscaling lesson: misleading signals, better signals, Kubernetes options, headroom math, safe scale-down, and scheduled scaling." loading="lazy" decoding="async" src="images/022-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 9: Autoscaling summary</figcaption></div></figure>
 <ul>
 <li>CPU utilization, GPU utilization, and GPU memory do not track LLM load: the first barely moves, the second reads near 100% with one request, and the third is reserved at startup.</li>
 <li>In-flight requests per replica (running plus waiting) grow linearly with traffic by Little's law and make the best primary signal; 1,000 requests per minute at 10.6 s each is about 177 in flight.</li>
