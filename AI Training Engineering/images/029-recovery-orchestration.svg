@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Step 1: Failure Incident -->
+  <rect x="20" y="45" width="135" height="110" rx="6" class="red"/>
+  <text x="32" y="72" class="b">1. Failure Event</text>
+  <text x="32" y="92" class="sm">XID 79 on Node 14</text>
+  <text x="32" y="110" class="sm">NCCL collective hang</text>
+  <rect x="30" y="122" width="115" height="25" rx="3" class="white"/>
+  <text x="35" y="139" class="sm">Watchdog fires</text>
+  <path d="M155,100 L180,100" class="edge"/>
+
+  <!-- Step 2: Slurm Triage & Drain -->
+  <rect x="185" y="45" width="140" height="110" rx="6" class="orange"/>
+  <text x="195" y="72" class="b">2. Node Exclusion</text>
+  <text x="195" y="92" class="sm">Slurm marks Node 14</text>
+  <text x="195" y="110" class="sm">as DRAIN / FAILING</text>
+  <rect x="195" y="122" width="120" height="25" rx="3" class="white"/>
+  <text x="200" y="139" class="sm">--exclude=node014</text>
+  <path d="M325,100 L350,100" class="edge"/>
+
+  <!-- Step 3: Spare Node Health Check -->
+  <rect x="355" y="45" width="140" height="110" rx="6" class="yellow"/>
+  <text x="365" y="72" class="b">3. Hot Spare Check</text>
+  <text x="365" y="92" class="sm">Allocate Node 33</text>
+  <text x="365" y="110" class="sm">Run fast GEMM &amp;</text>
+  <rect x="365" y="122" width="120" height="25" rx="3" class="white"/>
+  <text x="370" y="139" class="sm">NCCL all-reduce test</text>
+  <path d="M495,100 L520,100" class="edge"/>
+
+  <!-- Step 4: Job Rescheduling -->
+  <rect x="525" y="45" width="135" height="110" rx="6" class="purple"/>
+  <text x="535" y="72" class="b">4. Resubmit Job</text>
+  <text x="535" y="92" class="sm">Slurm auto-resubmit</text>
+  <text x="535" y="110" class="sm">Identical 32 nodes</text>
+  <rect x="535" y="122" width="115" height="25" rx="3" class="white"/>
+  <text x="540" y="139" class="sm">torchrun c10d</text>
+  <path d="M660,100 L685,100" class="edge"/>
+
+  <!-- Step 5: Resume Training -->
+  <rect x="690" y="45" width="115" height="110" rx="6" class="green"/>
+  <text x="700" y="72" class="b">5. DCP Resume</text>
+  <text x="700" y="92" class="sm">Load step 1,000</text>
+  <text x="700" y="110" class="sm">All 256 GPUs</text>
+  <rect x="700" y="122" width="95" height="25" rx="3" class="white"/>
+  <text x="705" y="139" class="sm">Resumes in 60s</text>
+
+  <!-- Bottom: Summary of Total Recovery Downtime -->
+  <rect x="20" y="180" width="785" height="115" rx="6" class="gray"/>
+  <text x="35" y="205" class="b">Automated Recovery Time Budget (Total Interruption &lt; 5 Minutes):</text>
+  <text x="35" y="225" class="sm">• Failure Detection &amp; SIGKILL termination: ~30 seconds (NCCL watchdog)</text>
+  <text x="35" y="245" class="sm">• Faulty node triage, exclusion, and hot standby node allocation: ~2 minutes</text>
+  <text x="35" y="265" class="sm">• Pre-flight NCCL sanity benchmark + DCP checkpoint reload from Lustre: ~1.5 minutes</text>
+  <text x="35" y="285" class="sm">• Result: Training resumes automatically without requiring human on-call intervention</text>
+</svg>

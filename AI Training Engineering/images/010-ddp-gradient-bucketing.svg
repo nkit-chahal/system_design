@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .lg { font-size: 16px; }
+    .b { font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .yellow { fill: #fff2cc; stroke: #d6b656; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #000; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Top title block -->
+  <text x="410" y="25" text-anchor="middle" class="lg b">PyTorch DDP: Gradient Bucketing and Asynchronous Overlap</text>
+
+  <!-- Backward pass layers -->
+  <text x="110" y="55" class="b">Backward Pass (Reverse Order)</text>
+  <path d="M 330 50 L 730 50" class="edge"/>
+  <text x="740" y="55" class="sm">Time --&gt;</text>
+
+  <!-- Buckets layout -->
+  <rect x="50" y="70" width="220" height="70" rx="4" class="gray"/>
+  <text x="160" y="90" text-anchor="middle" class="b">Bucket 0 (cap: 25 MB)</text>
+  <text x="160" y="110" text-anchor="middle" class="sm">Layers 32, 31, 30, 29</text>
+  <text x="160" y="128" text-anchor="middle" class="sm">Fires async all-reduce 1st</text>
+
+  <rect x="290" y="70" width="220" height="70" rx="4" class="gray"/>
+  <text x="400" y="90" text-anchor="middle" class="b">Bucket 1 (cap: 25 MB)</text>
+  <text x="400" y="110" text-anchor="middle" class="sm">Layers 28, 27, 26, 25</text>
+  <text x="400" y="128" text-anchor="middle" class="sm">Fires async all-reduce 2nd</text>
+
+  <rect x="530" y="70" width="240" height="70" rx="4" class="gray"/>
+  <text x="650" y="90" text-anchor="middle" class="b">Bucket N-1 (cap: 25 MB)</text>
+  <text x="650" y="110" text-anchor="middle" class="sm">Layers 4, 3, 2, 1, Embed</text>
+  <text x="650" y="128" text-anchor="middle" class="sm">Fires async all-reduce last</text>
+
+  <!-- Execution timeline streams -->
+  <rect x="50" y="155" width="720" height="130" rx="6" class="white"/>
+
+  <!-- Compute Stream -->
+  <text x="60" y="185" class="b">GPU Compute</text>
+  <rect x="180" y="170" width="130" height="28" rx="3" class="orange"/>
+  <text x="245" y="189" text-anchor="middle" class="sm b">Compute B0 Grads</text>
+
+  <rect x="320" y="170" width="130" height="28" rx="3" class="orange"/>
+  <text x="385" y="189" text-anchor="middle" class="sm b">Compute B1 Grads</text>
+
+  <rect x="460" y="170" width="130" height="28" rx="3" class="orange"/>
+  <text x="525" y="189" text-anchor="middle" class="sm b">Compute B2 Grads</text>
+
+  <rect x="600" y="170" width="120" height="28" rx="3" class="orange"/>
+  <text x="660" y="189" text-anchor="middle" class="sm b">Compute BN Grads</text>
+
+  <!-- Trigger arrows from compute to comm -->
+  <path d="M 310 198 L 310 222" class="edge"/>
+  <path d="M 450 198 L 450 222" class="edge"/>
+  <path d="M 590 198 L 590 222" class="edge"/>
+
+  <!-- Comm Stream -->
+  <text x="60" y="245" class="b">NCCL Comm</text>
+  <!-- Idle during B0 compute -->
+  <rect x="180" y="228" width="130" height="28" rx="3" class="gray"/>
+  <text x="245" y="246" text-anchor="middle" class="sm">Idle (waiting B0)</text>
+
+  <rect x="315" y="228" width="130" height="28" rx="3" class="purple"/>
+  <text x="380" y="246" text-anchor="middle" class="sm b">All-Reduce B0</text>
+
+  <rect x="455" y="228" width="130" height="28" rx="3" class="purple"/>
+  <text x="520" y="246" text-anchor="middle" class="sm b">All-Reduce B1</text>
+
+  <rect x="595" y="228" width="120" height="28" rx="3" class="purple"/>
+  <text x="655" y="246" text-anchor="middle" class="sm b">All-Reduce B2</text>
+
+  <!-- Trailing wait -->
+  <rect x="720" y="228" width="45" height="28" rx="3" class="purple"/>
+
+  <!-- Bottom Explanatory callout -->
+  <rect x="50" y="295" width="720" height="35" rx="4" class="green"/>
+  <text x="410" y="317" text-anchor="middle" class="sm b">Communication runs concurrently with earlier layer backward pass. Only the final bucket tail remains exposed!</text>
+</svg>

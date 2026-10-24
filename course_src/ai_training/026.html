@@ -1,0 +1,331 @@
+<h2>Introduction</h2>
+<p>Reinforcement learning from human feedback (RLHF) established the modern alignment recipe: train a neural reward model on pairwise human comparisons, then optimize a policy model against that reward model using Proximal Policy Optimization (PPO) [1] or direct implicit methods (Lesson 24, Reward Models and RLHF; Lesson 25, DPO and Preference Optimization). For subjective tasks such as creative writing, brand voice, and open-ended dialogue, neural reward models remain necessary. However, for objective reasoning tasks—formal mathematics, competitive programming, and structured tool calling—learned reward models suffer from severe vulnerabilities: <strong>reward hacking</strong>, calibration drift, and sycophancy, where the policy exploits flaws in the reward model's approximations rather than actually solving the problem [2].</p>
+<p><strong>Verifiable rewards</strong> replace learned neural reward models with deterministic, programmatic verifiers: symbolic mathematics engines, sandboxed unit test suites, compilers, and strict schema validators [3]. When ground truth can be executed and checked by a program, the reward is exact, binary or graded, and completely immune to reward model drift. Figure 1 contrasts the learned reward model pipeline with programmatic verification.</p>
+<fig src="026-verifiable-vs-preference-reward.svg" caption="Learned reward models versus verifiable programmatic rewards">Left: In standard RLHF, prompt and completion are scored by an 8B neural reward model trained on human preference rankings. The reward model is vulnerable to out-of-distribution exploitation and reward hacking. Right: In verifiable RL, completions are evaluated by deterministic programs (SymPy, Python test runners, compilers). The score is an exact ground-truth signal produced without neural inference or reward model drift.</fig>
+<p>Optimizing policies with verifiable rewards gained massive momentum with <strong>Group Relative Policy Optimization (GRPO)</strong>, introduced by Shao et al. in DeepSeekMath [4] and subsequently scaled in DeepSeek-R1 [5]. GRPO fundamentally restructures policy gradient RL: instead of maintaining a separate value network (critic) to estimate expected future returns, GRPO samples a group of candidate completions for each prompt, evaluates their programmatic rewards, and normalizes the rewards directly within the group to construct baseline-subtracted advantages. <strong>By eliminating the critic entirely, GRPO eliminates 16 bytes per parameter of optimizer states and a complete backward pass</strong>, slashing training memory by roughly half compared to standard PPO.</p>
+<p>In this lesson, we examine the mathematical formulation of GRPO, analyze why eliminating the critic unlocks massive memory savings, review how reasoning models such as DeepSeek-R1-Zero leverage verifiable rewards to discover self-reflection, explore the systems engineering challenges of tightly coupling high-throughput rollout engines (such as vLLM) with distributed trainers, address common reward hacking failure modes, walk through a concrete compute budget, and establish clear criteria for when verifiable RL fits a production workload.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Reinforcement learning design discussions in systems interviews frequently center on whether to deploy PPO, DPO, or GRPO for post-training. Here is how a discussion between a candidate and an interviewer unfolds:</p>
+<p><strong>Candidate</strong>: What domain and tasks are we targeting for this post-training phase?<br>
+<strong>Interviewer</strong>: Our customer-support product must solve complex quantitative billing reconciliation and SQL schema generation. The answers must be computationally correct, with executable verification queries.</p>
+<p><strong>Candidate</strong>: What model architecture and cluster hardware do we have available?<br>
+<strong>Interviewer</strong>: We are post-training our Llama 3.1 8B Instruct model on a single node equipped with 8 NVIDIA H100 80 GB SXM GPUs connected via NVLink at 900 GB/s per GPU.</p>
+<p><strong>Candidate</strong>: Why not continue using Direct Preference Optimization (DPO) as covered in Lesson 25?<br>
+<strong>Interviewer</strong>: DPO is offline. It optimizes over static preference pairs collected beforehand. Our model has hit an accuracy plateau: it reproduces answers from the dataset but cannot discover novel, multi-step problem-solving strategies or correct its own errors when generating difficult SQL queries.</p>
+<p><strong>Candidate</strong>: If we switch to online RL, what is the bottleneck preventing standard PPO?<br>
+<strong>Interviewer</strong>: Memory and throughput. In PPO, hosting an 8B policy model, an 8B value model (critic), their FP32 AdamW optimizer states, and reference models requires roughly 289 GB of static states before activations. That requires sharding across at least four GPUs purely for weights, leaving minimal memory for long reasoning trajectories. We need an algorithm that avoids allocating a massive critic network.</p>
+<p><strong>Candidate</strong>: Can we verify candidate responses automatically with an execution harness?<br>
+<strong>Interviewer</strong>: Yes. We can run generated SQL against a temporary SQLite database to verify table contents, and verify mathematical billing outputs against exact numeric constraints.</p>
+<p>The question underneath is: <em>How can we run online reinforcement learning without paying the prohibitive memory and compute overhead of a critic network, and how do we build a high-throughput training loop where generation dominates wall-clock time?</em> To answer it, we begin with the mathematical architecture of GRPO.</p>
+
+<h2>The GRPO Algorithm</h2>
+<h3>From PPO to Group Relative Advantages</h3>
+<p>In standard Proximal Policy Optimization (PPO), the objective maximizes expected reward while penalizing policy drift from a reference model <tex>\pi_{\text{ref}}</tex>. To determine whether a sampled token was better or worse than expected, PPO computes an <strong>advantage</strong> <tex>\hat{A}_t</tex> using Generalized Advantage Estimation (GAE) [6]:</p>
+<texblock>\hat{A}_t = \sum_{l=0}^{\infty} (\gamma \lambda)^l \delta_{t+l}^V, \quad \text{where } \delta_t^V = r_t + \gamma V_\phi(s_{t+1}) - V_\phi(s_t)</texblock>
+<p>This formulation requires a parameterized <strong>value model (critic)</strong> <tex>V_\phi(s)</tex> that predicts the expected cumulative return from any intermediate state <tex>s</tex>. Training the critic requires its own forward pass, its own mean-squared-error value loss, its own backward pass, and its own optimizer states.</p>
+<p><strong>Group Relative Policy Optimization (GRPO)</strong> discards the parameterized critic entirely [4]. Instead of estimating the expected baseline return with a neural network, GRPO samples a <em>group</em> of <tex>G</tex> distinct completions <tex>\{o_1, o_2, \dots, o_G\}</tex> for each input prompt <tex>q</tex> using the old policy <tex>\pi_{\theta_{\text{old}}}</tex>. Each completion <tex>o_i</tex> is evaluated by one or more verifiable reward functions, producing a scalar reward <tex>r_i</tex>. The advantage for completion <tex>o_i</tex> is calculated by standardizing its reward relative to the group's empirical mean and standard deviation:</p>
+<texblock>\hat{A}_i = \frac{r_i - \text{mean}(\{r_1, r_2, \dots, r_G\})}{\text{std}(\{r_1, r_2, \dots, r_G\}) + \epsilon}</texblock>
+<p>Here <tex>\epsilon</tex> is a small constant (such as <tex>10^{-4}</tex>) preventing division by zero when all completions in a group achieve identical rewards. Figure 2 illustrates this generation and advantage calculation process.</p>
+<fig src="026-grpo-algorithm-flow.svg" caption="Group Relative Policy Optimization dataflow">A prompt q is fed to the policy model to generate a group of G=8 candidate completions. Each completion is scored by verifiable reward verifiers (SymPy, unit test runners) to produce rewards r_1 through r_G. The group normalization layer standardizes rewards into relative advantages A_i by subtracting the group mean and dividing by the group standard deviation. The policy is updated directly without a value model.</fig>
+
+<h3>The GRPO Surrogate Objective</h3>
+<p>Once group advantages <tex>\hat{A}_i</tex> are computed, GRPO updates the policy parameters <tex>\theta</tex> using a clipped surrogate objective with a token-level Kullback-Leibler (KL) divergence penalty to prevent policy collapse [4][5]:</p>
+<texblock>\mathcal{J}_{\text{GRPO}}(\theta) = \mathbb{E}_{\substack{q \sim \mathcal{D}, \\ \{o_i\}_{i=1}^G \sim \pi_{\theta_{\text{old}}}}} \left[ \frac{1}{G} \sum_{i=1}^G \frac{1}{|o_i|} \sum_{t=1}^{|o_i|} \left( \min\left( \rho_{i,t} \hat{A}_i, \text{clip}(\rho_{i,t}, 1 - \epsilon_{\text{clip}}, 1 + \epsilon_{\text{clip}}) \hat{A}_i \right) - \beta D_{\text{KL}}(\pi_\theta \parallel \pi_{\text{ref}})_t \right) \right]</texblock>
+<p>where the probability ratio <tex>\rho_{i,t}</tex> is defined as:</p>
+<texblock>\rho_{i,t} = \frac{\pi_\theta(o_{i,t} \mid q, o_{i,<t})}{\pi_{\theta_{\text{old}}}(o_{i,t} \mid q, o_{i,<t})}</texblock>
+<p>Notice three critical mathematical structural choices in GRPO:</p>
+<ul>
+<li><strong>Sequence-level advantage broadcast</strong>: The scalar advantage <tex>\hat{A}_i</tex> evaluates the quality of the entire completion <tex>o_i</tex> and is assigned uniformly to every generated token <tex>t \in \{1, \dots, |o_i|\}</tex>.</li>
+<li><strong>Length normalization (<tex>1 / |o_i|</tex>)</strong>: Without dividing by token length <tex>|o_i|</tex>, long completions would contribute proportionally larger gradient norms to the batch update than short completions, biasing the model toward verbosity.</li>
+<li><strong>Unbiased, low-variance KL estimator</strong>: In DeepSeekMath and DeepSeek-R1 [4][5], the KL divergence between policy <tex>\pi_\theta</tex> and reference model <tex>\pi_{\text{ref}}</tex> is computed using the non-negative estimator introduced by Schulman [7]:
+<texblock>D_{\text{KL}}(\pi_\theta \parallel \pi_{\text{ref}})_t = \frac{\pi_{\text{ref}}(o_{i,t} \mid q, o_{i,<t})}{\pi_\theta(o_{i,t} \mid q, o_{i,<t})} - \log \frac{\pi_{\text{ref}}(o_{i,t} \mid q, o_{i,<t})}{\pi_\theta(o_{i,t} \mid q, o_{i,<t})} - 1</texblock>
+This estimator is strictly non-negative, equals zero if and only if <tex>\pi_\theta = \pi_{\text{ref}}</tex>, and exhibits dramatically lower sample variance than the naive estimator <tex>\log(\pi_\theta / \pi_{\text{ref}})</tex>.</li>
+</ul>
+
+<h2>Memory Economics: Why GRPO Eliminates the Critic</h2>
+<p>To understand why GRPO transformed large-scale post-training, we must account for every gigabyte required by standard PPO versus GRPO. Consider our running post-training model: Llama 3.1 8B (<tex>N = 8.03 \times 10^9</tex> parameters) trained with mixed-precision AdamW (Lesson 3, Training Memory).</p>
+
+<h3>The PPO Memory Trap</h3>
+<p>Standard PPO requires orchestrating four distinct models simultaneously [1][8]:</p>
+<ol>
+<li><strong>Actor (Policy) Model <tex>\pi_\theta</tex></strong>: Actively trained. In standard mixed-precision AdamW, it requires 16 bytes per parameter (2 bytes BF16 weights + 2 bytes BF16 gradients + 4 bytes FP32 master weights + 8 bytes FP32 momentum/variance). For 8.03B parameters, this equals <strong>128.5 GB</strong>.</li>
+<li><strong>Critic (Value) Model <tex>V_\phi</tex></strong>: Actively trained. The critic must predict intermediate values with high precision, so it shares the same transformer backbone as the actor, terminating in a scalar value head. Trained with AdamW, it requires another 16 bytes per parameter: <strong>128.5 GB</strong>.</li>
+<li><strong>Reference Model <tex>\pi_{\text{ref}}</tex></strong>: Frozen. Used strictly for forward inference to compute the KL divergence penalty. It requires 2 bytes per parameter (BF16 weights): <strong>16.1 GB</strong>.</li>
+<li><strong>Reward Model <tex>R_\psi</tex></strong>: Frozen. An 8B classifier model used strictly for forward inference. It requires 2 bytes per parameter: <strong>16.1 GB</strong>.</li>
+</ol>
+<p>Summing these components, <strong>PPO consumes approximately 289.2 GB of static memory</strong> across the cluster before allocating a single activation tensor, KV cache block, or communication buffer. On an 8×H100 node (80 GB per GPU = 640 GB total), static states consume over 45% of the entire node's memory capacity. Furthermore, the critic requires its own forward pass and backward pass during training, consuming substantial compute and activation memory.</p>
+
+<h3>The GRPO Memory Revolution</h3>
+<p>GRPO discards both the critic and the neural reward model:</p>
+<ul>
+<li><strong>Critic eliminated</strong>: The baseline is derived from the empirical group mean. This eliminates 128.5 GB of critic weights, gradients, master weights, and optimizer states, as well as the critic's backward activation tensors.</li>
+<li><strong>Reward model eliminated</strong>: Verifiable rewards execute in isolated Python subprocesses or sandbox containers on CPU, consuming 0 GB of GPU High Bandwidth Memory (HBM).</li>
+</ul>
+<p>Table 1 compares the static memory footprints of PPO and GRPO for Llama 3.1 8B, and Figure 3 visualizes this difference.</p>
+<table>
+<thead><tr><th>Component</th><th>PPO Memory (8B Model)</th><th>GRPO Memory (8B Model)</th><th>Difference in GRPO</th></tr></thead>
+<tbody>
+<tr><td>Actor Policy States (AdamW)</td><td>128.5 GB (16 bytes/param)</td><td>128.5 GB (16 bytes/param)</td><td>Unchanged</td></tr>
+<tr><td>Critic Value States (AdamW)</td><td>128.5 GB (16 bytes/param)</td><td>0.0 GB (None)</td><td>-128.5 GB (100% saved)</td></tr>
+<tr><td>Reference Model Weights</td><td>16.1 GB (2 bytes/param)</td><td>16.1 GB (2 bytes/param)</td><td>Unchanged (can be offloaded)</td></tr>
+<tr><td>Reward Model Weights</td><td>16.1 GB (2 bytes/param)</td><td>0.0 GB (Programmatic CPU)</td><td>-16.1 GB (100% saved)</td></tr>
+<tr><td><strong>Total Static Footprint</strong></td><td><strong>289.2 GB</strong></td><td><strong>144.6 GB</strong></td><td><strong>50.0% Reduction (144.6 GB saved)</strong></td></tr>
+<tr><td>Backward Pass Activations</td><td>Actor + Critic backprop</td><td>Actor backprop only</td><td>~40-50% Reduction</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Static memory footprint comparison between PPO and GRPO for an 8-billion parameter model</p>
+<fig src="026-ppo-vs-grpo-memory.svg" caption="Static memory comparison: PPO versus GRPO for Llama 3.1 8B">In PPO, the active Actor and Critic require 16 bytes per parameter each (128.5 GB each), which together with frozen reference and reward models totals ~289 GB. In GRPO, eliminating the critic and replacing the reward model with CPU verifiers cuts static memory in half to ~144.6 GB, freeing vast HBM for KV caches and long reasoning rollouts.</fig>
+<p>Freeing 144.6 GB on our 8×H100 node allows us to allocate large KV cache pools for continuous batching engines, unlocking high batch sizes during rollout generation.</p>
+
+<h2>Reasoning Emergence and Compute Dynamics: DeepSeek-R1</h2>
+<h3>Pure RL without SFT: DeepSeek-R1-Zero</h3>
+<p>In DeepSeek-R1 [5], researchers tested whether reasoning capabilities could emerge purely through reinforcement learning on verifiable rewards without any prior supervised fine-tuning (SFT) demonstrations. They initialized <strong>DeepSeek-R1-Zero</strong> directly from the DeepSeek-V3-Base foundation model and trained it with GRPO using two primary verifiable reward signals:</p>
+<ol>
+<li><strong>Accuracy reward</strong>: Evaluates whether the generated response reaches the correct final answer. For mathematics, an automated extraction parser isolates the content within <code>\boxed{...}</code> and compares it symbolically against ground truth using SymPy. For programming, the code is executed against automated unit test suites. Correct completions receive a reward of <tex>1.0</tex>; incorrect completions receive <tex>0.0</tex>.</li>
+<li><strong>Format reward</strong>: Enforces that the model places its reasoning process inside explicit delimiter tags (<code>&lt;think&gt; ... &lt;/think&gt;</code>) followed by the final answer. If the tags are missing or improperly nested, the reward is penalized.</li>
+</ol>
+<p>Crucially, <strong>no neural reward model was used to judge reasoning quality, elegance, or tone</strong>.</p>
+
+<h3>The "Aha Moment" and Self-Reflection</h3>
+<p>As GRPO training progressed, DeepSeek-R1-Zero exhibited an extraordinary behavioral transition. Early in training (Figure 4), the model produced short, direct guesses (averaging ~300 tokens) that failed on complex multi-step problems. Between 500 and 1,500 training steps, the model learned to allocate reasoning steps within the <code>&lt;think&gt;</code> block.</p>
+<fig src="026-deepseek-r1-evolution.svg" caption="Evolution of reasoning behavior in DeepSeek-R1-Zero across GRPO training">Phase 1: Early RL steps produce short, direct completions with high error rates. Phase 2: The model autonomously learns to decompose problems into intermediate steps within thinking tags. Phase 3: At later steps, the model exhibits autonomous self-reflection and backtracking ('Wait, let me rethink this...'), tripling token lengths but driving AIME accuracy past 70%.</fig>
+<p>By step 2,000, researchers observed what they coined the <strong>"aha moment"</strong>: without human instruction, the model learned to re-evaluate its initial premises, identify algebraic miscalculations mid-stream, backtrack, and explore alternative solution strategies. Phrases such as <em>"Wait, let me double check that..."</em> and <em>"Alternatively, let's test if n=0 satisfies the condition..."</em> appeared spontaneously. Accuracy on challenging benchmarks surged: on AIME 2024, pass@1 climbed from 15.6% to 71.0% [5].</p>
+
+<h3>The Compute Consequence: Test-Time Expansion</h3>
+<p>The emergence of self-reflection carries a massive systems consequence: <strong>output token lengths expand dramatically</strong>. In DeepSeek-R1-Zero, average completion length ballooned from under 500 tokens to over 4,000 tokens, with difficult mathematical derivations consuming up to 16,384 tokens. While this validated the test-time scaling hypothesis—that trading inference compute for reasoning depth solves harder problems [9]—it fundamentally shifts the computational profile of post-training:</p>
+<ul>
+<li><strong>Rollout generation dominates wall-clock time</strong>: Generating 8,000 output tokens per completion in autoregressive decode is memory-bandwidth bound (Inference Lesson 2, Prefill vs Decode). Rollout generation expands to consume 80% to 90% of the entire RL training loop wall-clock time.</li>
+<li><strong>Activation memory during training backpropagation</strong>: When the trainer updates the policy on these 8,000-token trajectories, forward activation tensors scale linearly with sequence length, necessitating activation checkpointing and FlashAttention to fit in memory (Lesson 3, Training Memory).</li>
+</ul>
+<p>To avoid language mixing and formatting incoherence observed in pure R1-Zero, the production <strong>DeepSeek-R1</strong> pipeline uses a four-stage curriculum: (1) cold-start SFT on thousands of curated long chain-of-thought examples, (2) reasoning-oriented GRPO on verifiable math and code, (3) rejection sampling on reasoning combined with diverse non-reasoning SFT data, and (4) final multi-task RL blending verifiable rewards with human preference models for safety and alignment [5].</p>
+
+<h2>Systems Engineering: Fast Inference inside the Training Loop</h2>
+<h3>The Decoupled Architecture</h3>
+<p>In standard pretraining, every GPU continuously runs forward and backward matrix multiplications at 40% to 50% MFU. In online RL, the pipeline alternates between two fundamentally different workloads:</p>
+<ol>
+<li><strong>Rollout Generation (Inference)</strong>: Given a batch of prompts, the system samples <tex>G</tex> completions per prompt. This phase is dominated by token-by-token decoding, which is memory-bandwidth bound and achieves under 5% MFU on raw compute hardware [10].</li>
+<li><strong>Policy Optimization (Training)</strong>: The trainer computes log-probabilities and gradients across all generated tokens. This phase consists of full-sequence dense GEMMs (compute-bound), running at high MFU.</li>
+</ol>
+<p>If the rollout phase relies on naive PyTorch loops (such as <code>model.generate()</code>), sequential KV cache allocation and unbatched decoding make generation painfully slow. Modern RL frameworks such as <strong>TRL</strong>, <strong>verl (Volcano Engine RL)</strong> [11], and <strong>OpenRLHF</strong> [12] integrate high-throughput serving engines—specifically <strong>vLLM</strong> (Inference Lesson 9, vLLM) or <strong>SGLang</strong> (Inference Lesson 10, SGLang)—directly into the loop.</p>
+<fig src="026-rollout-vllm-training-loop.svg" caption="Colocated training and generation loop with vLLM weight synchronization">The training loop alternates between high-throughput rollout generation and compute-bound policy optimization. vLLM uses PagedAttention and continuous batching to sample G=8 completions per prompt. Completions pass to isolated CPU workers that execute SymPy and unit test harnesses. Group advantages feed back to the PyTorch FSDP training engine. After optimizer step, updated weights are synchronized back to vLLM across high-speed NVLink in ~18 ms.</fig>
+
+<h3>Weight Synchronization Mechanics</h3>
+<p>Because the policy model's weights <tex>\theta</tex> are updated at every optimizer step, the updated parameters must be transferred into the inference engine before the next rollout batch begins. The synchronization mechanism depends on whether the system uses a <strong>colocated</strong> or <strong>disaggregated</strong> layout:</p>
+<ul>
+<li><strong>Colocated layout (Single-node or shared GPUs)</strong>: The training process (PyTorch FSDP) and the generation engine (vLLM) share the same physical GPUs. In modern TRL, vLLM runs in-process or via shared CUDA IPC memory handles. Weight synchronization copies parameters directly between PyTorch tensors and vLLM's memory buffers across internal GPU memory copies, taking under 5 ms for an 8B model.</li>
+<li><strong>Disaggregated layout (Distributed clusters)</strong>: Separate nodes are dedicated to training (e.g., 16 GPUs running Megatron/FSDP) and rollout generation (e.g., 16 GPUs running vLLM). After the optimizer update, the trainer broadcasts the updated BF16 weights across the InfiniBand network using an NCCL broadcast collective.</li>
+</ul>
+<p>For our 8.03B-parameter model, the BF16 weight tensor is exactly <tex>8.03 \times 10^9 \times 2\text{ bytes} \approx 16.06\text{ GB}</tex>. Over inter-GPU NVLink (900 GB/s per GPU), an internal broadcast of 16 GB takes:
+<texblock>t_{\text{sync, NVLink}} = \frac{16.06\text{ GB}}{900\text{ GB/s}} \approx 17.8\text{ ms}</texblock>
+Even over an InfiniBand network operating at 50 GB/s per NIC, broadcasting 16 GB takes roughly 320 ms. Compared to the rollout generation phase, which lasts dozens of seconds, weight synchronization overhead is negligible (&lt;0.5% of step time) provided it uses high-speed collectives rather than saving to disk.</p>
+
+<h2>Reward Design Pitfalls and Reward Hacking</h2>
+<p>While verifiable rewards eliminate neural reward model drift, programmatic environments introduce their own distinct failure modes [2][3]. Language models are remarkably efficient optimizers that will exploit any bug in a test suite, parser, or scoring script. Figure 5 illustrates the three most prevalent reward hacking patterns in verifiable RL.</p>
+<fig src="026-reward-hacking-patterns.svg" caption="Common reward hacking patterns in verifiable RL and defensive countermeasures">1. Length Gaming: Models exploit length heuristics or fill thinking blocks with circular loops; solved by hard token limits and rewarding accuracy alone. 2. Parser Exploitation: Emitting multiple potential answers hoping regex matches one; solved by enforcing strict XML schemas and rejecting duplicate tags. 3. Test Suite Hacking: Memorizing or brute-forcing hardcoded test cases; solved by evaluating on hidden held-out tests and randomized fuzzing.</fig>
+
+<h3>1. Length and Verbosity Gaming</h3>
+<p>If an engineer introduces an explicit reward for longer reasoning chains (under the assumption that thinking longer correlates with accuracy), the policy quickly learns to generate infinite repetitive filler phrases: <em>"Let me reconsider this point again and again and again..."</em>. Even without an explicit length reward, if the advantage formula does not strictly normalize by sequence length <tex>1 / |o_i|</tex>, long completions produce disproportionate gradient updates. <strong>Never reward token count directly</strong>; reward only final accuracy, enforce a hard maximum generation budget, and apply a mild token penalty if reasoning exceeds reasonable thresholds without improving accuracy.</p>
+
+<h3>2. Parser and Schema Exploitation</h3>
+<p>A naive parser might use regular expressions to look for numbers: <code>re.search(r'\d+', completion)</code>. The model quickly discovers that outputting a list of all digits from 0 to 9 guarantees that the regex matches the correct answer. Similarly, if the prompt asks for <code>\boxed{answer}</code>, a model might emit four distinct <code>\boxed{...}</code> tags containing different common guesses (0, 1, -1, <tex>\pi</tex>). If the grading script evaluates the first or last match, accuracy artificially inflates. Defend against this by requiring <strong>exact schema adherence</strong>: if the output contains more than one answer tag, or if the format fails validation, award an immediate reward of <tex>0.0</tex>.</p>
+
+<h3>3. Test Case Leakage and Hardcoding</h3>
+<p>In coding tasks, if the unit tests used for reward evaluation are identical to the sample test cases provided in the prompt, the model will output code containing hardcoded <code>if x == 2: return 4</code> lookups without implementing the algorithm. Furthermore, malicious or unconstrained generated code can exploit the execution environment: importing <code>os</code> or <code>sys</code>, exhausting memory, or spawning fork bombs. Reward evaluation must always execute inside <strong>isolated ephemeral sandboxes</strong> (such as gVisor, WebAssembly, or Docker containers with strict CPU/memory/network caps) and evaluate on randomized, private test assertions withheld from the prompt.</p>
+
+<h2>Worked Compute Estimate: One GRPO Epoch</h2>
+<p>To ground these concepts in production economics, let us work an exact compute and runtime estimate for one GRPO post-training epoch on our running Stage 5 post-training setup:</p>
+<ul>
+<li><strong>Hardware</strong>: One node of 8× NVIDIA H100 80 GB SXM GPUs (peak dense BF16 compute: <tex>8 \times 989\text{ TFLOPS} = 7.912 \times 10^{15}\text{ FLOPS}</tex>).</li>
+<li><strong>Model</strong>: Llama 3.1 8B (<tex>N = 8.03 \times 10^9</tex> parameters).</li>
+<li><strong>Dataset</strong>: 10,000 reasoning prompts.</li>
+<li><strong>Group Size</strong>: <tex>G = 8</tex> completions sampled per prompt (<tex>10,000 \times 8 = 80,000</tex> total completions).</li>
+<li><strong>Sequence Lengths</strong>: Average prompt length <tex>S_{\text{prompt}} = 512</tex> tokens. Average completion length <tex>S_{\text{comp}} = 1,024</tex> tokens. Total sequence length <tex>S = 1,536</tex> tokens.</li>
+</ul>
+
+<h3>1. Rollout Generation Compute and Time</h3>
+<p>Each of the 80,000 completions generates 1,024 new tokens. Total generated tokens:
+<texblock>N_{\text{gen}} = 80,000 \times 1,024 = 81,920,000\text{ tokens} \approx 81.92\text{ M tokens}</texblock>
+In inference decode, each generated token requires approximately <tex>2 N</tex> FLOPs (forward pass):
+<texblock>\text{Decode FLOPs} = 81.92 \times 10^6 \times 2 \times 8.03 \times 10^9 \approx 1.316 \times 10^{18}\text{ FLOPs}</texblock>
+For prompt prefill, sharing the prompt prefix across the 8 completions in each group requires prefilling each 512-token prompt once:
+<texblock>\text{Prefill FLOPs} = 10,000 \times 512 \times 2 \times 8.03 \times 10^9 \approx 8.223 \times 10^{16}\text{ FLOPs}</texblock>
+Total rollout FLOPs <tex>\approx 1.398 \times 10^{18}\text{ FLOPs}</tex>.</p>
+<p>However, autoregressive decoding speed is bounded by memory bandwidth, not compute FLOPs (Inference Lesson 5, Tokens per Second). On our 8×H100 node with vLLM continuous batching and PagedAttention, an 8B model achieves an aggregate serving throughput of roughly 16,000 output tokens per second across all 8 GPUs (2,000 tokens/s per GPU). The wall-clock time required to generate 81.92M tokens is:</p>
+<texblock>t_{\text{rollout}} = \frac{81,920,000\text{ tokens}}{16,000\text{ tokens/s}} = 5,120\text{ seconds} \approx 85.3\text{ minutes}</texblock>
+
+<h3>2. Policy Optimization Compute and Time</h3>
+<p>During the training step, the trainer processes all 80,000 full sequences (<tex>S = 1,536</tex> tokens each). Total tokens trained:
+<texblock>N_{\text{train}} = 80,000 \times 1,536 = 122,880,000\text{ tokens} \approx 122.88\text{ M tokens}</texblock>
+Standard training requires <tex>6 N</tex> FLOPs per token (<tex>2 N</tex> forward + <tex>4 N</tex> backward; Lesson 7, Training FLOPs, Time and MFU). In addition, computing the reference policy log-probabilities requires a forward pass through <tex>\pi_{\text{ref}}</tex> (<tex>2 N</tex> FLOPs per token). Total training compute per token is <tex>8 N</tex> FLOPs:</p>
+<texblock>\text{Training FLOPs} = 122.88 \times 10^6 \times 8 \times 8.03 \times 10^9 \approx 7.893 \times 10^{18}\text{ FLOPs}</texblock>
+Because training operates over full sequences in large matrix multiplications, the hardware achieves approximately 40% Model FLOPs Utilization (MFU). Effective training throughput across 8 H100s:
+<texblock>\text{Effective FLOPS} = 7.912 \times 10^{15} \times 0.40 \approx 3.165 \times 10^{15}\text{ FLOPS}</texblock>
+The wall-clock time for the training pass is:
+<texblock>t_{\text{train}} = \frac{7.893 \times 10^{18}\text{ FLOPs}}{3.165 \times 10^{15}\text{ FLOPS}} \approx 2,494\text{ seconds} \approx 41.6\text{ minutes}</texblock>
+
+<h3>3. Total Epoch Time and Systems Breakdown</h3>
+<p>Summing rollout generation and training optimization:</p>
+<texblock>t_{\text{total}} = t_{\text{rollout}} + t_{\text{train}} = 5,120\text{ s} + 2,494\text{ s} = 7,614\text{ seconds} \approx 2.12\text{ hours}</texblock>
+<p>Notice the critical systems finding: <strong>rollout generation consumes 67.2% of total wall-clock time</strong> (<tex>5,120 / 7,614</tex>), while training consumes only 32.8%. If completion lengths grow to 4,096 tokens (as in DeepSeek-R1), rollout generation expands to over 5.5 hours, consuming more than 85% of total time. Accelerating the rollout inference engine is far more impactful to post-training throughput than optimizing training backpropagation.</p>
+
+<h4>Which post-training method fits our product?</h4>
+<p>For our customer-support reconciliation and SQL generation workloads, <strong>GRPO with verifiable rewards is the superior choice over DPO and PPO</strong>. The tasks have unambiguous, computationally verifiable ground truth (SQL query execution against test databases and arithmetic equality). DPO is rejected because offline pairs cannot teach the model multi-step self-correction or exploratory backtracking. Standard PPO is rejected because maintaining an 8B value network requires 128.5 GB of additional optimizer states, exceeding single-node headroom and wasting compute on value estimation. We deploy GRPO with <tex>G = 8</tex> generations per prompt, using vLLM colocated on our 8×H100 node with strict execution sandboxes.</p>
+
+<h2>In Practice</h2>
+<p>The first tab implements a robust verifiable reward function combining symbolic mathematics extraction via SymPy with XML tag schema enforcement. The second tab configures and launches Hugging Face TRL's <code>GRPOTrainer</code> with native vLLM acceleration. The third tab demonstrates how distributed frameworks (such as verl or OpenRLHF) synchronize weights across GPU memory buffers.</p>
+<codetabs>
+<tab label="Verifiable Reward Function" lang="python">
+import re
+from typing import List, Dict, Any
+from sympy import simplify
+from sympy.parsing.latex import parse_latex
+
+def extract_boxed_answer(text: str) -> str:
+    """Extract final answer from \\boxed{...} or return empty string."""
+    matches = re.findall(r"\\boxed\{([^{}]+)\}", text)
+    return matches[-1].strip() if matches else ""
+
+def math_accuracy_reward(prompts: List[Any], completions: List[Any], ground_truths: List[str], **kwargs) -> List[float]:
+    """Verifiable reward: evaluates symbolic equivalence against ground truth."""
+    rewards = []
+    for comp, target in zip(completions, ground_truths):
+        # Extract response text if wrapped in message dicts
+        comp_text = comp[0]["content"] if isinstance(comp, list) else str(comp)
+        cand = extract_boxed_answer(comp_text)
+        if not cand:
+            rewards.append(0.0)
+            continue
+        try:
+            # Symbolic equivalence check using SymPy
+            expr_cand = parse_latex(cand)
+            expr_target = parse_latex(target)
+            if simplify(expr_cand - expr_target) == 0:
+                rewards.append(1.0)
+            else:
+                rewards.append(0.0)
+        except Exception:
+            # Fall back to normalized string equality if non-algebraic
+            rewards.append(1.0 if cand.strip().lower() == target.strip().lower() else 0.0)
+    return rewards
+
+def format_xml_reward(completions: List[Any], **kwargs) -> List[float]:
+    """Format reward: enforces exactly one <think>...</think> block."""
+    rewards = []
+    for comp in completions:
+        comp_text = comp[0]["content"] if isinstance(comp, list) else str(comp)
+        th_open = comp_text.count("<think>")
+        th_close = comp_text.count("</think>")
+        # Strict validation: exactly one balanced thinking block
+        if th_open == 1 and th_close == 1 and comp_text.find("<think>") < comp_text.find("</think>"):
+            rewards.append(0.5)
+        else:
+            rewards.append(0.0)
+    return rewards
+</tab>
+<tab label="TRL GRPOTrainer" lang="python">
+import torch
+from datasets import Dataset
+from trl import GRPOConfig, GRPOTrainer
+
+# 1. Prepare dataset with prompts and verifiable ground truth answers
+data = {
+    "prompt": [
+        "Solve for x: 3*x + 7 = 22. Present reasoning in <think>...</think> and final answer in \\boxed{}.",
+        "What is the derivative of x^3 - 4*x with respect to x? Use \\boxed{} for answer.",
+    ],
+    "ground_truths": ["5", "3*x^2 - 4"],
+}
+train_dataset = Dataset.from_dict(data)
+
+# 2. Configure GRPO with vLLM acceleration and memory limits
+training_args = GRPOConfig(
+    output_dir="./grpo_output",
+    learning_rate=1e-6,
+    per_device_train_batch_size=1,
+    gradient_accumulation_steps=4,
+    num_generations=8,               # Group size G: samples per prompt
+    max_prompt_length=512,
+    max_completion_length=1024,
+    beta=0.04,                       # KL divergence penalty coefficient
+    epsilon=0.2,                     # PPO/GRPO clipping epsilon
+    # High-throughput rollout settings via vLLM
+    use_vllm=True,
+    vllm_gpu_memory_utilization=0.45,# Reserve 45% VRAM for vLLM KV cache
+    logging_steps=1,
+    bf16=True,
+    save_strategy="steps",
+    save_steps=100,
+)
+
+# 3. Pass policy model and programmatic reward functions
+# GRPOTrainer automatically computes group mean and std to evaluate advantages
+trainer = GRPOTrainer(
+    model="meta-llama/Llama-3.1-8B-Instruct",
+    reward_funcs=[math_accuracy_reward, format_xml_reward],
+    args=training_args,
+    train_dataset=train_dataset,
+)
+
+# 4. Execute online RL loop
+# trainer.train()
+</tab>
+<tab label="Weight Synchronization" lang="python">
+import torch
+import torch.distributed as dist
+
+def sync_weights_trainer_to_vllm(actor_model: torch.nn.Module, vllm_engine, is_distributed: bool = False):
+    """Synchronize updated weights from PyTorch training policy into vLLM engine."""
+    with torch.no_grad():
+        if not is_distributed:
+            # Colocated mode: in-memory parameter tensor copy
+            # Access vLLM internal model runner weights
+            state_dict = actor_model.state_dict()
+            for name, param in vllm_engine.model.named_parameters():
+                if name in state_dict:
+                    param.copy_(state_dict[name])
+        else:
+            # Distributed disaggregated mode: broadcast across process group
+            for param in actor_model.parameters():
+                dist.broadcast(param.data, src=0)
+    # Clear CUDA cache to prevent memory allocator fragmentation
+    torch.cuda.empty_cache()
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Rule-based vs model-based hybrid RL</strong>: How DeepSeek-R1 blends rule-based accuracy rewards for reasoning with standard preference reward models for safety, formatting, and tone alignment in late training stages.</li>
+<li><strong>Process Supervision (PRMs)</strong>: Comparing outcome rewards (scoring only the final answer) with Process Reward Models that score individual reasoning steps, and why outcome rewards with search often outperform noisy step-level models.</li>
+<li><strong>Negative sampling and advantage clipping</strong>: Handling the edge case where all <tex>G</tex> completions fail (<tex>r_i = 0</tex> for all <tex>i</tex>). When variance is zero, advantages collapse to zero and provide no training signal, wasting rollout compute.</li>
+<li><strong>Off-policy correction in online RL</strong>: Using importance sampling weights when the rollout generation policy drifts slightly behind the active optimizer parameters due to asynchronous pipeline execution.</li>
+<li><strong>Colocated vs disaggregated serving economics</strong>: Why disaggregating rollout generation onto dedicated inference nodes (optimized for continuous batching) and training onto high-bandwidth FSDP clusters maximizes overall hardware utilization.</li>
+<li><strong>Liger Kernel optimizations for GRPO</strong>: Using chunked cross-entropy and fused RMSNorm kernels to drop peak forward/backward memory during long-context policy updates [13].</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="026-summary.png" caption="Verifiable rewards and GRPO summary" optional="1">Mind map summarizing verifiable rewards and GRPO: programmatic verifiers, the GRPO algorithm, memory savings from critic elimination, reasoning emergence in DeepSeek-R1, and the systems rollout bottleneck.</fig>
+<ul>
+<li>Verifiable rewards evaluate model outputs using deterministic programs—SymPy math solvers, unit test harnesses, and compilers—eliminating neural reward model drift and reward hacking on objective tasks.</li>
+<li>Group Relative Policy Optimization (GRPO) samples a group of <tex>G</tex> completions per prompt and calculates relative advantages by standardizing rewards against the group mean and standard deviation.</li>
+<li>By eliminating the parameterized value network (critic), GRPO saves 16 bytes per parameter of AdamW states (128.5 GB for an 8B model), cutting static training memory by 50% compared to PPO.</li>
+<li>DeepSeek-R1-Zero proved that reasoning behaviors (self-reflection, backtracking, "aha moments") emerge naturally from pure RL with verifiable rewards, driving dramatic accuracy gains while expanding output token lengths.</li>
+<li>Rollout generation is memory-bandwidth bound and dominates 70% to 90% of RL wall-clock time, requiring high-throughput engines (vLLM) with PagedAttention and low-latency NVLink weight synchronization.</li>
+<li>Verifiable RL is optimal for formal mathematics, competitive programming, and structured tool calling where solutions can be executed and tested automatically.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Schulman et al. Proximal Policy Optimization Algorithms. <a href="https://arxiv.org/abs/1707.06347" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1707.06347</a>.<br>
+[2] Gao et al. Scaling Laws for Reward Model Overoptimization. <a href="https://arxiv.org/abs/2210.10760" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2210.10760</a>.<br>
+[3] Uesato et al. Solving Math Word Problems with Process- and Outcome-Based Feedback. <a href="https://arxiv.org/abs/2211.14275" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.14275</a>.<br>
+[4] Shao et al. DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models. <a href="https://arxiv.org/abs/2402.03300" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2402.03300</a>.<br>
+[5] DeepSeek-AI. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning. <a href="https://arxiv.org/abs/2501.12948" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2501.12948</a>.<br>
+[6] Schulman et al. High-Dimensional Continuous Control Using Generalized Advantage Estimation. <a href="https://arxiv.org/abs/1506.02438" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1506.02438</a>.<br>
+[7] Schulman. Approximating KL Divergence. <a href="http://joschu.net/blog/kl-approx.html" rel="noopener noreferrer" target="_blank">http://joschu.net/blog/kl-approx.html</a>.<br>
+[8] Ouyang et al. Training Language Models to Follow Instructions with Human Feedback. <a href="https://arxiv.org/abs/2203.02155" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2203.02155</a>.<br>
+[9] Snell et al. Scaling LLM Test-Time Compute Optimally can be More Effective than Scaling Model Parameters. <a href="https://arxiv.org/abs/2408.03314" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2408.03314</a>.<br>
+[10] Kwon et al. Efficient Memory Management for Large Language Model Serving with PagedAttention. <a href="https://arxiv.org/abs/2309.06180" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.06180</a>.<br>
+[11] Sheng et al. HybridFlow: A Flexible and Efficient RLHF Framework. <a href="https://arxiv.org/abs/2409.19256" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2409.19256</a>.<br>
+[12] Hu et al. OpenRLHF: An Easy-to-use, Scalable and High-performance RLHF Framework. <a href="https://arxiv.org/abs/2405.11143" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2405.11143</a>.<br>
+[13] Hugging Face TRL documentation: GRPOTrainer. <a href="https://huggingface.co/docs/trl/main/en/grpo_trainer" rel="noopener noreferrer" target="_blank">https://huggingface.co/docs/trl/main/en/grpo_trainer</a>.</p>

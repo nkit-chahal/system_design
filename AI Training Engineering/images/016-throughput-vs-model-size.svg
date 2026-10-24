@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="370" viewBox="0 0 820 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .axis{stroke:#333;stroke-width:1.2;fill:none}
+    .grid{stroke:#eee;stroke-width:1;stroke-dasharray:3 3}
+    .limit{stroke:#c00;stroke-width:1.2;stroke-dasharray:4 4}
+    .ddp-line{stroke:#1c4587;stroke-width:2.5;fill:none}
+    .fsdp-line{stroke:#d79b00;stroke-width:2.5;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Throughput vs Model Scale: DDP vs FSDP (8×H100 Node)</text>
+  <text x="25" y="46" class="sm" fill="#555">Tokens/s per GPU across model sizes (illustrative expected scaling curves)</text>
+
+  <!-- Legend in top-right with comfortable margins -->
+  <g transform="translate(560, 24)">
+    <line x1="0" y1="8" x2="20" y2="8" class="ddp-line"/>
+    <text x="26" y="12" class="sm">DDP</text>
+    <line x1="90" y1="8" x2="110" y2="8" class="fsdp-line"/>
+    <text x="116" y="12" class="sm">FSDP2</text>
+  </g>
+
+  <!-- Chart Area: x from 80 to 520 (width 440), y from 75 to 290 (height 215) -->
+  <!-- Y-axis: 0 to 5,000 tok/s. Scale: 215 / 5000 = 0.043 px per tok/s -->
+  <!-- 0 -> y 290 -->
+  <!-- 1,000 -> y 247 -->
+  <!-- 2,000 -> y 204 -->
+  <!-- 3,000 -> y 161 -->
+  <!-- 4,000 -> y 118 -->
+  <!-- 5,000 -> y 75 -->
+
+  <!-- Horizontal Grid Lines & Y Ticks -->
+  <line x1="80" y1="290" x2="520" y2="290" class="axis"/>
+  <text x="70" y="294" text-anchor="end" class="sm">0</text>
+
+  <line x1="80" y1="247" x2="520" y2="247" class="grid"/>
+  <text x="70" y="251" text-anchor="end" class="sm">1,000</text>
+
+  <line x1="80" y1="204" x2="520" y2="204" class="grid"/>
+  <text x="70" y="208" text-anchor="end" class="sm">2,000</text>
+
+  <line x1="80" y1="161" x2="520" y2="161" class="grid"/>
+  <text x="70" y="165" text-anchor="end" class="sm">3,000</text>
+
+  <line x1="80" y1="118" x2="520" y2="118" class="grid"/>
+  <text x="70" y="122" text-anchor="end" class="sm">4,000</text>
+
+  <line x1="80" y1="75" x2="520" y2="75" class="grid"/>
+  <text x="70" y="79" text-anchor="end" class="sm">5,000</text>
+
+  <!-- Y-axis line -->
+  <line x1="80" y1="65" x2="80" y2="290" class="axis"/>
+
+  <!-- X-axis Ticks -->
+  <!-- 350M: x 120; 1B: x 220; 3B: x 340; 8B: x 480 -->
+  <line x1="120" y1="290" x2="120" y2="295" class="axis"/>
+  <text x="120" y="310" text-anchor="middle" class="sm">350M</text>
+
+  <line x1="220" y1="290" x2="220" y2="295" class="axis"/>
+  <text x="220" y="310" text-anchor="middle" class="sm">1B</text>
+
+  <line x1="340" y1="290" x2="340" y2="295" class="axis"/>
+  <text x="340" y="310" text-anchor="middle" class="sm">3B</text>
+
+  <line x1="480" y1="290" x2="480" y2="295" class="axis"/>
+  <text x="480" y="310" text-anchor="middle" class="sm">8B (Llama 3)</text>
+
+  <!-- DDP OOM Cliff vertical dashed line at ~5B (x = 420) -->
+  <line x1="420" y1="75" x2="420" y2="290" class="limit"/>
+  <text x="425" y="100" class="sm b" fill="#c00">DDP OOM Cliff (~5B)</text>
+
+  <!-- DDP Curve (Blue line) -->
+  <path d="M120,96.5 L220,186.8 L340,251.3 L420,290" class="ddp-line"/>
+  <circle cx="120" cy="96.5" r="4" fill="#1c4587"/>
+  <circle cx="220" cy="186.8" r="4" fill="#1c4587"/>
+  <circle cx="340" cy="251.3" r="4" fill="#1c4587"/>
+
+  <!-- FSDP Curve (Orange line) -->
+  <path d="M120,126.6 L220,193.2 L340,238.4 L480,267.6" class="fsdp-line"/>
+  <circle cx="120" cy="126.6" r="4" fill="#d79b00"/>
+  <circle cx="220" cy="193.2" r="4" fill="#d79b00"/>
+  <circle cx="340" cy="238.4" r="4" fill="#d79b00"/>
+  <circle cx="480" cy="267.6" r="4" fill="#d79b00"/>
+  <text x="490" y="265" class="sm b" fill="#b45f06">520 tok/s</text>
+
+  <!-- Side Explanatory Card -->
+  <rect x="555" y="80" width="245" height="195" rx="6" fill="#f5f5f5" stroke="#ccc" stroke-width="1"/>
+  <text x="568" y="105" class="b">Three Scaling Regimes:</text>
+
+  <text x="568" y="128" class="sm b" fill="#1c4587">1. Small Models (&lt; 1B):</text>
+  <text x="578" y="144" class="sm">DDP wins by ~15% due to</text>
+  <text x="578" y="158" class="sm">zero forward all-gather overhead.</text>
+
+  <text x="568" y="180" class="sm b" fill="#d79b00">2. Medium Models (1B–3B):</text>
+  <text x="578" y="196" class="sm">FSDP matches/beats DDP by</text>
+  <text x="578" y="210" class="sm">enabling larger micro-batches.</text>
+
+  <text x="568" y="232" class="sm b" fill="#c00">3. Large Models (&gt; 5B):</text>
+  <text x="578" y="248" class="sm">DDP fails with OOM.</text>
+  <text x="578" y="262" class="sm">FSDP is strictly mandatory.</text>
+
+  <!-- Bottom Annotation Bar -->
+  <rect x="25" y="325" width="770" height="35" rx="4" class="white"/>
+  <text x="35" y="347" class="sm"><tspan class="b">Takeaway:</tspan> Use DDP for small models that easily fit; transition to FSDP when model states crowd out batch activations.</text>
+</svg>

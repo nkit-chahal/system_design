@@ -1,0 +1,6 @@
+center: DDP vs FSDP Comparison
+branch: Memory Scaling | ddp replicates sixteen bytes | fsdp shards across ranks | enables eight b training
+branch: Communication Tradeoff | ddp all reduce in backward | fsdp fifty percent more | nvlink hides fsdp gathers
+branch: Runtime Profiling | torch profiler chrome tracing | nccl kernel stream overlap | identifies communication stalls
+branch: Small Path Execution | two gpus on three fifty m | single gpu measurement limits | torchrun multi process launch
+branch: Critical Pitfalls | block level wrapping mandatory | mixed precision policy matching | avoid premature reduce scatter

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Connecting Theory to Dashboards: The Tokens/sec/GPU Metric</text>
+  <text x="25" y="48" class="sm" fill="#555">The mathematical bridge between theoretical MFU and observable cluster telemetry</text>
+
+  <!-- Formula Container -->
+  <rect x="25" y="68" width="770" height="88" rx="6" class="blue"/>
+  <text x="40" y="93" class="b">Core Conversion Formula:</text>
+  <text x="40" y="118" class="title" fill="#0b5394">Tokens / sec / GPU = ( MFU × Hardware Peak FLOPS ) / ( 6 × Parameters )</text>
+  <text x="40" y="142" class="sm" fill="#333">Inverted to monitor MFU: MFU = ( Observed Tokens/sec/GPU × 6 × N ) / Hardware Peak FLOPS</text>
+
+  <!-- Running Scenario Evaluation (3 Panels) -->
+  <!-- Panel 1: Peak FLOPS -->
+  <rect x="25" y="170" width="240" height="92" rx="6" class="purple"/>
+  <text x="40" y="194" class="b">NVIDIA H100 SXM</text>
+  <text x="40" y="214" class="sm">• Peak BF16: 989 TFLOPS</text>
+  <text x="40" y="232" class="sm">• Target MFU: 40% (0.40)</text>
+  <text x="40" y="250" class="sm b" fill="#4a154b">Effective: 395.6 TFLOPS</text>
+
+  <!-- Panel 2: Model Cost -->
+  <rect x="285" y="170" width="240" height="92" rx="6" class="yellow"/>
+  <text x="300" y="194" class="b">Llama 3.1 8B Model</text>
+  <text x="300" y="214" class="sm">• Parameters N: 8.03 Billion</text>
+  <text x="300" y="232" class="sm">• 6N FLOPs: 48.18 GFLOPs</text>
+  <text x="300" y="250" class="sm b" fill="#7f6000">Divisor: 4.818e10 FLOPs</text>
+
+  <!-- Panel 3: Resulting Speed -->
+  <rect x="545" y="170" width="250" height="92" rx="6" class="green"/>
+  <text x="560" y="194" class="b">Cluster Telemetry</text>
+  <text x="560" y="214" class="sm">• Single GPU: <tspan class="b" fill="#274e13">8,211 tok/s</tspan></text>
+  <text x="560" y="232" class="sm">• 256 GPUs: <tspan class="b" fill="#274e13">2,102,000 tok/s</tspan></text>
+  <text x="560" y="250" class="sm">Paces 1T tokens in 5.5 days</text>
+
+  <!-- Footer Tip -->
+  <rect x="25" y="274" width="770" height="52" rx="6" class="gray"/>
+  <text x="40" y="295" class="b">Operational Tip:</text>
+  <text x="40" y="313" class="sm">Engineers monitor tokens/sec on Grafana dashboards in real time because it directly flags node degradation.</text>
+</svg>

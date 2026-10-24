@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">LoRA Variants: DoRA, LoRA+, and rsLoRA</text>
+  <text x="25" y="48" class="sm" fill="#555">Architectural and algorithmic refinements to overcome standard LoRA's capacity and optimization limits</text>
+
+  <!-- 3 Columns for 3 Variants -->
+  <!-- Col 1: DoRA -->
+  <rect x="25" y="65" width="245" height="225" rx="6" class="gray"/>
+  <rect x="35" y="75" width="225" height="32" rx="4" class="orange"/>
+  <text x="147" y="96" text-anchor="middle" class="b">DoRA (Liu et al. 2024)</text>
+
+  <text x="35" y="125" class="b sm">Weight Decomposition:</text>
+  <text x="35" y="145" class="sm">W = m * (V / ||V||_c)</text>
+  <text x="35" y="165" class="sm">where V = W0 + (alpha/r)*B*A</text>
+  <text x="35" y="185" class="sm">• m: trainable magnitude vector</text>
+  <text x="35" y="205" class="sm">• V: direction trained via LoRA</text>
+  <rect x="35" y="222" width="225" height="58" rx="4" class="white"/>
+  <text x="147" y="242" text-anchor="middle" class="sm b">Bridges Full Fine-Tuning Gap</text>
+  <text x="147" y="260" text-anchor="middle" class="sm">Merges back with 0 inference cost</text>
+
+  <!-- Col 2: LoRA+ -->
+  <rect x="288" y="65" width="245" height="225" rx="6" class="gray"/>
+  <rect x="298" y="75" width="225" height="32" rx="4" class="purple"/>
+  <text x="410" y="96" text-anchor="middle" class="b">LoRA+ (Hayou et al. 2024)</text>
+
+  <text x="298" y="125" class="b sm">Asymmetric Learning Rates:</text>
+  <text x="298" y="145" class="sm">lr(B) = lambda * lr(A)</text>
+  <text x="298" y="165" class="sm">where lambda = 16 to 32</text>
+  <text x="298" y="185" class="sm">• Fixes slow feature learning in B</text>
+  <text x="298" y="205" class="sm">• Matrix A learns input subspace</text>
+  <rect x="298" y="222" width="225" height="58" rx="4" class="white"/>
+  <text x="410" y="242" text-anchor="middle" class="sm b">~2x Faster Convergence</text>
+  <text x="410" y="260" text-anchor="middle" class="sm">Zero parameter or memory overhead</text>
+
+  <!-- Col 3: rsLoRA -->
+  <rect x="550" y="65" width="245" height="225" rx="6" class="gray"/>
+  <rect x="560" y="75" width="225" height="32" rx="4" class="blue"/>
+  <text x="672" y="96" text-anchor="middle" class="b">rsLoRA (Kalajdzievski 2023)</text>
+
+  <text x="560" y="125" class="b sm">Rank-Stabilized Scaling:</text>
+  <text x="560" y="145" class="sm">Scale = alpha / sqrt(r)</text>
+  <text x="560" y="165" class="sm">instead of alpha / r</text>
+  <text x="560" y="185" class="sm">• Prevents gradient collapse as</text>
+  <text x="560" y="205" class="sm">  rank r scales to 64 or 256</text>
+  <rect x="560" y="222" width="225" height="58" rx="4" class="white"/>
+  <text x="672" y="242" text-anchor="middle" class="sm b">Enables High-Rank Scaling</text>
+  <text x="672" y="260" text-anchor="middle" class="sm">Higher r now yields higher accuracy</text>
+
+  <!-- Footer Banner -->
+  <rect x="25" y="302" width="770" height="36" rx="4" class="green"/>
+  <text x="410" y="325" text-anchor="middle" class="b">All three variants merge into base weights at inference time, retaining identical serving throughput</text>
+</svg>

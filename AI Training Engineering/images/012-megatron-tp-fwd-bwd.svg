@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="380" viewBox="0 0 820 380" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .lg { font-size: 16px; }
+    .b { font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .yellow { fill: #fff2cc; stroke: #d6b656; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #000; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="410" y="24" text-anchor="middle" class="lg b">Megatron-LM Tensor Parallelism: Forward and Backward Communication</text>
+
+  <!-- Left: Self-Attention Layer -->
+  <rect x="30" y="45" width="365" height="275" rx="6" class="gray"/>
+  <text x="212" y="68" text-anchor="middle" class="b">Self-Attention Layer (Column + Row)</text>
+
+  <!-- QKV Column Parallel -->
+  <rect x="50" y="80" width="325" height="42" rx="3" class="orange"/>
+  <text x="212" y="98" text-anchor="middle" class="sm b">Q, K, V Projections (ColumnParallel)</text>
+  <text x="212" y="114" text-anchor="middle" class="sm">Fwd: Local matmul (no comm) | Bwd: All-Reduce (dL/dX)</text>
+
+  <!-- Attention Core -->
+  <rect x="50" y="132" width="325" height="32" rx="3" class="white"/>
+  <text x="212" y="152" text-anchor="middle" class="sm">Local Attention: softmax(Q_i * K_i^T) * V_i</text>
+
+  <!-- Out Row Parallel -->
+  <rect x="50" y="174" width="325" height="42" rx="3" class="blue"/>
+  <text x="212" y="192" text-anchor="middle" class="sm b">Out Projection W_O (RowParallel)</text>
+  <text x="212" y="208" text-anchor="middle" class="sm">Fwd: All-Reduce (sum Y_i) | Bwd: Local matmul (no comm)</text>
+
+  <!-- Communication Summary for Attention -->
+  <rect x="50" y="226" width="325" height="80" rx="3" class="purple"/>
+  <text x="212" y="246" text-anchor="middle" class="sm b">Attention Collectives (per step):</text>
+  <text x="212" y="264" text-anchor="middle" class="sm">* Forward: 1 All-Reduce (shape: [s, b, h])</text>
+  <text x="212" y="282" text-anchor="middle" class="sm">* Backward: 1 All-Reduce (shape: [s, b, h])</text>
+  <text x="212" y="299" text-anchor="middle" class="sm b">Subtotal: 2 All-Reduces</text>
+
+  <!-- Right: MLP Layer -->
+  <rect x="425" y="45" width="365" height="275" rx="6" class="gray"/>
+  <text x="607" y="68" text-anchor="middle" class="b">MLP / SwiGLU Layer (Column + Row)</text>
+
+  <!-- Gate & Up Column Parallel -->
+  <rect x="445" y="80" width="325" height="42" rx="3" class="orange"/>
+  <text x="607" y="98" text-anchor="middle" class="sm b">Gate &amp; Up Projections (ColumnParallel)</text>
+  <text x="607" y="114" text-anchor="middle" class="sm">Fwd: Local matmul (no comm) | Bwd: All-Reduce (dL/dX)</text>
+
+  <!-- Activation elementwise -->
+  <rect x="445" y="132" width="325" height="32" rx="3" class="white"/>
+  <text x="607" y="152" text-anchor="middle" class="sm">Elementwise: silu(Gate_i) * Up_i</text>
+
+  <!-- Down Row Parallel -->
+  <rect x="445" y="174" width="325" height="42" rx="3" class="blue"/>
+  <text x="607" y="192" text-anchor="middle" class="sm b">Down Projection W_Down (RowParallel)</text>
+  <text x="607" y="208" text-anchor="middle" class="sm">Fwd: All-Reduce (sum Z_i) | Bwd: Local matmul (no comm)</text>
+
+  <!-- Communication Summary for MLP -->
+  <rect x="445" y="226" width="325" height="80" rx="3" class="purple"/>
+  <text x="607" y="246" text-anchor="middle" class="sm b">MLP Collectives (per step):</text>
+  <text x="607" y="264" text-anchor="middle" class="sm">* Forward: 1 All-Reduce (shape: [s, b, h])</text>
+  <text x="607" y="282" text-anchor="middle" class="sm">* Backward: 1 All-Reduce (shape: [s, b, h])</text>
+  <text x="607" y="299" text-anchor="middle" class="sm b">Subtotal: 2 All-Reduces</text>
+
+  <!-- Bottom Total Callout -->
+  <rect x="30" y="330" width="760" height="40" rx="4" class="yellow"/>
+  <text x="410" y="348" text-anchor="middle" class="b">Total TP Communication = 4 All-Reduces per Layer per Step (2 Forward + 2 Backward)</text>
+  <text x="410" y="364" text-anchor="middle" class="sm">For Llama 3.1 8B (32 layers): 128 All-Reduces per step | For 70B (80 layers): 320 All-Reduces per step</text>
+</svg>

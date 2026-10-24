@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .axis{stroke:#000;stroke-width:1.5;marker-end:url(#arrow)}
+    .grid{stroke:#eee;stroke-width:1;stroke-dasharray:3 3}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">SFT Evaluation Dynamics: Capability Gain vs Forgetting (Illustrative)</text>
+  <text x="25" y="48" class="sm" fill="#555">Domain instruction tuning rapidly converges while complex base capabilities risk decay past epoch 2</text>
+
+  <!-- Axes: Origin (90, 260) -->
+  <line x1="90" y1="260" x2="480" y2="260" class="axis"/>
+  <line x1="90" y1="260" x2="90" y2="85" class="axis"/>
+
+  <!-- Axis Labels -->
+  <text x="285" y="305" text-anchor="middle" class="sm b">Fine-Tuning Epochs (Customer Support Data)</text>
+  <text x="35" y="170" text-anchor="middle" class="sm b" transform="rotate(-90 35,170)">Evaluation Accuracy (%)</text>
+
+  <!-- Grid lines -->
+  <line x1="90" y1="215" x2="440" y2="215" class="grid"/>
+  <line x1="90" y1="170" x2="440" y2="170" class="grid"/>
+  <line x1="90" y1="125" x2="440" y2="125" class="grid"/>
+  <line x1="200" y1="260" x2="200" y2="95" class="grid"/>
+  <line x1="310" y1="260" x2="310" y2="95" class="grid"/>
+  <line x1="420" y1="260" x2="420" y2="95" class="grid"/>
+
+  <!-- X-ticks -->
+  <text x="90" y="280" text-anchor="middle" class="sm">0</text>
+  <text x="200" y="280" text-anchor="middle" class="sm">Epoch 1</text>
+  <text x="310" y="280" text-anchor="middle" class="sm">Epoch 2</text>
+  <text x="420" y="280" text-anchor="middle" class="sm">Epoch 4</text>
+
+  <!-- Curves -->
+  <!-- Curve 1: Support Task Compliancy (rises rapidly) -> Green -->
+  <path d="M 100 240 Q 180 130 430 105" fill="none" stroke="#274e13" stroke-width="2.5"/>
+  <text x="435" y="108" class="sm b" fill="#274e13">Support Task (94%)</text>
+
+  <!-- Curve 2: MMLU General Knowledge (flat / gentle dip) -> Blue -->
+  <path d="M 100 150 Q 250 152 430 160" fill="none" stroke="#1c4587" stroke-width="2" stroke-dasharray="6 3"/>
+  <text x="435" y="163" class="sm b" fill="#1c4587">MMLU Knowledge (68%)</text>
+
+  <!-- Curve 3: GSM8k Multi-step Math (drops sharply past epoch 2) -> Red -->
+  <path d="M 100 165 Q 260 170 320 185 Q 380 215 430 245" fill="none" stroke="#c00000" stroke-width="2.5"/>
+  <text x="435" y="248" class="sm b" fill="#c00000">GSM8K Math (Forgetting)</text>
+
+  <!-- Side Explanatory Card -->
+  <rect x="565" y="70" width="230" height="235" rx="6" class="gray"/>
+  <text x="580" y="95" class="b">Forgetting Mechanisms</text>
+
+  <rect x="580" y="110" width="200" height="46" rx="4" class="green"/>
+  <text x="590" y="128" class="sm b">Epochs 1 to 2:</text>
+  <text x="590" y="145" class="sm">Optimal format compliance</text>
+
+  <rect x="580" y="165" width="200" height="46" rx="4" class="blue"/>
+  <text x="590" y="183" class="sm b">Pretraining Replay:</text>
+  <text x="590" y="200" class="sm">Mix 5%–10% base data</text>
+
+  <rect x="580" y="220" width="200" height="65" rx="4" class="red"/>
+  <text x="590" y="238" class="sm b">Beyond Epoch 2:</text>
+  <text x="590" y="255" class="sm">Weight drift erodes math</text>
+  <text x="590" y="271" class="sm">&amp; code induction heads</text>
+</svg>

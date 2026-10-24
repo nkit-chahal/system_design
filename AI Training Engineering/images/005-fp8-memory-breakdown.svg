@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="25" class="title">Memory Effects of FP8: Why Static Savings Are Modest</text>
+  <text x="25" y="45" class="sm" fill="#555">State accounting across precisions: FP32 master weights and optimizer states continue to dominate HBM</text>
+
+  <!-- Bar 1: Standard BF16 (16 Bytes) -->
+  <text x="25" y="78" class="sm b">Standard BF16: 16 Bytes / param (128.5 GB total --&gt; 16.1 GB per GPU in 8-way FSDP)</text>
+  <!-- 750px total: 46.8px/byte -->
+  <rect x="25" y="85" width="94" height="34" class="orange"/>
+  <text x="72" y="106" text-anchor="middle" class="sm b">W: 2B</text>
+  <rect x="119" y="85" width="94" height="34" class="yellow"/>
+  <text x="166" y="106" text-anchor="middle" class="sm b">G: 2B</text>
+  <rect x="213" y="85" width="187" height="34" class="blue"/>
+  <text x="306" y="106" text-anchor="middle" class="sm b">Master W: 4B (FP32)</text>
+  <rect x="400" y="85" width="375" height="34" class="purple"/>
+  <text x="587" y="106" text-anchor="middle" class="sm b">Adam States (m + v): 8B (FP32)</text>
+
+  <!-- Bar 2: FP8 Weights + BF16 Gradients (15 Bytes) -->
+  <text x="25" y="145" class="sm b">FP8 Weights + BF16 Grads: 15 Bytes / param (120.5 GB total --&gt; 15.1 GB per GPU in 8-way FSDP)</text>
+  <rect x="25" y="152" width="47" height="34" class="green"/>
+  <text x="48" y="173" text-anchor="middle" class="sm b">W: 1B</text>
+  <rect x="72" y="152" width="94" height="34" class="yellow"/>
+  <text x="119" y="173" text-anchor="middle" class="sm b">G: 2B</text>
+  <rect x="166" y="152" width="187" height="34" class="blue"/>
+  <text x="259" y="173" text-anchor="middle" class="sm b">Master W: 4B (FP32)</text>
+  <rect x="353" y="152" width="375" height="34" class="purple"/>
+  <text x="540" y="173" text-anchor="middle" class="sm b">Adam States (m + v): 8B (FP32)</text>
+  <rect x="728" y="152" width="47" height="34" class="gray"/>
+  <text x="751" y="173" text-anchor="middle" class="sm" fill="#888">-1B</text>
+
+  <!-- Bar 3: FP8 Weights + FP8 Gradients (14 Bytes) -->
+  <text x="25" y="212" class="sm b">FP8 Weights + FP8 Grads: 14 Bytes / param (112.4 GB total --&gt; 14.1 GB per GPU in 8-way FSDP)</text>
+  <rect x="25" y="219" width="47" height="34" class="green"/>
+  <text x="48" y="240" text-anchor="middle" class="sm b">W: 1B</text>
+  <rect x="72" y="219" width="47" height="34" class="green"/>
+  <text x="95" y="240" text-anchor="middle" class="sm b">G: 1B</text>
+  <rect x="119" y="219" width="187" height="34" class="blue"/>
+  <text x="212" y="240" text-anchor="middle" class="sm b">Master W: 4B (FP32)</text>
+  <rect x="306" y="219" width="375" height="34" class="purple"/>
+  <text x="493" y="240" text-anchor="middle" class="sm b">Adam States (m + v): 8B (FP32)</text>
+  <rect x="681" y="219" width="94" height="34" class="gray"/>
+  <text x="728" y="240" text-anchor="middle" class="sm" fill="#888">-2B Saved</text>
+
+  <!-- Bottom Takeaway Banner -->
+  <rect x="25" y="268" width="750" height="48" rx="4" class="gray"/>
+  <text x="400" y="297" text-anchor="middle" class="sm b">Core Takeaway: FP8 saves only 2 GB per GPU under FSDP. The real benefit is compute throughput, not static memory!</text>
+</svg>

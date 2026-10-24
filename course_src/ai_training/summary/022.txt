@@ -1,0 +1,7 @@
+center: Supervised Fine-Tuning
+branch: Alignment Objectives | superficial alignment hypothesis | conversational format and style | cannot inject deep skills
+branch: Data Formatting | chat templates and tokens | assistant only loss masking | label minus one hundred
+branch: Sequence Handling | sequence packing versus padding | cross contamination masking | flash attention varlen
+branch: Verified Recipes | tulu three recipe | five times ten minus six | one to two epochs
+branch: Node Accounting | twenty five minutes training | sixteen gb states per gpu | ten dollars compute cost
+branch: Forgetting Defenses | continuous benchmark auditing | pretraining data replay | low learning rate bounds

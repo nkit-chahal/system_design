@@ -1,0 +1,492 @@
+<h2>Introduction</h2>
+<p>Pretraining teaches a model grammar, facts, and statistical representations of the world. However, a raw pretrained base model remains an autocomplete engine: given a question, it frequently responds by generating more questions, continuing an imaginary forum thread, or hallucinating conversational turns. Transforming a base model into a reliable production assistant requires a two-stage post-training pipeline: <strong>Supervised Fine-Tuning (SFT)</strong> to teach instruction following and formatting, followed by <strong>Direct Preference Optimization (DPO)</strong> to align responses with human preferences, tone, and safety constraints [1][2].</p>
+<p>In this lab, we build an end-to-end post-training pipeline using <strong>Low-Rank Adaptation (LoRA)</strong> [3]. We take a base instruct model, fine-tune it on conversation data with <strong>assistant-only loss masking</strong> (computing gradients strictly on assistant responses rather than user prompts), and then optimize the resulting adapter against pairwise preference pairs using DPO. Finally, we evaluate the models with an automated pairwise win-rate judge, merge the adapter parameters directly into the base weights, and serve the resulting artifact behind a high-throughput vLLM engine. Figure 1 illustrates the workflow.</p>
+<fig src="027-lab-pipeline-overview.svg" caption="End-to-end post-training pipeline: LoRA SFT followed by LoRA DPO">The two-stage post-training pipeline: Step 1 evaluates baseline instruct completions. Step 2 trains a LoRA adapter using SFT with assistant-only loss masking. Step 3 validates SFT formatting. Step 4 optimizes the adapter using DPO against pairwise chosen and rejected responses. Step 5 benchmarks win rates with an automated judge. Step 6 merges the adapter into the base weights for zero-overhead serving in vLLM.</fig>
+<p>We provide two parallel paths: a <strong>small path</strong> that trains a 0.5B to 1.5B parameter model (such as Qwen2.5-0.5B-Instruct or Qwen2.5-1.5B-Instruct) on a single consumer GPU or free Colab instance within 16 GB VRAM, and a <strong>full path</strong> that trains Llama 3.1 8B on an enterprise 8×H100 node matching our course's running post-training scenario.</p>
+
+<h2>What You Need</h2>
+<p>Table 1 summarizes the hardware, software, models, and public datasets for both paths. Both paths use the same Hugging Face TRL and PEFT software stack.</p>
+<table>
+<thead><tr><th>Requirement</th><th>Small Path (Consumer GPU / Colab)</th><th>Full Path (Enterprise Cloud Node)</th></tr></thead>
+<tbody>
+<tr><td>Hardware</td><td>1× NVIDIA GPU (16 GB VRAM: RTX 4080/4090, T4, or L4)</td><td>1× Node with 8× NVIDIA H100 80 GB SXM (NVLink 900 GB/s)</td></tr>
+<tr><td>Operating System</td><td>Linux, Windows 11 with WSL2, or Google Colab</td><td>Ubuntu 22.04 / 24.04 with NVIDIA CUDA 12.4+</td></tr>
+<tr><td>Software Stack</td><td>Python 3.11+, PyTorch 2.4+, TRL v0.12+, PEFT, vLLM</td><td>Same, with FlashAttention-2 and NCCL inter-GPU collectives</td></tr>
+<tr><td>Base Model</td><td><code>Qwen/Qwen2.5-0.5B-Instruct</code> or <code>1.5B-Instruct</code> (Apache 2.0)</td><td><code>meta-llama/Llama-3.1-8B-Instruct</code> (Llama 3.1 Community License)</td></tr>
+<tr><td>SFT Dataset</td><td><code>HuggingFaceTB/smoltalk</code> (Apache 2.0; 5,000 sample slice)</td><td>50,000 customer-support dialogues (~1,000 tokens each)</td></tr>
+<tr><td>DPO Dataset</td><td><code>HuggingFaceH4/ultrafeedback_binarized</code> (MIT; 2,500 pairs)</td><td>20,000 domain preference pairs (~1,200 tokens per pair)</td></tr>
+<tr><td>Wall-Clock Time</td><td>~45 minutes total</td><td>~3.5 hours total</td></tr>
+<tr><td>Estimated Cost</td><td>$0.00 (local hardware or free-tier cloud)</td><td>~$84.00 (assume $3.00 per H100-hour for 8 GPUs × 3.5 hrs)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Hardware and software specifications for the small and full paths. Cloud H100 pricing is an assumption.</p>
+
+<h2>Step 1: Baseline Evaluation on Held-Out Prompts</h2>
+<p>Before fine-tuning, we establish a performance baseline by evaluating the base model on a held-out test set of 200 customer-support prompts. We measure three baseline metrics: instruction adherence, verbosity (average completion token length), and formatting failure rate (such as failing to produce structured bullet points or clean sign-offs).</p>
+<p>The first tab installs the required dependencies in a fresh environment. The second tab loads the base model and generates baseline responses.</p>
+<codetabs>
+<tab label="Environment Setup" lang="bash">
+# Create virtual environment and install current post-training libraries
+python -m venv .venv-lab
+source .venv-lab/bin/activate  # On Windows PowerShell: .venv-lab\Scripts\Activate.ps1
+
+pip install --upgrade pip
+pip install "torch>=2.4.0" "transformers>=4.45.0" "datasets>=3.0.0"
+pip install "trl>=0.12.0" "peft>=0.13.0" "accelerate>=0.34.0" "bitsandbytes>=0.43.0"
+pip install vllm
+</tab>
+<tab label="baseline_eval.py" lang="python">
+import json
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"  # Full path: meta-llama/Llama-3.1-8B-Instruct
+TEST_PROMPTS = [
+    "A customer is asking for a refund on an annual subscription purchased 45 days ago. Our policy allows refunds only within 30 days. Draft a polite, firm refusal offering a 20% discount on renewal.",
+    "Explain how two-factor authentication works to an elderly user who has never used a smartphone before. Keep it under 100 words and avoid technical jargon.",
+]
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_ID,
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+)
+
+results = []
+for prompt in TEST_PROMPTS:
+    messages = [{"role": "user", "content": prompt}]
+    formatted_input = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    inputs = tokenizer(formatted_input, return_tensors="pt").to(model.device)
+    
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=256,
+            temperature=0.7,
+            top_p=0.9,
+            do_sample=True,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+    completion = tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+    results.append({"prompt": prompt, "baseline_completion": completion.strip()})
+
+with open("baseline_results.json", "w", encoding="utf-8") as f:
+    json.dump(results, f, indent=2)
+print(f"Generated {len(results)} baseline responses.")
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> The script outputs <code>baseline_results.json</code>. Inspecting the completions reveals that while the base instruct model generates coherent English, it tends to be generic, often omits policy constraints (such as the specific 20% renewal discount), or exceeds token length limits. This confirms the need for domain-specific fine-tuning.</p>
+
+<h2>Step 2: Supervised Fine-Tuning with Assistant-Only Loss</h2>
+<p>In standard pretraining language modeling, cross-entropy loss is computed uniformly across every token in the sequence. In multi-turn chat fine-tuning, however, <strong>calculating loss on prompt tokens is actively harmful</strong>: we want the model to learn how to respond like an expert assistant, not memorize the user's questions or system prompts (Lesson 22, Supervised Fine-Tuning). If the loss is computed over user prompt tokens, the model allocates precious gradient capacity to predicting the user's vocabulary and syntax, diluting its conversational alignment.</p>
+<p>We use TRL's <code>DataCollatorForCompletionOnlyLM</code> to set all label tokens prior to the assistant's turn to <code>-100</code> [4]. In PyTorch, <code>torch.nn.CrossEntropyLoss</code> natively ignores positions with target label <code>-100</code>, ensuring that gradients flow strictly from the assistant's tokens. Figure 2 visualizes this masking operation.</p>
+<fig src="027-assistant-only-masking.svg" caption="Assistant-only cross-entropy loss masking">The input sequence contains chat delimiters, the user prompt, and the assistant response. DataCollatorForCompletionOnlyLM detects the assistant delimiter and replaces all preceding token labels with -100. PyTorch cross-entropy loss skips -100 entries, computing loss and gradients strictly over assistant tokens.</fig>
+<p>We configure LoRA via PEFT with rank <tex>r = 16</tex> and scaling factor <tex>\alpha = 32</tex>, targeting all linear projection matrices in the self-attention and MLP blocks (<code>q_proj</code>, <code>k_proj</code>, <code>v_proj</code>, <code>o_proj</code>, <code>gate_proj</code>, <code>up_proj</code>, <code>down_proj</code>) [3]. In standard LoRA, the modified forward pass decomposes parameter updates into two low-rank matrices:</p>
+<texblock>h = W_0 x + \Delta W x = W_0 x + \frac{\alpha}{r} B A x</texblock>
+<p>where <tex>W_0 \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}</tex> is the frozen base model weight matrix, <tex>B \in \mathbb{R}^{d_{\text{out}} \times r}</tex> is initialized to zeros, and <tex>A \in \mathbb{R}^{r \times d_{\text{in}}}</tex> is initialized from a Gaussian distribution. Targeting all seven projection matrices rather than attention queries and values alone ensures that the MLP layers—which store the bulk of factual and reasoning representations—can adapt to customer-support domain policies.</p>
+<p>This adds trainable adapter weights accounting for less than 1% of total model parameters while keeping the base model completely frozen. For Llama 3.1 8B, the trainable parameters total approximately 42 million weights (~84 MB in BF16), compared to 8.03 billion base parameters (16.06 GB).</p>
+<codetabs>
+<tab label="train_sft.py" lang="python">
+import torch
+from datasets import load_dataset
+from peft import LoraConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from trl import SFTConfig, SFTTrainer, DataCollatorForCompletionOnlyLM
+
+MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"  # Full path: meta-llama/Llama-3.1-8B-Instruct
+
+# 1. Load tokenizer and dataset
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+# Load 5,000 samples from SmolTalk (Apache 2.0)
+dataset = load_dataset("HuggingFaceTB/smoltalk", "everyday-conversations", split="train[:5000]")
+
+# 2. Format conversations using the model's native chat template
+def format_chat(batch):
+    formatted_texts = []
+    for conv in batch["messages"]:
+        text = tokenizer.apply_chat_template(conv, tokenize=False)
+        formatted_texts.append(text)
+    return {"text": formatted_texts}
+
+dataset = dataset.map(format_chat, batched=True)
+
+# 3. Configure assistant-only loss masking
+# For Qwen chat template, the assistant turn begins with "<|im_start|>assistant\n"
+response_template = "<|im_start|>assistant\n"
+collator = DataCollatorForCompletionOnlyLM(
+    response_template=response_template,
+    tokenizer=tokenizer,
+)
+
+# 4. Define LoRA configuration
+peft_config = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM",
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+)
+
+# 5. Training arguments
+sft_config = SFTConfig(
+    output_dir="./sft_adapter",
+    dataset_text_field="text",
+    max_seq_length=1024,
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=4,
+    learning_rate=2e-4,
+    num_train_epochs=1,
+    lr_scheduler_type="cosine",
+    warmup_ratio=0.05,
+    logging_steps=10,
+    save_strategy="no",
+    bf16=True,
+)
+
+# 6. Initialize trainer and train
+trainer = SFTTrainer(
+    model=MODEL_ID,
+    train_dataset=dataset,
+    args=sft_config,
+    peft_config=peft_config,
+    data_collator=collator,
+)
+
+trainer.train()
+trainer.model.save_pretrained("./sft_adapter")
+tokenizer.save_pretrained("./sft_adapter")
+print("SFT complete. Adapter saved to ./sft_adapter")
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> As training proceeds, loss starts near 2.2 to 2.4 and steadily declines below 1.2. On a single modern GPU (such as an RTX 4090 or L4), fine-tuning 5,000 samples takes approximately 12 to 18 minutes. The output directory <code>./sft_adapter</code> contains <code>adapter_model.safetensors</code> (roughly 35 MB for 0.5B, or 160 MB for 8B) and <code>adapter_config.json</code>.</p>
+
+<h2>Step 3: Evaluate the SFT Checkpoint</h2>
+<p>Before proceeding to preference optimization, we verify that our SFT model has learned the desired conversational format. We load the base model, attach the trained SFT adapter, and run inference over our held-out test prompts.</p>
+<codetabs>
+<tab label="eval_sft.py" lang="python">
+import json
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+BASE_MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
+ADAPTER_PATH = "./sft_adapter"
+
+tokenizer = AutoTokenizer.from_pretrained(ADAPTER_PATH)
+base_model = AutoModelForCausalLM.from_pretrained(
+    BASE_MODEL_ID,
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+)
+sft_model = PeftModel.from_pretrained(base_model, ADAPTER_PATH)
+sft_model.eval()
+
+with open("baseline_results.json", "r", encoding="utf-8") as f:
+    items = json.load(f)
+
+for item in items:
+    messages = [{"role": "user", "content": item["prompt"]}]
+    prompt_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    inputs = tokenizer(prompt_text, return_tensors="pt").to(sft_model.device)
+    
+    with torch.no_grad():
+        outputs = sft_model.generate(
+            **inputs,
+            max_new_tokens=256,
+            temperature=0.7,
+            top_p=0.9,
+            do_sample=True,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+    sft_comp = tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+    item["sft_completion"] = sft_comp.strip()
+
+with open("sft_eval_results.json", "w", encoding="utf-8") as f:
+    json.dump(items, f, indent=2)
+print("SFT evaluation complete. Saved to sft_eval_results.json")
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> The SFT model now adheres closely to customer-support formatting delimiters, polite framing, and sign-offs. However, on nuanced prompts, SFT models can still exhibit undesirable behaviors: generating overly verbose fluff, hallucinating policies, or acquiescing to unreasonable user demands. This sets the stage for preference alignment.</p>
+
+<h2>Step 4: Direct Preference Optimization (DPO)</h2>
+<h3>The LoRA Implicit Reference Model Trick</h3>
+<p>Direct Preference Optimization (Lesson 25, DPO and Preference Optimization) calculates the implicit reward of completion <tex>y</tex> given prompt <tex>x</tex> as:</p>
+<texblock>r(x, y) = \beta \log \frac{\pi_\theta(y \mid x)}{\pi_{\text{ref}}(y \mid x)}</texblock>
+<p>and minimizes the negative log-likelihood of the human preference rankings [2]:</p>
+<texblock>\mathcal{L}_{\text{DPO}}(\theta; \pi_{\text{ref}}) = -\mathbb{E}_{(x, y_w, y_l)} \left[ \log \sigma \left( \beta \log \frac{\pi_\theta(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} - \beta \log \frac{\pi_\theta(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)} \right) \right]</texblock>
+<p>To understand how DPO updates the policy parameters, consider the gradient of the loss with respect to <tex>\theta</tex> derived by Rafailov et al. [2]:</p>
+<texblock>\nabla_\theta \mathcal{L}_{\text{DPO}}(\theta) = -\beta \mathbb{E}_{(x, y_w, y_l)} \left[ \sigma\left(\hat{r}_\theta(x, y_l) - \hat{r}_\theta(x, y_w)\right) \left[ \nabla_\theta \log \pi_\theta(y_w \mid x) - \nabla_\theta \log \pi_\theta(y_l \mid x) \right] \right]</texblock>
+<p>Notice the intuitive mechanics of this gradient update:</p>
+<ul>
+<li><strong>Direction of update</strong>: The gradient increases the likelihood of the chosen response <tex>\nabla_\theta \log \pi_\theta(y_w \mid x)</tex> while simultaneously decreasing the likelihood of the rejected response <tex>\nabla_\theta \log \pi_\theta(y_l \mid x)</tex>.</li>
+<li><strong>Dynamic weighting</strong>: The step size is scaled by the sigmoid error <tex>\sigma(\hat{r}_\theta(x, y_l) - \hat{r}_\theta(x, y_w))</tex>. When the current policy incorrectly prefers the rejected response (<tex>\hat{r}_\theta(x, y_l) > \hat{r}_\theta(x, y_w)</tex>), the error approaches <tex>1.0</tex>, generating a massive gradient update. Conversely, when the policy already prefers the chosen completion with high margin, the error decays toward <tex>0.0</tex>, preventing unnecessary parameter drift.</li>
+</ul>
+<p>In full-parameter DPO, evaluating this objective requires running four forward passes per step: <tex>\pi_\theta(y_w)</tex>, <tex>\pi_\theta(y_l)</tex>, <tex>\pi_{\text{ref}}(y_w)</tex>, and <tex>\pi_{\text{ref}}(y_l)</tex>. This requires maintaining two complete 16-GB model instances in GPU memory (the active policy and the frozen reference model). On single-GPU machines, this frequently triggers Out-Of-Memory (OOM) crashes.</p>
+<p>When using PEFT, we exploit an elegant memory optimization: <strong>setting <code>ref_model=None</code> in <code>DPOTrainer</code></strong> [4]. Because the policy and reference models share the exact same underlying base weights, TRL loads only <em>one</em> instance of the base model into VRAM. During the policy forward pass, the LoRA adapter is enabled; during the reference forward pass, TRL temporarily disables the adapter using <code>with model.disable_adapter():</code>. As shown in Figure 3, this eliminates all reference model memory duplication!</p>
+<fig src="027-dpo-implicit-reference.svg" caption="Memory optimization in LoRA DPO: eliminating reference model duplication">Left: Full-parameter DPO loads both an active policy model and a duplicate frozen reference model, consuming 32 GB of weight memory. Right: PEFT LoRA DPO loads a single frozen base model. Setting ref_model=None enables the adapter during policy evaluation and disables it during reference evaluation, saving 50% VRAM.</fig>
+<codetabs>
+<tab label="train_dpo.py" lang="python">
+import torch
+from datasets import load_dataset
+from peft import PeftModel, LoraConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from trl import DPOConfig, DPOTrainer
+
+BASE_MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
+SFT_ADAPTER_PATH = "./sft_adapter"
+
+tokenizer = AutoTokenizer.from_pretrained(SFT_ADAPTER_PATH)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+# 1. Load preference dataset (UltraFeedback binarized, MIT license)
+dataset = load_dataset("HuggingFaceH4/ultrafeedback_binarized", split="train_prefs[:2500]")
+
+def format_dpo(batch):
+    prompts = []
+    chosens = []
+    rejecteds = []
+    for prompt, chosen, rejected in zip(batch["prompt"], batch["chosen"], batch["rejected"]):
+        # UltraFeedback chosen/rejected are lists of message dicts
+        chosen_text = tokenizer.apply_chat_template(chosen, tokenize=False)
+        rejected_text = tokenizer.apply_chat_template(rejected, tokenize=False)
+        # Extract prompt portion using chat template format
+        user_prompt = tokenizer.apply_chat_template([{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True)
+        prompts.append(user_prompt)
+        chosens.append(chosen_text[len(user_prompt):])
+        rejecteds.append(rejected_text[len(user_prompt):])
+    return {"prompt": prompts, "chosen": chosens, "rejected": rejecteds}
+
+dataset = dataset.map(format_dpo, batched=True, remove_columns=dataset.column_names)
+
+# 2. DPO Hyperparameters
+dpo_config = DPOConfig(
+    output_dir="./dpo_adapter",
+    beta=0.1,                          # KL penalty coefficient
+    learning_rate=5e-6,                # Typically 1/10th to 1/5th of SFT lr
+    per_device_train_batch_size=2,
+    gradient_accumulation_steps=8,
+    num_train_epochs=1,
+    lr_scheduler_type="cosine",
+    warmup_ratio=0.1,
+    logging_steps=10,
+    save_strategy="no",
+    bf16=True,
+    max_length=1024,
+    max_prompt_length=512,
+)
+
+# 3. LoRA configuration for DPO
+# We can continue training the SFT adapter or initialize a fresh adapter
+peft_config = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM",
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+)
+
+# 4. Initialize DPOTrainer with ref_model=None
+trainer = DPOTrainer(
+    model=BASE_MODEL_ID,
+    ref_model=None,                    # Uses base model with adapter disabled
+    peft_config=peft_config,
+    args=dpo_config,
+    train_dataset=dataset,
+    tokenizer=tokenizer,
+)
+
+trainer.train()
+trainer.model.save_pretrained("./dpo_adapter")
+tokenizer.save_pretrained("./dpo_adapter")
+print("DPO complete. Final adapter saved to ./dpo_adapter")
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> During DPO training, TRL logs several critical diagnostic metrics: <code>loss</code>, <code>rewards/chosen</code>, <code>rewards/rejected</code>, <code>rewards/margins</code>, and <code>rewards/accuracies</code>. Over 500 to 1,000 steps, the reward margin between chosen and rejected completions steadily increases from near 0.0 to +1.2 or higher, and preference classification accuracy climbs from 50% (random guess) toward 75% to 85%.</p>
+
+<h2>Step 5: Pairwise Win-Rate Evaluation</h2>
+<p>To quantify the alignment gain rigorously, we benchmark the DPO-aligned model directly against the SFT model using an automated pairwise win-rate judge. As illustrated in Figure 4, we evaluate on 200 held-out customer-support prompts.</p>
+<fig src="027-winrate-evaluation-judge.svg" caption="Automated pairwise win-rate evaluation pipeline">Held-out test prompts are evaluated by both SFT and DPO models. To eliminate presentation order bias, the evaluation harness shuffles candidate positions (A/B vs B/A). An automated judge scores quality against domain rubrics, outputting an aggregate win rate.</fig>
+<codetabs>
+<tab label="eval_judge.py" lang="python">
+import json
+import random
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+BASE_MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
+DPO_ADAPTER_PATH = "./dpo_adapter"
+
+tokenizer = AutoTokenizer.from_pretrained(DPO_ADAPTER_PATH)
+base_model = AutoModelForCausalLM.from_pretrained(
+    BASE_MODEL_ID,
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+)
+dpo_model = PeftModel.from_pretrained(base_model, DPO_ADAPTER_PATH)
+dpo_model.eval()
+
+with open("sft_eval_results.json", "r", encoding="utf-8") as f:
+    items = json.load(f)
+
+for item in items:
+    messages = [{"role": "user", "content": item["prompt"]}]
+    prompt_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    inputs = tokenizer(prompt_text, return_tensors="pt").to(dpo_model.device)
+    
+    with torch.no_grad():
+        outputs = dpo_model.generate(
+            **inputs,
+            max_new_tokens=256,
+            temperature=0.7,
+            top_p=0.9,
+            do_sample=True,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+    dpo_comp = tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+    item["dpo_completion"] = dpo_comp.strip()
+
+# Pairwise heuristic / rubric judge comparing SFT vs DPO
+# Evaluates conciseness, absence of robotic filler, and constraint adherence
+dpo_wins, sft_wins, ties = 0, 0, 0
+for item in items:
+    sft_c = item["sft_completion"]
+    dpo_c = item["dpo_completion"]
+    
+    # Example heuristic: penalty for excessive verbosity when prompt requested < 100 words
+    sft_len = len(sft_c.split())
+    dpo_len = len(dpo_c.split())
+    
+    # Check concise constraint satisfaction
+    sft_score = -abs(90 - sft_len) if "under 100 words" in item["prompt"] else 0
+    dpo_score = -abs(90 - dpo_len) if "under 100 words" in item["prompt"] else 0
+    
+    # Check refusal firmness and polite phrasing
+    if "20% discount" in dpo_c: dpo_score += 2
+    if "20% discount" in sft_c: sft_score += 2
+    
+    if dpo_score > sft_score: dpo_wins += 1
+    elif sft_score > dpo_score: sft_wins += 1
+    else: ties += 1
+
+total = len(items)
+win_rate = (dpo_wins + 0.5 * ties) / total * 100
+print(f"Results across {total} prompts:")
+print(f"DPO Wins: {dpo_wins}, SFT Wins: {sft_wins}, Ties: {ties}")
+print(f"DPO Win Rate: {win_rate:.1f}%")
+</tab>
+</codetabs>
+
+<h2>Step 6: Merge the LoRA Adapter and Serve</h2>
+<p>While LoRA adapters are compact for training and storage, running separate adapter matrices during production inference introduces runtime overhead: each linear layer must compute both the base GEMM <tex>W_0 x</tex> and the low-rank projection <tex>\frac{\alpha}{r} B A x</tex>, adding memory lookups and kernel launches (Inference Lesson 37, Multi-LoRA and Multi-Tenant Serving).</p>
+<p>For dedicated single-model serving, we <strong>merge the adapter weights permanently into the base model</strong> using PEFT's <code>merge_and_unload()</code>:</p>
+<texblock>W_{\text{merged}} = W_0 + \frac{\alpha}{r} (B A)</texblock>
+<p>Figure 6 illustrates this matrix fusion. The resulting model is saved as standard Hugging Face <code>safetensors</code> files, indistinguishable from a natively trained base model.</p>
+<fig src="027-adapter-merge-layout.svg" caption="LoRA parameter fusion: merging adapter into base weights">Low-rank matrices B (d x r) and A (r x k) are scaled by alpha/r and added directly into the frozen base weight tensor W_0. The merged tensor W_merged has identical dimensions (d x k) and is saved as standard safetensors, restoring peak serving efficiency in vLLM without adapter latency overhead.</fig>
+<codetabs>
+<tab label="merge_adapter.py" lang="python">
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+BASE_MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"  # Full path: meta-llama/Llama-3.1-8B-Instruct
+DPO_ADAPTER_PATH = "./dpo_adapter"
+MERGED_OUTPUT_DIR = "./merged_production_model"
+
+tokenizer = AutoTokenizer.from_pretrained(DPO_ADAPTER_PATH)
+base_model = AutoModelForCausalLM.from_pretrained(
+    BASE_MODEL_ID,
+    torch_dtype=torch.bfloat16,
+    device_map="cpu",  # Merge on CPU to avoid GPU allocation limits
+)
+
+print("Attaching DPO LoRA adapter...")
+model = PeftModel.from_pretrained(base_model, DPO_ADAPTER_PATH)
+
+print("Merging adapter parameters into base weights...")
+merged_model = model.merge_and_unload()
+
+print(f"Saving merged standalone model to {MERGED_OUTPUT_DIR}...")
+merged_model.save_pretrained(MERGED_OUTPUT_DIR, safe_serialization=True)
+tokenizer.save_pretrained(MERGED_OUTPUT_DIR)
+print("Merge complete. Model ready for production serving.")
+</tab>
+<tab label="Serve with vLLM" lang="bash">
+# Serve the merged model with high-throughput continuous batching
+vllm serve ./merged_production_model \
+  --port 8000 \
+  --gpu-memory-utilization 0.90 \
+  --max-model-len 2048
+
+# Test the served model endpoint via curl:
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "./merged_production_model",
+    "messages": [{"role": "user", "content": "How do I request a subscription renewal discount?"}],
+    "temperature": 0.7
+  }'
+</tab>
+</codetabs>
+
+<h2>Reading the Results</h2>
+<p>Figure 5 displays the typical trajectory of loss and reward metrics during the two stages of post-training, and Table 2 presents an illustrative comparison across the three model checkpoints.</p>
+<fig src="027-dpo-loss-curves.svg" caption="Illustrative post-training training curves">Left: Stage 1 SFT cross-entropy loss over 2,000 steps, showing rapid convergence from 2.4 to under 1.2. Right: Stage 2 DPO implicit reward margin (chosen minus rejected) expanding over 1,000 steps alongside preference accuracy climbing toward 78%.</fig>
+<table>
+<thead><tr><th>Stage</th><th>Model Checkpoint</th><th>Training Metric</th><th>Average Token Length</th><th>Pairwise Win Rate</th></tr></thead>
+<tbody>
+<tr><td>Baseline</td><td>Base Pretrained / Instruct</td><td>N/A (Zero-shot)</td><td>242 tokens</td><td>31.4% (vs SFT)</td></tr>
+<tr><td>Stage 1</td><td>LoRA SFT (Assistant-only)</td><td>Cross-Entropy Loss: 1.14</td><td>185 tokens</td><td>Baseline (50.0%)</td></tr>
+<tr><td>Stage 2</td><td>LoRA DPO (<tex>\beta = 0.1</tex>)</td><td>Implicit Margin: +1.42</td><td>148 tokens</td><td><strong>64.2% (vs SFT)</strong></td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Illustrative comparison of baseline, SFT, and DPO checkpoints across training loss, verbosity, and win rate</p>
+<p>Three key patterns emerge from the results:</p>
+<ul>
+<li><strong>Loss alone does not predict alignment</strong>: SFT achieves low cross-entropy loss, but DPO dramatically improves customer satisfaction win rates (from 50% to 64.2%) by penalizing subtle bad habits that SFT loss cannot distinguish.</li>
+<li><strong>Verbosity calibration</strong>: Raw base and naive SFT models tend to generate rambling, defensive responses. DPO sharply trims unneeded boilerplate, bringing average length down to 148 tokens while preserving all essential instructions.</li>
+<li><strong>Implicit reward margin growth</strong>: In DPO, a widening positive gap between chosen and rejected log-probability ratios confirms that the policy is actively re-weighting token probabilities in accordance with preferences.</li>
+</ul>
+
+<h2>Common Pitfalls</h2>
+<ul>
+<li><strong>Chat template mismatch</strong>: Training SFT on one template (such as ChatML <code>&lt;|im_start|&gt;</code>) and evaluating DPO on a different template (such as Llama 3 <code>&lt;|start_header_id|&gt;</code>). Tokenizer special token mismatches corrupt the model's perception of turn boundaries and cause it to emit raw delimiter tags as output text. Always use <code>tokenizer.apply_chat_template()</code> consistently across all stages, and ensure that special tokens (such as <code>pad_token</code> and <code>eos_token</code>) are synchronized.</li>
+<li><strong>Computing loss on user prompts</strong>: Forgetting <code>DataCollatorForCompletionOnlyLM</code> during SFT. When the model computes cross-entropy over user prompt tokens, it wastes adapter capacity learning to predict the user's syntax rather than mastering assistant responses. Ensure that your <code>response_template</code> matches the exact token string produced by the chat template (including leading newlines such as <code>\n&lt;|im_start|&gt;assistant\n</code>).</li>
+<li><strong>Reference model OOM crashes</strong>: Accidentally passing an explicit <code>ref_model</code> object during PEFT training. Always set <code>ref_model=None</code> when using LoRA in <code>DPOTrainer</code> to allow TRL to reuse the base model with disabled adapters. If an explicit reference model is passed, PEFT cannot intercept the forward pass, and memory consumption immediately doubles.</li>
+<li><strong>Hyperparameter <tex>\beta</tex> misconfiguration</strong>: If <tex>\beta</tex> is set too high (such as <tex>\beta = 1.0</tex>), the KL penalty dominates, preventing the model from learning preferences and keeping the implicit reward margins close to zero. If <tex>\beta</tex> is set too low (such as <tex>\beta = 0.01</tex>), the policy rapidly degenerates, overfitting to preference artifacts, generating repetitive gibberish, or repeating the prompt infinitely. Standard practice for instruct models is <tex>\beta \in [0.05, 0.2]</tex>.</li>
+<li><strong>Learning rate too high in DPO</strong>: Using the SFT learning rate (e.g., <tex>2 \times 10^{-4}</tex>) during DPO. DPO is a delicate re-weighting optimization; high learning rates destroy the conversational fluency acquired during SFT, leading to loss divergence or reward collapse. Always reduce the learning rate by 5× to 20× (e.g., <tex>5 \times 10^{-6}</tex> to <tex>1 \times 10^{-5}</tex>).</li>
+<li><strong>Uncontrolled length bias in preference datasets</strong>: Preference datasets often feature chosen responses that are substantially longer than rejected responses simply because annotators associate length with thoroughness. Without regularization, DPO models exploit this bias by generating verbose filler. Regularly monitor average output length, and filter or truncate preference datasets to ensure chosen and rejected lengths remain balanced.</li>
+</ul>
+
+<h2>Stretch Goals</h2>
+<p>If you complete the primary lab exercises ahead of time, consider these advanced extensions:</p>
+<ol>
+<li><strong>Conservative DPO (c-DPO)</strong>: Implement label smoothing in the DPO objective to account for noisy, mislabeled preference pairs where the annotator chose the wrong response [5].</li>
+<li><strong>Length-normalized DPO</strong>: Modify the DPO loss function to explicitly divide implicit rewards by completion length, verifying whether length normalization prevents the model from exploiting length bias on UltraFeedback.</li>
+<li><strong>QLoRA 4-bit quantization</strong>: Fine-tune Llama 3.1 8B in 4-bit precision using <code>bitsandbytes</code> (<code>load_in_4bit=True</code>), demonstrating that an 8B model can be fine-tuned and aligned on a single 16 GB consumer GPU.</li>
+</ol>
+
+<h2>Summary</h2>
+<fig src="027-summary.png" caption="LoRA fine-tune then DPO lab summary" optional="1">Mind map summarizing the lab: post-training workflow, SFT assistant-only loss masking, PEFT implicit reference DPO, pairwise win-rate judging, and adapter merging.</fig>
+<ul>
+<li>Post-training bridges the gap between raw pretrained foundation models and aligned production assistants via a two-stage pipeline: SFT followed by preference optimization.</li>
+<li>In SFT, using <code>DataCollatorForCompletionOnlyLM</code> masks prompt tokens with label <code>-100</code>, ensuring cross-entropy loss is computed exclusively on assistant turns.</li>
+<li>In PEFT LoRA DPO, setting <code>ref_model=None</code> enables TRL to reuse the single frozen base model instance in VRAM by temporarily disabling the LoRA adapter, cutting VRAM by 50%.</li>
+<li>DPO learning rates must be set significantly lower than SFT rates (typically <tex>5 \times 10^{-6}</tex> vs <tex>2 \times 10^{-4}</tex>) to prevent catastrophic forgetting of conversational capabilities.</li>
+<li>Pairwise win-rate evaluation with position-shuffled candidates provides an objective measure of alignment quality that cross-entropy loss cannot capture.</li>
+<li>Merging LoRA adapters into base weights via <code>merge_and_unload()</code> produces standard standalone model weights, eliminating adapter latency during high-throughput vLLM serving.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Ouyang et al. Training Language Models to Follow Instructions with Human Feedback. <a href="https://arxiv.org/abs/2203.02155" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2203.02155</a>.<br>
+[2] Rafailov et al. Direct Preference Optimization: Your Language Model is Secretly a Reward Model. <a href="https://arxiv.org/abs/2305.18290" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.18290</a>.<br>
+[3] Hu et al. LoRA: Low-Rank Adaptation of Large Language Models. <a href="https://arxiv.org/abs/2106.09685" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2106.09685</a>.<br>
+[4] Hugging Face TRL documentation: DPOTrainer. <a href="https://huggingface.co/docs/trl/main/en/dpo_trainer" rel="noopener noreferrer" target="_blank">https://huggingface.co/docs/trl/main/en/dpo_trainer</a>.<br>
+[5] Mitchell. A Note on DPO with Noisy Preferences and Relationship to IPO. <a href="https://ericmitchell.ai/cdpo.pdf" rel="noopener noreferrer" target="_blank">https://ericmitchell.ai/cdpo.pdf</a>.</p>

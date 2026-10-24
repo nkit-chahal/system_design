@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="25" class="title">Learning Rate Schedules: Cosine Decay vs Warmup-Stable-Decay (WSD)</text>
+  <text x="25" y="45" class="sm" fill="#555">Fixed training horizon schedules versus flexible constant-plateau pretraining</text>
+
+  <!-- Panel 1: Cosine Decay -->
+  <rect x="25" y="65" width="375" height="245" rx="6" class="gray"/>
+  <text x="212" y="88" text-anchor="middle" class="b">Cosine Decay Schedule</text>
+  <text x="212" y="106" text-anchor="middle" class="sm">Requires pre-allocating total step budget T_max</text>
+
+  <!-- Axes -->
+  <path d="M 55 240 L 375 240" class="edge"/>
+  <path d="M 55 240 L 55 125" class="edge"/>
+  <text x="370" y="256" class="sm">Steps</text>
+  <text x="45" y="120" class="sm">LR</text>
+
+  <!-- Curve: Warmup (55,240 to 95,140) then Cosine (95,140 to 365,225) -->
+  <path d="M 55 240 L 95 140" fill="none" stroke="#005cc5" stroke-width="2"/>
+  <path d="M 95 140 Q 200 145 250 185 T 365 225" fill="none" stroke="#005cc5" stroke-width="2"/>
+
+  <!-- Annotations -->
+  <text x="95" y="132" text-anchor="middle" class="sm b" fill="#005cc5">Peak LR</text>
+  <text x="365" y="220" text-anchor="middle" class="sm" fill="#555">Min LR (10%)</text>
+  <text x="75" y="256" text-anchor="middle" class="sm">Warmup</text>
+  <text x="230" y="256" text-anchor="middle" class="sm">Continuous Cosine Annealing</text>
+
+  <rect x="40" y="265" width="345" height="36" rx="4" class="white"/>
+  <text x="212" y="287" text-anchor="middle" class="sm" fill="#555">Must restart schedule to train further on new tokens</text>
+
+  <!-- Panel 2: Warmup-Stable-Decay (WSD) -->
+  <rect x="420" y="65" width="375" height="245" rx="6" class="gray"/>
+  <text x="607" y="88" text-anchor="middle" class="b">Warmup-Stable-Decay (WSD)</text>
+  <text x="607" y="106" text-anchor="middle" class="sm">MiniCPM / scaling laws: reusable checkpoints along stable plateau</text>
+
+  <!-- Axes -->
+  <path d="M 450 240 L 770 240" class="edge"/>
+  <path d="M 450 240 L 450 125" class="edge"/>
+  <text x="765" y="256" class="sm">Steps</text>
+  <text x="440" y="120" class="sm">LR</text>
+
+  <!-- Curve: Warmup (450,240 to 485,140), Stable (485,140 to 715,140), Decay (715,140 to 760,240) -->
+  <path d="M 450 240 L 485 140" fill="none" stroke="#05673d" stroke-width="2"/>
+  <path d="M 485 140 L 715 140" fill="none" stroke="#05673d" stroke-width="2"/>
+  <path d="M 715 140 L 760 240" fill="none" stroke="#05673d" stroke-width="2"/>
+
+  <!-- Annotations -->
+  <text x="485" y="132" text-anchor="middle" class="sm b" fill="#05673d">Warmup</text>
+  <text x="600" y="132" text-anchor="middle" class="sm b" fill="#05673d">Stable Plateau (80-90% of run)</text>
+  <text x="740" y="180" text-anchor="middle" class="sm b" fill="#b85450">Decay</text>
+
+  <rect x="435" y="265" width="345" height="36" rx="4" class="green"/>
+  <text x="607" y="287" text-anchor="middle" class="sm b" fill="#05673d">Intermediate checkpoints reusable for scaling or fine-tuning</text>
+</svg>

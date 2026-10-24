@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="25" class="title">Floating-Point Formats: Bit Layouts from FP32 to FP8</text>
+  <text x="25" y="45" class="sm" fill="#555">Bit allocations across sign (blue), exponent (purple), and mantissa (orange)</text>
+
+  <!-- Format 1: FP32 -->
+  <text x="25" y="75" class="sm b">FP32 (Single Precision, 32 bits): 1 sign, 8 exponent, 23 mantissa</text>
+  <!-- x=25 to 785 (760px). Sign=24px, Exp=190px, Mantissa=546px -->
+  <rect x="25" y="82" width="24" height="28" class="blue"/>
+  <text x="37" y="101" text-anchor="middle" class="sm b">S</text>
+  <rect x="49" y="82" width="190" height="28" class="purple"/>
+  <text x="144" y="101" text-anchor="middle" class="sm b">8-bit Exponent (bias 127)</text>
+  <rect x="239" y="82" width="546" height="28" class="orange"/>
+  <text x="512" y="101" text-anchor="middle" class="sm b">23-bit Mantissa (approx 7.2 decimal digits)</text>
+
+  <!-- Format 2: FP16 -->
+  <text x="25" y="130" class="sm b">FP16 (IEEE 754 Half Precision, 16 bits): 1 sign, 5 exponent, 10 mantissa</text>
+  <rect x="25" y="137" width="24" height="28" class="blue"/>
+  <text x="37" y="156" text-anchor="middle" class="sm b">S</text>
+  <rect x="49" y="137" width="120" height="28" class="purple"/>
+  <text x="109" y="156" text-anchor="middle" class="sm b">5-bit Exp (bias 15)</text>
+  <rect x="169" y="137" width="240" height="28" class="orange"/>
+  <text x="289" y="156" text-anchor="middle" class="sm b">10-bit Mantissa</text>
+  <rect x="415" y="137" width="370" height="28" class="gray"/>
+  <text x="600" y="156" text-anchor="middle" class="sm" fill="#b85450">Narrow range [6e-5, 65504] --&gt; needs loss scaling</text>
+
+  <!-- Format 3: BF16 -->
+  <text x="25" y="185" class="sm b">BF16 (Brain Floating Point, 16 bits): 1 sign, 8 exponent, 7 mantissa</text>
+  <rect x="25" y="192" width="24" height="28" class="blue"/>
+  <text x="37" y="211" text-anchor="middle" class="sm b">S</text>
+  <rect x="49" y="192" width="190" height="28" class="purple"/>
+  <text x="144" y="211" text-anchor="middle" class="sm b">8-bit Exp (bias 127 = FP32)</text>
+  <rect x="239" y="192" width="170" height="28" class="orange"/>
+  <text x="324" y="211" text-anchor="middle" class="sm b">7-bit Mantissa</text>
+  <rect x="415" y="192" width="370" height="28" class="green"/>
+  <text x="600" y="211" text-anchor="middle" class="sm b" fill="#05673d">Same dynamic range as FP32 --&gt; NO loss scaling needed</text>
+
+  <!-- Format 4: FP8 E4M3 -->
+  <text x="25" y="240" class="sm b">FP8 E4M3 (8 bits, Hopper/DeepSeek): 1 sign, 4 exponent, 3 mantissa (Max 448)</text>
+  <rect x="25" y="247" width="24" height="28" class="blue"/>
+  <text x="37" y="266" text-anchor="middle" class="sm b">S</text>
+  <rect x="49" y="247" width="95" height="28" class="purple"/>
+  <text x="96" y="266" text-anchor="middle" class="sm b">4-bit Exp</text>
+  <rect x="144" y="247" width="75" height="28" class="orange"/>
+  <text x="181" y="266" text-anchor="middle" class="sm b">3-bit M</text>
+  <rect x="225" y="247" width="560" height="28" class="white"/>
+  <text x="505" y="266" text-anchor="middle" class="sm b" fill="#005cc5">Used for Forward Activations and Weights (higher precision)</text>
+
+  <!-- Format 5: FP8 E5M2 -->
+  <text x="25" y="292" class="sm b">FP8 E5M2 (8 bits, Hopper): 1 sign, 5 exponent, 2 mantissa (Max 57,344)</text>
+  <rect x="25" y="297" width="24" height="28" class="blue"/>
+  <text x="37" y="316" text-anchor="middle" class="sm b">S</text>
+  <rect x="49" y="297" width="120" height="28" class="purple"/>
+  <text x="109" y="316" text-anchor="middle" class="sm b">5-bit Exp</text>
+  <rect x="169" y="297" width="50" height="28" class="orange"/>
+  <text x="194" y="316" text-anchor="middle" class="sm b">2-bit</text>
+  <rect x="225" y="297" width="560" height="28" class="white"/>
+  <text x="505" y="316" text-anchor="middle" class="sm b" fill="#b85450">Used for Backward Gradients in Hybrid FP8 (wider dynamic range)</text>
+</svg>

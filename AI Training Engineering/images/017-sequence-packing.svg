@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="25" y="30" class="lg b">Sequence Packing: Eliminating Padding Waste in Pretraining</text>
+  <text x="25" y="52" class="sm" fill="#555">Packing arbitrary document lengths into fixed 8,192-token training windows</text>
+
+  <!-- Top: Naive Padding -->
+  <text x="25" y="85" class="b">Naive Padding (1 document per 8,192-token row)</text>
+
+  <rect x="25" y="98" width="160" height="32" rx="3" class="blue"/>
+  <text x="105" y="119" class="sm b mid">Doc A (1,600 tokens)</text>
+  <rect x="185" y="98" width="585" height="32" rx="3" class="gray"/>
+  <text x="477" y="119" class="sm mid" fill="#777">&lt;pad&gt; tokens: 6,592 tokens wasted (80.5% pad)</text>
+
+  <rect x="25" y="136" width="310" height="32" rx="3" class="orange"/>
+  <text x="180" y="157" class="sm b mid">Doc B (3,100 tokens)</text>
+  <rect x="335" y="136" width="435" height="32" rx="3" class="gray"/>
+  <text x="552" y="157" class="sm mid" fill="#777">&lt;pad&gt; tokens: 5,092 tokens wasted (62.2% pad)</text>
+
+  <!-- Bottom: Packed Sequences -->
+  <text x="25" y="200" class="b">Packed Sequences (Concatenation with EOS delimiters to 8,192 tokens)</text>
+
+  <!-- Row 1 packed -->
+  <rect x="25" y="213" width="160" height="32" rx="3" class="blue"/>
+  <text x="105" y="234" class="sm b mid">Doc A (1.6k)</text>
+  <rect x="185" y="213" width="32" height="32" class="red"/>
+  <text x="201" y="234" class="sm b mid" fill="#900">EOS</text>
+
+  <rect x="217" y="213" width="310" height="32" rx="3" class="orange"/>
+  <text x="372" y="234" class="sm b mid">Doc B (3.1k)</text>
+  <rect x="527" y="213" width="32" height="32" class="red"/>
+  <text x="543" y="234" class="sm b mid" fill="#900">EOS</text>
+
+  <rect x="559" y="213" width="211" height="32" rx="3" class="green"/>
+  <text x="664" y="234" class="sm b mid">Doc C (2.1k)</text>
+
+  <!-- Row 2 packed -->
+  <rect x="25" y="251" width="360" height="32" rx="3" class="purple"/>
+  <text x="205" y="272" class="sm b mid">Doc D (3.6k tokens)</text>
+  <rect x="385" y="251" width="32" height="32" class="red"/>
+  <text x="401" y="272" class="sm b mid" fill="#900">EOS</text>
+
+  <rect x="417" y="251" width="353" height="32" rx="3" class="yellow"/>
+  <text x="593" y="272" class="sm b mid">Doc E (3.5k tokens)</text>
+
+  <text x="25" y="315" class="sm" fill="#555">Packing yields 100% compute efficiency. Attention masking or FlashAttention varlen prevents cross-document attention leakage.</text>
+</svg>

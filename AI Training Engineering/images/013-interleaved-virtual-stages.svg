@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.xs{font-size:11px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Interleaved 1F1B Schedule: Virtual Stages (v = 2)</text>
+  <text x="25" y="44" class="sm" fill="#555">Each GPU hosts v = 2 model chunks. Chunks are smaller, cutting the pipeline bubble duration by roughly 2×.</text>
+
+  <!-- 4 physical GPUs -->
+  <!-- GPU 0 -->
+  <rect x="25" y="65" width="180" height="150" rx="6" class="gray"/>
+  <text x="115" y="88" text-anchor="middle" class="b">GPU 0 (Physical)</text>
+  <rect x="35" y="100" width="160" height="42" rx="4" class="blue"/>
+  <text x="115" y="118" text-anchor="middle" class="sm">Virtual Chunk 0</text>
+  <text x="115" y="134" text-anchor="middle" class="xs" fill="#555">Layers 0–3 (Embeddings)</text>
+  <rect x="35" y="152" width="160" height="42" rx="4" class="purple"/>
+  <text x="115" y="170" text-anchor="middle" class="sm">Virtual Chunk 4</text>
+  <text x="115" y="186" text-anchor="middle" class="xs" fill="#555">Layers 16–19</text>
+
+  <!-- GPU 1 -->
+  <rect x="220" y="65" width="180" height="150" rx="6" class="gray"/>
+  <text x="310" y="88" text-anchor="middle" class="b">GPU 1 (Physical)</text>
+  <rect x="230" y="100" width="160" height="42" rx="4" class="blue"/>
+  <text x="310" y="118" text-anchor="middle" class="sm">Virtual Chunk 1</text>
+  <text x="310" y="134" text-anchor="middle" class="xs" fill="#555">Layers 4–7</text>
+  <rect x="230" y="152" width="160" height="42" rx="4" class="purple"/>
+  <text x="310" y="170" text-anchor="middle" class="sm">Virtual Chunk 5</text>
+  <text x="310" y="186" text-anchor="middle" class="xs" fill="#555">Layers 20–23</text>
+
+  <!-- GPU 2 -->
+  <rect x="415" y="65" width="180" height="150" rx="6" class="gray"/>
+  <text x="505" y="88" text-anchor="middle" class="b">GPU 2 (Physical)</text>
+  <rect x="425" y="100" width="160" height="42" rx="4" class="blue"/>
+  <text x="505" y="118" text-anchor="middle" class="sm">Virtual Chunk 2</text>
+  <text x="505" y="134" text-anchor="middle" class="xs" fill="#555">Layers 8–11</text>
+  <rect x="425" y="152" width="160" height="42" rx="4" class="purple"/>
+  <text x="505" y="170" text-anchor="middle" class="sm">Virtual Chunk 6</text>
+  <text x="505" y="186" text-anchor="middle" class="xs" fill="#555">Layers 24–27</text>
+
+  <!-- GPU 3 -->
+  <rect x="610" y="65" width="185" height="150" rx="6" class="gray"/>
+  <text x="702" y="88" text-anchor="middle" class="b">GPU 3 (Physical)</text>
+  <rect x="620" y="100" width="165" height="42" rx="4" class="blue"/>
+  <text x="702" y="118" text-anchor="middle" class="sm">Virtual Chunk 3</text>
+  <text x="702" y="134" text-anchor="middle" class="xs" fill="#555">Layers 12–15</text>
+  <rect x="620" y="152" width="165" height="42" rx="4" class="green"/>
+  <text x="702" y="170" text-anchor="middle" class="sm">Virtual Chunk 7</text>
+  <text x="702" y="186" text-anchor="middle" class="xs" fill="#555">Layers 28–31 (LM Head)</text>
+
+  <!-- Arrows across stages -->
+  <!-- Top row: Chunk 0 -> 1 -> 2 -> 3 -->
+  <path d="M 195 121 L 228 121" class="edge"/>
+  <path d="M 390 121 L 423 121" class="edge"/>
+  <path d="M 585 121 L 618 121" class="edge"/>
+
+  <!-- Transition from Chunk 3 to Chunk 4 (loop back to GPU 0) -->
+  <path d="M 702 142 L 702 148 L 115 148 L 115 152" class="edge"/>
+
+  <!-- Bottom row: Chunk 4 -> 5 -> 6 -> 7 -->
+  <path d="M 195 173 L 228 173" class="edge"/>
+  <path d="M 390 173 L 423 173" class="edge"/>
+  <path d="M 585 173 L 618 173" class="edge"/>
+
+  <!-- Comparison Summary Box -->
+  <rect x="25" y="230" width="770" height="95" rx="4" class="orange"/>
+  <text x="40" y="252" class="b">The Virtual Stage Trade-Off:</text>
+  <text x="40" y="272" class="sm">• <tspan class="b">Bubble reduction:</tspan> Bubble fraction drops from (p − 1) / m to roughly <tspan class="b">(p − 1) / (v · m)</tspan>. For v = 2, bubble shrinks by 50%.</text>
+  <text x="40" y="292" class="sm">• <tspan class="b">Communication cost:</tspan> Activations cross GPU boundaries v times instead of once; P2P comm volume increases by <tspan class="b">v×</tspan>.</text>
+  <text x="40" y="312" class="sm">• Practical rule: Ideal when P2P communication is fast (e.g., intra-node NVLink or high-bandwidth InfiniBand) and m is small.</text>
+</svg>

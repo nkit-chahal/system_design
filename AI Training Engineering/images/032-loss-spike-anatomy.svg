@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .axis { stroke: #333; stroke-width: 1.5; }
+    .grid { stroke: #eee; stroke-width: 1; }
+    .healthy-curve { stroke: #82b366; stroke-width: 2.5; fill: none; }
+    .spike-curve { stroke: #d79b00; stroke-width: 2.2; fill: none; }
+    .diverge-curve { stroke: #b85450; stroke-width: 2.5; fill: none; }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Anatomy of Training Instabilities: Transient Spikes vs Divergence (Illustrative)</text>
+  <text x="25" y="42" class="sm" fill="#555">Loss trajectories during LLM pretraining: normal convergence, self-recovering transient spikes, and fatal NaN divergence.</text>
+
+  <!-- Plot Area: Origin (80, 260), Width 480, Height 190. Max Y at Y=70 -->
+  <line x1="80" y1="260" x2="560" y2="260" class="axis"/>
+  <line x1="80" y1="70" x2="80" y2="260" class="axis"/>
+  <text x="35" y="165" class="sm b" transform="rotate(-90 35 165)" text-anchor="middle">Training Loss (Cross-Entropy)</text>
+
+  <!-- Y ticks: 2.0, 4.0, 6.0, 8.0, 10.0 -->
+  <line x1="80" y1="260" x2="560" y2="260" class="grid"/>
+  <text x="70" y="264" text-anchor="end" class="sm">2.0</text>
+  <line x1="80" y1="212" x2="560" y2="212" class="grid"/>
+  <text x="70" y="216" text-anchor="end" class="sm">4.0</text>
+  <line x1="80" y1="165" x2="560" y2="165" class="grid"/>
+  <text x="70" y="169" text-anchor="end" class="sm">6.0</text>
+  <line x1="80" y1="117" x2="560" y2="117" class="grid"/>
+  <text x="70" y="121" text-anchor="end" class="sm">8.0</text>
+  <line x1="80" y1="70" x2="560" y2="70" class="grid"/>
+  <text x="70" y="74" text-anchor="end" class="sm">10.0</text>
+
+  <!-- X ticks: 0, 20k, 40k, 60k, 80k, 100k -->
+  <!-- X positions: 80, 176, 272, 368, 464, 560 -->
+  <line x1="176" y1="260" x2="176" y2="265" class="axis"/>
+  <text x="176" y="280" text-anchor="middle" class="sm">20k</text>
+  <line x1="272" y1="260" x2="272" y2="265" class="axis"/>
+  <text x="272" y="280" text-anchor="middle" class="sm">40k</text>
+  <line x1="368" y1="260" x2="368" y2="265" class="axis"/>
+  <text x="368" y="280" text-anchor="middle" class="sm">60k</text>
+  <line x1="464" y1="260" x2="464" y2="265" class="axis"/>
+  <text x="464" y="280" text-anchor="middle" class="sm">80k</text>
+  <line x1="560" y1="260" x2="560" y2="265" class="axis"/>
+  <text x="560" y="280" text-anchor="middle" class="sm">100k</text>
+  <text x="80" y="280" text-anchor="middle" class="sm">0</text>
+  <text x="320" y="302" text-anchor="middle" class="sm b">Training Steps</text>
+
+  <!-- Trace 1: Healthy Baseline Curve (Green) -->
+  <path d="M80,72 C120,120 176,190 272,225 C368,242 464,250 560,254" class="healthy-curve"/>
+
+  <!-- Trace 2: Transient Recoverable Loss Spike at 35k (Orange) -->
+  <path d="M220,212 L245,220 L248,155 L252,225" class="spike-curve"/>
+
+  <!-- Trace 3: Fatal Divergence at 65k (Red) -->
+  <path d="M380,244 L395,246 L398,110 L405,75" class="diverge-curve"/>
+  <!-- NaN marker -->
+  <circle cx="405" cy="75" r="5" fill="#b85450"/>
+  <text x="415" y="78" class="b sm" fill="#990000">Loss = NaN (Crash)</text>
+
+  <!-- Right side explanation panel -->
+  <rect x="585" y="70" width="230" height="215" rx="5" class="gray"/>
+  <text x="595" y="92" class="b sm">Instability Profiles:</text>
+  <text x="595" y="112" class="sm"><tspan class="b" fill="#274e13">• Healthy Curve</tspan>:</text>
+  <text x="605" y="128" class="sm">Smooth power-law descent.</text>
+
+  <text x="595" y="152" class="sm"><tspan class="b" fill="#d79b00">• Transient Spike (Step 35k)</tspan>:</text>
+  <text x="605" y="168" class="sm">Sudden jump, but optimizer</text>
+  <text x="605" y="184" class="sm">re-converges within ~500 steps.</text>
+
+  <text x="595" y="208" class="sm"><tspan class="b" fill="#990000">• Divergence (Step 65k)</tspan>:</text>
+  <text x="605" y="224" class="sm">Weights explode. Gradient norm</text>
+  <text x="605" y="240" class="sm">hits Inf; weights become NaN.</text>
+  <text x="605" y="256" class="sm">Unrecoverable without rewind.</text>
+
+  <text x="25" y="335" class="sm" fill="#555">Illustrative cross-entropy trajectories modeled on 540B PaLM and Llama pretraining stability reports.</text>
+</svg>

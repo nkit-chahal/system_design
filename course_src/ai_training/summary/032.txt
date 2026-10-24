@@ -1,0 +1,7 @@
+center: Training Stability
+branch: Instability Causes | learning rate too high | bad data batch corruption | low precision numerical overflow
+branch: Softmax Collapse | unchecked query key dot products | logits exceed fifty | qk norm prevents saturation
+branch: Logit Drift | output vocabulary logits drift | auxiliary z loss penalty | stabilizes cross entropy softmax
+branch: Empirical Recovery | palm checkpoint rewind | advance dataloader past corruption | flush poisoned adam states
+branch: Telemetry Signals | global gradient norm spikes | update to weight ratio | attention entropy monitoring
+branch: Stability Defaults | cosine warmup and clipping | remove all linear biases | adam beta two point ninetyfive

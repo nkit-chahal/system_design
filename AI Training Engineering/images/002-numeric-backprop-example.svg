@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="380" viewBox="0 0 820 380" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b85450"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .edge-back{fill:none;stroke:#b85450;stroke-width:1.3;marker-end:url(#arrow-red)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Worked Numeric Backpropagation on a 2-Layer Network</text>
+  <text x="25" y="48" class="sm" fill="#555">Exact step-by-step numbers for forward activations, scalar loss, and reverse chain-rule gradients</text>
+
+  <!-- Forward Header Box -->
+  <rect x="25" y="65" width="770" height="135" rx="6" class="gray"/>
+  <text x="40" y="85" class="b" fill="#005cc5">Forward Evaluation Pass</text>
+
+  <!-- Step 1: Input & W1 -->
+  <rect x="40" y="98" width="135" height="90" rx="4" class="white"/>
+  <text x="48" y="116" class="sm b">Input &amp; Layer 1:</text>
+  <text x="48" y="134" class="sm">x = [2.0, 1.0]T</text>
+  <text x="48" y="152" class="sm">W1 = [[1.0, 0.5],</text>
+  <text x="80" y="168" class="sm">[-0.5, 2.0]]</text>
+
+  <!-- Forward Arrow 1 -->
+  <path d="M 175 143 L 198 143" class="edge"/>
+
+  <!-- Step 2: Hidden z1 & a1 -->
+  <rect x="200" y="98" width="170" height="90" rx="4" class="blue"/>
+  <text x="208" y="116" class="sm b">Linear 1 &amp; Activation:</text>
+  <text x="208" y="134" class="sm">z1 = W1 @ x</text>
+  <text x="208" y="152" class="sm">   = [2.5, 1.0]T</text>
+  <text x="208" y="172" class="sm b">a1 = relu(z1) = [2.5, 1.0]T</text>
+
+  <!-- Forward Arrow 2 -->
+  <path d="M 370 143 L 393 143" class="edge"/>
+
+  <!-- Step 3: Layer 2 -->
+  <rect x="395" y="98" width="175" height="90" rx="4" class="blue"/>
+  <text x="403" y="116" class="sm b">Linear 2 Prediction:</text>
+  <text x="403" y="134" class="sm">W2 = [0.8, -1.2]</text>
+  <text x="403" y="152" class="sm">y_hat = W2 @ a1</text>
+  <text x="403" y="172" class="sm b">= 2.0 - 1.2 = 0.8</text>
+
+  <!-- Forward Arrow 3 -->
+  <path d="M 570 143 L 593 143" class="edge"/>
+
+  <!-- Step 4: Loss -->
+  <rect x="595" y="98" width="185" height="90" rx="4" class="yellow"/>
+  <text x="603" y="116" class="sm b">Target &amp; Squared Loss:</text>
+  <text x="603" y="134" class="sm">Target y = 1.8</text>
+  <text x="603" y="152" class="sm">L = 0.5 * (y_hat - y)^2</text>
+  <text x="603" y="172" class="sm b">= 0.5 * (-1.0)^2 = 0.50</text>
+
+  <!-- Backward Header Box -->
+  <rect x="25" y="215" width="770" height="150" rx="6" class="gray"/>
+  <text x="40" y="235" class="b" fill="#b85450">Backward Derivative Pass (Chain Rule in Reverse)</text>
+
+  <!-- Back Step 1: Loss gradient -->
+  <rect x="595" y="248" width="185" height="102" rx="4" class="red"/>
+  <text x="603" y="268" class="sm b">1. Output Error dL/dy_hat:</text>
+  <text x="603" y="288" class="sm">delta_y = y_hat - y</text>
+  <text x="603" y="306" class="sm">        = 0.8 - 1.8</text>
+  <text x="603" y="328" class="sm b">= -1.00</text>
+
+  <!-- Backward Arrow 1 -->
+  <path d="M 595 299 L 572 299" class="edge-back"/>
+
+  <!-- Back Step 2: Layer 2 Gradients -->
+  <rect x="395" y="248" width="175" height="102" rx="4" class="orange"/>
+  <text x="403" y="268" class="sm b">2. Gradients at Layer 2:</text>
+  <text x="403" y="288" class="sm">dL/dW2 = delta_y * a1.T</text>
+  <text x="403" y="306" class="sm b">       = [-2.5, -1.0]</text>
+  <text x="403" y="324" class="sm">dL/da1 = W2.T * delta_y</text>
+  <text x="403" y="342" class="sm b">       = [-0.8, 1.2]T</text>
+
+  <!-- Backward Arrow 2 -->
+  <path d="M 395 299 L 372 299" class="edge-back"/>
+
+  <!-- Back Step 3: Layer 1 & Activation Gradients -->
+  <rect x="190" y="248" width="180" height="102" rx="4" class="orange"/>
+  <text x="198" y="268" class="sm b">3. Gradients at Layer 1:</text>
+  <text x="198" y="288" class="sm">delta1 = (dL/da1) * 1(z1 &gt; 0)</text>
+  <text x="198" y="306" class="sm b">       = [-0.8, 1.2]T</text>
+  <text x="198" y="324" class="sm">dL/dW1 = delta1 (x)T</text>
+  <text x="198" y="342" class="sm b">= [[-1.6, -0.8], [2.4, 1.2]]</text>
+
+  <!-- Backward Arrow 3 -->
+  <path d="M 190 299 L 167 299" class="edge-back"/>
+
+  <!-- Back Step 4: Input Gradient -->
+  <rect x="40" y="248" width="125" height="102" rx="4" class="white"/>
+  <text x="48" y="268" class="sm b">4. Input Gradient:</text>
+  <text x="48" y="288" class="sm">dL/dx = W1.T @ delta1</text>
+  <text x="48" y="308" class="sm b">= [-1.4, 2.0]T</text>
+  <text x="48" y="332" class="sm" fill="#555">(propagate back)</text>
+</svg>

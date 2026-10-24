@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .axis { stroke: #333; stroke-width: 1.5; }
+    .grid { stroke: #eee; stroke-width: 1; }
+    .curve1 { stroke: #6c8ebf; stroke-width: 2.5; fill: none; }
+    .curve2 { stroke: #d79b00; stroke-width: 2.5; fill: none; }
+    .curve3 { stroke: #82b366; stroke-width: 2.5; fill: none; }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">The Benchmark Saturation Lifecycle: Why Tests Get Replaced (Illustrative)</text>
+  <text x="25" y="42" class="sm" fill="#555">As models approach human ceiling, evaluation benchmarks saturate and lose discriminatory power.</text>
+
+  <!-- Plot Area: Origin (80, 260), Width 460, Height 190. Max Y at Y=70 -->
+  <line x1="80" y1="260" x2="540" y2="260" class="axis"/>
+  <line x1="80" y1="70" x2="80" y2="260" class="axis"/>
+  <text x="35" y="165" class="sm b" transform="rotate(-90 35 165)" text-anchor="middle">Benchmark Accuracy (%)</text>
+
+  <!-- Y ticks: 0%, 25%, 50%, 75%, 100% -->
+  <line x1="80" y1="260" x2="540" y2="260" class="grid"/>
+  <text x="70" y="264" text-anchor="end" class="sm">0%</text>
+  <line x1="80" y1="212" x2="540" y2="212" class="grid"/>
+  <text x="70" y="216" text-anchor="end" class="sm">25%</text>
+  <line x1="80" y1="165" x2="540" y2="165" class="grid"/>
+  <text x="70" y="169" text-anchor="end" class="sm">50%</text>
+  <line x1="80" y1="117" x2="540" y2="117" class="grid"/>
+  <text x="70" y="121" text-anchor="end" class="sm">75%</text>
+  <line x1="80" y1="70" x2="540" y2="70" class="grid"/>
+  <text x="70" y="74" text-anchor="end" class="sm">100%</text>
+
+  <!-- X ticks: 2020, 2021, 2022, 2023, 2024, 2025 -->
+  <!-- X positions: 80, 172, 264, 356, 448, 540 -->
+  <line x1="172" y1="260" x2="172" y2="265" class="axis"/>
+  <text x="172" y="280" text-anchor="middle" class="sm">2021</text>
+  <line x1="264" y1="260" x2="264" y2="265" class="axis"/>
+  <text x="264" y="280" text-anchor="middle" class="sm">2022</text>
+  <line x1="356" y1="260" x2="356" y2="265" class="axis"/>
+  <text x="356" y="280" text-anchor="middle" class="sm">2023</text>
+  <line x1="448" y1="260" x2="448" y2="265" class="axis"/>
+  <text x="448" y="280" text-anchor="middle" class="sm">2024</text>
+  <line x1="540" y1="260" x2="540" y2="265" class="axis"/>
+  <text x="540" y="280" text-anchor="middle" class="sm">2025</text>
+  <text x="80" y="280" text-anchor="middle" class="sm">2020</text>
+  <text x="310" y="302" text-anchor="middle" class="sm b">Calendar Year</text>
+
+  <!-- Curve 1: MMLU (Blue) -> saturates above 88% by 2024 -->
+  <path d="M80,180 C172,175 264,150 356,98 C448,88 540,84 540,84" class="curve1"/>
+  <text x="356" y="88" text-anchor="middle" class="sm b" fill="#2c5d88">MMLU (Saturating ~90%)</text>
+
+  <!-- Curve 2: MMLU-Pro (Orange) -> introduced 2024 at ~45% -->
+  <path d="M448,168 C494,150 540,132 540,132" class="curve2"/>
+  <text x="480" y="160" text-anchor="middle" class="sm b" fill="#b45f06">MMLU-Pro (Reset)</text>
+
+  <!-- Curve 3: GSM8K (Green) -> saturates >95% -->
+  <path d="M172,250 C264,240 356,110 448,78 L540,74" class="curve3"/>
+  <text x="300" y="195" text-anchor="middle" class="sm b" fill="#274e13">GSM8K</text>
+
+  <!-- Right Side Explanation Panel -->
+  <rect x="585" y="70" width="230" height="215" rx="5" class="gray"/>
+  <text x="595" y="92" class="b sm">Goodhart's Law in AI:</text>
+  <text x="595" y="112" class="sm">"When a measure becomes a</text>
+  <text x="595" y="128" class="sm">target, it ceases to be a good</text>
+  <text x="595" y="144" class="sm">measure."</text>
+
+  <text x="595" y="172" class="sm b">• Saturated Benchmarks:</text>
+  <text x="605" y="188" class="sm">Differences between 91%</text>
+  <text x="605" y="204" class="sm">and 92% reflect label noise,</text>
+  <text x="605" y="220" class="sm">not superior intelligence.</text>
+
+  <text x="595" y="246" class="sm b">• Frontier Benchmarks:</text>
+  <text x="605" y="262" class="sm">GPQA, SWE-bench, AIME.</text>
+
+  <text x="25" y="335" class="sm" fill="#555">Illustrative trajectory modeling the historical accuracy convergence of frontier models across popular academic benchmarks.</text>
+</svg>

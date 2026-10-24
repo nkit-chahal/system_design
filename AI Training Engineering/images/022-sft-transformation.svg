@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">The SFT Transformation: Base Model to Instruction Follower</text>
+  <text x="25" y="48" class="sm" fill="#555">Supervised Fine-Tuning conditions next-token probabilities to adopt an assistant persona and structure</text>
+
+  <!-- Left Box: Base Pretrained Model -->
+  <rect x="25" y="70" width="370" height="225" rx="6" class="gray"/>
+  <rect x="35" y="80" width="350" height="30" rx="4" class="red"/>
+  <text x="210" y="100" text-anchor="middle" class="b">Base Pretrained Model (Raw Text Predictor)</text>
+
+  <rect x="35" y="120" width="350" height="60" rx="4" class="white"/>
+  <text x="45" y="138" class="sm b">Prompt:</text>
+  <text x="45" y="156" class="sm">"Explain how DNS resolution works."</text>
+
+  <rect x="35" y="190" width="350" height="95" rx="4" class="white"/>
+  <text x="45" y="208" class="sm b" fill="#b85450">Typical Raw Output:</text>
+  <text x="45" y="226" class="sm">"...in 10 easy steps. Chapter 2: TCP/IP.</text>
+  <text x="45" y="244" class="sm">Related Articles: What is an IP address?</text>
+  <text x="45" y="262" class="sm">Leave a comment below (3 comments)..."</text>
+
+  <!-- Right Box: SFT Aligned Model -->
+  <rect x="425" y="70" width="370" height="225" rx="6" class="gray"/>
+  <rect x="435" y="80" width="350" height="30" rx="4" class="green"/>
+  <text x="610" y="100" text-anchor="middle" class="b">SFT Aligned Model (Instruction Follower)</text>
+
+  <rect x="435" y="120" width="350" height="60" rx="4" class="white"/>
+  <text x="445" y="138" class="sm b">Structured Prompt:</text>
+  <text x="445" y="156" class="sm">&lt;|start_header_id|&gt;user&lt;|end_header_id|&gt; DNS?&lt;|eot_id|&gt;</text>
+
+  <rect x="435" y="190" width="350" height="95" rx="4" class="white"/>
+  <text x="445" y="208" class="sm b" fill="#274e13">Compliant Assistant Output:</text>
+  <text x="445" y="226" class="sm">"DNS (Domain Name System) translates</text>
+  <text x="445" y="244" class="sm">human-readable domain names into IP</text>
+  <text x="445" y="262" class="sm">addresses through a 4-step hierarchy..."</text>
+</svg>

@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Step 5: Production Financial Budget Breakdown</text>
+  <text x="25" y="48" class="sm" fill="#555">Incorporating hardware failures, elastic restarts, and evaluation overhead at $3.00/GPU-hour</text>
+
+  <!-- Stacked Budget Bar (760px wide, ~6.5px per $1k) -->
+  <!-- 1. Base Compute: $101,491 (661px) -->
+  <rect x="25" y="75" width="661" height="52" class="blue"/>
+  <text x="355" y="97" text-anchor="middle" class="b">Base Compute: $101,491 (87.0%)</text>
+  <text x="355" y="115" text-anchor="middle" class="sm">33,830 GPU-hours (5.51 days on 256 H100s at 40% MFU)</text>
+
+  <!-- 2. Failures & Restarts: $10,149 (66px) -->
+  <rect x="686" y="75" width="66" height="52" class="red"/>
+  <text x="719" y="97" text-anchor="middle" class="b sm">Failures</text>
+  <text x="719" y="115" text-anchor="middle" class="sm">+10%</text>
+
+  <!-- 3. Online Eval: $5,075 (33px) -->
+  <rect x="752" y="75" width="33" height="52" class="yellow"/>
+  <text x="768" y="97" text-anchor="middle" class="b sm">Eval</text>
+  <text x="768" y="115" text-anchor="middle" class="sm">+5%</text>
+
+  <!-- Total Marker -->
+  <text x="785" y="70" text-anchor="end" class="sm b">Total Budget: $116,715 (38,905 GPU-hours)</text>
+
+  <!-- Three Detail Cards -->
+  <rect x="25" y="150" width="245" height="98" rx="6" class="blue"/>
+  <text x="40" y="174" class="b">1. Base Compute</text>
+  <text x="40" y="196" class="sm">• 33,830.5 GPU-hours</text>
+  <text x="40" y="214" class="sm">• 132.2 wall-clock hours</text>
+  <text x="40" y="232" class="sm b" fill="#0b5394">Subtotal: $101,491</text>
+
+  <rect x="285" y="150" width="245" height="98" rx="6" class="red"/>
+  <text x="300" y="174" class="b" fill="#900">2. Failures &amp; Restarts</text>
+  <text x="300" y="196" class="sm">• +10% cluster overhead</text>
+  <text x="300" y="214" class="sm">• +3,383 GPU-hours</text>
+  <text x="300" y="232" class="sm b" fill="#900">Buffer: +$10,149</text>
+
+  <rect x="545" y="150" width="250" height="98" rx="6" class="yellow"/>
+  <text x="560" y="174" class="b" fill="#7f6000">3. Online Evaluation</text>
+  <text x="560" y="196" class="sm">• +5% checkpoint evals</text>
+  <text x="560" y="214" class="sm">• +1,692 GPU-hours</text>
+  <text x="560" y="232" class="sm b" fill="#7f6000">Buffer: +$5,075</text>
+
+  <!-- Explanatory footer -->
+  <rect x="25" y="265" width="770" height="55" rx="6" class="gray"/>
+  <text x="40" y="287" class="b">Rule of Cluster Budgeting:</text>
+  <text x="40" y="305" class="sm">Always pad theoretical compute by 15% to 20% in funding proposals. Large clusters suffer periodic node drops and stalls.</text>
+</svg>

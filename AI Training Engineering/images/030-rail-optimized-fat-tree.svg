@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="380" viewBox="0 0 840 380" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #666; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .rail0 { stroke: #d79b00; stroke-width: 1.8; fill: none; }
+    .rail7 { stroke: #6c8ebf; stroke-width: 1.8; fill: none; }
+    .spine-edge { stroke: #999; stroke-width: 1; stroke-dasharray: 2 2; fill: none; }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Rail-Optimized Fat-Tree Network Architecture</text>
+  <text x="25" y="42" class="sm" fill="#555">NIC k of every node connects to Rail k leaf switches. Homologous GPU ranks communicate without crossing rails.</text>
+
+  <!-- Top: Spine Switch Layer -->
+  <rect x="220" y="60" width="400" height="42" rx="4" class="purple"/>
+  <text x="420" y="80" text-anchor="middle" class="b">Spine Switch Layer (Core Switches)</text>
+  <text x="420" y="95" text-anchor="middle" class="sm">Connects across rails only for irregular / cross-rail traffic</text>
+
+  <!-- Middle: Rail Leaf Switches -->
+  <text x="25" y="130" class="b sm">Rail Leaf Switches (Independent Subnets):</text>
+
+  <!-- Rail 0 Leaf -->
+  <rect x="50" y="142" width="160" height="52" rx="4" class="orange"/>
+  <text x="130" y="162" text-anchor="middle" class="b sm">Rail 0 Leaf Switch</text>
+  <text x="130" y="178" text-anchor="middle" class="sm">Connects all NIC 0s</text>
+
+  <!-- Rail 1 Leaf -->
+  <rect x="230" y="142" width="160" height="52" rx="4" class="gray"/>
+  <text x="310" y="162" text-anchor="middle" class="b sm">Rail 1 Leaf Switch</text>
+  <text x="310" y="178" text-anchor="middle" class="sm">Connects all NIC 1s</text>
+
+  <!-- Ellipsis -->
+  <text x="420" y="172" text-anchor="middle" class="b">· · ·</text>
+
+  <!-- Rail 7 Leaf -->
+  <rect x="460" y="142" width="160" height="52" rx="4" class="blue"/>
+  <text x="540" y="162" text-anchor="middle" class="b sm">Rail 7 Leaf Switch</text>
+  <text x="540" y="178" text-anchor="middle" class="sm">Connects all NIC 7s</text>
+
+  <!-- Up links to Spine -->
+  <path d="M130,142 L300,102" class="spine-edge"/>
+  <path d="M310,142 L380,102" class="spine-edge"/>
+  <path d="M540,142 L480,102" class="spine-edge"/>
+
+  <!-- Legend / Info on Right -->
+  <rect x="645" y="142" width="170" height="85" rx="4" class="white"/>
+  <text x="655" y="162" class="b sm">Routing Benefit:</text>
+  <text x="655" y="180" class="sm">• DDP / FSDP uses</text>
+  <text x="665" y="196" class="sm">single rail per GPU</text>
+  <text x="655" y="214" class="sm">• Zero spine congestion</text>
+
+  <!-- Bottom: 32 Nodes -->
+  <text x="25" y="228" class="b sm">Server Nodes (32 × 8-H100 Nodes in Cluster):</text>
+
+  <!-- Node 0 -->
+  <rect x="50" y="240" width="220" height="74" rx="4" class="group"/>
+  <text x="60" y="258" class="b sm">Node 0 (GPUs 0–7)</text>
+  <rect x="60" y="268" width="85" height="36" rx="3" class="orange"/>
+  <text x="102" y="284" text-anchor="middle" class="sm b">NIC 0 (GPU 0)</text>
+  <text x="102" y="297" text-anchor="middle" class="sm">400 Gb/s</text>
+  <rect x="175" y="268" width="85" height="36" rx="3" class="blue"/>
+  <text x="217" y="284" text-anchor="middle" class="sm b">NIC 7 (GPU 7)</text>
+  <text x="217" y="297" text-anchor="middle" class="sm">400 Gb/s</text>
+
+  <!-- Node 1 -->
+  <rect x="300" y="240" width="220" height="74" rx="4" class="group"/>
+  <text x="310" y="258" class="b sm">Node 1 (GPUs 8–15)</text>
+  <rect x="310" y="268" width="85" height="36" rx="3" class="orange"/>
+  <text x="352" y="284" text-anchor="middle" class="sm b">NIC 0 (GPU 8)</text>
+  <text x="352" y="297" text-anchor="middle" class="sm">400 Gb/s</text>
+  <rect x="425" y="268" width="85" height="36" rx="3" class="blue"/>
+  <text x="467" y="284" text-anchor="middle" class="sm b">NIC 7 (GPU 15)</text>
+  <text x="467" y="297" text-anchor="middle" class="sm">400 Gb/s</text>
+
+  <!-- Node 31 -->
+  <rect x="550" y="240" width="220" height="74" rx="4" class="group"/>
+  <text x="560" y="258" class="b sm">Node 31 (GPUs 248–255)</text>
+  <rect x="560" y="268" width="85" height="36" rx="3" class="orange"/>
+  <text x="602" y="284" text-anchor="middle" class="sm b">NIC 0 (GPU 248)</text>
+  <text x="602" y="297" text-anchor="middle" class="sm">400 Gb/s</text>
+  <rect x="675" y="268" width="85" height="36" rx="3" class="blue"/>
+  <text x="717" y="284" text-anchor="middle" class="sm b">NIC 7 (GPU 255)</text>
+  <text x="717" y="297" text-anchor="middle" class="sm">400 Gb/s</text>
+
+  <!-- Rail 0 connections (Orange) -->
+  <path d="M102,268 L102,215 L100,194" class="rail0"/>
+  <path d="M352,268 L352,215 L130,194" class="rail0"/>
+  <path d="M602,268 L602,215 L160,194" class="rail0"/>
+
+  <!-- Rail 7 connections (Blue) -->
+  <path d="M217,268 L217,215 L480,194" class="rail7"/>
+  <path d="M467,268 L467,215 L510,194" class="rail7"/>
+  <path d="M717,268 L717,215 L540,194" class="rail7"/>
+
+  <!-- Bottom Explanatory Bar -->
+  <rect x="25" y="325" width="790" height="45" rx="4" class="white"/>
+  <text x="35" y="342" class="sm b">Key Insight:</text>
+  <text x="120" y="342" class="sm">In collective operations across 32 nodes, rank 0 on Node 0 talks to rank 0 on Node 1..31.</text>
+  <text x="35" y="358" class="sm">Traffic stays entirely inside the Rail 0 Leaf Switch: 0 spine crossings, minimum latency, no oversubscription bottleneck.</text>
+</svg>

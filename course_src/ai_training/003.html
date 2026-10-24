@@ -1,0 +1,396 @@
+<h2>Introduction</h2>
+<p>Training a large language model is, before anything else, a battle against GPU memory limits. While inference requires memory primarily to hold model weights and the key-value cache of generated tokens, training demands vastly more. During training, the GPU must simultaneously store the model weights, their gradients, multiple optimizer states per parameter, intermediate activations retained from the forward pass for backpropagation, communication buffers, and scratch workspaces for matrix multiplications [1].</p>
+<p>In standard mixed-precision training with the Adam optimizer, the model and optimizer states alone consume <strong>16 bytes per parameter</strong> [2]. For an 8-billion-parameter model such as Llama 3.1 8B, this baseline footprint reaches 128.5 GB. Because an NVIDIA H100 SXM GPU provides 80 GB of High Bandwidth Memory (HBM3), <strong>the model states alone exceed the physical capacity of a single GPU by more than 60% before allocating a single activation tensor</strong>. Training an 8B model on a single 80 GB GPU is physically impossible without aggressive sharding or offloading.</p>
+<fig src="003-memory-breakdown-stacked.svg" caption="Anatomy of GPU memory during LLM training">A stacked bar and category breakdown showing the four primary consumers of GPU High Bandwidth Memory during training: static model states (16 bytes per parameter), dynamic activation memory saved for the backward chain rule, temporary workspaces and collective communication buffers, and PyTorch caching allocator headroom and fragmentation. A contrast box highlights why inference needs only 2 bytes per parameter plus KV cache.</fig>
+<p>Beyond static states, <strong>activation memory</strong> grows with batch size, hidden dimension, and context length. For modern 8,192-token sequences, naive attention activations require over 380 GB per GPU across 32 layers, dwarfing even the optimizer states [3]. Sizing a training run requires understanding exactly what each tensor costs, how memory scales across sequence length and batch dimensions, and which levers—activation checkpointing, FlashAttention, and state sharding—make training feasible without starving compute throughput.</p>
+<p>In this lesson, we break down every byte that occupies GPU memory during training, derive the exact analytical scaling laws for activations, examine the memory reduction levers and their trade-offs, work a complete memory budget for our running 256-GPU pretraining cluster, and inspect memory allocation in PyTorch using memory snapshots.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In a systems design interview for an AI infrastructure role, memory accounting questions typically start from an out-of-memory failure or a cluster sizing challenge. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: What model architecture and precision are we targeting for this training run?<br>
+<strong>Interviewer</strong>: We are pretraining a model with the Llama 3.1 8B architecture—32 layers, hidden dimension 4,096, 32 query heads, 8 KV heads, and vocabulary size 128,256, totaling 8.03 billion parameters. We use BF16 mixed-precision training with the AdamW optimizer.</p>
+<p><strong>Candidate</strong>: What hardware cluster and network topology do we have available?<br>
+<strong>Interviewer</strong>: A cluster of 256 NVIDIA H100 80 GB SXM GPUs arranged across 32 nodes. Within each node, the 8 GPUs communicate via NVLink at 900 GB/s per GPU. Across nodes, each node connects through 8 InfiniBand NDR NICs offering 400 Gb/s (50 GB/s) per GPU.</p>
+<p><strong>Candidate</strong>: What sequence length and batch size are specified for pretraining?<br>
+<strong>Interviewer</strong>: The sequence length is 8,192 tokens. The global batch size is approximately 4 million tokens, which corresponds to 512 sequences of 8,192 tokens per optimizer step.</p>
+<p><strong>Candidate</strong>: What is our primary optimization objective—minimizing memory footprint to fit the largest possible batch, or maximizing compute throughput?<br>
+<strong>Interviewer</strong>: We need to reach at least 40% Model FLOPs Utilization (MFU). The run must never crash with an Out-Of-Memory (OOM) error, but we cannot afford techniques that severely degrade hardware efficiency or saturate our inter-node network.</p>
+<p><strong>Candidate</strong>: Can we train this model on a single H100 if we use gradient accumulation?<br>
+<strong>Interviewer</strong>: You tell me. Can you fit Llama 3.1 8B on one 80 GB GPU for training, and if not, why?</p>
+<p>The question underneath is: <em>How do we account for every gigabyte across the cluster, fit long 8,192-token sequences without running out of memory, and avoid paying unnecessary communication penalties on our interconnects?</em> To answer it, we begin by accounting for the static baseline: model and optimizer states.</p>
+
+<h2>The 16-Byte Baseline: Model and Optimizer States</h2>
+<h3>The arithmetic of mixed-precision Adam</h3>
+<p>In mixed-precision training with 16-bit floating point (BF16 or FP16), the forward pass and backward pass matrix multiplications execute in 16-bit to exploit tensor core throughput [2]. However, parameter updates cannot be performed directly in 16-bit without severe numerical underflow and weight stagnation. Standard practice therefore maintains an FP32 copy of the weights and computes the optimizer step in full 32-bit precision.</p>
+<p>For every parameter <tex>p</tex> in the model, the system stores five distinct values across the training step:</p>
+<ul>
+<li><strong>BF16 model weight (2 bytes)</strong>: Read during the forward pass to compute layer activations, and read during the backward pass to compute gradients with respect to input activations.</li>
+<li><strong>BF16 gradient (2 bytes)</strong>: Computed during backpropagation and accumulated across micro-batches before the optimizer update.</li>
+<li><strong>FP32 master weight (4 bytes)</strong>: The high-precision reference copy of the parameter. The optimizer applies the weight update directly to this FP32 tensor, which is then cast back to BF16 for the next forward pass.</li>
+<li><strong>FP32 Adam first moment <tex>m</tex> (4 bytes)</strong>: The exponentially decaying moving average of past gradients (momentum), updated at each optimizer step.</li>
+<li><strong>FP32 Adam second moment <tex>v</tex> (4 bytes)</strong>: The exponentially decaying moving average of past squared gradients (uncentered variance), used to scale individual coordinate learning rates.</li>
+</ul>
+<p>Summing these five components yields the canonical memory footprint for mixed-precision Adam:</p>
+<texblock>\text{Memory per Parameter} = 2 + 2 + 4 + 4 + 4 = 16\text{ bytes}</texblock>
+<p>Figure 2 illustrates this state accounting and shows how the 16 bytes divide between model representations and optimizer states.</p>
+<fig src="003-adam-16-bytes.svg" caption="Mixed-precision Adam: 16 bytes per parameter">State accounting for every single model parameter during standard BF16 training with Adam. The 16 bytes comprise 2 bytes for the BF16 weight, 2 bytes for the BF16 gradient, 4 bytes for the FP32 master weight, and 8 bytes for the FP32 Adam first and second moments. 75% of the memory belongs to the optimizer. Applied to Llama 3.1 8B, this requires 128.5 GB, exceeding an 80 GB GPU by 48.5 GB.</fig>
+<p>Notice that <strong>12 of the 16 bytes (75%) belong entirely to the optimizer</strong>. The active weights and gradients used by the neural network layers account for only 4 bytes per parameter (25% of the total).</p>
+
+<h3>Why Llama 3.1 8B cannot train on one 80 GB GPU</h3>
+<p>Our running model has <tex>N = 8.03 \times 10^9</tex> parameters. Multiplying by 16 bytes gives the exact static memory requirement:</p>
+<texblock>\text{Static Memory} = 8.03 \times 10^9 \times 16\text{ bytes} = 128.48 \times 10^9\text{ bytes} \approx 128.5\text{ GB}</texblock>
+<p>In binary units (gibibytes), this corresponds to <tex>128.48 \times 10^9 / 1024^3 \approx 119.66\text{ GiB}</tex>. An NVIDIA H100 SXM 80 GB GPU exposes approximately 79.6 GiB (85.47 GB) of visible memory to the CUDA driver.</p>
+<p>Even before allocating a single activation tensor, communication buffer, or CUDA context overhead, the baseline states exceed total GPU memory by 48.5 GB (1.61× physical capacity). Accumulating gradients over smaller micro-batches reduces activation memory, but <strong>gradient accumulation cannot reduce model or optimizer states</strong>. Unsharded single-GPU training of an 8B model with Adam on an 80 GB GPU is fundamentally impossible.</p>
+
+<h3>Why inference memory is radically smaller</h3>
+<p>Engineers transitioning from inference to training often wonder why a model that serves comfortably on a single 24 GB or 80 GB GPU suddenly requires a distributed cluster to train. The difference lies in the absence of backward passes and optimizer updates during inference (see Inference Lesson 17, VRAM Budgeting).</p>
+<p>During inference, there are no gradients (<tex>0\text{ bytes}</tex>), no FP32 master weights (<tex>0\text{ bytes}</tex>), and no Adam momentum or variance states (<tex>0\text{ bytes}</tex>). The model requires only its BF16 weights (16.06 GB, or 15.0 GiB) or FP8 weights (~9.08 GB). Furthermore, inference decodes one token at a time, so its active layer activations require less than 100 MB. The remaining ~52 GiB of memory on an 80 GB H100 is dedicated entirely to the <strong>KV cache</strong>, allowing the GPU to concurrently serve hundreds of users. In training, the KV cache does not exist; instead, optimizer states and forward activations consume the entire memory budget.</p>
+
+<h2>Activation Memory: Anatomy and Scaling</h2>
+<h3>What activations are saved for the backward pass</h3>
+<p>While model and optimizer states remain fixed throughout training, <strong>activation memory</strong> is dynamic. When a neural network executes a forward pass, it computes intermediate tensors at each layer. According to the chain rule of calculus, computing the gradient of the loss with respect to a layer's weights requires the input activations to that layer [1]:</p>
+<texblock>\frac{\partial \mathcal{L}}{\partial W} = \left(\frac{\partial \mathcal{L}}{\partial Y}\right) X^\top \quad \text{where } Y = W X</texblock>
+<p>To evaluate this outer product during backpropagation, the forward activations <tex>X</tex> must either remain in GPU memory until the backward pass reaches that layer, or be recomputed on the fly. In an uncheckpointed transformer, every linear projection input, normalization statistic, attention score matrix, and non-linear activation tensor across all 32 layers is saved in HBM.</p>
+
+<h3>Analytical derivation from Megatron-LM</h3>
+<p>To quantify activation memory rigorously, we use the analytical framework formulated by Korthikanti et al. in the Megatron-LM study <em>Reducing Activation Recomputation in Large Transformer Models</em> [3]. Let <tex>s</tex> be the sequence length, <tex>b</tex> the micro-batch size per GPU, <tex>h</tex> the hidden dimension, <tex>a</tex> the number of attention heads, and <tex>L</tex> the number of transformer layers. In 16-bit precision (2 bytes per element), the intermediate activations stored per transformer layer divide into two distinct categories: linear terms and quadratic attention terms.</p>
+
+<h4>1. Self-attention block linear activations (<tex>12 s b h\text{ bytes}</tex>)</h4>
+<ul>
+<li><strong>Attention input & LayerNorm</strong>: Storing the input to the pre-attention RMSNorm / LayerNorm requires <tex>2 s b h\text{ bytes}</tex>. Storing the normalized output feeding the Q, K, V projections requires <tex>2 s b h\text{ bytes}</tex>.</li>
+<li><strong>Q, K, V projections</strong>: Storing the projected query (<tex>2 s b h</tex>) and key (<tex>2 s b h</tex>) tensors needed to compute gradients of the attention matrix requires <tex>4 s b h\text{ bytes}</tex>. Storing value vectors <tex>V</tex> requires <tex>2 s b h\text{ bytes}</tex>.</li>
+<li><strong>Attention out-projection & dropout</strong>: Storing the context projection input requires <tex>2 s b h\text{ bytes}</tex>. Attention dropout masks add <tex>1 s b h</tex> (or <tex>2 s b h</tex> if stored uncompressed).</li>
+</ul>
+
+<h4>2. Quadratic self-attention matrix activations (<tex>5 a s^2 b\text{ bytes}</tex>)</h4>
+<p>In standard multi-head self-attention, the query-key matrix multiplication produces an attention score tensor of shape <tex>[b, a, s, s]</tex>:</p>
+<ul>
+<li>The raw attention score tensor <tex>Q K^\top / \sqrt{d}</tex> in 16-bit requires <tex>2 a s^2 b\text{ bytes}</tex>.</li>
+<li>The post-softmax attention probability tensor requires <tex>2 a s^2 b\text{ bytes}</tex> to backpropagate through the softmax Jacobian.</li>
+<li>The attention dropout mask requires <tex>1 a s^2 b\text{ bytes}</tex> (as a 1-byte mask).</li>
+</ul>
+<p>Summing these terms yields <tex>5 a s^2 b\text{ bytes}</tex> per layer. This term scales with the square of sequence length <tex>s^2</tex>.</p>
+
+<h4>3. Feed-forward network (MLP) activations (<tex>22 s b h\text{ bytes}</tex>)</h4>
+<p>In standard transformer MLPs with GeLU activation expanding to intermediate size <tex>4h</tex>:</p>
+<ul>
+<li>The pre-MLP LayerNorm input requires <tex>2 s b h\text{ bytes}</tex>.</li>
+<li>The input to the first linear up-projection requires <tex>2 s b h\text{ bytes}</tex>.</li>
+<li>The intermediate expanded tensor of dimension <tex>4h</tex> before the non-linearity requires <tex>8 s b h\text{ bytes}</tex> (<tex>4 \times 2 s b h</tex>).</li>
+<li>The post-activation tensor of dimension <tex>4h</tex> feeding the down-projection requires <tex>8 s b h\text{ bytes}</tex>.</li>
+<li>The output residual dropout mask requires <tex>2 s b h\text{ bytes}</tex>.</li>
+</ul>
+<p>In modern architectures using SwiGLU (such as Llama 3.1), the MLP uses three projections (<tex>W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}</tex>) with intermediate dimension <tex>d_{ff} = 14,336 = 3.5 h</tex>. The linear activation footprint remains roughly comparable, totaling approximately <tex>34 s b h\text{ bytes}</tex> per layer when combined with attention linear terms.</p>
+
+<p>Combining all linear and quadratic terms yields Korthikanti et al.'s formula for uncheckpointed activation memory per layer [3]:</p>
+<texblock>\text{Activation Memory per Layer} = 34 s b h + 5 a s^2 b\text{ bytes}</texblock>
+<p>Across all <tex>L</tex> layers of the model, total uncheckpointed activation memory is:</p>
+<texblock>\text{Total Activation Memory} = L \times \left( 34 s b h + 5 a s^2 b \right)\text{ bytes}</texblock>
+
+<h3>The quadratic explosion at 8,192 tokens</h3>
+<p>Now let us evaluate this formula for our pretraining scenario with micro-batch size <tex>b = 1</tex>, sequence length <tex>s = 8,192</tex>, hidden size <tex>h = 4,096</tex>, attention heads <tex>a = 32</tex>, and <tex>L = 32</tex> layers:</p>
+<ul>
+<li><strong>Linear term per layer</strong>: <tex>34 \times 8,192 \times 1 \times 4,096 = 1,140,850,688\text{ bytes} \approx 1.14\text{ GB}</tex> (1,088 MiB). Across 32 layers: <tex>32 \times 1.14\text{ GB} = 36.51\text{ GB}</tex>.</li>
+<li><strong>Quadratic term per layer</strong>: <tex>5 \times 32 \times (8,192)^2 \times 1 = 10,737,418,240\text{ bytes} \approx 10.74\text{ GB}</tex> (10.0 GiB). Across 32 layers: <tex>32 \times 10.74\text{ GB} = 343.60\text{ GB}</tex>.</li>
+<li><strong>Total per layer</strong>: <tex>1.14\text{ GB} + 10.74\text{ GB} = 11.88\text{ GB}</tex>.</li>
+<li><strong>Total across 32 layers</strong>: <tex>36.51\text{ GB} + 343.60\text{ GB} = 380.11\text{ GB}</tex> (354.0 GiB).</li>
+</ul>
+<p>At 8,192 tokens, the quadratic attention matrix accounts for <strong>90.4% of total activation memory</strong>. To store uncheckpointed activations for just one sequence would require nearly five 80 GB GPUs purely for activations! Figure 3 plots this scaling behavior against sequence length.</p>
+<fig src="003-activation-scaling.svg" caption="Activation memory scaling with sequence length">Illustrative scaling of activation memory for Llama 3.1 8B across sequence lengths from 2,048 to 8,192 tokens (micro-batch b = 1, 32 layers). Standard attention experiences a quadratic explosion, reaching 380.1 GB at 8,192 tokens. FlashAttention removes the quadratic term entirely, holding activation memory to 36.5 GB. Full activation checkpointing combined with FlashAttention cuts the footprint to just 2.15 GB.</fig>
+
+<h3>What FlashAttention changes</h3>
+<p>The breakthrough that made long-context LLM training practical without quadratic memory scaling is <strong>FlashAttention</strong> (Dao et al., 2022 [4]; FlashAttention-2, 2023). Standard attention materializes the intermediate <tex>s \times s</tex> attention score and dropout matrices in GPU High Bandwidth Memory (HBM) during the forward pass so that the backward pass can read them.</p>
+<p>FlashAttention restructures the attention computation using GPU On-Chip Static RAM (SRAM). By tiling the inputs into blocks that fit within the H100's fast SRAM (which delivers ~33 TB/s, roughly 10× faster than HBM3) and computing the softmax incrementally using online normalization, FlashAttention computes attention without ever writing the <tex>b \times a \times s \times s</tex> intermediate matrix to HBM.</p>
+<p>Crucially for training memory, FlashAttention avoids saving the quadratic attention matrix for the backward pass. Instead, it saves only the forward outputs and a single softmax scaling vector (the log-sum-exp values of shape <tex>[b, a, s]</tex>, requiring only <tex>4 a s b\text{ bytes}</tex> in FP32, or 1 MB for 8,192 tokens). During the backward pass, FlashAttention recomputes the attention tiles on the fly directly in SRAM from the saved inputs <tex>Q, K, V</tex> and the log-sum-exp vector.</p>
+<p>As a result, <strong>FlashAttention completely eliminates the <tex>5 a s^2 b</tex> term from GPU memory</strong>. The activation footprint collapses from <tex>34 s b h + 5 a s^2 b</tex> down to strictly the linear term <tex>34 s b h</tex>. For Llama 3.1 8B at 8,192 tokens, activation memory across all 32 layers plummets from <strong>380.1 GB to 36.5 GB</strong>—a 10.4× memory reduction achieved with zero loss in numerical accuracy, and actually running 2–3× faster due to reduced HBM memory traffic.</p>
+
+<h2>Memory Reduction Levers and Their Costs</h2>
+<p>Even with FlashAttention holding activation memory to 36.5 GB, our model states (128.5 GB) plus activations (36.5 GB) still total 165 GB, far exceeding an 80 GB GPU. Training engineers employ several architectural and distributed levers to bring memory within hardware limits. Each lever trades off compute, communication, or engineering complexity.</p>
+
+<h3>Activation checkpointing and recomputation</h3>
+<p><strong>Activation checkpointing</strong> (also known as gradient checkpointing, Chen et al., 2016 [5]) trades compute cycles for memory. Instead of storing all intermediate activations computed during the forward pass across every layer, the system retains only the input tensor at the boundary of each transformer layer.</p>
+<p>During the forward pass of a 32-layer model, Layer 0 saves its input tensor <tex>x_0</tex>, runs its forward operations, passes <tex>x_1</tex> to Layer 1, and immediately discards all internal activations (projections, normalization states, and SwiGLU intermediates). Only <tex>x_0, x_1, \dots, x_{31}</tex> remain in memory.</p>
+<p>When the backward pass reaches Layer <tex>i</tex>, PyTorch retrieves the saved input tensor <tex>x_i</tex>, re-executes the forward pass of Layer <tex>i</tex> to regenerate its internal activations, immediately calculates the parameter gradients, and frees the recomputed activations before moving to Layer <tex>i-1</tex>. Figure 4 diagrams this lifecycle.</p>
+<fig src="003-activation-checkpointing.svg" caption="Full activation checkpointing: trading 33% compute to save 94% memory">Mechanism of full activation checkpointing across transformer layers. During the forward pass, internal intermediate activations are discarded, saving only the 67 MB layer boundary input. During the backward pass, each layer's forward pass is re-executed on demand to compute gradients, then immediately freed. Stored activations drop from 36.5 GB to 2.15 GB, in exchange for a 33.3% increase in total training FLOPs.</fig>
+<p>The memory savings are staggering. Instead of storing 34 elements per token per layer, full checkpointing stores only the input activation tensor:</p>
+<texblock>\text{Checkpoint Memory per Layer} = 2 s b h\text{ bytes (in BF16)}</texblock>
+<p>For Llama 3.1 8B with <tex>b = 1</tex> and <tex>s = 8,192</tex>:</p>
+<texblock>\text{Per Layer} = 2 \times 8,192 \times 1 \times 4,096 \times 2 = 134,217,728\text{ bytes} \approx 67.1\text{ MB}</texblock>
+<p>Across all 32 layers, total stored activations drop to <tex>32 \times 67.1\text{ MB} = 2.15\text{ GB}</tex> (2.0 GiB)—a <strong>94% reduction</strong> compared to uncheckpointed FlashAttention (36.5 GB).</p>
+
+<h4>The exact compute overhead</h4>
+<p>Re-running the forward pass is not free. As established in the standard FLOPs accounting (see Lesson 7, Training FLOPs, Time and MFU), a standard training step requires approximately <tex>6 N D\text{ FLOPs}</tex> (<tex>2 N D</tex> for the forward pass, and <tex>4 N D</tex> for the backward pass to compute both input and parameter gradients). Recomputing the forward pass during backpropagation adds another <tex>2 N D\text{ FLOPs}</tex>, increasing total compute to <tex>8 N D\text{ FLOPs}</tex>:</p>
+<texblock>\text{Compute Overhead} = \frac{8 N D - 6 N D}{6 N D} = \frac{2 N D}{6 N D} = \frac{1}{3} \approx 33.3\%</texblock>
+<p>Full activation checkpointing adds exactly <strong>33.3% more compute FLOPs</strong> to every training step. However, because it frees tens of gigabytes of VRAM, it allows training with larger micro-batch sizes that achieve higher tensor core saturation, frequently offsetting much of the nominal time penalty.</p>
+
+<h3>State sharding across GPUs: ZeRO and FSDP</h3>
+<p>While activation checkpointing solves the activation bottleneck, model and optimizer states (128.5 GB) still exceed a single 80 GB GPU. The solution is state sharding, formalized by Rajbhandari et al. in ZeRO (Zero Redundancy Optimizer [6]) and implemented natively in PyTorch as <strong>Fully Sharded Data Parallel (FSDP)</strong> [7].</p>
+<p>In standard Distributed Data Parallel (DDP), every GPU holds a complete, identical copy of the model weights, gradients, and optimizer states. FSDP eliminates this redundancy by partitioning states across data-parallel ranks:</p>
+<ul>
+<li><strong>ZeRO-1 (Optimizer State Sharding)</strong>: Each GPU keeps full BF16 weights (16.1 GB) and BF16 gradients (16.1 GB), but shards the FP32 master weights and Adam moments across <tex>N_d</tex> GPUs. For <tex>N_d = 8</tex>, optimizer states drop from 96.4 GB to 12.0 GB. Total model state drops from 128.5 GB to 44.2 GB.</li>
+<li><strong>ZeRO-2 (Optimizer + Gradient Sharding)</strong>: Gradients are also sharded. As backward pass gradients are computed, they are reduced directly to the rank that owns that parameter shard. Gradients drop to <tex>16.1 / N_d\text{ GB}</tex>. For <tex>N_d = 8</tex>, total model state drops to 30.2 GB.</li>
+<li><strong>ZeRO-3 / FSDP (Full Parameter Sharding)</strong>: Weights, gradients, and optimizer states are all sharded across <tex>N_d</tex> GPUs. Each GPU stores strictly <tex>16 / N_d\text{ bytes per parameter}</tex>.</li>
+</ul>
+<p>Figure 5 compares state sharding under three deployment strategies: unsharded DDP, intra-node sharding across 8 GPUs, and full cluster sharding across 256 GPUs.</p>
+<fig src="003-fsdp-sharding-comparison.svg" caption="Memory vs communication in state sharding: DDP vs intra-node FSDP vs full FSDP">Comparison of model state storage and communication characteristics for Llama 3.1 8B across 256 H100 GPUs. DDP replicates 128.5 GB on every GPU and fails with an immediate OOM. Intra-node FSDP shards across the 8 GPUs in a node, requiring 16.1 GB per GPU, with all layer-by-layer all-gather traffic contained on 900 GB/s NVLink. Full FSDP across 256 GPUs reduces state to 0.5 GB per GPU but floods the 400 Gb/s InfiniBand inter-node network, creating a communication bottleneck.</fig>
+
+<h4>The communication trade-off in FSDP</h4>
+<p>Under full FSDP, because weights are sharded, a GPU does not hold the weights for Layer <tex>i</tex> when it needs to compute that layer. Prior to executing Layer <tex>i</tex>'s forward pass, all GPUs in the sharding group perform an <code>all-gather</code> collective to reconstitute the full layer weights in temporary memory, execute the forward GEMMs, and immediately discard the gathered weights. The same all-gather occurs during the backward pass, followed by a <code>reduce-scatter</code> collective to synchronize gradients [7].</p>
+<p>This introduces 50% more collective communication volume than standard DDP. If FSDP is sharded across all 256 GPUs in a cluster, every layer's all-gather and reduce-scatter must traverse the inter-node network (400 Gb/s InfiniBand, offering 50 GB/s per GPU). This is <strong>18× slower than the 900 GB/s NVLink</strong> connecting GPUs within the same node, throttling GPU compute engines with inter-node communication stalls (see Lesson 11, ZeRO and FSDP).</p>
+
+<h3>Alternative memory levers</h3>
+<p>Other techniques exist to reduce memory, though each carries distinct trade-offs:</p>
+<ul>
+<li><strong>Micro-batch sizing and gradient accumulation</strong>: Setting micro-batch size <tex>b = 1</tex> minimizes activation memory. To achieve a large target global batch size <tex>B</tex>, gradients are accumulated locally over <tex>M</tex> micro-steps before synchronizing and calling <code>optimizer.step()</code>. This reduces activation memory linearly with <tex>b</tex>, but cannot reduce model states.</li>
+<li><strong>CPU offload (ZeRO-Offload)</strong>: Moves optimizer states and master weights to host CPU RAM, updating weights on the CPU and copying them back over PCIe. While this allows fine-tuning an 8B model on a single desktop GPU, PCIe Gen5 x16 bandwidth (~64 GB/s) is 52× slower than H100 HBM3 (3.35 TB/s), severely crippling throughput. It is unsuitable for large-scale pretraining.</li>
+<li><strong>8-bit optimizers (bitsandbytes)</strong>: Dettmers et al. [8] introduced non-linear block-wise quantization for Adam states. By quantizing momentum <tex>m</tex> and variance <tex>v</tex> to 8-bit floats with per-block scaling factors, optimizer states drop from 8 bytes to 2 bytes per parameter. Total model states drop from 16 bytes to 10 bytes per parameter (saving 48 GB for an 8B model). While effective for fine-tuning, large pretraining runs generally retain FP32 master weights and moments to eliminate any risk of optimizer numerical divergence.</li>
+<li><strong>Lower-precision training (FP8)</strong>: Executes forward and backward matrix multiplications using 8-bit floating point formats (E4M3 for activations/weights and E5M2 for gradients), halving activation and gradient storage (see Lesson 5, Mixed Precision Training - BF16 and FP8).</li>
+</ul>
+
+<p>Table 1 summarizes all memory levers, their memory savings, and their operational costs.</p>
+<table>
+<thead><tr><th>Technique</th><th>Primary Memory Target</th><th>Typical Saving</th><th>Compute / Communication Cost</th><th>Quality Risk</th></tr></thead>
+<tbody>
+<tr><td>FlashAttention</td><td>Activation memory</td><td>Eliminates <tex>5 a s^2 b</tex> quadratic term (cuts activations ~90% at 8K)</td><td>None (actually runs 2–3× faster due to IO-awareness)</td><td>Zero (exact math)</td></tr>
+<tr><td>Full Activation Checkpointing</td><td>Activation memory</td><td>Cuts linear activations ~94% (from <tex>34 s b h</tex> to <tex>2 s b h</tex>)</td><td>Adds ~33.3% more training FLOPs (<tex>6ND \to 8ND</tex>)</td><td>Zero (exact math)</td></tr>
+<tr><td>Gradient Accumulation</td><td>Activation memory</td><td>Scales activation memory linearly with micro-batch <tex>b</tex></td><td>Minor kernel launch overhead if <tex>b</tex> is too small</td><td>Zero</td></tr>
+<tr><td>Intra-Node FSDP (8 GPUs)</td><td>Model &amp; optimizer states</td><td>8× reduction in static states (from 128.5 GB to 16.1 GB/GPU)</td><td>All-gather and reduce-scatter over 900 GB/s NVLink</td><td>Zero</td></tr>
+<tr><td>Full Cluster FSDP (256 GPUs)</td><td>Model &amp; optimizer states</td><td>256× reduction in static states (down to 0.5 GB/GPU)</td><td>Layer all-gathers cross 50 GB/s InfiniBand (18× slower)</td><td>Zero</td></tr>
+<tr><td>8-bit Adam (bitsandbytes)</td><td>Optimizer states</td><td>Saves 6 bytes/param (cuts optimizer state by 50%)</td><td>Small quantization / dequantization compute overhead</td><td>Low; potential risk on long pretraining</td></tr>
+<tr><td>CPU Offload (ZeRO-Offload)</td><td>Optimizer states &amp; weights</td><td>Frees up to 120 GB of GPU VRAM to host RAM</td><td>Severe bottleneck: PCIe transfers (~64 GB/s)</td><td>Zero</td></tr>
+<tr><td>FP8 Training</td><td>Weights, grads, activations</td><td>Cuts activation and gradient tensors by 50%</td><td>Requires Hopper tensor cores, delayed scaling recipes</td><td>Low to medium; requires calibration</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Comparison of memory reduction techniques for LLM training</p>
+
+<h4>Which levers fit our run?</h4>
+<p>For our running pretraining scenario (Llama 3.1 8B, 256 H100 80 GB GPUs, sequence length 8,192, target 40% MFU), the optimal strategy is <strong>Hybrid Sharded Data Parallelism</strong>:</p>
+<ol>
+<li><strong>FlashAttention-2</strong> is mandatory: it eliminates the 343.6 GB quadratic attention tensor with zero compute penalty and zero accuracy loss.</li>
+<li><strong>Full activation checkpointing</strong> is enabled: it cuts stored activations from 36.5 GB to 2.15 GB per GPU, leaving abundant headroom for temporary buffers and GEMM workspaces.</li>
+<li><strong>Intra-node FSDP across 8 GPUs (Hybrid Sharding)</strong>: Inside each 8-GPU node, weights, gradients, and optimizer states are sharded across the 8 GPUs over 900 GB/s NVLink. This reduces static model states from 128.5 GB to <strong>16.1 GB per GPU</strong>. Across the 32 nodes, standard data parallelism (DDP) synchronizes gradients via ring all-reduce over InfiniBand once per step.</li>
+</ol>
+<p>We explicitly <strong>reject full cluster sharding across 256 GPUs</strong>. As shown in Table 1, full FSDP would reduce model states to 0.5 GB per GPU, leaving over 65 GB of expensive HBM3 memory completely empty while forcing every single transformer layer to fetch its weights across the 18× slower InfiniBand fabric. Intra-node FSDP provides the ideal balance: it uses ~33 GB of the 80 GB capacity, avoids network bottlenecks, and preserves the highest possible MFU.</p>
+
+<h2>Worked Memory Budgets: Intra-Node vs Full Sharding</h2>
+<h3>Step-by-step memory accounting per GPU</h3>
+<p>Let us construct the complete, byte-for-byte memory budget for a single H100 80 GB GPU under our chosen pretraining configuration (<tex>b = 1, s = 8,192</tex>) and contrast it with full 256-GPU sharding.</p>
+
+<h4>1. Sharded model and optimizer states</h4>
+<p>Total unshared state is <tex>8.03 \times 10^9 \times 16\text{ bytes} = 128.48\text{ GB}</tex>:</p>
+<ul>
+<li><strong>Under 8-GPU intra-node FSDP</strong>: Each GPU stores <tex>128.48 / 8 = 16.06\text{ GB}</tex> (14.96 GiB). This breaks down into 2.01 GB BF16 weights, 2.01 GB BF16 gradients, 4.02 GB FP32 master weights, and 8.03 GB FP32 Adam moments.</li>
+<li><strong>Under 256-GPU full FSDP</strong>: Each GPU stores <tex>128.48 / 256 = 0.502\text{ GB}</tex> (502 MB or 0.47 GiB).</li>
+</ul>
+
+<h4>2. Unsharded active layer buffer</h4>
+<p>During the forward and backward passes, FSDP all-gathers full weights for the active transformer layer. One layer contains <tex>8.03\text{B} / 32 \approx 251\text{M parameters}</tex>. In BF16, one layer's weights require:</p>
+<texblock>\text{Active Layer Weights} \approx 251 \times 10^6 \times 2\text{ bytes} \approx 0.50\text{ GB} \text{ (0.47 GiB)}</texblock>
+<p>With prefetching enabled (fetching Layer <tex>i+1</tex> while computing Layer <tex>i</tex>), two layers coexist temporarily in memory, occupying ~1.0 GB.</p>
+
+<h4>3. Activation memory</h4>
+<p>With FlashAttention and full activation checkpointing at <tex>b = 1</tex> and <tex>s = 8,192</tex>:</p>
+<ul>
+<li>Saved input checkpoints across 32 layers: <tex>32 \times (2 \times 8,192 \times 1 \times 4,096 \times 2) \approx 2.15\text{ GB}</tex>.</li>
+<li>Peak recomputed activations during backward pass: Layer <tex>i</tex> recomputes its internal activations, requiring <tex>34 s b h \approx 1.14\text{ GB}</tex>.</li>
+<li>Total peak activation memory during backward: <tex>2.15\text{ GB} + 1.14\text{ GB} = 3.29\text{ GB}</tex> (3.06 GiB).</li>
+</ul>
+
+<h4>4. Temporary buffers, GEMM workspaces, and loss computation</h4>
+<p>A training step requires ephemeral buffers that allocate and free within milliseconds:</p>
+<ul>
+<li><strong>cuBLAS &amp; FlashAttention workspaces</strong>: High-performance matrix multiplication libraries allocate scratch buffers for tensor core tiling heuristics (~1.5 GB).</li>
+<li><strong>Cross-entropy logits tensor</strong>: In the final layer, the hidden state of shape <tex>[b, s, h]</tex> projects to vocabulary size <tex>V = 128,256</tex>. The unchunked logits tensor of shape <tex>[1, 8192, 128256]</tex> in FP32 requires:
+<texblock>1 \times 8,192 \times 128,256 \times 4\text{ bytes} = 4,202,561,536\text{ bytes} \approx 4.20\text{ GB}</texblock>
+If chunked across 4 micro-slices, this drops to ~1.05 GB.</li>
+<li><strong>FSDP communication buckets</strong>: Buffers allocated for all-gather and reduce-scatter collective operations (~1.0 GB).</li>
+<li>Total temporary workspace: approximately <strong>5.0 GB</strong>.</li>
+</ul>
+
+<h4>5. Caching allocator headroom and fragmentation</h4>
+<p>PyTorch's caching allocator retains freed CUDA memory blocks to avoid expensive <code>cudaMalloc</code> driver synchronizations. Depending on tensor allocation patterns and variable-sized intermediates, memory fragmentation creates unallocatable gaps between cached blocks. Reserving a safety margin of <strong>8.0 GB</strong> (10% of total memory) ensures that allocations never trigger an out-of-memory error.</p>
+
+<p>Table 2 compares the complete memory allocation side by side.</p>
+<table>
+<thead><tr><th>Memory Category</th><th>Intra-Node FSDP (8 GPUs)</th><th>Full Cluster FSDP (256 GPUs)</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>Sharded Model States (Weights + Grads + Adam)</td><td>16.1 GB</td><td>0.50 GB</td><td>16 bytes/param sharded across GPUs</td></tr>
+<tr><td>Active Layer All-Gather Buffer</td><td>0.50 GB</td><td>0.50 GB</td><td>Full BF16 weights for active layer</td></tr>
+<tr><td>Activation Checkpoints (32 layers)</td><td>2.15 GB</td><td>2.15 GB</td><td><tex>2 s b h</tex> saved at layer boundaries</td></tr>
+<tr><td>Peak Recomputed Layer Activations</td><td>1.14 GB</td><td>1.14 GB</td><td>Single layer forward recomputed in backward</td></tr>
+<tr><td>GEMM Workspaces &amp; FlashAttn Scratch</td><td>1.50 GB</td><td>1.50 GB</td><td>cuBLAS heuristics and execution scratchpad</td></tr>
+<tr><td>Logits &amp; Cross-Entropy Loss Buffer</td><td>2.50 GB</td><td>2.50 GB</td><td>Chunked projection over 128,256 vocabulary</td></tr>
+<tr><td>Communication Buckets (FSDP / DDP)</td><td>1.00 GB</td><td>1.00 GB</td><td>Collective buffers for gradient synchronization</td></tr>
+<tr><td>Allocator Headroom &amp; Fragmentation</td><td>8.00 GB</td><td>5.00 GB</td><td>Safety buffer for PyTorch caching allocator</td></tr>
+<tr><td><strong>Total Committed Memory</strong></td><td><strong>32.89 GB</strong> (~30.6 GiB)</td><td><strong>14.29 GB</strong> (~13.3 GiB)</td><td>Peak GPU memory utilization</td></tr>
+<tr><td><strong>Available Free Headroom</strong></td><td><strong>47.11 GB</strong> (~49.0 GiB)</td><td><strong>65.71 GB</strong> (~66.3 GiB)</td><td>Unused capacity on 80 GB H100</td></tr>
+<tr><td>Dominant Interconnect Used</td><td><strong>900 GB/s NVLink</strong></td><td><strong>50 GB/s InfiniBand</strong></td><td>18× bandwidth advantage for intra-node</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Memory breakdown per GPU for Llama 3.1 8B (<tex>b=1, s=8,192</tex>)</p>
+
+<p>Figure 6 visualizes this budget on the physical 80 GB H100 memory map.</p>
+<fig src="003-h100-training-budget.svg" caption="Per-GPU training memory budget on one H100 (intra-node FSDP)">Stacked bar chart illustrating memory allocation on a single 80 GB H100 GPU during pretraining of Llama 3.1 8B with intra-node FSDP. Sharded states take 16.1 GB, active layer buffer takes 0.5 GB, activations take 3.3 GB, temporary buffers take 5.0 GB, and allocator headroom takes 8.0 GB. The total committed memory is 32.9 GB, leaving 47.1 GB of comfortable headroom.</fig>
+
+<p>With 47.1 GB of available headroom under intra-node FSDP, the training cluster can comfortably increase the per-GPU micro-batch size from <tex>b = 1</tex> to <tex>b = 2</tex> (which adds only ~3.3 GB of activations and ~2.5 GB of logits), doubling tensor core arithmetic intensity while remaining well below the 80 GB ceiling.</p>
+
+<fig src="003-training-vs-inference-memory.svg" caption="Why inference memory is radically smaller than training memory">Side-by-side comparison of training versus inference memory for Llama 3.1 8B on an 80 GB GPU. Training requires 128.5 GB of base states (weights, gradients, master weights, and optimizer moments), requiring sharding across GPUs just to fit. In contrast, inference requires only 15 GiB for weights, zero gradients, and zero optimizer states, dedicating 52 GiB entirely to the KV cache for concurrent requests.</fig>
+
+<h2>In Practice</h2>
+<p>To profile GPU memory and diagnose out-of-memory errors in PyTorch, standard queries like <code>torch.cuda.memory_allocated()</code> provide aggregate snapshots, but they fail to reveal transient allocation spikes or memory fragmentation. PyTorch provides a dedicated memory snapshot facility [9], [10] that records every tensor allocation event and stack trace, exportable for visualization at <a href="https://pytorch.org/memory_viz" rel="noopener noreferrer" target="_blank">pytorch.org/memory_viz</a>.</p>
+<p>The first tab demonstrates a profiling script that records memory events through forward, backward, and optimizer steps, captures peak memory, and dumps a snapshot file. The second tab provides a standalone memory budget calculator that computes model states, activation scaling, and FSDP sharding budgets from first principles for any transformer configuration.</p>
+
+<codetabs>
+<tab label="Memory profiler &amp; snapshot" lang="python">
+import os
+import torch
+import torch.nn as nn
+
+def profile_training_memory():
+    if not torch.cuda.is_available():
+        print("CUDA unavailable; running mock allocation test on CPU.")
+        return
+
+    device = torch.device("cuda:0")
+    torch.cuda.reset_peak_memory_stats(device)
+
+    # 1. Start recording memory allocation history with stack traces
+    # Max entries controls event history buffer depth
+    print("Enabling PyTorch CUDA memory history tracking...")
+    torch.cuda.memory._record_memory_history(
+        enabled="all",
+        context="all",
+        stacks="python",
+        max_entries=100000,
+    )
+
+    # 2. Allocate model, mock inputs, and mixed-precision AdamW
+    hidden_dim = 4096
+    seq_len = 2048
+    layer = nn.TransformerEncoderLayer(
+        d_model=hidden_dim, nhead=32, dim_feedforward=14336,
+        activation="gelu", batch_first=True, dtype=torch.bfloat16,
+    ).to(device)
+
+    optimizer = torch.optim.AdamW(layer.parameters(), lr=1e-4)
+
+    initial_alloc = torch.cuda.memory_allocated(device) / (1024**2)
+    print(f"Allocated after model load: {initial_alloc:.2f} MiB")
+
+    # 3. Execute Forward and Backward Pass
+    inputs = torch.randn(1, seq_len, hidden_dim, dtype=torch.bfloat16, device=device)
+    out = layer(inputs)
+    fwd_alloc = torch.cuda.memory_allocated(device) / (1024**2)
+    print(f"Allocated after forward pass (with activations): {fwd_alloc:.2f} MiB")
+
+    loss = out.sum()
+    loss.backward()
+    bwd_alloc = torch.cuda.memory_allocated(device) / (1024**2)
+    print(f"Allocated after backward pass (gradients populated): {bwd_alloc:.2f} MiB")
+
+    optimizer.step()
+    optimizer.zero_grad(set_to_none=True)
+
+    peak_alloc = torch.cuda.max_memory_allocated(device) / (1024**2)
+    peak_reserved = torch.cuda.max_memory_reserved(device) / (1024**2)
+    print(f"Peak Allocated: {peak_alloc:.2f} MiB | Peak Reserved: {peak_reserved:.2f} MiB")
+
+    # 4. Dump snapshot pickle for visualization at https://pytorch.org/memory_viz
+    snapshot_path = "training_memory_snapshot.pickle"
+    torch.cuda.memory._dump_snapshot(snapshot_path)
+    print(f"Memory snapshot dumped to '{snapshot_path}'.")
+    print("Upload this file to https://pytorch.org/memory_viz to inspect allocation timeline.")
+
+    # Stop recording
+    torch.cuda.memory._record_memory_history(enabled=None)
+
+if __name__ == "__main__":
+    profile_training_memory()
+</tab>
+<tab label="Memory budget calculator" lang="python">
+def calculate_training_memory(
+    num_params: float,
+    num_layers: int,
+    hidden_dim: int,
+    seq_len: int,
+    micro_batch: int,
+    num_heads: int,
+    sharding_world_size: int = 8,
+):
+    """
+    Computes exact training memory requirements in decimal gigabytes (GB)
+    and binary gibibytes (GiB) for transformer pretraining.
+    """
+    bytes_per_param = 16  # Mixed precision Adam (2B wt + 2B grad + 12B opt)
+    total_model_states = num_params * bytes_per_param
+
+    # Activation memory per layer (Korthikanti et al., 2022)
+    # Linear: 34 * s * b * h bytes
+    # Quadratic: 5 * a * s^2 * b bytes
+    linear_per_layer = 34 * seq_len * micro_batch * hidden_dim
+    quad_per_layer = 5 * num_heads * (seq_len ** 2) * micro_batch
+
+    uncheckpointed_std_attn = num_layers * (linear_per_layer + quad_per_layer)
+    uncheckpointed_flash_attn = num_layers * linear_per_layer
+    checkpointed_flash_attn = num_layers * (2 * seq_len * micro_batch * hidden_dim)
+
+    # Sharded model states
+    sharded_model_states = total_model_states / sharding_world_size
+
+    print(f"=== Model State Accounting ({num_params / 1e9:.2f}B Parameters) ===")
+    print(f"Total Unsharded States : {total_model_states / 1e9:.2f} GB ({total_model_states / 2**30:.2f} GiB)")
+    print(f"Sharded over {sharding_world_size:2d} GPUs   : {sharded_model_states / 1e9:.2f} GB ({sharded_model_states / 2**30:.2f} GiB)")
+    print()
+    print(f"=== Activation Memory (s={seq_len:,}, b={micro_batch}, {num_layers} layers) ===")
+    print(f"Standard Attention (No Checkpoint): {uncheckpointed_std_attn / 1e9:.2f} GB")
+    print(f"FlashAttention (No Checkpoint)    : {uncheckpointed_flash_attn / 1e9:.2f} GB")
+    print(f"FlashAttn + Full Checkpointing    : {checkpointed_flash_attn / 1e9:.2f} GB")
+
+if __name__ == "__main__":
+    calculate_training_memory(
+        num_params=8.03e9,
+        num_layers=32,
+        hidden_dim=4096,
+        seq_len=8192,
+        micro_batch=1,
+        num_heads=32,
+        sharding_world_size=8,
+    )
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Loss layer memory spikes from vocabulary size</strong>: The final cross-entropy loss projects hidden states <tex>[b, s, h]</tex> to vocabulary size <tex>V = 128,256</tex>. Generating the full unchunked logits tensor requires over 4.2 GB of memory in FP32. Fused cross-entropy kernels (such as Liger Kernel) chunk the logits computation across the sequence dimension, computing softmax and cross-entropy loss in-kernel to avoid materializing the multi-gigabyte logits tensor in HBM.</li>
+<li><strong>Sequence parallelism for ultra-long context</strong>: When context length extends beyond 32,768 tokens, activation checkpointing alone is insufficient because even the saved layer boundary inputs (<tex>2 s b h</tex>) exceed available memory. Sequence parallelism (Megatron-SP or DeepSpeed Ulysses) splits the sequence dimension across tensor-parallel or context-parallel GPUs, reducing activation memory linearly with parallel degree.</li>
+<li><strong>Memory fragmentation and allocator tuning</strong>: Frequent allocations of varying sizes can fragment PyTorch's caching allocator pool, causing an OOM even when total free memory exceeds the requested tensor size. Setting the environment variable <code>PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True</code> enables virtual memory address reservation, allowing non-contiguous physical pages to satisfy contiguous allocation requests.</li>
+<li><strong>Peak memory coexistence during backpropagation</strong>: The instantaneous peak memory of a training step occurs at the very start of the backward pass. At this moment, all activation checkpoints across all 32 layers are held in memory, the backward pass allocates the recomputed forward activations for Layer 31, and gradient buffers begin accumulating, creating the highest memory watermark of the step.</li>
+<li><strong>Selective activation recomputation</strong>: Instead of recomputing entire transformer layers, selective activation recomputation (Korthikanti et al., 2022 [3]) recomputes only the memory-intensive attention score matrices while saving linear MLP projections. When FlashAttention is active, selective recomputation is effectively built into the attention kernel.</li>
+<li><strong>Memory overhead of PyTorch compilation</strong>: Using <code>torch.compile</code> with Inductor fuses element-wise kernels and reduces activation memory, but requires additional temporary memory during compilation to capture CUDA graphs and build optimized kernel workspaces.</li>
+<li><strong>Why gradient accumulation does not save optimizer memory</strong>: Accumulating gradients across micro-batches allows simulating large global batches with smaller micro-batch activations, but it does not reduce model, gradient, or optimizer state tensors by a single byte.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="003-summary.png" caption="Training memory summary" optional="1">Mind map summarizing the training memory lesson: four footprint components, mixed-precision Adam accounting, activation scaling, checkpointing trade-offs, state sharding, and PyTorch memory measurement.</fig>
+<ul>
+<li>GPU training memory comprises four distinct components: static model states, dynamic backward activations, temporary GEMM and communication buffers, and allocator fragmentation headroom.</li>
+<li>Mixed-precision Adam consumes exactly <strong>16 bytes per parameter</strong> (2B weight, 2B gradient, 4B master weight, 8B moments <tex>m</tex> and <tex>v</tex>). 75% of static memory belongs to the optimizer.</li>
+<li>For Llama 3.1 8B, static states require <strong>128.5 GB</strong> (119.7 GiB), exceeding the physical capacity of an 80 GB H100 by 48.5 GB before allocating a single activation tensor.</li>
+<li>Uncheckpointed activations scale as <tex>34 s b h + 5 a s^2 b</tex> per layer. At 8,192 tokens, standard attention activations explode to <strong>380.1 GB</strong> across 32 layers, dominated by the quadratic <tex>5 a s^2 b</tex> term.</li>
+<li>FlashAttention removes the quadratic term entirely, cutting activations to <strong>36.5 GB</strong>. Full activation checkpointing drops activations to <strong>2.15 GB</strong> (saving 94%) in exchange for a <strong>33.3% compute penalty</strong> (<tex>6ND \to 8ND</tex> FLOPs).</li>
+<li>For pretraining on 256 H100s, <strong>intra-node FSDP over 8 GPUs</strong> is optimal: it reduces model states to 16.1 GB per GPU and keeps heavy sharding all-gathers on 900 GB/s NVLink, avoiding the 18× communication penalty of inter-node InfiniBand sharding.</li>
+<li>Inference requires only 15 GiB for weights (0 optimizer states, 0 gradients), dedicating ~52 GiB of free memory to the KV cache for concurrent requests.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Vaswani et al. Attention Is All You Need. <a href="https://arxiv.org/abs/1706.03762" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1706.03762</a>.<br>
+[2] Micikevicius et al. Mixed Precision Training. <a href="https://arxiv.org/abs/1710.03740" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1710.03740</a>.<br>
+[3] Korthikanti et al. Reducing Activation Recomputation in Large Transformer Models. <a href="https://arxiv.org/abs/2205.05198" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2205.05198</a>.<br>
+[4] Dao et al. FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. <a href="https://arxiv.org/abs/2205.14135" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2205.14135</a>.<br>
+[5] Chen et al. Training Deep Nets with Sublinear Memory Cost. <a href="https://arxiv.org/abs/1604.06174" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1604.06174</a>.<br>
+[6] Rajbhandari et al. ZeRO: Memory Optimizations Toward Training Trillion Parameter Models. <a href="https://arxiv.org/abs/1910.02054" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1910.02054</a>.<br>
+[7] Zhao et al. PyTorch FSDP: Experiences on Scaling Fully Sharded Data Parallel. <a href="https://arxiv.org/abs/2304.11277" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2304.11277</a>.<br>
+[8] Dettmers et al. 8-bit Optimizers via Block-wise Quantization. <a href="https://arxiv.org/abs/2110.02861" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2110.02861</a>.<br>
+[9] PyTorch documentation: CUDA Semantics and Memory Management. <a href="https://pytorch.org/docs/stable/notes/cuda.html#memory-management" rel="noopener noreferrer" target="_blank">https://pytorch.org/docs/stable/notes/cuda.html#memory-management</a>.<br>
+[10] PyTorch documentation: CUDA Memory Snapshot Visualization. <a href="https://pytorch.org/docs/stable/torch_cuda_memory.html" rel="noopener noreferrer" target="_blank">https://pytorch.org/docs/stable/torch_cuda_memory.html</a>.</p>

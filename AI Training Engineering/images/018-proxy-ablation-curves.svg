@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .axis{stroke:#000;stroke-width:1.2}
+    .grid{stroke:#e0e0e0;stroke-width:1;stroke-dasharray:3 3}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="25" y="30" class="lg b">Measuring Data Quality: Proxy Model Ablations (Illustrative)</text>
+  <text x="25" y="52" class="sm" fill="#555">Downstream benchmark average (MMLU, ARC, HellaSwag) for 1B proxy models trained on 25B tokens</text>
+
+  <!-- Bar Chart: x in [80, 480], y in [80, 270] -->
+  <line x1="80" y1="270" x2="480" y2="270" class="axis"/>
+  <line x1="80" y1="90" x2="80" y2="270" class="axis"/>
+
+  <!-- Horizontal grid lines -->
+  <line x1="80" y1="234" x2="480" y2="234" class="grid"/>
+  <text x="70" y="238" class="sm" text-anchor="end">10%</text>
+
+  <line x1="80" y1="198" x2="480" y2="198" class="grid"/>
+  <text x="70" y="202" class="sm" text-anchor="end">20%</text>
+
+  <line x1="80" y1="162" x2="480" y2="162" class="grid"/>
+  <text x="70" y="166" class="sm" text-anchor="end">30%</text>
+
+  <line x1="80" y1="126" x2="480" y2="126" class="grid"/>
+  <text x="70" y="130" class="sm" text-anchor="end">40%</text>
+
+  <line x1="80" y1="90" x2="480" y2="90" class="grid"/>
+  <text x="70" y="94" class="sm" text-anchor="end">50%</text>
+
+  <!-- Bars: 4 configurations
+       Height scaling: 10% = 36px, 1% = 3.6px
+       Baseline 0% at y = 270
+       Bar 1: Raw Crawl (31.2% -> 112px height -> y = 158)
+       Bar 2: Gopher Rules (36.8% -> 132px height -> y = 138)
+       Bar 3: + MinHash Dedup (41.5% -> 149px height -> y = 121)
+       Bar 4: + Edu Classifier (48.2% -> 174px height -> y = 96)
+  -->
+  <rect x="110" y="158" width="65" height="112" rx="3" class="gray"/>
+  <text x="142" y="150" class="sm b mid">31.2%</text>
+  <text x="142" y="288" class="sm mid">Raw</text>
+  <text x="142" y="304" class="sm mid">Crawl</text>
+
+  <rect x="205" y="138" width="65" height="132" rx="3" class="blue"/>
+  <text x="237" y="130" class="sm b mid">36.8%</text>
+  <text x="237" y="288" class="sm mid">Gopher</text>
+  <text x="237" y="304" class="sm mid">Rules</text>
+
+  <rect x="300" y="121" width="65" height="149" rx="3" class="orange"/>
+  <text x="332" y="113" class="sm b mid">41.5%</text>
+  <text x="332" y="288" class="sm mid">+ MinHash</text>
+  <text x="332" y="304" class="sm mid">Dedup</text>
+
+  <rect x="395" y="96" width="65" height="174" rx="3" class="green"/>
+  <text x="427" y="88" class="sm b mid">48.2%</text>
+  <text x="427" y="288" class="sm mid">+ Edu</text>
+  <text x="427" y="304" class="sm mid">Filter</text>
+
+  <!-- Right side note card -->
+  <rect x="510" y="80" width="285" height="235" rx="5" class="gray"/>
+  <text x="652" y="105" class="b mid">Why Proxy Ablations Matter</text>
+  <text x="525" y="135" class="sm">• Evaluating filter rules on 8B</text>
+  <text x="525" y="153" class="sm">  models for 1T tokens costs $100k+</text>
+  <text x="525" y="171" class="sm">  and 5.5 cluster days per experiment.</text>
+  
+  <text x="525" y="198" class="sm">• A 1B proxy model on 25B tokens</text>
+  <text x="525" y="216" class="sm">  finishes in ~6 hours on 8 GPUs,</text>
+  <text x="525" y="234" class="sm">  costing under $150 per run.</text>
+
+  <text x="525" y="262" class="sm b" fill="#2d572c">• Data quality rankings reliably</text>
+  <text x="525" y="280" class="sm b" fill="#2d572c">  transfer from 1B proxies to 8B</text>
+  <text x="525" y="298" class="sm b" fill="#2d572c">  and 70B production pretraining.</text>
+</svg>

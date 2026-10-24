@@ -457,6 +457,286 @@ const NAV_LESSONS = [
     "path": "AI Inference Engineering/040 Reliability and Rollouts.html"
   },
   {
+    "category": "AI Training Engineering",
+    "subgroup": "Start Here",
+    "num": 1,
+    "title": "Introduction and Overview",
+    "filename": "001 Introduction and Overview.html",
+    "path": "AI Training Engineering/001 Introduction and Overview.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 1 \u00b7 How Training Works",
+    "num": 2,
+    "title": "Forward and Backward Passes",
+    "filename": "002 Forward and Backward Passes.html",
+    "path": "AI Training Engineering/002 Forward and Backward Passes.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 1 \u00b7 How Training Works",
+    "num": 3,
+    "title": "Training Memory",
+    "filename": "003 Training Memory.html",
+    "path": "AI Training Engineering/003 Training Memory.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 1 \u00b7 How Training Works",
+    "num": 4,
+    "title": "Optimizers - SGD, Adam and Beyond",
+    "filename": "004 Optimizers - SGD, Adam and Beyond.html",
+    "path": "AI Training Engineering/004 Optimizers - SGD, Adam and Beyond.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 1 \u00b7 How Training Works",
+    "num": 5,
+    "title": "Mixed Precision Training - BF16 and FP8",
+    "filename": "005 Mixed Precision Training - BF16 and FP8.html",
+    "path": "AI Training Engineering/005 Mixed Precision Training - BF16 and FP8.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 1 \u00b7 How Training Works",
+    "num": 6,
+    "title": "Lab - Train a Small GPT and Account for Every GB",
+    "filename": "006 Lab - Train a Small GPT and Account for Every GB.html",
+    "path": "AI Training Engineering/006 Lab - Train a Small GPT and Account for Every GB.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 2 \u00b7 Compute and Scaling",
+    "num": 7,
+    "title": "Training FLOPs, Time and MFU",
+    "filename": "007 Training FLOPs, Time and MFU.html",
+    "path": "AI Training Engineering/007 Training FLOPs, Time and MFU.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 2 \u00b7 Compute and Scaling",
+    "num": 8,
+    "title": "Scaling Laws",
+    "filename": "008 Scaling Laws.html",
+    "path": "AI Training Engineering/008 Scaling Laws.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 2 \u00b7 Compute and Scaling",
+    "num": 9,
+    "title": "Lab - Size a Training Run",
+    "filename": "009 Lab - Size a Training Run.html",
+    "path": "AI Training Engineering/009 Lab - Size a Training Run.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 3 \u00b7 Distributed Training",
+    "num": 10,
+    "title": "Data Parallelism and All-Reduce",
+    "filename": "010 Data Parallelism and All-Reduce.html",
+    "path": "AI Training Engineering/010 Data Parallelism and All-Reduce.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 3 \u00b7 Distributed Training",
+    "num": 11,
+    "title": "ZeRO and FSDP",
+    "filename": "011 ZeRO and FSDP.html",
+    "path": "AI Training Engineering/011 ZeRO and FSDP.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 3 \u00b7 Distributed Training",
+    "num": 12,
+    "title": "Tensor, Sequence and Context Parallelism",
+    "filename": "012 Tensor, Sequence and Context Parallelism.html",
+    "path": "AI Training Engineering/012 Tensor, Sequence and Context Parallelism.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 3 \u00b7 Distributed Training",
+    "num": 13,
+    "title": "Pipeline Parallelism",
+    "filename": "013 Pipeline Parallelism.html",
+    "path": "AI Training Engineering/013 Pipeline Parallelism.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 3 \u00b7 Distributed Training",
+    "num": 14,
+    "title": "Combining Parallelism - 3D and 4D",
+    "filename": "014 Combining Parallelism - 3D and 4D.html",
+    "path": "AI Training Engineering/014 Combining Parallelism - 3D and 4D.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 3 \u00b7 Distributed Training",
+    "num": 15,
+    "title": "Expert Parallelism for MoE Training",
+    "filename": "015 Expert Parallelism for MoE Training.html",
+    "path": "AI Training Engineering/015 Expert Parallelism for MoE Training.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 3 \u00b7 Distributed Training",
+    "num": 16,
+    "title": "Lab - DDP vs FSDP",
+    "filename": "016 Lab - DDP vs FSDP.html",
+    "path": "AI Training Engineering/016 Lab - DDP vs FSDP.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 4 \u00b7 Data",
+    "num": 17,
+    "title": "Pretraining Data Pipelines",
+    "filename": "017 Pretraining Data Pipelines.html",
+    "path": "AI Training Engineering/017 Pretraining Data Pipelines.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 4 \u00b7 Data",
+    "num": 18,
+    "title": "Deduplication and Quality Filtering",
+    "filename": "018 Deduplication and Quality Filtering.html",
+    "path": "AI Training Engineering/018 Deduplication and Quality Filtering.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 4 \u00b7 Data",
+    "num": 19,
+    "title": "Tokenizers",
+    "filename": "019 Tokenizers.html",
+    "path": "AI Training Engineering/019 Tokenizers.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 4 \u00b7 Data",
+    "num": 20,
+    "title": "Data Mixtures and Curriculum",
+    "filename": "020 Data Mixtures and Curriculum.html",
+    "path": "AI Training Engineering/020 Data Mixtures and Curriculum.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 4 \u00b7 Data",
+    "num": 21,
+    "title": "Lab - Build a Filtering and Dedup Pipeline",
+    "filename": "021 Lab - Build a Filtering and Dedup Pipeline.html",
+    "path": "AI Training Engineering/021 Lab - Build a Filtering and Dedup Pipeline.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 5 \u00b7 Post-Training",
+    "num": 22,
+    "title": "Supervised Fine-Tuning",
+    "filename": "022 Supervised Fine-Tuning.html",
+    "path": "AI Training Engineering/022 Supervised Fine-Tuning.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 5 \u00b7 Post-Training",
+    "num": 23,
+    "title": "LoRA and QLoRA",
+    "filename": "023 LoRA and QLoRA.html",
+    "path": "AI Training Engineering/023 LoRA and QLoRA.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 5 \u00b7 Post-Training",
+    "num": 24,
+    "title": "Reward Models and RLHF",
+    "filename": "024 Reward Models and RLHF.html",
+    "path": "AI Training Engineering/024 Reward Models and RLHF.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 5 \u00b7 Post-Training",
+    "num": 25,
+    "title": "DPO and Preference Optimization",
+    "filename": "025 DPO and Preference Optimization.html",
+    "path": "AI Training Engineering/025 DPO and Preference Optimization.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 5 \u00b7 Post-Training",
+    "num": 26,
+    "title": "RL with Verifiable Rewards - GRPO",
+    "filename": "026 RL with Verifiable Rewards - GRPO.html",
+    "path": "AI Training Engineering/026 RL with Verifiable Rewards - GRPO.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 5 \u00b7 Post-Training",
+    "num": 27,
+    "title": "Lab - LoRA Fine-Tune Then DPO",
+    "filename": "027 Lab - LoRA Fine-Tune Then DPO.html",
+    "path": "AI Training Engineering/027 Lab - LoRA Fine-Tune Then DPO.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 6 \u00b7 Training at Scale",
+    "num": 28,
+    "title": "Checkpointing",
+    "filename": "028 Checkpointing.html",
+    "path": "AI Training Engineering/028 Checkpointing.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 6 \u00b7 Training at Scale",
+    "num": 29,
+    "title": "Failures, Restarts and Elastic Training",
+    "filename": "029 Failures, Restarts and Elastic Training.html",
+    "path": "AI Training Engineering/029 Failures, Restarts and Elastic Training.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 6 \u00b7 Training at Scale",
+    "num": 30,
+    "title": "Cluster Networking and Collectives",
+    "filename": "030 Cluster Networking and Collectives.html",
+    "path": "AI Training Engineering/030 Cluster Networking and Collectives.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 6 \u00b7 Training at Scale",
+    "num": 31,
+    "title": "Job Scheduling - Slurm and Kubernetes",
+    "filename": "031 Job Scheduling - Slurm and Kubernetes.html",
+    "path": "AI Training Engineering/031 Job Scheduling - Slurm and Kubernetes.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 6 \u00b7 Training at Scale",
+    "num": 32,
+    "title": "Training Stability - Loss Spikes and Divergence",
+    "filename": "032 Training Stability - Loss Spikes and Divergence.html",
+    "path": "AI Training Engineering/032 Training Stability - Loss Spikes and Divergence.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 6 \u00b7 Training at Scale",
+    "num": 33,
+    "title": "Lab - Recover a Run From a Failure",
+    "filename": "033 Lab - Recover a Run From a Failure.html",
+    "path": "AI Training Engineering/033 Lab - Recover a Run From a Failure.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 7 \u00b7 Evaluation",
+    "num": 34,
+    "title": "Evaluation During Training",
+    "filename": "034 Evaluation During Training.html",
+    "path": "AI Training Engineering/034 Evaluation During Training.html"
+  },
+  {
+    "category": "AI Training Engineering",
+    "subgroup": "Stage 7 \u00b7 Evaluation",
+    "num": 35,
+    "title": "Benchmarks and Contamination",
+    "filename": "035 Benchmarks and Contamination.html",
+    "path": "AI Training Engineering/035 Benchmarks and Contamination.html"
+  },
+  {
     "category": "Behavioral Interview",
     "subgroup": "General",
     "num": 1,
@@ -2640,6 +2920,304 @@ const NAV_TREE = {
       }
     ]
   },
+  "AI Training Engineering": {
+    "Start Here": [
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Start Here",
+        "num": 1,
+        "title": "Introduction and Overview",
+        "filename": "001 Introduction and Overview.html",
+        "path": "AI Training Engineering/001 Introduction and Overview.html"
+      }
+    ],
+    "Stage 1 \u00b7 How Training Works": [
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 1 \u00b7 How Training Works",
+        "num": 2,
+        "title": "Forward and Backward Passes",
+        "filename": "002 Forward and Backward Passes.html",
+        "path": "AI Training Engineering/002 Forward and Backward Passes.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 1 \u00b7 How Training Works",
+        "num": 3,
+        "title": "Training Memory",
+        "filename": "003 Training Memory.html",
+        "path": "AI Training Engineering/003 Training Memory.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 1 \u00b7 How Training Works",
+        "num": 4,
+        "title": "Optimizers - SGD, Adam and Beyond",
+        "filename": "004 Optimizers - SGD, Adam and Beyond.html",
+        "path": "AI Training Engineering/004 Optimizers - SGD, Adam and Beyond.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 1 \u00b7 How Training Works",
+        "num": 5,
+        "title": "Mixed Precision Training - BF16 and FP8",
+        "filename": "005 Mixed Precision Training - BF16 and FP8.html",
+        "path": "AI Training Engineering/005 Mixed Precision Training - BF16 and FP8.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 1 \u00b7 How Training Works",
+        "num": 6,
+        "title": "Lab - Train a Small GPT and Account for Every GB",
+        "filename": "006 Lab - Train a Small GPT and Account for Every GB.html",
+        "path": "AI Training Engineering/006 Lab - Train a Small GPT and Account for Every GB.html"
+      }
+    ],
+    "Stage 2 \u00b7 Compute and Scaling": [
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 2 \u00b7 Compute and Scaling",
+        "num": 7,
+        "title": "Training FLOPs, Time and MFU",
+        "filename": "007 Training FLOPs, Time and MFU.html",
+        "path": "AI Training Engineering/007 Training FLOPs, Time and MFU.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 2 \u00b7 Compute and Scaling",
+        "num": 8,
+        "title": "Scaling Laws",
+        "filename": "008 Scaling Laws.html",
+        "path": "AI Training Engineering/008 Scaling Laws.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 2 \u00b7 Compute and Scaling",
+        "num": 9,
+        "title": "Lab - Size a Training Run",
+        "filename": "009 Lab - Size a Training Run.html",
+        "path": "AI Training Engineering/009 Lab - Size a Training Run.html"
+      }
+    ],
+    "Stage 3 \u00b7 Distributed Training": [
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 3 \u00b7 Distributed Training",
+        "num": 10,
+        "title": "Data Parallelism and All-Reduce",
+        "filename": "010 Data Parallelism and All-Reduce.html",
+        "path": "AI Training Engineering/010 Data Parallelism and All-Reduce.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 3 \u00b7 Distributed Training",
+        "num": 11,
+        "title": "ZeRO and FSDP",
+        "filename": "011 ZeRO and FSDP.html",
+        "path": "AI Training Engineering/011 ZeRO and FSDP.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 3 \u00b7 Distributed Training",
+        "num": 12,
+        "title": "Tensor, Sequence and Context Parallelism",
+        "filename": "012 Tensor, Sequence and Context Parallelism.html",
+        "path": "AI Training Engineering/012 Tensor, Sequence and Context Parallelism.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 3 \u00b7 Distributed Training",
+        "num": 13,
+        "title": "Pipeline Parallelism",
+        "filename": "013 Pipeline Parallelism.html",
+        "path": "AI Training Engineering/013 Pipeline Parallelism.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 3 \u00b7 Distributed Training",
+        "num": 14,
+        "title": "Combining Parallelism - 3D and 4D",
+        "filename": "014 Combining Parallelism - 3D and 4D.html",
+        "path": "AI Training Engineering/014 Combining Parallelism - 3D and 4D.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 3 \u00b7 Distributed Training",
+        "num": 15,
+        "title": "Expert Parallelism for MoE Training",
+        "filename": "015 Expert Parallelism for MoE Training.html",
+        "path": "AI Training Engineering/015 Expert Parallelism for MoE Training.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 3 \u00b7 Distributed Training",
+        "num": 16,
+        "title": "Lab - DDP vs FSDP",
+        "filename": "016 Lab - DDP vs FSDP.html",
+        "path": "AI Training Engineering/016 Lab - DDP vs FSDP.html"
+      }
+    ],
+    "Stage 4 \u00b7 Data": [
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 4 \u00b7 Data",
+        "num": 17,
+        "title": "Pretraining Data Pipelines",
+        "filename": "017 Pretraining Data Pipelines.html",
+        "path": "AI Training Engineering/017 Pretraining Data Pipelines.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 4 \u00b7 Data",
+        "num": 18,
+        "title": "Deduplication and Quality Filtering",
+        "filename": "018 Deduplication and Quality Filtering.html",
+        "path": "AI Training Engineering/018 Deduplication and Quality Filtering.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 4 \u00b7 Data",
+        "num": 19,
+        "title": "Tokenizers",
+        "filename": "019 Tokenizers.html",
+        "path": "AI Training Engineering/019 Tokenizers.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 4 \u00b7 Data",
+        "num": 20,
+        "title": "Data Mixtures and Curriculum",
+        "filename": "020 Data Mixtures and Curriculum.html",
+        "path": "AI Training Engineering/020 Data Mixtures and Curriculum.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 4 \u00b7 Data",
+        "num": 21,
+        "title": "Lab - Build a Filtering and Dedup Pipeline",
+        "filename": "021 Lab - Build a Filtering and Dedup Pipeline.html",
+        "path": "AI Training Engineering/021 Lab - Build a Filtering and Dedup Pipeline.html"
+      }
+    ],
+    "Stage 5 \u00b7 Post-Training": [
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 5 \u00b7 Post-Training",
+        "num": 22,
+        "title": "Supervised Fine-Tuning",
+        "filename": "022 Supervised Fine-Tuning.html",
+        "path": "AI Training Engineering/022 Supervised Fine-Tuning.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 5 \u00b7 Post-Training",
+        "num": 23,
+        "title": "LoRA and QLoRA",
+        "filename": "023 LoRA and QLoRA.html",
+        "path": "AI Training Engineering/023 LoRA and QLoRA.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 5 \u00b7 Post-Training",
+        "num": 24,
+        "title": "Reward Models and RLHF",
+        "filename": "024 Reward Models and RLHF.html",
+        "path": "AI Training Engineering/024 Reward Models and RLHF.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 5 \u00b7 Post-Training",
+        "num": 25,
+        "title": "DPO and Preference Optimization",
+        "filename": "025 DPO and Preference Optimization.html",
+        "path": "AI Training Engineering/025 DPO and Preference Optimization.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 5 \u00b7 Post-Training",
+        "num": 26,
+        "title": "RL with Verifiable Rewards - GRPO",
+        "filename": "026 RL with Verifiable Rewards - GRPO.html",
+        "path": "AI Training Engineering/026 RL with Verifiable Rewards - GRPO.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 5 \u00b7 Post-Training",
+        "num": 27,
+        "title": "Lab - LoRA Fine-Tune Then DPO",
+        "filename": "027 Lab - LoRA Fine-Tune Then DPO.html",
+        "path": "AI Training Engineering/027 Lab - LoRA Fine-Tune Then DPO.html"
+      }
+    ],
+    "Stage 6 \u00b7 Training at Scale": [
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 6 \u00b7 Training at Scale",
+        "num": 28,
+        "title": "Checkpointing",
+        "filename": "028 Checkpointing.html",
+        "path": "AI Training Engineering/028 Checkpointing.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 6 \u00b7 Training at Scale",
+        "num": 29,
+        "title": "Failures, Restarts and Elastic Training",
+        "filename": "029 Failures, Restarts and Elastic Training.html",
+        "path": "AI Training Engineering/029 Failures, Restarts and Elastic Training.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 6 \u00b7 Training at Scale",
+        "num": 30,
+        "title": "Cluster Networking and Collectives",
+        "filename": "030 Cluster Networking and Collectives.html",
+        "path": "AI Training Engineering/030 Cluster Networking and Collectives.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 6 \u00b7 Training at Scale",
+        "num": 31,
+        "title": "Job Scheduling - Slurm and Kubernetes",
+        "filename": "031 Job Scheduling - Slurm and Kubernetes.html",
+        "path": "AI Training Engineering/031 Job Scheduling - Slurm and Kubernetes.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 6 \u00b7 Training at Scale",
+        "num": 32,
+        "title": "Training Stability - Loss Spikes and Divergence",
+        "filename": "032 Training Stability - Loss Spikes and Divergence.html",
+        "path": "AI Training Engineering/032 Training Stability - Loss Spikes and Divergence.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 6 \u00b7 Training at Scale",
+        "num": 33,
+        "title": "Lab - Recover a Run From a Failure",
+        "filename": "033 Lab - Recover a Run From a Failure.html",
+        "path": "AI Training Engineering/033 Lab - Recover a Run From a Failure.html"
+      }
+    ],
+    "Stage 7 \u00b7 Evaluation": [
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 7 \u00b7 Evaluation",
+        "num": 34,
+        "title": "Evaluation During Training",
+        "filename": "034 Evaluation During Training.html",
+        "path": "AI Training Engineering/034 Evaluation During Training.html"
+      },
+      {
+        "category": "AI Training Engineering",
+        "subgroup": "Stage 7 \u00b7 Evaluation",
+        "num": 35,
+        "title": "Benchmarks and Contamination",
+        "filename": "035 Benchmarks and Contamination.html",
+        "path": "AI Training Engineering/035 Benchmarks and Contamination.html"
+      }
+    ]
+  },
   "Behavioral Interview": {
     "General": [
       {
@@ -4419,6 +4997,11 @@ const NAV_META = {
     "name": "AI Inference Engineering",
     "icon": "\ud83d\ude80",
     "color": "#0ea5e9"
+  },
+  "AI Training Engineering": {
+    "name": "AI Training Engineering",
+    "icon": "\ud83e\udde0",
+    "color": "#f97316"
   },
   "Behavioral Interview": {
     "name": "Behavioral Interview",

@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="25" class="title">Per-GPU Memory Footprint for Llama 3.1 8B by Optimizer</text>
+  <text x="25" y="45" class="sm" fill="#555">Comparing unsharded baseline states against 8-way intra-node FSDP sharding on 80 GB H100 GPUs</text>
+
+  <!-- Left: Unsharded (DDP) Column -->
+  <rect x="25" y="65" width="375" height="245" rx="6" class="gray"/>
+  <text x="212" y="88" text-anchor="middle" class="b">Unsharded (1 GPU / DDP)</text>
+  <text x="212" y="106" text-anchor="middle" class="sm">H100 Capacity: 80 GB (79.6 GiB usable)</text>
+
+  <!-- Row 1: AdamW -->
+  <rect x="40" y="118" width="345" height="42" rx="4" class="red"/>
+  <text x="50" y="144" class="sm b">AdamW (16 B/param): 128.5 GB</text>
+  <text x="375" y="144" text-anchor="end" class="sm b" fill="#b85450">OOM (+48.5 GB)</text>
+
+  <!-- Row 2: Lion -->
+  <rect x="40" y="166" width="345" height="42" rx="4" class="red"/>
+  <text x="50" y="192" class="sm b">Lion (12 B/param): 96.4 GB</text>
+  <text x="375" y="192" text-anchor="end" class="sm b" fill="#b85450">OOM (+16.4 GB)</text>
+
+  <!-- Row 3: 8-bit Adam -->
+  <rect x="40" y="214" width="345" height="42" rx="4" class="yellow"/>
+  <text x="50" y="240" class="sm b">8-bit Adam (10 B/param): 80.3 GB</text>
+  <text x="375" y="240" text-anchor="end" class="sm b" fill="#d79b00">OOM (no activations)</text>
+
+  <rect x="40" y="262" width="345" height="38" rx="4" class="white"/>
+  <text x="212" y="286" text-anchor="middle" class="sm b" fill="#b85450">Verdict: No optimizer fits unsharded on one GPU</text>
+
+  <!-- Right: 8-Way FSDP Column -->
+  <rect x="420" y="65" width="375" height="245" rx="6" class="green"/>
+  <text x="607" y="88" text-anchor="middle" class="b" fill="#05673d">Sharded Across 8 GPUs (FSDP / ZeRO-3)</text>
+  <text x="607" y="106" text-anchor="middle" class="sm">Intra-node sharding over 900 GB/s NVLink</text>
+
+  <!-- Row 1: AdamW -->
+  <rect x="435" y="118" width="345" height="42" rx="4" class="white"/>
+  <text x="445" y="144" class="sm b">AdamW: 16.1 GB per GPU</text>
+  <text x="770" y="144" text-anchor="end" class="sm b" fill="#05673d">63.9 GB Headroom</text>
+
+  <!-- Row 2: Lion -->
+  <rect x="435" y="166" width="345" height="42" rx="4" class="white"/>
+  <text x="445" y="192" class="sm b">Lion: 12.0 GB per GPU</text>
+  <text x="770" y="192" text-anchor="end" class="sm b" fill="#05673d">68.0 GB Headroom</text>
+
+  <!-- Row 3: 8-bit Adam -->
+  <rect x="435" y="214" width="345" height="42" rx="4" class="white"/>
+  <text x="445" y="240" class="sm b">8-bit Adam: 10.0 GB per GPU</text>
+  <text x="770" y="240" text-anchor="end" class="sm b" fill="#05673d">70.0 GB Headroom</text>
+
+  <rect x="435" y="262" width="345" height="38" rx="4" class="white"/>
+  <text x="607" y="286" text-anchor="middle" class="sm b" fill="#05673d">Verdict: AdamW fits easily; no approximations needed</text>
+</svg>

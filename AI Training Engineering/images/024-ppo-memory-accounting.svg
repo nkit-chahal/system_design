@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Memory Accounting: 289.1 GB Across Four 8B Models in PPO</text>
+  <text x="25" y="48" class="sm" fill="#555">Static memory breakdown for Llama 3.1 8B in mixed precision during standard RLHF</text>
+
+  <!-- Model 1: Policy -->
+  <rect x="25" y="70" width="185" height="150" rx="4" class="gray"/>
+  <rect x="35" y="80" width="165" height="28" rx="3" class="orange"/>
+  <text x="117" y="99" text-anchor="middle" class="b">Policy Model (pi)</text>
+  <text x="35" y="125" class="sm">• BF16 Weights: 16.1 GB</text>
+  <text x="35" y="145" class="sm">• BF16 Gradients: 16.1 GB</text>
+  <text x="35" y="165" class="sm">• FP32 AdamW: 96.4 GB</text>
+  <rect x="35" y="180" width="165" height="30" rx="3" class="white"/>
+  <text x="117" y="200" text-anchor="middle" class="b">Subtotal: 128.5 GB</text>
+
+  <!-- Model 2: Critic -->
+  <rect x="220" y="70" width="185" height="150" rx="4" class="gray"/>
+  <rect x="230" y="80" width="165" height="28" rx="3" class="orange"/>
+  <text x="312" y="99" text-anchor="middle" class="b">Value Critic (V)</text>
+  <text x="230" y="125" class="sm">• BF16 Weights: 16.1 GB</text>
+  <text x="230" y="145" class="sm">• BF16 Gradients: 16.1 GB</text>
+  <text x="230" y="165" class="sm">• FP32 AdamW: 96.4 GB</text>
+  <rect x="230" y="180" width="165" height="30" rx="3" class="white"/>
+  <text x="312" y="200" text-anchor="middle" class="b">Subtotal: 128.5 GB</text>
+
+  <!-- Model 3: Reference Model -->
+  <rect x="415" y="70" width="185" height="150" rx="4" class="gray"/>
+  <rect x="425" y="80" width="165" height="28" rx="3" class="blue"/>
+  <text x="507" y="99" text-anchor="middle" class="b">Reference (ref)</text>
+  <text x="425" y="125" class="sm">• BF16 Weights: 16.1 GB</text>
+  <text x="425" y="145" class="sm">• Gradients: 0 GB</text>
+  <text x="425" y="165" class="sm">• Optimizer: 0 GB</text>
+  <rect x="425" y="180" width="165" height="30" rx="3" class="white"/>
+  <text x="507" y="200" text-anchor="middle" class="b">Subtotal: 16.1 GB</text>
+
+  <!-- Model 4: Reward Model -->
+  <rect x="610" y="70" width="185" height="150" rx="4" class="gray"/>
+  <rect x="620" y="80" width="165" height="28" rx="3" class="green"/>
+  <text x="702" y="99" text-anchor="middle" class="b">Reward Model (RM)</text>
+  <text x="620" y="125" class="sm">• BF16 Weights: 16.1 GB</text>
+  <text x="620" y="145" class="sm">• Gradients: 0 GB</text>
+  <text x="620" y="165" class="sm">• Optimizer: 0 GB</text>
+  <rect x="620" y="180" width="165" height="30" rx="3" class="white"/>
+  <text x="702" y="200" text-anchor="middle" class="b">Subtotal: 16.1 GB</text>
+
+  <!-- Sharding breakdown container -->
+  <rect x="25" y="235" width="770" height="95" rx="6" class="purple"/>
+  <text x="40" y="258" class="b">Cluster Resource Implications (8xH100 80 GB Node):</text>
+  <text x="40" y="278" class="sm">• Total static model state = 128.5 + 128.5 + 16.1 + 16.1 = <tspan class="b">289.1 GB</tspan> (45% of cluster 640 GB capacity).</text>
+  <text x="40" y="296" class="sm">• Under FSDP over 8 GPUs: <tspan class="b">36.1 GB per GPU</tspan> static state, leaving ~43 GB for rollout KV cache and activations.</text>
+  <text x="40" y="314" class="sm">• Single-GPU impossibility: cannot train 8B RLHF on 1 H100 (needs 4x sharding or aggressive CPU offloading).</text>
+</svg>

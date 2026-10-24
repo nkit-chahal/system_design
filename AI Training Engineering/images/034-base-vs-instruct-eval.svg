@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Evaluating Base Models vs Instruct Models: Two Distinct Protocols</text>
+  <text x="25" y="42" class="sm" fill="#555">Base pretraining checkpoints require log-likelihood scoring; fine-tuned models require autoregressive generation.</text>
+
+  <!-- Left: Base Model Evaluation (Log-Likelihood) -->
+  <rect x="25" y="58" width="385" height="215" rx="5" class="gray"/>
+  <text x="40" y="80" class="b sm" fill="#2c5d88">1. Base Model: Log-Likelihood Scoring</text>
+  <text x="40" y="96" class="sm" fill="#555">Used during pretraining · Zero autoregressive generation</text>
+
+  <!-- Prompt Box -->
+  <rect x="40" y="110" width="355" height="42" rx="3" class="blue"/>
+  <text x="50" y="126" class="sm b">Prompt (5-shot prefix + question):</text>
+  <text x="50" y="142" class="sm">"Question: What is 2 + 2? Choices: (A) 3 (B) 4. Answer: "</text>
+
+  <!-- Forward pass arrow -->
+  <path d="M217,152 L217,168" class="edge"/>
+
+  <!-- Probability Evaluation Box -->
+  <rect x="40" y="168" width="355" height="48" rx="3" class="orange"/>
+  <text x="50" y="186" class="sm b">Single Forward Pass — Log-Prob of Option Tokens:</text>
+  <text x="50" y="204" class="sm">P("A") = 0.04 · <tspan class="b" fill="#274e13">P("B") = 0.92</tspan> · P("C") = 0.03 · P("D") = 0.01</text>
+
+  <rect x="40" y="222" width="355" height="42" rx="3" class="white"/>
+  <text x="50" y="238" class="sm b">Pick argmax(P):</text>
+  <text x="50" y="254" class="sm">Extremely fast (100x faster than decode) · Zero sampling variance</text>
+
+  <!-- Right: Instruct Model Evaluation (Generation) -->
+  <rect x="430" y="58" width="385" height="215" rx="5" class="gray"/>
+  <text x="445" y="80" class="b sm" fill="#b45f06">2. Instruct Model: Autoregressive Generation</text>
+  <text x="445" y="96" class="sm" fill="#555">Used in Stage 5 post-training · Evaluates reasoning chains</text>
+
+  <!-- Chat Template Box -->
+  <rect x="445" y="110" width="355" height="42" rx="3" class="purple"/>
+  <text x="455" y="126" class="sm b">Chat Template Formatted Prompt:</text>
+  <text x="455" y="142" class="sm">"&lt;|user|&gt;Solve: What is 2 + 2?&lt;|assistant|&gt;"</text>
+
+  <!-- Decode arrow -->
+  <path d="M622,152 L622,168" class="edge"/>
+
+  <!-- Autoregressive Output Box -->
+  <rect x="445" y="168" width="355" height="48" rx="3" class="green"/>
+  <text x="455" y="186" class="sm b">Autoregressive Decoding (Multi-token Chain-of-Thought):</text>
+  <text x="455" y="204" class="sm">"First, add 2 and 2. The result is 4. #### 4"</text>
+
+  <rect x="445" y="222" width="355" height="42" rx="3" class="white"/>
+  <text x="455" y="238" class="sm b">Parsing &amp; Verification:</text>
+  <text x="455" y="254" class="sm">Regex extracts "4" or LLM-as-a-judge grades reasoning</text>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="284" width="790" height="52" rx="4" class="white"/>
+  <text x="38" y="304" class="b sm">The Common Evaluation Mistake:</text>
+  <text x="270" y="304" class="sm">Never evaluate a raw base model with zero-shot chat prompts;</text>
+  <text x="38" y="322" class="sm">base models do not know when to stop generating and will hallucinate continuations rather than outputting the answer token.</text>
+</svg>

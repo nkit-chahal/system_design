@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">RLAIF and Constitutional AI: Scaling Feedback with Models</text>
+  <text x="25" y="48" class="sm" fill="#555">Replacing human annotation bottlenecks with AI feedback conditioned on explicit constitutional principles</text>
+
+  <!-- Left: Candidates -->
+  <rect x="25" y="75" width="180" height="150" rx="4" class="gray"/>
+  <text x="115" y="98" text-anchor="middle" class="b">Input Prompts &amp; Pairs</text>
+  <rect x="35" y="112" width="160" height="38" rx="3" class="blue"/>
+  <text x="115" y="136" text-anchor="middle" class="sm">Response A (from SFT)</text>
+  <rect x="35" y="162" width="160" height="38" rx="3" class="blue"/>
+  <text x="115" y="186" text-anchor="middle" class="sm">Response B (from SFT)</text>
+
+  <!-- Middle Top: Constitution / Rubric -->
+  <rect x="260" y="75" width="230" height="65" rx="4" class="yellow"/>
+  <text x="375" y="98" text-anchor="middle" class="b">Written Constitution (Principles)</text>
+  <text x="375" y="116" text-anchor="middle" class="sm">• "Choose the response that is least harmful"</text>
+  <text x="375" y="130" text-anchor="middle" class="sm">• "Refuse dangerous or illegal queries politely"</text>
+
+  <!-- Middle Center: AI Judge / RLAIF engine -->
+  <rect x="260" y="160" width="230" height="75" rx="6" class="purple"/>
+  <text x="375" y="185" text-anchor="middle" class="b">Judge Model (RLAIF / CAI)</text>
+  <text x="375" y="205" text-anchor="middle" class="sm">Off-the-shelf LLM (e.g. Gemini / Llama)</text>
+  <text x="375" y="222" text-anchor="middle" class="sm">Critiques &amp; ranks against principles</text>
+
+  <!-- Connectors -->
+  <path d="M205 131 L260 197" class="edge"/>
+  <path d="M205 181 L260 197" class="edge"/>
+  <path d="M375 140 L375 160" class="edge"/>
+
+  <!-- Right: Labeled Preference Dataset -->
+  <rect x="545" y="75" width="245" height="160" rx="4" class="green"/>
+  <text x="667" y="100" text-anchor="middle" class="b">Synthetic Preference Dataset</text>
+  <text x="560" y="130" class="sm">• Pairs generated at 100x lower cost</text>
+  <text x="560" y="152" class="sm">• No annotator fatigue or drift</text>
+  <text x="560" y="174" class="sm">• Agreement with human raters: ~70%</text>
+  <text x="560" y="196" class="sm">• Matches RLHF benchmark quality</text>
+
+  <!-- Arrow into Output -->
+  <path d="M490 197 L545 197" class="edge"/>
+
+  <!-- Footer Banner -->
+  <rect x="25" y="255" width="765" height="65" rx="4" class="gray"/>
+  <text x="40" y="278" class="b">Key Research Validation (Lee et al. 2023, Google / Anthropic):</text>
+  <text x="40" y="296" class="sm">• RLAIF achieves parity with RLHF on summarization and dialogue without human raters in the loop.</text>
+  <text x="40" y="312" class="sm">• Constitutional AI allows updating safety policies by revising textual rules rather than re-annotating thousands of pairs.</text>
+</svg>

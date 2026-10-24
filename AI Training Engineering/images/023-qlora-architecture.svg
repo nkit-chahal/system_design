@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="360" viewBox="0 0 820 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">QLoRA: Quantized Base Weights with 16-Bit Adapters</text>
+  <text x="25" y="48" class="sm" fill="#555">The three pillars: 4-bit NormalFloat (NF4), Double Quantization (DQ), and Paged Optimizers</text>
+
+  <!-- 3 Pillars Container -->
+  <!-- Pillar 1: NF4 -->
+  <rect x="25" y="65" width="245" height="215" rx="6" class="gray"/>
+  <rect x="35" y="75" width="225" height="32" rx="4" class="blue"/>
+  <text x="147" y="96" text-anchor="middle" class="b">1. 4-bit NormalFloat (NF4)</text>
+
+  <text x="35" y="125" class="b sm">Quantile-spaced bins:</text>
+  <text x="35" y="143" class="sm">• Weights follow N(0, sigma^2)</text>
+  <text x="35" y="161" class="sm">• Bins hold equal probability</text>
+  <text x="35" y="179" class="sm">• Outperforms uniform INT4/FP4</text>
+  <text x="35" y="197" class="sm">• Base model footprint: ~5.4 GB</text>
+  <rect x="35" y="215" width="225" height="52" rx="4" class="white"/>
+  <text x="147" y="235" text-anchor="middle" class="sm b">Dequantized to BF16</text>
+  <text x="147" y="253" text-anchor="middle" class="sm">on-the-fly for forward/backward</text>
+
+  <!-- Pillar 2: Double Quantization -->
+  <rect x="288" y="65" width="245" height="215" rx="6" class="gray"/>
+  <rect x="298" y="75" width="225" height="32" rx="4" class="purple"/>
+  <text x="410" y="96" text-anchor="middle" class="b">2. Double Quantization</text>
+
+  <text x="298" y="125" class="b sm">Compressing the scale constants:</text>
+  <text x="298" y="143" class="sm">• Block 64: FP32 scale = 0.5 bit/p</text>
+  <text x="298" y="161" class="sm">• Quantize scales to 8-bit FP8</text>
+  <text x="298" y="179" class="sm">• Secondary scale (block 256)</text>
+  <text x="298" y="197" class="sm">• Scale cost drops to 0.127 bit/p</text>
+  <rect x="298" y="215" width="225" height="52" rx="4" class="white"/>
+  <text x="410" y="235" text-anchor="middle" class="sm b">Saves 0.373 bits/param</text>
+  <text x="410" y="253" text-anchor="middle" class="sm">~373 MB saved on Llama 3.1 8B</text>
+
+  <!-- Pillar 3: Paged Optimizers -->
+  <rect x="550" y="65" width="245" height="215" rx="6" class="gray"/>
+  <rect x="560" y="75" width="225" height="32" rx="4" class="orange"/>
+  <text x="672" y="96" text-anchor="middle" class="b">3. Paged Optimizers</text>
+
+  <text x="560" y="125" class="b sm">CUDA Unified Memory paging:</text>
+  <text x="560" y="143" class="sm">• Prevents OOM allocation spikes</text>
+  <text x="560" y="161" class="sm">• Pages Adam states to CPU RAM</text>
+  <text x="560" y="179" class="sm">• Only during memory-tight steps</text>
+  <text x="560" y="197" class="sm">• Zero overhead during normal steps</text>
+  <rect x="560" y="215" width="225" height="52" rx="4" class="white"/>
+  <text x="672" y="235" text-anchor="middle" class="sm b">Enables 65B on 48 GB GPU</text>
+  <text x="672" y="253" text-anchor="middle" class="sm">or 8B training on single 24 GB GPU</text>
+
+  <!-- Bottom Banner -->
+  <rect x="25" y="295" width="770" height="48" rx="4" class="green"/>
+  <text x="410" y="316" text-anchor="middle" class="b">Result: Fine-tune 8B models on consumer 24 GB GPUs with no quality degradation</text>
+  <text x="410" y="334" text-anchor="middle" class="sm">Dequantization overhead adds ~25-35% wall-clock compute time vs native BF16</text>
+</svg>

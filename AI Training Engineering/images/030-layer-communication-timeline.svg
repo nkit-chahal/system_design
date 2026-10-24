@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="370" viewBox="0 0 840 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Layer Timeline: Intra-Node NVLink vs Cross-Node InfiniBand</text>
+  <text x="25" y="42" class="sm" fill="#555">FSDP per-layer collective: All-Gather 436 MB weights for Llama 3.1 8B vs forward layer compute (~7.5 ms).</text>
+
+  <!-- Case A: NVLink -->
+  <rect x="25" y="60" width="790" height="125" rx="5" class="gray"/>
+  <text x="40" y="82" class="b">Case A: 8-GPU NVLink (Intra-Node HSDP Domain)</text>
+  <text x="40" y="98" class="sm" fill="#555">Bus BW ≈ 380 GB/s · Alg BW ≈ 434 GB/s · Time = 436.2 MB ÷ 434 GB/s = 1.00 ms</text>
+
+  <!-- Timeline bars -->
+  <!-- Compute bar: 7.5 ms = 300px -->
+  <rect x="40" y="112" width="300" height="28" rx="3" class="green"/>
+  <text x="190" y="131" text-anchor="middle" class="b sm">Layer Forward Compute: ~7.5 ms</text>
+
+  <!-- Communication bar: 1.0 ms = 40px -->
+  <rect x="40" y="146" width="40" height="24" rx="3" class="orange"/>
+  <text x="60" y="162" text-anchor="middle" class="b sm">1.0 ms</text>
+  <text x="95" y="162" class="sm">All-Gather (prefetched)</text>
+
+  <!-- Overlap outcome note on right -->
+  <rect x="540" y="75" width="260" height="95" rx="4" class="white"/>
+  <text x="550" y="97" class="b sm" fill="#274e13">100% Communication Overlap</text>
+  <text x="550" y="117" class="sm">• Comm (1.0 ms) &lt; Compute (7.5 ms)</text>
+  <text x="550" y="133" class="sm">• Zero GPU stall time</text>
+  <text x="550" y="149" class="sm">• Full ~40% MFU compute sustained</text>
+
+  <!-- Case B: InfiniBand -->
+  <rect x="25" y="200" width="790" height="150" rx="5" class="gray"/>
+  <text x="40" y="222" class="b">Case B: 256-GPU InfiniBand NDR (Flat FSDP Across All Nodes)</text>
+  <text x="40" y="238" class="sm" fill="#555">Bus BW ≈ 43 GB/s · Alg BW ≈ 43.1 GB/s · Time = 436.2 MB ÷ 43.1 GB/s = 10.11 ms</text>
+
+  <!-- Timeline bars -->
+  <!-- Communication bar: 10.11 ms = 380px -->
+  <rect x="40" y="254" width="380" height="24" rx="3" class="orange"/>
+  <text x="230" y="270" text-anchor="middle" class="b sm">All-Gather: 10.11 ms</text>
+
+  <!-- Compute bar: 7.5 ms = 280px, delayed/stalled by 2.6 ms -->
+  <rect x="40" y="284" width="280" height="26" rx="3" class="green"/>
+  <text x="180" y="301" text-anchor="middle" class="b sm">Compute: 7.5 ms</text>
+  <rect x="320" y="284" width="100" height="26" rx="3" class="red"/>
+  <text x="370" y="301" text-anchor="middle" class="b sm">Stall: 2.6 ms</text>
+
+  <!-- Starvation outcome note on right -->
+  <rect x="540" y="215" width="260" height="120" rx="4" class="white"/>
+  <text x="550" y="237" class="b sm" fill="#990000">GPU Stalls &amp; Starvation</text>
+  <text x="550" y="257" class="sm">• Comm (10.1 ms) &gt; Compute (7.5 ms)</text>
+  <text x="550" y="273" class="sm">• GPU idles waiting for weights</text>
+  <text x="550" y="289" class="sm">• Backward stalls even worse</text>
+  <text x="550" y="305" class="sm">• MFU collapses from 40% to &lt; 25%</text>
+</svg>

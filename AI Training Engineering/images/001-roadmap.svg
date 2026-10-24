@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="395" viewBox="0 0 1000 395" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:12px;fill:#000}
+    .b{font-weight:bold}.hd{font-size:13px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Stage 1 -->
+  <g>
+    <rect x="6" y="6" width="136" height="382" rx="4" class="group"/>
+    <text x="74" y="27" text-anchor="middle" class="b hd">Stage 1</text>
+    <text x="74" y="43" text-anchor="middle">How Training</text>
+    <text x="74" y="57" text-anchor="middle">Works</text>
+    <rect x="10" y="72" width="128" height="26" rx="4" class="orange"/><text x="74" y="89" text-anchor="middle">Forward &amp; Backward</text>
+    <rect x="10" y="104" width="128" height="26" rx="4" class="orange"/><text x="74" y="121" text-anchor="middle">Training Memory</text>
+    <rect x="10" y="136" width="128" height="26" rx="4" class="orange"/><text x="74" y="153" text-anchor="middle">Optimizers: Adam</text>
+    <rect x="10" y="168" width="128" height="26" rx="4" class="orange"/><text x="74" y="185" text-anchor="middle">Mixed Precision</text>
+    <rect x="10" y="336" width="128" height="44" rx="4" class="green"/>
+    <text x="74" y="354" text-anchor="middle">Lab: Train Small GPT</text>
+    <text x="74" y="369" text-anchor="middle">Account for Every GB</text>
+  </g>
+
+  <!-- Stage 2 -->
+  <g>
+    <rect x="148" y="6" width="136" height="382" rx="4" class="group"/>
+    <text x="216" y="27" text-anchor="middle" class="b hd">Stage 2</text>
+    <text x="216" y="43" text-anchor="middle">Compute and</text>
+    <text x="216" y="57" text-anchor="middle">Scaling</text>
+    <rect x="152" y="72" width="128" height="26" rx="4" class="orange"/><text x="216" y="89" text-anchor="middle">FLOPs, Time &amp; MFU</text>
+    <rect x="152" y="104" width="128" height="26" rx="4" class="orange"/><text x="216" y="121" text-anchor="middle">Scaling Laws</text>
+    <rect x="152" y="336" width="128" height="44" rx="4" class="green"/>
+    <text x="216" y="354" text-anchor="middle">Lab: Size a</text>
+    <text x="216" y="369" text-anchor="middle">Training Run</text>
+  </g>
+
+  <!-- Stage 3 -->
+  <g>
+    <rect x="290" y="6" width="136" height="382" rx="4" class="group"/>
+    <text x="358" y="27" text-anchor="middle" class="b hd">Stage 3</text>
+    <text x="358" y="43" text-anchor="middle">Distributed</text>
+    <text x="358" y="57" text-anchor="middle">Training</text>
+    <rect x="294" y="72" width="128" height="26" rx="4" class="orange"/><text x="358" y="89" text-anchor="middle">Data Parallelism</text>
+    <rect x="294" y="104" width="128" height="26" rx="4" class="orange"/><text x="358" y="121" text-anchor="middle">ZeRO and FSDP</text>
+    <rect x="294" y="136" width="128" height="26" rx="4" class="orange"/><text x="358" y="153" text-anchor="middle">Tensor &amp; Context</text>
+    <rect x="294" y="168" width="128" height="26" rx="4" class="orange"/><text x="358" y="185" text-anchor="middle">Pipeline Parallel</text>
+    <rect x="294" y="200" width="128" height="26" rx="4" class="orange"/><text x="358" y="217" text-anchor="middle">3D &amp; 4D Parallel</text>
+    <rect x="294" y="232" width="128" height="26" rx="4" class="orange"/><text x="358" y="249" text-anchor="middle">MoE Parallelism</text>
+    <rect x="294" y="336" width="128" height="44" rx="4" class="green"/>
+    <text x="358" y="354" text-anchor="middle">Lab: DDP vs FSDP</text>
+    <text x="358" y="369" text-anchor="middle">Communication</text>
+  </g>
+
+  <!-- Stage 4 -->
+  <g>
+    <rect x="432" y="6" width="136" height="382" rx="4" class="group"/>
+    <text x="500" y="27" text-anchor="middle" class="b hd">Stage 4</text>
+    <text x="500" y="43" text-anchor="middle">Pretraining</text>
+    <text x="500" y="57" text-anchor="middle">Data</text>
+    <rect x="436" y="72" width="128" height="26" rx="4" class="orange"/><text x="500" y="89" text-anchor="middle">Data Pipelines</text>
+    <rect x="436" y="104" width="128" height="26" rx="4" class="orange"/><text x="500" y="121" text-anchor="middle">Dedup &amp; Filtering</text>
+    <rect x="436" y="136" width="128" height="26" rx="4" class="orange"/><text x="500" y="153" text-anchor="middle">Tokenizers</text>
+    <rect x="436" y="168" width="128" height="26" rx="4" class="orange"/><text x="500" y="185" text-anchor="middle">Data Mixtures</text>
+    <rect x="436" y="336" width="128" height="44" rx="4" class="green"/>
+    <text x="500" y="354" text-anchor="middle">Lab: Filtering &amp;</text>
+    <text x="500" y="369" text-anchor="middle">Dedup Pipeline</text>
+  </g>
+
+  <!-- Stage 5 -->
+  <g>
+    <rect x="574" y="6" width="136" height="382" rx="4" class="group"/>
+    <text x="642" y="27" text-anchor="middle" class="b hd">Stage 5</text>
+    <text x="642" y="43" text-anchor="middle">Post-</text>
+    <text x="642" y="57" text-anchor="middle">Training</text>
+    <rect x="578" y="72" width="128" height="26" rx="4" class="orange"/><text x="642" y="89" text-anchor="middle">Supervised SFT</text>
+    <rect x="578" y="104" width="128" height="26" rx="4" class="orange"/><text x="642" y="121" text-anchor="middle">LoRA &amp; QLoRA</text>
+    <rect x="578" y="136" width="128" height="26" rx="4" class="orange"/><text x="642" y="153" text-anchor="middle">Reward &amp; RLHF</text>
+    <rect x="578" y="168" width="128" height="26" rx="4" class="orange"/><text x="642" y="185" text-anchor="middle">DPO Alignment</text>
+    <rect x="578" y="200" width="128" height="26" rx="4" class="orange"/><text x="642" y="217" text-anchor="middle">Verifiable RL (GRPO)</text>
+    <rect x="578" y="336" width="128" height="44" rx="4" class="green"/>
+    <text x="642" y="354" text-anchor="middle">Lab: LoRA Fine-Tune</text>
+    <text x="642" y="369" text-anchor="middle">Then DPO</text>
+  </g>
+
+  <!-- Stage 6 -->
+  <g>
+    <rect x="716" y="6" width="136" height="382" rx="4" class="group"/>
+    <text x="784" y="27" text-anchor="middle" class="b hd">Stage 6</text>
+    <text x="784" y="43" text-anchor="middle">Training at</text>
+    <text x="784" y="57" text-anchor="middle">Scale</text>
+    <rect x="720" y="72" width="128" height="26" rx="4" class="orange"/><text x="784" y="89" text-anchor="middle">Checkpointing</text>
+    <rect x="720" y="104" width="128" height="26" rx="4" class="orange"/><text x="784" y="121" text-anchor="middle">Failures &amp; Restarts</text>
+    <rect x="720" y="136" width="128" height="26" rx="4" class="orange"/><text x="784" y="153" text-anchor="middle">Cluster Networking</text>
+    <rect x="720" y="168" width="128" height="26" rx="4" class="orange"/><text x="784" y="185" text-anchor="middle">Slurm &amp; Kubernetes</text>
+    <rect x="720" y="200" width="128" height="26" rx="4" class="orange"/><text x="784" y="217" text-anchor="middle">Training Stability</text>
+    <rect x="720" y="336" width="128" height="44" rx="4" class="green"/>
+    <text x="784" y="354" text-anchor="middle">Lab: Recover Run</text>
+    <text x="784" y="369" text-anchor="middle">From Failure</text>
+  </g>
+
+  <!-- Stage 7 -->
+  <g>
+    <rect x="858" y="6" width="136" height="382" rx="4" class="group"/>
+    <text x="926" y="27" text-anchor="middle" class="b hd">Stage 7</text>
+    <text x="926" y="43" text-anchor="middle">Model</text>
+    <text x="926" y="57" text-anchor="middle">Evaluation</text>
+    <rect x="862" y="72" width="128" height="26" rx="4" class="purple"/><text x="926" y="89" text-anchor="middle">In-Flight Eval</text>
+    <rect x="862" y="104" width="128" height="26" rx="4" class="purple"/><text x="926" y="121" text-anchor="middle">Benchmarks &amp; Leak</text>
+    <rect x="862" y="336" width="128" height="44" rx="4" class="gray"/>
+    <text x="926" y="354" text-anchor="middle">Continuous evaluation</text>
+    <text x="926" y="369" text-anchor="middle">and model audits</text>
+  </g>
+</svg>

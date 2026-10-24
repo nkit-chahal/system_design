@@ -1,0 +1,7 @@
+center: DPO and Preference Optimization
+branch: Closed Form Derivation | implicit reward formulation | partition function cancels out | binary cross entropy loss
+branch: Memory and Precomputation | policy and frozen reference | precomputing reference log probs | single GPU execution
+branch: Hyperparameter Tuning | beta temperature control | lower learning rates than SFT | avoiding policy collapse
+branch: Preference Variants | identity preference optimization | Kahneman Tversky prospect theory | reference free odds ratio
+branch: Alignment Failure Modes | likelihood displacement on chosen | verbosity and length exploitation | length controlled win rates
+branch: Production Decision | avoids four model instability | fast offline static training | ideal for product alignment

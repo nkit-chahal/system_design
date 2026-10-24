@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Failure, Restart, and Recovery Timeline Anatomy</text>
+  <text x="25" y="42" class="sm" fill="#555">Decomposing total wasted time: detection timeout, scheduler requeue, state restoration, and replayed steps.</text>
+
+  <!-- Timeline Container -->
+  <rect x="25" y="60" width="790" height="215" rx="5" class="gray"/>
+
+  <!-- Sequence of Timeline Bars -->
+  <!-- 1. Useful Steps 100-200 -->
+  <rect x="40" y="80" width="160" height="42" rx="3" class="green"/>
+  <text x="120" y="98" text-anchor="middle" class="b sm">Steps 100–200</text>
+  <text x="120" y="114" text-anchor="middle" class="sm">Useful Compute</text>
+
+  <!-- Checkpoint marker -->
+  <line x1="200" y1="72" x2="200" y2="130" stroke="#274e13" stroke-width="2"/>
+  <rect x="160" y="132" width="80" height="24" rx="2" class="green"/>
+  <text x="200" y="148" text-anchor="middle" class="sm b">Save #200</text>
+
+  <!-- 2. Steps 201-249 (Lost Work) -->
+  <rect x="205" y="80" width="130" height="42" rx="3" class="orange"/>
+  <text x="270" y="98" text-anchor="middle" class="b sm">Steps 201–249</text>
+  <text x="270" y="114" text-anchor="middle" class="sm">49 Unsaved Steps</text>
+
+  <!-- Failure Event Marker -->
+  <line x1="335" y1="72" x2="335" y2="130" stroke="#b85450" stroke-width="2.5"/>
+  <rect x="295" y="132" width="80" height="24" rx="2" class="red"/>
+  <text x="335" y="148" text-anchor="middle" class="sm b">FAIL #250</text>
+
+  <!-- 3. Detection & Teardown -->
+  <rect x="340" y="80" width="90" height="42" rx="3" class="red"/>
+  <text x="385" y="98" text-anchor="middle" class="b sm">Detect</text>
+  <text x="385" y="114" text-anchor="middle" class="sm">Timeout (20s)</text>
+
+  <!-- 4. Relaunch & Rendezvous -->
+  <rect x="435" y="80" width="105" height="42" rx="3" class="purple"/>
+  <text x="487" y="98" text-anchor="middle" class="b sm">Relaunch</text>
+  <text x="487" y="114" text-anchor="middle" class="sm">c10d sync (30s)</text>
+
+  <!-- 5. Restore Checkpoint -->
+  <rect x="545" y="80" width="85" height="42" rx="3" class="blue"/>
+  <text x="587" y="98" text-anchor="middle" class="b sm">Load</text>
+  <text x="587" y="114" text-anchor="middle" class="sm">Read #200 (15s)</text>
+
+  <!-- 6. Replay Steps 201-249 -->
+  <rect x="635" y="80" width="100" height="42" rx="3" class="orange"/>
+  <text x="685" y="98" text-anchor="middle" class="b sm">Replay</text>
+  <text x="685" y="114" text-anchor="middle" class="sm">Steps 201–249</text>
+
+  <!-- 7. Forward Progress Resumed -->
+  <rect x="740" y="80" width="65" height="42" rx="3" class="green"/>
+  <text x="772" y="98" text-anchor="middle" class="b sm">Step 250+</text>
+  <text x="772" y="114" text-anchor="middle" class="sm">Resumed</text>
+
+  <!-- Bracket / Total Lost Time -->
+  <line x1="335" y1="175" x2="735" y2="175" stroke="#b85450" stroke-width="1.8"/>
+  <line x1="335" y1="170" x2="335" y2="180" stroke="#b85450" stroke-width="1.8"/>
+  <line x1="735" y1="170" x2="735" y2="180" stroke="#b85450" stroke-width="1.8"/>
+  <text x="535" y="195" text-anchor="middle" class="sm b" fill="#990000">Total Lost Time = Restart Latency (65s) + Replayed Work (49 steps)</text>
+
+  <!-- Accounting Details Box -->
+  <rect x="40" y="210" width="760" height="52" rx="4" class="white"/>
+  <text x="50" y="228" class="b sm">Goodput Formula (Lesson 29):</text>
+  <text x="50" y="246" class="sm">Goodput = Useful Compute Time ÷ (Useful Compute + Checkpoint Overhead + Detection + Relaunch + Replay Work)</text>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="284" width="790" height="52" rx="4" class="white"/>
+  <text x="38" y="304" class="b sm">The Trade-Off:</text>
+  <text x="145" y="304" class="sm">Checkpointing more often (every 100 steps) cuts replayed work during failures,</text>
+  <text x="38" y="322" class="sm">but increases periodic I/O pausing overhead during healthy execution.</text>
+</svg>

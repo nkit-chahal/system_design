@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">DPO: Deriving the Implicit Reward and Direct Objective</text>
+  <text x="25" y="48" class="sm" fill="#555">From KL-constrained RL to a closed-form binary cross-entropy loss (Rafailov et al. 2023)</text>
+
+  <!-- Step 1: RL Objective -->
+  <rect x="25" y="70" width="235" height="75" rx="4" class="gray"/>
+  <text x="35" y="92" class="b">1. Standard RLHF Objective</text>
+  <text x="35" y="112" class="sm">max E[ r(x, y) ] - beta * D_KL(pi || ref)</text>
+  <text x="35" y="130" class="sm">Maximize reward with KL penalty</text>
+
+  <path d="M260 107 L285 107" class="edge"/>
+
+  <!-- Step 2: Optimal Policy -->
+  <rect x="285" y="70" width="250" height="75" rx="4" class="blue"/>
+  <text x="295" y="92" class="b">2. Closed-Form Optimal Policy</text>
+  <text x="295" y="112" class="sm">pi*(y|x) = (1/Z) * ref(y|x) * exp(r/beta)</text>
+  <text x="295" y="130" class="sm">where Z(x) is the partition function</text>
+
+  <path d="M535 107 L560 107" class="edge"/>
+
+  <!-- Step 3: Invert for Reward -->
+  <rect x="560" y="70" width="235" height="75" rx="4" class="yellow"/>
+  <text x="570" y="92" class="b">3. Inverting for Implicit Reward</text>
+  <text x="570" y="112" class="sm">r(x, y) = beta * log(pi / ref) + beta * log Z</text>
+  <text x="570" y="130" class="sm">Reward expressed via policy ratio</text>
+
+  <!-- Arrow down to Bradley Terry -->
+  <path d="M677 145 L677 175 L410 175 L410 195" class="edge"/>
+
+  <!-- Step 4: Substitute into Bradley-Terry -->
+  <rect x="25" y="195" width="770" height="60" rx="4" class="purple"/>
+  <text x="40" y="217" class="b">4. Substitution into Bradley-Terry: Partition Function Z(x) Cancels Out Cleanly</text>
+  <text x="40" y="238" class="sm">P(yw &gt; yl | x) = sigma( r(x, yw) - r(x, yl) ) = sigma( beta * log[ pi(yw|x)/ref(yw|x) ] - beta * log[ pi(yl|x)/ref(yl|x) ] )</text>
+
+  <!-- Arrow to Final Loss -->
+  <path d="M410 255 L410 275" class="edge"/>
+
+  <!-- Step 5: Final DPO Loss -->
+  <rect x="25" y="275" width="770" height="55" rx="4" class="green"/>
+  <text x="40" y="297" class="b">5. Final DPO Loss Function (Direct Policy Optimization)</text>
+  <text x="40" y="317" class="sm">L_DPO = -E [ log sigma( beta * log[ pi_theta(yw|x) / ref(yw|x) ] - beta * log[ pi_theta(yl|x) / ref(yl|x) ] ) ]</text>
+</svg>

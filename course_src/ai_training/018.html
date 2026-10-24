@@ -1,0 +1,310 @@
+<h2>Introduction</h2>
+<p>In the early days of language modeling, researchers assumed that web-scale data was so vast that repetition was negligible. In practice, the public internet is drowning in duplication. Syndicated news wires, boilerplate legal disclaimers, mirror websites, spam link farms, and software license headers appear tens of thousands of times across common web crawls [1]. If ingested without filtration, this redundancy degrades model capabilities and inflates training costs.</p>
+<p>Duplicated training data introduces three severe hazards: <strong>verbatim memorization</strong>, <strong>wasted compute</strong>, and <strong>benchmark contamination</strong> [2]. Models trained on repetitive corpora emit private training text verbatim at ten times the rate of deduplicated models, risking the leakage of personally identifiable information (PII) and copyrighted intellectual property [1]. Furthermore, spending GPU cycles learning identical gradients across duplicate documents wastes up to 30% of a pretraining compute budget without improving language perplexity. Finally, web text frequently contains leaked questions from standard evaluation benchmarks (such as MMLU, GSM8k, and HumanEval), yielding artificially inflated evaluation scores that collapse in production [2].</p>
+<fig src="018-why-dedup-matters.svg" caption="Why duplicates hurt: the three hazards of redundant training data">The three core hazards of duplicate data in pretraining: verbatim memorization and privacy leakage (Carlini et al., 2022), wasted cluster compute and stalled perplexity, and deceptive benchmark contamination on evaluation test sets.</fig>
+<p>To eliminate these hazards, modern pretraining engineering employs a multi-tiered filtration strategy: <strong>exact and near-duplicate deduplication</strong> to purge redundancy, <strong>heuristic and perplexity filtering</strong> to strip low-entropy gibberish, and <strong>neural quality classifiers</strong> (such as FineWeb-Edu) to prioritize high-reasoning educational text [3].</p>
+<p>In this lesson, we analyze exact hash matching, derive the mathematics of MinHash and Locality-Sensitive Hashing (LSH), inspect suffix-array substring deduplication, examine Gopher and CCNet quality filters, understand how FineWeb-Edu's classifier was constructed, evaluate the risks of over-filtering, and measure data quality using small-scale proxy training ablations.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In a systems design interview for an AI infrastructure or foundation model role, deduplication and data curation questions typically focus on algorithm selection, false-positive trade-offs, and computational scalability. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: What model scale and pretraining budget are we curating this dataset for?<br>
+<strong>Interviewer</strong>: We are pretraining our running Llama 3.1 8B architecture (8.03 billion parameters) on 1 trillion tokens using 256 NVIDIA H100 GPUs at 40% Model FLOPs Utilization (MFU).</p>
+<p><strong>Candidate</strong>: How large is our uncurated input corpus, and what domains does it contain?<br>
+<strong>Interviewer</strong>: We start with approximately 5 billion raw web documents extracted from Common Crawl, totaling roughly 25 TB of raw text, alongside code, books, and scientific preprints.</p>
+<p><strong>Candidate</strong>: What is our primary deduplication objective—pruning exact verbatim documents, or identifying near-duplicate articles that differ only by timestamps, ads, or slight edits?<br>
+<strong>Interviewer</strong>: Both. Exact deduplication is cheap, but near-duplicates make up the majority of web redundancy. We need near-duplicate detection with a well-defined similarity threshold.</p>
+<p><strong>Candidate</strong>: What are our constraints on quality filtering? Are we optimizing strictly for academic benchmark performance, or do we need broad conversational and linguistic diversity?<br>
+<strong>Interviewer</strong>: We want strong reasoning and STEM performance, but we must avoid aggressive over-filtering that erases informal dialogue, minority dialects, or creative writing.</p>
+<p><strong>Candidate</strong>: How will we validate that our deduplication and filtering choices actually produce a better model before launching the full 5.5-day, $101,000 pretraining run?<br>
+<strong>Interviewer</strong>: We want a formal proxy ablation protocol using small proxy models trained on limited tokens.</p>
+<p>The question underneath is: <em>How do we design a multi-stage deduplication and quality filtering pipeline that processes 5 billion documents within reasonable compute and memory limits, maximizes downstream reasoning, and avoids harmful demographic or linguistic over-filtering?</em> To answer it, we begin by analyzing deduplication granularities.</p>
+
+<h2>Deduplication: Exact Hashes to MinHash LSH</h2>
+<h3>Granularity: URL, document, and line-level</h3>
+<p>Deduplication can be performed at multiple levels of granularity, each targeting different structural artifacts of web scraping [2, 3]:</p>
+<ul>
+<li><strong>URL-level deduplication</strong>: Identifies duplicate web pages before downloading or parsing HTML. Web crawlers frequently encounter the same page under multiple URLs due to tracking parameters (e.g., <code>?utm_source=...</code>), trailing slashes, or alternate protocols (<code>http</code> vs <code>https</code>). Normalizing URLs and maintaining a 64-bit hash set allows instantaneous <tex>O(1)</tex> rejection of previously seen URLs.</li>
+<li><strong>Exact document-level deduplication</strong>: Computes a cryptographic hash (such as SHA-256 or a fast 64-bit non-cryptographic hash like FarmHash or xxHash) over the normalized document text (lowercased, whitespace collapsed). If two documents share the exact same hash, one is discarded. This eliminates exact mirrors hosted across different domain names [3].</li>
+<li><strong>Line-level deduplication</strong>: Popularized by CCNet [4] and C4 [5], line-level deduplication hashes individual lines of text. Lines appearing more than a threshold number of times across the corpus (such as navigation links, cookie consent notices, or copyright footers) are pruned. While effective at removing recurring boilerplate, aggressive line-level deduplication can fragment prose, disrupt coreference chains, and ruin long-range discourse coherence.</li>
+<li><strong>Near-duplicate document deduplication</strong>: Web documents frequently share 80% to 95% of their content while differing in minor details: syndicated news articles across local newspapers, modified publication dates, related article links, or light paraphrasing. Neither URL nor exact hashing detects these near-duplicates. Identifying them requires set-similarity algorithms [3].</li>
+</ul>
+<fig src="018-exact-vs-near-dedup.svg" caption="Granularity of deduplication across web text corpora">The four granularities of deduplication: URL normalization (pre-extraction), exact document hashing (SHA-256 / FarmHash), near-duplicate MinHash LSH (word 5-grams and Jaccard similarity), and suffix-array substring pruning (repeated token spans &gt; 50 tokens).</fig>
+
+<h3>Near-duplicate detection: Shingling, MinHash, and Jaccard similarity</h3>
+<p>To detect near-duplicates mathematically, we represent each document as a set of sub-sequences called <strong>shingles</strong> [3]. A shingle can be defined as a word <tex>n</tex>-gram (typically 5 consecutive words) or a character <tex>k</tex>-gram (typically 13 consecutive characters). For example, the sentence "the cat sat on the mat" contains the word 3-gram shingles: <code>{"the cat sat", "cat sat on", "sat on the", "on the mat"}</code>.</p>
+<p>Let <tex>A</tex> and <tex>B</tex> be the shingle sets of two documents. Their similarity is quantified by the <strong>Jaccard similarity coefficient</strong> [3]:</p>
+<texblock>J(A, B) = \frac{|A \cap B|}{|A \cup B|}</texblock>
+<p>Computing exact Jaccard similarity across all pairs in a corpus of <tex>N = 5\times 10^9\text{ documents}</tex> requires <tex>\binom{N}{2} \approx 1.25\times 10^{19}\text{ comparisons}</tex>, which is computationally impossible. We solve this using <strong>MinHash</strong> [6].</p>
+<p>Let <tex>h</tex> be a random hash function that maps shingles to integers. The MinHash of set <tex>A</tex> under hash function <tex>h</tex> is the minimum hash value over all elements in <tex>A</tex>: <tex>h_{\min}(A) = \min_{x \in A} h(x)</tex>. Andrei Broder proved the fundamental MinHash theorem [6]: <em>the probability that two sets produce the same minimum hash value is exactly equal to their Jaccard similarity</em>:</p>
+<texblock>P\big(h_{\min}(A) = h_{\min}(B)\big) = J(A, B)</texblock>
+<p>By applying <tex>k</tex> independent random hash permutations (typically <tex>k = 128</tex>), we compress each document into a compact <strong>MinHash signature</strong> of <tex>k</tex> integers: <tex>\mathbf{sig}(A) = [h_1^{\min}(A), h_2^{\min}(A), \dots, h_k^{\min}(A)]</tex>. The fraction of matching elements between two signatures provides an unbiased estimate of their Jaccard similarity [6].</p>
+
+<h3>Locality-Sensitive Hashing (LSH) and the S-Curve formula</h3>
+<p>Even with compact signatures, comparing all signature pairs is still <tex>O(N^2)</tex>. <strong>Locality-Sensitive Hashing (LSH)</strong> eliminates all-pairs comparison by indexing signatures into hash buckets such that similar documents collide with high probability, while dissimilar documents rarely collide [3].</p>
+<p>We divide each document's <tex>k</tex>-element signature into <tex>b</tex> <strong>bands</strong> of <tex>r</tex> <strong>rows</strong> each, where <tex>k = b \times r</tex>. Within each band, the <tex>r</tex> integers are hashed together into a bucket. Two documents are declared a <strong>candidate pair</strong> if they collide in <em>at least one</em> band bucket.</p>
+<p>Let <tex>s = J(A, B)</tex> be the true Jaccard similarity between two documents. The probability that they collide in a specific band is the probability that all <tex>r</tex> hashes in that band match, which is <tex>s^r</tex>. The probability that they do <em>not</em> match in that band is <tex>1 - s^r</tex>. The probability that they do not match in <em>any</em> of the <tex>b</tex> independent bands is <tex>(1 - s^r)^b</tex>. Therefore, the probability that two documents collide in at least one band is given by the canonical <strong>LSH S-curve formula</strong> [6]:</p>
+<texblock>P(\text{candidate pair}) = 1 - \big(1 - s^r\big)^b</texblock>
+<p>Figure 3 plots this collision probability against Jaccard similarity. The formula produces an S-curve that acts as a soft step function. The inflection point (the similarity threshold <tex>s^*</tex> where <tex>P(s^*) = 0.50</tex>) is approximated by:</p>
+<texblock>s^* \approx \left(\frac{1}{b}\right)^{1/r}</texblock>
+<p>Table 1 calculates exact collision probabilities for our production configuration with <tex>k = 128</tex> hash permutations, partitioned into <tex>b = 16\text{ bands}</tex> and <tex>r = 8\text{ rows}</tex> (<tex>s^* \approx (1/16)^{1/8} \approx 0.707</tex>), compared to a looser threshold of <tex>b = 20, r = 5</tex> (<tex>s^* \approx 0.549</tex>).</p>
+<fig src="018-minhash-lsh-scurve.svg" caption="MinHash LSH S-curve: collision probability versus Jaccard similarity">Analytical collision probability P = 1 − (1 − s^r)^b across Jaccard similarity s for b = 16, r = 8 (s* ≈ 0.707) and b = 20, r = 5 (s* ≈ 0.549). Documents with similarity above 0.80 collide with over 94.7% probability, while dissimilar documents (s &lt; 0.40) collide with only 1.0% probability.</fig>
+<table>
+<thead><tr><th>Jaccard Similarity <tex>s</tex></th><th><tex>b = 16, r = 8</tex> Collision Prob</th><th><tex>b = 20, r = 5</tex> Collision Prob</th><th>Pipeline Decision (<tex>b=16, r=8</tex>)</th></tr></thead>
+<tbody>
+<tr><td>0.20</td><td>0.0000 (0.00%)</td><td>0.0064 (0.64%)</td><td>Keep (distinct documents)</td></tr>
+<tr><td>0.40</td><td>0.0104 (1.04%)</td><td>0.1860 (18.6%)</td><td>Keep (low overlap)</td></tr>
+<tr><td>0.50</td><td>0.0607 (6.07%)</td><td>0.4701 (47.0%)</td><td>Keep (partial overlap)</td></tr>
+<tr><td>0.60</td><td>0.2374 (23.7%)</td><td>0.8019 (80.2%)</td><td>Transition region</td></tr>
+<tr><td>0.70</td><td>0.6133 (61.3%)</td><td>0.9748 (97.5%)</td><td>Threshold zone (<tex>s^* \approx 0.707</tex>)</td></tr>
+<tr><td>0.80</td><td>0.9470 (94.7%)</td><td>0.9996 (99.9%)</td><td>Drop duplicate (high similarity)</td></tr>
+<tr><td>0.90</td><td>0.9999 (~100%)</td><td>1.0000 (100%)</td><td>Drop duplicate (near-identical)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Collision probabilities across Jaccard similarities under LSH parameterizations</p>
+
+<h3>Graph clustering with connected components</h3>
+<p>Once LSH identifies candidate pairs, we must decide which documents to delete. If Document A matches Document B, and Document B matches Document C, they form a duplicate cluster. Pipelines construct a sparse similarity graph where documents are vertices and candidate pairs with estimated Jaccard similarity <tex>\ge s^*</tex> are edges [3].</p>
+<p>Using a distributed <strong>Union-Find (Disjoint Set Union)</strong> algorithm, the pipeline partitions the graph into connected components. For each connected component, the algorithm selects exactly one representative document to retain (typically the longest document, or the document with the highest educational quality score) and purges all other documents in the cluster [3].</p>
+
+<h3>Suffix-array substring deduplication (Lee et al., 2021)</h3>
+<p>While MinHash operates at the document level, it fails to catch verbatim text spans shared between documents that are otherwise dissimilar. For example, open-source code repositories contain thousands of independent programs that all embed the 200-word Apache 2.0 license header. Similarly, web pages often embed identical 100-word product disclaimers or syndicated advertising copy [2].</p>
+<p>In the landmark study <em>Deduplicating Training Data Makes Language Models Better</em>, Lee et al. introduced scalable <strong>suffix-array substring deduplication</strong> [2]. A suffix array is an integer array representing the starting positions of all suffixes of a text string, sorted lexicographically. By pairing the suffix array with a <strong>Longest Common Prefix (LCP)</strong> array, the system identifies all verbatim repeated substrings longer than a threshold length <tex>k</tex> (typically <tex>k = 50\text{ to }100\text{ tokens}</tex>) in linear time <tex>O(N)</tex> [2].</p>
+<fig src="018-suffix-array-dedup.svg" caption="Exact substring deduplication with suffix arrays (Lee et al., 2021)">Suffix-array deduplication treats the entire corpus as a flat token stream. Suffixes are sorted lexicographically; adjacent entries in the LCP array revealing common spans longer than 50 tokens are identified, and repeated instances are pruned from the dataset.</fig>
+<p>Lee et al. demonstrated that removing verbatim repeated substrings cuts memorized training text emissions by <strong>ten times</strong> and removes contaminated benchmark test splits [2]. Suffix-array deduplication requires substantial RAM during index construction (roughly 4 to 8 bytes per token), so it is typically applied after heuristic filtering and MinHash have already reduced the corpus volume [2].</p>
+
+<h3>Scale and cost: Sizing MinHash on 5 billion documents</h3>
+<p>Let us calculate the exact memory and compute footprint for running MinHash LSH across our 5 billion input documents:</p>
+<ul>
+<li><strong>Signature memory footprint</strong>: With <tex>k = 128</tex> permutations of 64-bit integers (8 bytes), each document signature requires <tex>128 \times 8 = 1,024\text{ bytes} = 1\text{ KiB}</tex>. Across 5 billion documents:
+<texblock>\text{Total Signatures} = 5\times 10^9 \times 1,024\text{ bytes} \approx 5.12\times 10^{12}\text{ bytes} \approx 5.12\text{ TB}</texblock>
+(4.77 TiB). Storing 5.12 TB of signatures is easily accommodated on distributed object storage or a cluster of NVMe SSDs.</li>
+<li><strong>Signature generation compute</strong>: Modern hashing libraries (such as xxHash or FarmHash) evaluate word 5-grams and compute 128 MinHashes at approximately 500 documents per second per modern CPU core:
+<texblock>\text{Compute Budget} = \frac{5\times 10^9\text{ documents}}{500\text{ docs/sec}} = 10\times 10^6\text{ core-seconds} \approx 2,778\text{ CPU core-hours}</texblock>
+On a small cluster of 24 nodes with 128 CPU cores each (3,072 total cores), signature generation finishes in under 1 hour!</li>
+<li><strong>LSH bucketing and clustering</strong>: Dividing signatures into 16 bands creates 16 key-value records per document: <code>(band_idx, bucket_hash) -> doc_id</code>, totaling 80 billion records. Distributed map-reduce frameworks (such as Apache Spark or DataTrove's disk-based external sorter) sort and group these records by bucket key, emitting candidate pairs. Connected components filtering over the resulting graph identifies duplicate clusters, dropping roughly 25% to 30% of total web documents [3].</li>
+</ul>
+
+<h2>Quality Filtering: Heuristics, Perplexity, and Classifiers</h2>
+<p>Deduplication removes redundancy, but a document can be completely unique while remaining low-grade internet garbage: machine-translated spam, automated sensor logs, keyword-stuffed SEO listings, or toxic insults. Pretraining pipelines apply a three-tiered quality hierarchy (Figure 5) [3].</p>
+<fig src="018-quality-filtering-spectrum.svg" caption="The quality filtering spectrum: heuristics to neural classifiers">The three tiers of quality filtering: Tier 1 fast heuristic rules (&gt;500 MB/s per core), Tier 2 KenLM perplexity filtering (~80 MB/s per core), and Tier 3 neural classifiers (FineWeb-Edu distilled Arctic-embed) scoring educational reasoning quality.</fig>
+
+<h3>Tier 1: Fast rule-based heuristics (Gopher rules)</h3>
+<p>Heuristic filters evaluate basic lexical statistics, discarding noisy documents at rates exceeding 500 MB/s per CPU core [7]:</p>
+<ul>
+<li><strong>Word count bounds</strong>: 50 to 100,000 words. Drops placeholder stubs and massive database dumps.</li>
+<li><strong>Mean word length</strong>: 3 to 10 characters. Rejects unspaced gibberish and abbreviation lists.</li>
+<li><strong>Symbol ratio</strong>: Less than 10% of characters can be symbols or punctuation marks.</li>
+<li><strong>Stopword presence</strong>: At least 2 unique common grammatical stopwords must be present.</li>
+<li><strong>Repetition thresholds</strong>: Documents where the top 2-gram exceeds 20%, top 3-gram exceeds 18%, or top 4-gram exceeds 16% of total n-grams are discarded [7].</li>
+</ul>
+
+<h3>Tier 2: Perplexity filtering (KenLM / CCNet)</h3>
+<p>Heuristics cannot detect grammatically correct but nonsensical text, such as automated machine translation errors or word-salad spam. Perplexity filtering, pioneered by Wenzek et al. in CCNet [4], trains a lightweight <strong>5-gram KenLM language model</strong> on a high-quality reference corpus (such as curated Wikipedia) [4].</p>
+<p>The KenLM model computes the cross-entropy perplexity of each document line or paragraph. Text with abnormally high perplexity represents garbled syntax, foreign script fragments, or symbol soup. Text with abnormally low perplexity represents repetitive template strings (e.g., "Page 1 of 100"). Documents are filtered based on their perplexity distribution, typically discarding the worst 20% to 30% of web crawl lines [4].</p>
+
+<h3>Tier 3: Model-based classifiers (FineWeb-Edu)</h3>
+<p>The frontier of pretraining data engineering uses transformer classifiers to score text on semantic quality [3]. The leading open-source model is Hugging Face's <strong>FineWeb-Edu classifier</strong> [8]:</p>
+<ol>
+<li><strong>Synthetic annotation with teacher LLMs</strong>: Hugging Face prompted <strong>Llama-3-70B-Instruct</strong> to evaluate 450,000 raw web page samples on an educational quality scale from <strong>0 to 5</strong>. A score of 0 indicates non-educational spam, while a score of 5 represents clear, pedagogical knowledge structured with logical explanations (suitable for middle school to undergraduate learning) [3].</li>
+<li><strong>Distillation into a lightweight classifier</strong>: Running a 70B parameter model over trillions of tokens is cost-prohibitive. The researchers took <strong>Snowflake-arctic-embed-m</strong>, froze its embedding backbone, and trained a single linear regression head on the 450,000 Llama-3 scores [3].</li>
+<li><strong>Inference at scale</strong>: The resulting classifier processes text rapidly on GPU clusters. Filtering FineWeb by retaining documents with educational score <tex>\ge 3</tex> yielded the 1.3-trillion-token <strong>FineWeb-Edu</strong> dataset. Models pretrained on FineWeb-Edu display dramatic performance jumps on knowledge-intensive benchmarks (MMLU, ARC, OpenBookQA) compared to models trained on raw web text [3].</li>
+</ol>
+
+<h3>Risks of over-filtering and demographic bias</h3>
+<p>Aggressive quality filtering is not without serious risks. When DeepMind trained Gopher, they explicitly avoided classifier-based filtering because classifiers trained on Wikipedia or Reddit systematically discriminate against non-standard dialects, colloquial speech, regional African American Vernacular English (AAVE), and diverse creative writing [7]. Over-filtered models produce sterile, overly formal responses and fail when users communicate using informal idioms or cultural colloquialisms.</p>
+<p>Furthermore, filtering exclusively for high educational scores can strip out practical conversational dialogue, humorous anecdotes, and narrative storytelling, harming the model's ability to engage in natural multi-turn chat during post-training. A balanced pretraining mixture retains diverse linguistic registers alongside educational knowledge [3].</p>
+
+<table>
+<thead><tr><th>Technique</th><th>Granularity</th><th>Throughput / Core</th><th>False-Positive Risk</th><th>Primary Elimination Target</th></tr></thead>
+<tbody>
+<tr><td>URL Normalization</td><td>URL string</td><td>&gt; 1,000,000 docs/s</td><td>Zero</td><td>Tracking parameters, crawler loops</td></tr>
+<tr><td>Exact Document Hash</td><td>Full document</td><td>&gt; 50,000 docs/s</td><td>Zero (negligible collisions)</td><td>100% identical mirror pages</td></tr>
+<tr><td>MinHash LSH (<tex>b=16, r=8</tex>)</td><td>5-gram shingles</td><td>~500 docs/s</td><td>Low (&lt; 1% for <tex>s < 0.40</tex>)</td><td>Syndicated news, edited mirrors</td></tr>
+<tr><td>Suffix Array Substrings</td><td>Token sequences</td><td>Linear <tex>O(N)</tex> (high RAM)</td><td>Low (with <tex>k \ge 50</tex>)</td><td>License headers, leaked test benchmarks</td></tr>
+<tr><td>Gopher Heuristics</td><td>Document lexical stats</td><td>&gt; 2,000 docs/s</td><td>Very Low</td><td>Machine logs, symbol spam, stubs</td></tr>
+<tr><td>KenLM Perplexity</td><td>5-gram LM scores</td><td>~300 docs/s</td><td>Medium (drops creative text)</td><td>Machine translation errors, word salad</td></tr>
+<tr><td>FineWeb-Edu Classifier</td><td>Embedding + Regressor</td><td>~150 docs/s (per GPU)</td><td>Medium (dialectic bias)</td><td>Low-educational forum noise, SEO spam</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Comparison of deduplication and quality filtering techniques</p>
+
+<h4>Which filters fit our corpus?</h4>
+<p>For our 1-trillion-token pretraining run of Llama 3.1 8B, we implement a four-tier filtering cascade:</p>
+<ol>
+<li><strong>Tier 1 (URL &amp; Exact Hash)</strong>: Discard duplicate URLs and exact document hashes immediately during ingestion.</li>
+<li><strong>Tier 2 (Gopher Heuristics)</strong>: Enforce word counts (50–100,000), mean word lengths (3–10), symbol ratios (&lt; 0.10), and repetition limits (top 2-gram &lt; 20%). This prunes roughly 45% of raw crawl text at near-zero compute cost.</li>
+<li><strong>Tier 3 (MinHash LSH)</strong>: Configure 128 permutations, partitioned into 16 bands of 8 rows (<tex>s^* \approx 0.707</tex>). In each connected component, retain the document with the highest educational score, dropping roughly 25% of near-duplicate documents.</li>
+<li><strong>Tier 4 (Selective Quality Scoring)</strong>: For the web slice (70% of our mix), apply the FineWeb-Edu classifier with a threshold of <tex>\text{score} \ge 3.0</tex> for 60% of web tokens, while retaining a relaxed threshold of <tex>\text{score} \ge 1.5</tex> for the remaining 40% to preserve conversational breadth and diverse writing styles. Code and academic papers are filtered using dedicated domain linters (compiler syntax checks and LaTeX parsers) rather than web classifiers.</li>
+</ol>
+
+<h2>Measuring Data Quality with Proxy Ablations</h2>
+<p>Pretraining an 8-billion-parameter model on 1 trillion tokens costs approximately $101,500 and consumes 5.5 days of continuous cluster time on 256 H100s. Launching a full pretraining run without verifying data filtering choices is reckless engineering. How do foundation model teams empirically validate filter thresholds?</p>
+<p>The standard methodology is <strong>proxy ablation runs</strong> [2, 3]. Engineering teams train a small <strong>1-billion-parameter proxy model</strong> on a reduced budget of <strong>25 billion tokens</strong> (roughly 2.5% of the full budget). On a single 8-GPU node of H100s, a 1B proxy model on 25B tokens trains in approximately <strong>6 hours</strong>, costing under <strong>$150 in compute</strong> (Figure 6).</p>
+<fig src="018-proxy-ablation-curves.svg" caption="Measuring data quality via proxy model ablations (illustrative)">Illustrative downstream benchmark scores (ARC, MMLU, HellaSwag average) for 1B proxy models trained on 25B tokens. Adding Gopher heuristics, MinHash deduplication, and FineWeb-Edu classification progressively lifts benchmark performance from 31.2% to 48.2% before committing to the full 8B pretraining run.</fig>
+<p>By training identical 1B proxy architectures across multiple data filtering variants (e.g., raw crawl vs heuristic filtering vs MinHash vs FineWeb-Edu thresholds), researchers evaluate downstream validation benchmarks:</p>
+<ul>
+<li><strong>Reasoning &amp; Knowledge</strong>: ARC-Challenge, MMLU, and OpenBookQA.</li>
+<li><strong>Language Understanding</strong>: HellaSwag and PIQA.</li>
+<li><strong>Code Syntax</strong>: HumanEval and MBPP pass@1.</li>
+</ul>
+<p>Empirical studies across Meta (Llama 3), Hugging Face (FineWeb), and AI2 (Dolma) confirm that <strong>relative data quality rankings reliably transfer from 1B proxy models to 8B and 70B production architectures</strong> [2, 3]. If Filtering Recipe C beats Recipe B on a 1B proxy model, Recipe C will consistently yield superior final checkpoints at full 8B scale.</p>
+
+<h2>In Practice</h2>
+<p>The first tab implements near-duplicate detection and LSH indexing using Python's <code>datasketch</code> library. The second tab applies core Gopher heuristic quality filters and repetition metrics. The third tab scores documents using a model-based quality classification pipeline.</p>
+<codetabs>
+<tab label="MinHash LSH dedup" lang="python">
+import re
+from datasketch import MinHash, MinHashLSH
+
+def create_minhash(text: str, num_perm: int = 128) -> MinHash:
+    """Generates a 128-permutation MinHash signature from word 5-gram shingles."""
+    words = re.findall(r"\b\w+\b", text.lower())
+    m = MinHash(num_perm=num_perm)
+    # Build word 5-gram shingles
+    for i in range(len(words) - 4):
+        shingle = " ".join(words[i : i + 5]).encode("utf-8")
+        m.update(shingle)
+    return m
+
+def deduplicate_corpus(documents: dict[str, str], threshold: float = 0.70) -> list[str]:
+    """
+    Indexes documents into a MinHash LSH and prunes near-duplicates
+    exceeding the Jaccard similarity threshold.
+    """
+    lsh = MinHashLSH(threshold=threshold, num_perm=128)
+    minhashes = {}
+    retained_docs = []
+
+    for doc_id, text in documents.items():
+        mh = create_minhash(text, num_perm=128)
+        minhashes[doc_id] = mh
+
+        # Query LSH for colliding candidate duplicates
+        candidates = lsh.query(mh)
+        is_duplicate = False
+
+        for cand_id in candidates:
+            # Verify exact estimated Jaccard similarity
+            sim = mh.jaccard(minhashes[cand_id])
+            if sim >= threshold:
+                is_duplicate = True
+                break
+
+        if not is_duplicate:
+            lsh.insert(doc_id, mh)
+            retained_docs.append(doc_id)
+
+    return retained_docs
+</tab>
+<tab label="Gopher quality filter" lang="python">
+import re
+
+def gopher_quality_filter(text: str) -> bool:
+    """
+    Applies DeepMind Gopher heuristic rules to filter low-quality text:
+    word count bounds, mean word length, symbol ratios, stopword counts,
+    and n-gram repetition limits.
+    """
+    words = re.findall(r"\b\w+\b", text)
+    word_count = len(words)
+
+    # 1. Word count boundaries (50 <= count <= 100,000)
+    if not (50 <= word_count <= 100_000):
+        return False
+
+    # 2. Mean word length (3.0 <= mean <= 10.0 chars)
+    mean_len = sum(len(w) for w in words) / word_count
+    if not (3.0 <= mean_len <= 10.0):
+        return False
+
+    # 3. Symbol-to-word ratio (< 0.10)
+    symbols = re.findall(r"[#\$%\^&\*\(\)_=\+\[\]\{\}\|\\<>/]", text)
+    if len(symbols) / word_count > 0.10:
+        return False
+
+    # 4. Stopword presence (minimum 2 unique stopwords)
+    stopwords = {"the", "be", "to", "of", "and", "a", "in", "that", "have", "it"}
+    found_stopwords = {w.lower() for w in words if w.lower() in stopwords}
+    if len(found_stopwords) < 2:
+        return False
+
+    # 5. N-gram repetition check (top 2-gram < 20% of total)
+    if word_count >= 10:
+        bigrams = [f"{words[i]}_{words[i+1]}".lower() for i in range(word_count - 1)]
+        from collections import Counter
+        counts = Counter(bigrams)
+        top_bigram_ratio = counts.most_common(1)[0][1] / len(bigrams)
+        if top_bigram_ratio > 0.20:
+            return False
+
+    return True
+</tab>
+<tab label="Model quality scorer" lang="python">
+import torch
+import torch.nn as nn
+
+class LightweightQualityScorer(nn.Module):
+    """
+    Linear regression classification head attached to an embedding backbone
+    (analogous to HuggingFaceFW/fineweb-edu-classifier) predicting a 0 to 5 score.
+    """
+    def __init__(self, embedding_dim: int = 768):
+        super().__init__()
+        self.regressor = nn.Sequential(
+            nn.Linear(embedding_dim, 256),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(256, 1),
+        )
+
+    def forward(self, pooled_embeddings: torch.Tensor) -> torch.Tensor:
+        # Returns continuous score bounded between 0.0 and 5.0
+        raw_score = self.regressor(pooled_embeddings)
+        return torch.clamp(raw_score, min=0.0, max=5.0).squeeze(-1)
+
+def filter_by_quality_score(
+    embeddings: torch.Tensor,
+    scorer: LightweightQualityScorer,
+    threshold: float = 3.0,
+) -> list[int]:
+    """Filters document batch, returning indices of documents meeting quality threshold."""
+    scorer.eval()
+    with torch.no_grad():
+        scores = scorer(embeddings)
+        passing_indices = (scores >= threshold).nonzero(as_tuple=True)[0].tolist()
+    return passing_indices
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Benchmark de-contamination via suffix arrays</strong>: Suffix arrays allow searching the entire pretraining corpus for exact 8-gram or 13-gram token matches against evaluation sets (such as GSM8k or MMLU). Any training document containing more than a minimal threshold of test questions is purged to ensure benchmark integrity (see Lesson 35, Benchmarks and Contamination).</li>
+<li><strong>Hash collision math in exact deduplication</strong>: A 64-bit non-cryptographic hash (FarmHash64) has a collision probability of roughly <tex>p \approx N^2 / (2 \times 2^{64})</tex>. For <tex>N = 5\times 10^9\text{ documents}</tex>, <tex>p \approx 25\times 10^{18} / 3.69\times 10^{19} \approx 6.8\times 10^{-1}\%</tex>. Using 128-bit hashes (MD5 or MurmurHash3_128) reduces collision risk to effectively zero (<tex>10^{-20}</tex>).</li>
+<li><strong>Fast deduplication with Bloom filters</strong>: Dolma utilizes distributed Bloom filters to track paragraph-level hashes across billions of documents. Bloom filters allow testing membership with zero disk lookups, accepting a tunable false-positive rate (e.g., 0.01%) while using less than 10 bits per entry [9].</li>
+<li><strong>Synthetic rewriting as quality filtering</strong>: Rather than discarding low-scoring educational web pages, frontier pipelines (such as Llama 3.1) pass marginally low-quality text through smaller teacher models to rewrite and summarize the content into high-density educational text.</li>
+<li><strong>Dialect-aware filtering</strong>: Modern pipelines evaluate demographic false-positive rates by testing filter rules across specific dialect benchmarks (such as African American English or regional dialects) to ensure filtration rules do not skew linguistic balance.</li>
+<li><strong>Curriculum sequencing by quality score</strong>: Rather than filtering all low-scoring documents permanently, some training recipes use quality scores for curriculum learning (see Lesson 20, Data Mixtures and Curriculum): training on broad web text during the first 800 billion tokens, then finishing the final 200 billion tokens exclusively on high-scoring educational and synthetic data.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="018-summary.png" caption="Deduplication and quality filtering summary" optional="1">Mind map summarizing the deduplication and quality filtering lesson: duplication hazards, exact and MinHash LSH deduplication, suffix-array substring pruning, Gopher heuristics, neural quality classifiers, and proxy ablations.</fig>
+<ul>
+<li>Duplicate training data causes verbatim memorization (10× higher emission rate), wastes up to 30% of cluster compute on redundant updates, and contaminates benchmark test sets.</li>
+<li>Exact deduplication uses normalized URL hashing and 64-bit FarmHash / SHA-256 document hashing. Near-duplicate deduplication uses word 5-gram shingles, 128 MinHash permutations, and Locality-Sensitive Hashing (LSH).</li>
+<li>The LSH S-curve formula <tex>P = 1 - (1 - s^r)^b</tex> with <tex>b = 16\text{ bands}</tex> and <tex>r = 8\text{ rows}</tex> creates an inflection threshold at <tex>s^* \approx 0.707</tex>, detecting near-duplicates (<tex>s \ge 0.80</tex>) with &gt;94.7% probability while ignoring dissimilar documents.</li>
+<li>Suffix-array substring deduplication (Lee et al., 2021) sorts suffixes lexicographically to purge repeated verbatim spans longer than 50 tokens, eliminating boilerplate licensing and benchmark leakage.</li>
+<li>Quality filtering spans three tiers: Gopher lexical heuristics (&gt;500 MB/s/core), KenLM 5-gram perplexity filters, and neural classifiers (FineWeb-Edu distilled from Llama-3-70B annotations).</li>
+<li>Data quality choices must be validated using 1B-parameter proxy models trained on 25B tokens for ~6 hours (~$150), whose relative benchmark rankings reliably transfer to full 8B and 70B runs.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Carlini et al. Quantifying Memorization Across Neural Language Models. <a href="https://arxiv.org/abs/2202.07646" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2202.07646</a>.<br>
+[2] Lee et al. Deduplicating Training Data Makes Language Models Better. <a href="https://arxiv.org/abs/2107.06499" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2107.06499</a>.<br>
+[3] Penedo et al. The FineWeb Datasets: Decanting the Web for the Finest Text Data at Scale. <a href="https://arxiv.org/abs/2406.17557" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2406.17557</a>.<br>
+[4] Wenzek et al. CCNet: Extracting High Quality Monolingual Datasets from Web Crawl with Perplexity Filtering. <a href="https://arxiv.org/abs/1911.00359" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1911.00359</a>.<br>
+[5] Raffel et al. Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer. <a href="https://arxiv.org/abs/1910.10683" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1910.10683</a>.<br>
+[6] Broder. On the Resemblance and Co-Occurrence of Natural Language Documents. <a href="https://doi.org/10.1109/SEQUEN.1997.666900" rel="noopener noreferrer" target="_blank">https://doi.org/10.1109/SEQUEN.1997.666900</a>.<br>
+[7] Rae et al. Scaling Language Models: Methods, Analysis & Insights from Training Gopher. <a href="https://arxiv.org/abs/2112.11446" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2112.11446</a>.<br>
+[8] Lozhkov et al. FineWeb-Edu: The Finest Educational Text Dataset. <a href="https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu" rel="noopener noreferrer" target="_blank">https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu</a>.<br>
+[9] Soldaini et al. Dolma: an Open Corpus of Three Trillion Tokens for Language Model Pretraining Research. <a href="https://arxiv.org/abs/2402.00159" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2402.00159</a>.</p>

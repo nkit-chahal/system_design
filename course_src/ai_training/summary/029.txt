@@ -1,0 +1,6 @@
+center: Failures and Restarts
+branch: Scale Failure Reality | llama three reported four hundred failures | mostly hardware and memory | scales to our cluster
+branch: Failure Taxonomy | gpu xid fatal bus drops | hbm double bit ecc errors | silent data corruption bit flips
+branch: Watchdog Detection | nccl asynchronous error watchdog | dcgm hardware telemetry signals | loss anomaly and spike detection
+branch: Recovery Orchestration | automated node drain and exclusion | pre warmed hot standby spares | fast checkpoint reload
+branch: Goodput Optimization | useful training over total time | exceeds ninety percent at scale | fixed topology beats elastic resizing

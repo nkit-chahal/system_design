@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">The Reward Model: Bradley-Terry Pairwise Ranking Loss</text>
+  <text x="25" y="48" class="sm" fill="#555">Transformer backbone with a scalar classification head scoring chosen and rejected completions</text>
+
+  <!-- Top branch: Chosen sequence (x, yw) -->
+  <rect x="25" y="75" width="160" height="42" rx="4" class="green"/>
+  <text x="105" y="101" text-anchor="middle" class="b">Chosen (x, yw)</text>
+
+  <path d="M185 96 L235 96" class="edge"/>
+
+  <rect x="235" y="75" width="200" height="42" rx="4" class="blue"/>
+  <text x="335" y="96" text-anchor="middle" class="b">Transformer Layers</text>
+  <text x="335" y="110" text-anchor="middle" class="sm">Shared Base Backbone</text>
+
+  <path d="M435 96 L475 96" class="edge"/>
+
+  <rect x="475" y="75" width="120" height="42" rx="4" class="orange"/>
+  <text x="535" y="96" text-anchor="middle" class="b">Scalar Head</text>
+  <text x="535" y="110" text-anchor="middle" class="sm">W_scalar in R^(h x 1)</text>
+
+  <path d="M595 96 L645 96" class="edge"/>
+
+  <rect x="645" y="75" width="145" height="42" rx="4" class="white"/>
+  <text x="717" y="101" text-anchor="middle" class="b">r(x, yw) = +2.41</text>
+
+  <!-- Bottom branch: Rejected sequence (x, yl) -->
+  <rect x="25" y="150" width="160" height="42" rx="4" class="red"/>
+  <text x="105" y="176" text-anchor="middle" class="b">Rejected (x, yl)</text>
+
+  <path d="M185 171 L235 171" class="edge"/>
+
+  <rect x="235" y="150" width="200" height="42" rx="4" class="blue"/>
+  <text x="335" y="171" text-anchor="middle" class="b">Transformer Layers</text>
+  <text x="335" y="185" text-anchor="middle" class="sm">Shared Base Backbone</text>
+
+  <path d="M435 171 L475 171" class="edge"/>
+
+  <rect x="475" y="150" width="120" height="42" rx="4" class="orange"/>
+  <text x="535" y="171" text-anchor="middle" class="b">Scalar Head</text>
+  <text x="535" y="185" text-anchor="middle" class="sm">Pools Final Token</text>
+
+  <path d="M595 171 L645 171" class="edge"/>
+
+  <rect x="645" y="150" width="145" height="42" rx="4" class="white"/>
+  <text x="717" y="176" text-anchor="middle" class="b">r(x, yl) = -0.85</text>
+
+  <!-- Loss computation box -->
+  <rect x="25" y="215" width="765" height="62" rx="6" class="purple"/>
+  <text x="40" y="238" class="b">Bradley-Terry Loss Objective:</text>
+  <text x="40" y="260" class="sm">Loss = -log sigma( r(x, yw) - r(x, yl) ) = -log( 1 / (1 + exp( -(rw - rl) )) )</text>
+  <text x="550" y="250" text-anchor="middle" class="b">Margin: Delta r = +3.26</text>
+
+  <!-- Explanatory note -->
+  <rect x="25" y="290" width="765" height="42" rx="4" class="gray"/>
+  <text x="40" y="316" class="sm">Only relative differences matter: shifting all scores by a constant c leaves the probability sigma(rw - rl) unchanged.</text>
+</svg>

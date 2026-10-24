@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 380" width="720" height="380">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#333333"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#b85450"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="720" height="380" fill="#FFFFFF"/>
+
+  <!-- Title -->
+  <text x="360" y="26" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" fill="#222222">Three Pathways of Benchmark Leakage into Pretraining Corpora</text>
+  <text x="360" y="44" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#666666">How test questions, answers, and reasoning traces bypass filtering and reach model weights</text>
+
+  <!-- Section 1: Leakage Sources (Left Column) -->
+  <rect x="25" y="65" width="200" height="80" rx="6" fill="#ffe6cc" stroke="#d79b00" stroke-width="1.5"/>
+  <text x="35" y="85" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#222222">1. Web Scraping &amp; Mirrors</text>
+  <text x="35" y="103" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">Common Crawl, blog walk-throughs,</text>
+  <text x="35" y="119" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">exam dump sites, solution forums</text>
+  <text x="35" y="135" font-family="Helvetica, Arial, sans-serif" font-size="10" fill="#777777">(e.g. GSM8K, MMLU raw questions)</text>
+
+  <rect x="25" y="160" width="200" height="80" rx="6" fill="#dae8fc" stroke="#6c8ebf" stroke-width="1.5"/>
+  <text x="35" y="180" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#222222">2. Code Repositories</text>
+  <text x="35" y="198" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">GitHub eval harnesses, test JSONs,</text>
+  <text x="35" y="214" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">unit tests, solutions in repos</text>
+  <text x="35" y="230" font-family="Helvetica, Arial, sans-serif" font-size="10" fill="#777777">(e.g. HumanEval, MBPP tests)</text>
+
+  <rect x="25" y="255" width="200" height="80" rx="6" fill="#e1d5e7" stroke="#9673a6" stroke-width="1.5"/>
+  <text x="35" y="275" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#222222">3. Synthetic Distillation</text>
+  <text x="35" y="293" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">Teacher LLM output in pretraining;</text>
+  <text x="35" y="309" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">teacher already memorized tests</text>
+  <text x="35" y="325" font-family="Helvetica, Arial, sans-serif" font-size="10" fill="#777777">(secondhand indirect leakage)</text>
+
+  <!-- Connectors from Left to Middle -->
+  <line x1="225" y1="105" x2="275" y2="180" stroke="#333333" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="225" y1="200" x2="275" y2="200" stroke="#333333" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="225" y1="295" x2="275" y2="220" stroke="#333333" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Section 2: Ingestion & Training Pipeline (Middle Column) -->
+  <rect x="280" y="115" width="180" height="170" rx="6" fill="#fff2cc" stroke="#d6b656" stroke-width="1.5"/>
+  <text x="370" y="137" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222222">Pretraining Pipeline</text>
+  <line x1="290" y1="147" x2="450" y2="147" stroke="#d6b656" stroke-width="1"/>
+
+  <text x="295" y="167" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" fill="#333333">Ingestion:</text>
+  <text x="295" y="183" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#555555">Trillions of tokens</text>
+
+  <text x="295" y="205" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" fill="#333333">Filtering Flaw:</text>
+  <text x="295" y="221" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#555555">Heuristics miss rephrased</text>
+  <text x="295" y="237" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#555555">or code-wrapped prompts</text>
+
+  <text x="295" y="259" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" fill="#333333">Weight Updates:</text>
+  <text x="295" y="275" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#555555">Direct gradient storage</text>
+
+  <!-- Connectors from Middle to Right -->
+  <line x1="460" y1="170" x2="505" y2="125" stroke="#b85450" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+  <line x1="460" y1="200" x2="505" y2="200" stroke="#b85450" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+  <line x1="460" y1="230" x2="505" y2="275" stroke="#b85450" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+
+  <!-- Section 3: Evaluation Consequences (Right Column) -->
+  <rect x="510" y="85" width="185" height="75" rx="6" fill="#f8cecc" stroke="#b85450" stroke-width="1.5"/>
+  <text x="520" y="105" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="bold" fill="#990000">Score Inflation</text>
+  <text x="520" y="123" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#333333">Unrealistically high benchmark</text>
+  <text x="520" y="139" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#333333">accuracy due to memorization</text>
+  <text x="520" y="153" font-family="Helvetica, Arial, sans-serif" font-size="9" fill="#777777">(e.g. +15% over real capability)</text>
+
+  <rect x="510" y="170" width="185" height="60" rx="6" fill="#f8cecc" stroke="#b85450" stroke-width="1.5"/>
+  <text x="520" y="190" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="bold" fill="#990000">Generalization Deficit</text>
+  <text x="520" y="208" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#333333">Collapses when test prompts</text>
+  <text x="520" y="222" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#333333">are paraphrased or perturbed</text>
+
+  <rect x="510" y="240" width="185" height="75" rx="6" fill="#f8cecc" stroke="#b85450" stroke-width="1.5"/>
+  <text x="520" y="260" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="bold" fill="#990000">Evaluation Mirage</text>
+  <text x="520" y="278" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#333333">Ablation decisions misled;</text>
+  <text x="520" y="294" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#333333">teams reward leaked recipes</text>
+  <text x="520" y="308" font-family="Helvetica, Arial, sans-serif" font-size="9" fill="#777777">over sound architectures</text>
+
+  <!-- Bottom Summary Note -->
+  <rect x="25" y="348" width="670" height="24" rx="4" fill="#f5f5f5" stroke="#cccccc" stroke-width="1"/>
+  <text x="360" y="364" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle" fill="#555555">Decontamination requires string-level n-gram filtering, Canary GUID matching, and membership inference audits.</text>
+</svg>

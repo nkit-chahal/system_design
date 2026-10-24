@@ -1,0 +1,343 @@
+<h2>Introduction</h2>
+<p>In standard transformer training, every parameter in the neural network participates in the computation of every single token. As models scale from 8 billion to 70 billion and 405 billion parameters, the floating-point operations (FLOPs) required per token scale linearly with parameter count. This coupling creates a harsh computational ceiling: training a dense 405B model requires tens of thousands of GPUs running for months, consuming tens of millions of dollars of electricity and compute (see Lesson 7, Training FLOPs, Time and MFU).</p>
+<p><strong>Mixture-of-Experts (MoE)</strong> breaks this linear coupling by replacing dense feed-forward networks (MLPs) with a set of <tex>E</tex> independent "experts", coordinated by a lightweight parametric <strong>router</strong> [1]. For each incoming token, the router evaluates the token's hidden state and dynamically activates only the top-<tex>k</tex> most relevant experts (typically <tex>k = 1</tex> or <tex>k = 2</tex> out of <tex>E = 8</tex> or <tex>E = 16</tex>). The remaining <tex>E - k</tex> experts sit completely idle for that token. This architectural sparsity enables a model to expand its total parameter capacity by 4× to 10× while holding the compute FLOPs per token strictly constant.</p>
+<p>In Inference Lesson 35, Mixture-of-Experts Serving, we examined how MoE models are served in production, focusing on KV cache sizing, weight offloading, and batched decode throughput. <strong>Training an MoE model, however, introduces fundamentally different systems and algorithmic challenges that do not exist in inference</strong>.</p>
+<fig src="015-moe-training-vs-inference.svg" caption="Mixture-of-Experts: training demands vs inference serving">Comparison of MoE requirements in inference vs training. Inference executes read-only forward passes where idle experts cost zero compute. Training requires backpropagating through non-differentiable routing decisions, executing four All-to-All collectives per step, storing 16 bytes/param Adam states for all experts, and stabilizing router load balancing.</fig>
+<p>During training, the system cannot treat idle experts as free. In mixed-precision Adam, <strong>every parameter across all <tex>E</tex> experts requires 16 bytes of memory</strong> for weights, gradients, master weights, and optimizer moments, regardless of how rarely that expert is selected (see Lesson 3, Training Memory). Furthermore, the router's gating parameters must learn via backpropagation, creating severe optimization pathologies such as <strong>router collapse</strong> where a few popular experts monopolize all tokens. Distributing experts across devices via <strong>Expert Parallelism (EP)</strong> requires four high-volume All-to-All communication collectives on every training step [7], [8]. In this lesson, we examine the mechanics of training MoE models, analyze load-balancing objectives and dropless execution, derive the All-to-All network traffic, explore DeepSeek-V3's auxiliary-loss-free balancing, and determine how to train an MoE version of our running model.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In machine learning infrastructure interviews, Mixture-of-Experts questions focus on routing differentiability, load balancing losses, All-to-All interconnect scaling, and the asymmetry between compute FLOPs and memory footprint. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: What model architecture and expert sparsity are we targeting, and what cluster hardware do we have?<br>
+<strong>Interviewer</strong>: We want to convert our running Llama 3.1 8B architecture into an MoE model. The attention blocks remain shared and dense (32 layers, hidden dimension 4,096), but the MLP in each layer is replaced with <tex>E = 8</tex> experts with top-2 routing (<tex>k = 2</tex>). The active compute per token matches an 8B model (~8.03B active parameters), but total parameter capacity expands to approximately 22.5 billion parameters. Our cluster consists of 256 NVIDIA H100 80 GB GPUs across 32 nodes (NVLink inside each node, 400 Gb/s InfiniBand across nodes).</p>
+<p><strong>Candidate</strong>: What sequence length and batch size are specified for pretraining?<br>
+<strong>Interviewer</strong>: Sequence length is 8,192 tokens. Global batch size is 4 million tokens (512 sequences of 8,192).</p>
+<p><strong>Candidate</strong>: How should we distribute the experts across GPUs, and what communication pattern will that create?<br>
+<strong>Interviewer</strong>: We want to use Expert Parallelism (EP). How do the tokens move between GPUs during the forward and backward passes, what is the network traffic volume per step, and can our interconnect support it?</p>
+<p><strong>Candidate</strong>: What mechanisms should we implement to prevent the router from routing all tokens to the same two experts?<br>
+<strong>Interviewer</strong>: We need to evaluate the classic Switch Transformer auxiliary loss, the ST-MoE router z-loss, dropless token routing via MegaBlocks, and the auxiliary-loss-free dynamic bias strategy introduced by DeepSeek-V3. Which strategy prevents collapse without degrading language modeling accuracy?</p>
+<p>The real question underneath is: <em>How do we train a sparse MoE model where compute scales with active parameters but memory scales with total parameters, prevent routing collapse without corrupting the loss gradient, and orchestrate All-to-All communication over physical network fabrics?</em> To answer it, we begin by analyzing the router's gradients and load balancing.</p>
+
+<h2>Router Gradients, Collapse, and Load Balancing</h2>
+<h3>How router gradients flow</h3>
+<p>In a standard top-<tex>k</tex> MoE layer, let <tex>x \in \mathbb{R}^h</tex> represent a token's input hidden state, and let <tex>E</tex> be the total number of experts. The router computes a raw affinity logit <tex>H(x) \in \mathbb{R}^E</tex> using a linear projection with weight matrix <tex>W_g \in \mathbb{R}^{E \times h}</tex> [1]:</p>
+<texblock>H(x) = W_g x</texblock>
+<p>The router selects the indices of the <tex>k</tex> highest logits using the <tex>\text{TopK}</tex> operator:</p>
+<texblock>\mathcal{T} = \text{TopK}(H(x), k)</texblock>
+<p>The gating weights <tex>G(x) \in \mathbb{R}^E</tex> assigned to the selected experts are computed by applying a softmax function exclusively over the top-<tex>k</tex> logits (setting the gating values for all unselected experts to zero):</p>
+<texblock>G_i(x) = \begin{cases} \frac{\exp(H_i(x))}{\sum_{j \in \mathcal{T}} \exp(H_j(x))} & \text{if } i \in \mathcal{T} \\ 0 & \text{otherwise} \end{cases}</texblock>
+<p>The final output of the MoE layer <tex>y</tex> is the linear combination of the selected expert outputs weighted by their gating coefficients:</p>
+<texblock>y = \sum_{i \in \mathcal{T}} G_i(x) \cdot \text{Expert}_i(x)</texblock>
+<p>A central theoretical subtlety arises during backpropagation: <strong>the <tex>\text{TopK}</tex> selection operator is a discrete step function with zero derivative almost everywhere</strong>. The router cannot learn which experts to select via direct gradient descent on the discrete selection decision. Instead, gradients backpropagate through the continuous softmax gating coefficients <tex>G_i(x)</tex> [1], [2]:</p>
+<texblock>\frac{\partial \mathcal{L}}{\partial W_g} = \sum_{i \in \mathcal{T}} \left(\frac{\partial \mathcal{L}}{\partial y} \cdot \text{Expert}_i(x)\right) \frac{\partial G_i(x)}{\partial H(x)} x^\top</texblock>
+<p>If expert <tex>i</tex> produces an output that reduces the overall loss, the gradient pushes the router logit <tex>H_i(x)</tex> upward for similar tokens, making expert <tex>i</tex> more likely to be selected in future forward passes.</p>
+
+<h3>The pathology of router collapse</h3>
+<p>Because the router learns through this gradient feedback loop, unconstrained top-<tex>k</tex> routing suffers from severe positive feedback instability, known as <strong>router collapse</strong> (or representation collapse) [1], [2].</p>
+<fig src="015-router-collapse-and-aux-loss.svg" caption="Router collapse pathology vs Switch Transformer auxiliary load balancing loss">Left: Without load balancing, a positive feedback loop drives tokens onto Experts 0 and 1, leaving Experts 2 and 3 starved and untrained. Right: Switch Transformer auxiliary loss penalizes the product of discrete token dispatch fraction fi and continuous router probability Pi, forcing uniform allocation.</fig>
+<p>At the start of pretraining, weights are initialized randomly. By chance, expert 0 might receive slightly better initial weights than expert 1 for common grammatical tokens. The router routes more tokens to expert 0. As a consequence, expert 0 receives more gradient updates and improves faster than other experts. The router observes lower loss from expert 0 and increases its routing probabilities further. Within a few thousand training steps, <strong>the router collapses onto a small subset of experts (e.g., 2 out of 8), dispatching 95%+ of all tokens to those experts while the remaining experts receive zero tokens</strong>.</p>
+<p>Router collapse is catastrophic for two reasons:</p>
+<ol>
+<li><strong>Hardware underutilization</strong>: In distributed training, each expert is hosted on a different GPU. If 95% of tokens route to GPU 0, GPU 0 runs out of memory or compute capacity while the other 7 GPUs sit completely idle, collapsing cluster throughput.</li>
+<li><strong>Capacity loss</strong>: The parameters in the starved experts are never trained, reducing a 22B-parameter MoE model to the effective representational capacity of an 8B model while still paying the memory overhead of all 22B parameters.</li>
+</ol>
+
+<h3>The Switch Transformer auxiliary load-balancing loss</h3>
+<p>To prevent router collapse, Fedus et al. introduced the canonical <strong>auxiliary load-balancing loss</strong> in Switch Transformers (JMLR 2022) [2]. The auxiliary loss adds a penalty to the training objective that punishes non-uniform token distributions across experts.</p>
+<p>For a batch <tex>\mathcal{B}</tex> containing <tex>T</tex> total tokens across all data-parallel ranks, define two vectors across the <tex>E</tex> experts:</p>
+<ol>
+<li><strong>Dispatch fraction vector (<tex>f \in \mathbb{R}^E</tex>)</strong>: The actual fraction of tokens assigned to expert <tex>i</tex> by the discrete <tex>\text{TopK}</tex> selection:
+<texblock>f_i = \frac{1}{k \cdot T} \sum_{x \in \mathcal{B}} \mathbb{1}\{i \in \text{TopK}(H(x), k)\}</texblock>
+Because of the indicator function <tex>\mathbb{1}</tex>, <tex>f_i</tex> is discrete and non-differentiable.</li>
+<li><strong>Probability fraction vector (<tex>P \in \mathbb{R}^E</tex>)</strong>: The average router softmax probability assigned to expert <tex>i</tex> across all tokens in the batch:
+<texblock>P_i = \frac{1}{T} \sum_{x \in \mathcal{B}} \text{Softmax}(H(x))_i</texblock>
+Because it averages continuous softmax outputs before top-<tex>k</tex> truncation, <strong><tex>P_i</tex> is smooth and differentiable</strong>.</li>
+</ol>
+<p>The Switch Transformer auxiliary loss is the scaled dot product of these two vectors [2]:</p>
+<texblock>\mathcal{L}_{\text{aux}} = \alpha \cdot E \sum_{i=1}^E f_i \cdot P_i</texblock>
+<p>Where <tex>\alpha</tex> is an auxiliary loss hyperparameter, typically set to <tex>\alpha = 0.01</tex> or <tex>0.001</tex>. The scaling factor <tex>E</tex> ensures that under perfect uniform balance (where every <tex>f_i = 1/E</tex> and every <tex>P_i = 1/E</tex>), the loss evaluates to a constant:</p>
+<texblock>\mathcal{L}_{\text{aux}}^{\text{uniform}} = \alpha \cdot E \sum_{i=1}^E \left(\frac{1}{E} \cdot \frac{1}{E}\right) = \alpha \cdot E \cdot E \cdot \frac{1}{E^2} = \alpha</texblock>
+<p>If the router begins routing disproportionately to expert <tex>i</tex>, both <tex>f_i</tex> and <tex>P_i</tex> become large, causing their product <tex>f_i \cdot P_i</tex> to spike quadratically. Because <tex>P_i</tex> is differentiable, taking the derivative with respect to the router weights <tex>\partial \mathcal{L}_{\text{aux}} / \partial W_g</tex> provides strong, continuous gradient feedback that pushes probabilities away from overloaded experts and toward underutilized experts, enforcing balanced routing across the cluster.</p>
+
+<h3>Router z-loss in ST-MoE</h3>
+<p>In 16-bit mixed-precision training (BF16 or FP16), router projections introduce a subtle numerical instability. As training progresses, the logits <tex>H(x) = W_g x</tex> can drift to large absolute magnitudes (e.g., <tex>+50</tex> or <tex>-80</tex>). While softmax is mathematically invariant to constant shifts, in floating-point arithmetic computing <tex>\exp(H_i(x))</tex> with large positive logits causes numerical overflow (<code>inf</code>), while large negative logits produce subnormal underflow. This leads to NaN gradients that corrupt router weights.</p>
+<p>To eliminate this instability, Zoph et al. introduced the <strong>router z-loss</strong> in ST-MoE (2022) [3]. The z-loss penalizes large values in the log-normalizer (log-sum-exp) of the router logits:</p>
+<texblock>\mathcal{L}_z = \frac{c_z}{T} \sum_{j=1}^T \left( \log \sum_{i=1}^E \exp(H_{j,i}) \right)^2</texblock>
+<p>Where <tex>c_z</tex> is a small weighting coefficient (typically <tex>c_z = 10^{-4}</tex> or <tex>10^{-3}</tex>). The z-loss penalizes logits that drift far from zero without altering their relative ranking. ST-MoE demonstrated that adding the router z-loss eliminates loss spikes and allows stable long-duration pretraining without requiring manual gradient clipping or FP32 router casts [3].</p>
+
+<h3>Capacity factor, token dropping, and MegaBlocks</h3>
+<p>Even with an auxiliary load-balancing loss, token assignments fluctuate dynamically across micro-batches. On some batches, an expert might receive 12% of the tokens; on others, 18%. In early MoE implementations (such as Mesh-TensorFlow and Tutel), GPUs required rigid, static tensor dimensions to execute fast cuBLAS GEMM kernels [8].</p>
+<p>To enforce static tensor dimensions, systems established a fixed <strong>expert capacity</strong> (<tex>C</tex>):</p>
+<texblock>C = \text{Capacity Factor} \times \left(\frac{k \cdot B \cdot s}{E}\right)</texblock>
+<p>Where the <strong>Capacity Factor (CF)</strong> is a slack hyperparameter (typically 1.0 to 1.5). This rigid capacity created a punishing dilemma:</p>
+<ul>
+<li><strong>Token dropping</strong>: If an expert received more tokens than its capacity <tex>C</tex>, the excess tokens were <strong>dropped</strong>—passed around the expert layer via residual connection without MLP processing. Dropping tokens degraded model reasoning and factual recall.</li>
+<li><strong>Padding waste</strong>: If an expert received fewer tokens than <tex>C</tex>, its input tensor was padded with zeros. A capacity factor of 1.5 wasted up to 33% of GPU memory and compute on dummy padding tokens.</li>
+</ul>
+<fig src="015-token-dropping-vs-megablocks.svg" caption="Handling load imbalance: fixed capacity factor token dropping vs MegaBlocks dropless MoE">Left: Rigid tensor shapes require a fixed capacity C. Overloaded experts drop excess tokens (degrading quality), while underloaded experts require zero-padding (wasting memory). Right: MegaBlocks (Gale et al., MLSys 2023) uses block-sparse GPU kernels to process variable token counts per expert with zero dropping and zero padding.</fig>
+<p>To solve this dilemma, Gale et al. developed <strong>MegaBlocks</strong> (MLSys 2023) [4]. MegaBlocks reformulates MoE computation as a <strong>block-sparse matrix multiplication (dMoE)</strong>. Instead of padding ragged token counts into uniform dense tensors, MegaBlocks implements custom GPU kernels that execute directly on variable-length token assignments. Every expert computes on exactly the number of tokens routed to it. <strong>Token dropping is completely eliminated (<tex>\text{CF} = \infty</tex>), zero compute is wasted on padding, and end-to-end training throughput improves by up to 40%</strong>. Modern frontier MoE models (Mixtral 8x7B, DeepSeek-V3) universally operate dropless using block-sparse execution.</p>
+
+<h3>DeepSeek-V3's auxiliary-loss-free balancing</h3>
+<p>While the Switch Transformer auxiliary loss successfully prevents router collapse, it introduces an unavoidable quality penalty: <strong>the gradients of the auxiliary loss directly conflict with the gradients of the primary language modeling loss</strong> [6]. The auxiliary loss forces the router to dispatch tokens evenly across experts, even when a specific expert is genuinely superior for a given token. This trade-off forces practitioners to tune <tex>\alpha</tex> delicately: if <tex>\alpha</tex> is too small, the router collapses; if <tex>\alpha</tex> is too large, model perplexity degrades significantly.</p>
+<p>To eliminate this fundamental trade-off, DeepSeek-AI introduced an <strong>auxiliary-loss-free load balancing strategy</strong> in the DeepSeek-V3 Technical Report (December 2024) [6]. Instead of adding penalty terms to the loss function, DeepSeek-V3 decouples load balancing entirely from backpropagation by introducing <strong>dynamic, expert-specific bias terms</strong>.</p>
+<fig src="015-deepseek-v3-bias-balancing.svg" caption="DeepSeek-V3 auxiliary-loss-free load balancing with dynamic expert biases">DeepSeek-V3 decouples routing from loss gradients. Top-K selection uses biased affinity scores (si + bi), while output gating uses clean unbiased scores si. Biases adjust dynamically after each step based on batch load (Δbi = −γ · load_diff), achieving perfect balance without corrupting model loss.</fig>
+<p>The mechanism operates in three steps:</p>
+<ol>
+<li><strong>Biased top-<tex>k</tex> selection</strong>: When selecting which experts to activate, the router adds an expert-specific bias term <tex>b_i</tex> to each expert's raw affinity score <tex>s_i = x^\top e_i</tex>:
+<texblock>\text{Selection Score}_i = s_i + b_i</textblock>
+The top-<tex>k</tex> experts are selected based on these biased scores. If expert <tex>i</tex> has a positive bias <tex>b_i > 0</tex>, it is more likely to win selection; if <tex>b_i < 0</tex>, it is less likely.</li>
+<li><strong>Unbiased gating weights</strong>: Crucially, the actual gating weights that scale the expert outputs are computed using the <strong>clean, unbiased affinity scores <tex>s_i</tex></strong>:
+<texblock>G_i(x) = \frac{\exp(s_i)}{\sum_{j \in \mathcal{T}} \exp(s_j)}</texblock>
+Because <tex>b_i</tex> is omitted from the output coefficients, the bias terms do not distort the neural network's representations or gradient signals.</li>
+<li><strong>Dynamic step-by-step bias updates (zero loss gradients)</strong>: At the conclusion of each training step, the system measures the actual token count <tex>L_i</tex> dispatched to expert <tex>i</tex> across the batch. If expert <tex>i</tex> is overloaded (<tex>L_i > \text{Target}</tex>), its bias <tex>b_i</tex> is decremented by a fixed step size <tex>\gamma</tex>. If underloaded (<tex>L_i < \text{Target}</tex>), <tex>b_i</tex> is incremented:
+<texblock>\Delta b_i = -\gamma \cdot \left(\frac{L_i}{\text{Target}} - 1\right)</texblock>
+</li>
+</ol>
+<p>Because the bias terms <tex>b_i</tex> are updated via algorithmic feedback rather than autograd backpropagation, <strong>not a single auxiliary loss gradient enters the model weights</strong>. DeepSeek-V3 demonstrated near-perfect load balance across 256 fine-grained routed experts with zero degradation in pretraining loss [6].</p>
+
+<h2>Expert Parallelism (EP) and All-to-All Communication</h2>
+<h3>Sharding experts across devices</h3>
+<p>When training an MoE model, the <tex>E</tex> experts within each layer are sharded across <tex>E_p</tex> GPUs, where <tex>E_p</tex> is the <strong>Expert Parallel (EP) degree</strong>. In a typical configuration with <tex>E = 8</tex> experts, <tex>E_p = 8</tex>, placing exactly one expert per GPU inside an 8-GPU node [7], [8].</p>
+<p>Because each GPU hosts a different expert, tokens must be physically routed across GPUs based on the router's top-<tex>k</tex> decisions. This routing is executed via collective <strong>All-to-All (A2A)</strong> communication.</p>
+<fig src="015-expert-parallelism-alltoall.svg" caption="Expert Parallelism: the four All-to-All communication collectives per step">An MoE layer partitioned across four GPUs (EP = 4). Forward pass executes Local Routing, Forward Dispatch (A2A #1), Local Expert Compute, and Forward Combine (A2A #2). Backpropagation executes Backward Dispatch (A2A #3) and Backward Combine (A2A #4). Every training step requires four All-to-All collectives per MoE layer.</fig>
+
+<h3>The Four All-to-All collectives per training step</h3>
+<p>In standard dense training, a layer requires communication only during the backward pass (for data-parallel gradient synchronization) or within the layer (for tensor-parallel All-Reduces). In Expert Parallelism, communication occurs <strong>in both forward and backward passes</strong>, totaling four All-to-All collectives per MoE layer on every training step:</p>
+<ol>
+<li><strong>Forward Dispatch (All-to-All #1)</strong>: Each GPU routes its local tokens. If token <tex>t</tex> selects expert <tex>e</tex> located on GPU <tex>j</tex>, the hidden state vector of token <tex>t</tex> (shape <tex>[h]</tex>) is transmitted from GPU <tex>i</tex> to GPU <tex>j</tex>. Every GPU sends and receives slices of tokens to and from all other GPUs in the EP group.</li>
+<li><strong>Forward Combine (All-to-All #2)</strong>: After each GPU executes its local expert MLP on its gathered tokens, the resulting output activation vectors (shape <tex>[h]</tex>) must be sent back to the tokens' originating GPUs. Originating GPUs receive the outputs, multiply them by their gating coefficients <tex>G_i(x)</tex>, and accumulate them into the residual stream.</li>
+<li><strong>Backward Dispatch (All-to-All #3)</strong>: During backpropagation, the gradients of the loss with respect to the expert outputs (<tex>\partial \mathcal{L} / \partial y</tex>) are generated on the originating GPUs. These activation gradient vectors must be dispatched back to the GPUs hosting the respective experts so that local expert backward passes can compute weight gradients <tex>\partial \mathcal{L} / \partial W_e</tex>.</li>
+<li><strong>Backward Combine (All-to-All #4)</strong>: After local expert backward execution, the gradients with respect to the expert inputs (<tex>\partial \mathcal{L} / \partial x</tex>) are gathered back to the originating GPUs to propagate gradients through the attention block and earlier layers.</li>
+</ol>
+
+<h3>Worked traffic arithmetic: Mixtral 8x7B</h3>
+<p>To quantify the network bandwidth demanded by Expert Parallelism, we evaluate the exact data volume transferred across the four All-to-All collectives. Consider a model with the architecture of <strong>Mixtral 8x7B</strong> [5]:</p>
+<ul>
+<li>Layers: <tex>L = 32</tex></li>
+<li>Hidden dimension: <tex>h = 4,096</tex></li>
+<li>Experts per layer: <tex>E = 8</tex>, top-2 routing (<tex>k = 2</tex>)</li>
+<li>Expert Parallel degree: <tex>E_p = 8</tex> (1 expert per GPU across 8 GPUs)</li>
+<li>Micro-batch size: <tex>b = 1</tex>, sequence length: <tex>s = 8,192</tex> tokens</li>
+<li>Precision: BF16 (2 bytes per element)</li>
+</ul>
+<p>For one micro-batch on one GPU, the number of input tokens is <tex>b \times s = 8,192\text{ tokens}</tex>. Because each token selects <tex>k = 2</tex> experts, the GPU must dispatch <tex>2 \times 8,192 = 16,384\text{ token vectors}</tex>. Each token vector contains <tex>h = 4,096\text{ elements} \times 2\text{ bytes} = 8,192\text{ bytes}</tex> (8 KiB).</p>
+<p>The total data volume sent by each GPU in a single All-to-All dispatch is:</p>
+<texblock>\text{A2A Volume per Layer} = k \times b \times s \times h \times 2 = 2 \times 1 \times 8,192 \times 4,096 \times 2 = 134,217,728\text{ bytes} = 128\text{ MiB} \approx 134.22\text{ MB}</textblock>
+<p>Across the four All-to-All collectives (Forward Dispatch, Forward Combine, Backward Dispatch, Backward Combine), each GPU transmits and receives:</p>
+<texblock>\text{Per-Layer Step Traffic} = 4 \times 134.22\text{ MB} = 536.87\text{ MB}</textblock>
+<p>Multiplying across all 32 transformer layers yields the total All-to-All communication volume per GPU per micro-batch:</p>
+<texblock>\text{Total EP Comm per Step} = 32 \times 536.87\text{ MB} \approx 17.18 \times 10^9\text{ bytes} \approx 17.18\text{ GB}</textblock>
+<p>Now consider how this 17.18 GB traffic interacts with physical network fabrics:</p>
+<ul>
+<li><strong>Intra-node NVLink (900 GB/s per GPU)</strong>:
+<texblock>t_{\text{NVLink}} = \frac{17.18\text{ GB}}{900\text{ GB/s}} \approx 0.0191\text{ s} \approx 19.1\text{ ms}</textblock>
+Across an entire training step lasting 400–600 ms, 19 ms of communication takes less than 4% of step time and is easily hidden by overlapping All-to-All transfers with attention computation using CUDA streams.</li>
+<li><strong>Inter-node InfiniBand (50 GB/s per GPU)</strong>:
+<texblock>t_{\text{InfiniBand}} = \frac{17.18\text{ GB}}{50\text{ GB/s}} \approx 0.344\text{ s} = 344\text{ ms}</textblock>
+Transmitting 17.18 GB over InfiniBand consumes 344 ms—more than half of the total step time!</li>
+</ul>
+<p>This stark arithmetic yields a vital architectural rule: <strong>Expert Parallelism should be confined to the ultra-high-bandwidth NVLink domain inside an 8-GPU server node (<tex>\text{EP} \le 8</tex>)</strong>. Spanning Expert Parallelism across inter-node InfiniBand fabrics floods network switches with all-to-all traffic and collapses hardware efficiency.</p>
+
+<h2>The Fundamental MoE Asymmetry: Active FLOPs vs Total Memory</h2>
+<p>In dense transformer models, compute and memory scale proportionally: an 8B model requires 8B FLOPs of active compute per token and 128.5 GB of Adam memory; a 70B model requires ~8.7× more compute and ~8.7× more memory. In Mixture-of-Experts models, this proportionality shatters.</p>
+<fig src="015-flops-vs-memory-asymmetry.svg" caption="The fundamental MoE asymmetry: active FLOPs vs total memory footprint">Training FLOPs scale with active parameters (6 × N_active × D), but GPU Adam memory scales with total parameters (16 × N_total bytes). Mixtral computes like a 13B model but requires the memory of a 47B model. DeepSeek-V3 computes like a 37B model but requires 10.7 TB of memory.</fig>
+<p>The mathematical governing laws of MoE pretraining are:</p>
+<ol>
+<li><strong>Training Compute FLOPs scale strictly with active parameters (<tex>N_{\text{active}}</tex>)</strong>:
+<texblock>\text{Training FLOPs} \approx 6 \times N_{\text{active}} \times D</textblock>
+Where <tex>D</tex> is the dataset token count. Because unselected experts do not compute on a given token, they consume zero floating-point operations.</li>
+<li><strong>Training GPU Memory scales strictly with total parameters (<tex>N_{\text{total}}</tex>)</strong>:
+<texblock>\text{Static Adam Memory} = 16 \times N_{\text{total}}\text{ bytes}</textblock>
+Every parameter across all <tex>E</tex> experts must reside in GPU memory alongside its BF16 gradient (2B), FP32 master weight (4B), and FP32 Adam first and second moments (8B). An idle expert takes the exact same memory footprint as a heavily utilized expert.</li>
+</ol>
+<p>Table 1 details this divergence across well-known dense and sparse architectures.</p>
+<table>
+<thead><tr><th>Model</th><th>Total Parameters (<tex>N_{\text{total}}</tex>)</th><th>Active Parameters (<tex>N_{\text{active}}</tex>)</th><th>BF16 Adam Memory (16 B/p)</th><th>FLOPs / 1T Tokens (<tex>6 N_{\text{act}} D</tex>)</th><th>Compute Equivalence</th></tr></thead>
+<tbody>
+<tr><td><strong>Llama 3.1 8B (Dense)</strong></td><td>8.03B</td><td>8.03B (100%)</td><td>128.5 GB</td><td><tex>4.82 \times 10^{22}</tex></td><td>8B Dense</td></tr>
+<tr><td><strong>Llama 3.1 70B (Dense)</strong></td><td>70.6B</td><td>70.6B (100%)</td><td>1,130 GB</td><td><tex>4.24 \times 10^{23}</tex></td><td>70B Dense</td></tr>
+<tr><td><strong>Mixtral 8x7B (MoE)</strong></td><td>46.7B</td><td>12.9B (27.6%)</td><td>747.2 GB</td><td><tex>7.74 \times 10^{22}</tex></td><td>~13B Dense</td></tr>
+<tr><td><strong>DeepSeek-V3 (MoE)</strong></td><td>671B</td><td>37B (5.5%)</td><td>10,736 GB (10.7 TB)</td><td><tex>2.22 \times 10^{23}</tex></td><td>~37B Dense</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Parameter, memory, and compute comparison between dense and sparse architectures.</p>
+<p>Mixtral 8x7B delivers the compute efficiency of a 13B model (processing tokens ~5.5× faster than Llama 3.1 70B), but requires 747 GB of GPU memory—nearly 6× more memory than Llama 3.1 8B. DeepSeek-V3 computes with only 37B active parameters per token, but its 671 billion total parameters demand over 10.7 terabytes of static memory across the cluster. <strong>MoE models are compute-efficient but memory-hungry</strong>.</p>
+
+<h2>Combining EP with DP, TP, and PP</h2>
+<h3>Layer-by-layer parallel composition</h3>
+<p>Because an MoE transformer contains both dense layers (self-attention, RMSNorm, embeddings) and sparse layers (MoE MLPs), the parallelization strategy shifts dynamically within each transformer block.</p>
+<fig src="015-combining-ep-dp-tp.svg" caption="Composing Expert Parallelism with Data Parallelism inside a transformer block">Dense self-attention layers execute under Data Parallelism (DP). Forward All-to-All Dispatch shifts token states into Expert Parallelism (EP), where each GPU evaluates its local expert. Forward All-to-All Combine returns computed outputs back to DP ranks for residual addition.</fig>
+<ul>
+<li><strong>Attention blocks run under Data Parallelism (DP)</strong>: In the self-attention block, parameters are shared across data streams. Each GPU in the node evaluates attention on its local micro-batch slice. If the model is large (such as DeepSeek-V3), attention can also be sharded using Tensor Parallelism (<tex>\text{TP}</tex>) or Multi-Head Latent Attention (MLA).</li>
+<li><strong>MLP blocks run under Expert Parallelism (EP)</strong>: As tokens emerge from the post-attention LayerNorm, the router evaluates gating scores. The GPUs execute Forward All-to-All Dispatch, switching the communication domain from DP to EP. Each GPU processes its local expert on the gathered cross-rank tokens. Once expert MLPs evaluate, Forward All-to-All Combine returns outputs back to the original DP ranks to compute the residual addition.</li>
+</ul>
+
+<h3>Comparison of MoE routing and balancing strategies</h3>
+<p>Table 2 contrasts the primary mechanisms for routing stability, capacity management, and load balancing in modern MoE training.</p>
+<table>
+<thead><tr><th>Strategy</th><th>Introduced In</th><th>Load Balance Mechanism</th><th>Dropped Tokens?</th><th>Impact on LM Loss</th><th>Complexity</th></tr></thead>
+<tbody>
+<tr><td><strong>Fixed Capacity Factor</strong></td><td>Sparsely-Gated MoE [1]</td><td>Buffer capacity cap (<tex>C</tex>)</td><td>Yes (drops excess)</td><td>High (degrades quality)</td><td>Low</td></tr>
+<tr><td><strong>Auxiliary Loss</strong></td><td>Switch Transformer [2]</td><td><tex>\alpha E \sum f_i P_i</tex> penalty</td><td>Depends on CF</td><td>Medium (gradient conflict)</td><td>Medium</td></tr>
+<tr><td><strong>Router z-loss</strong></td><td>ST-MoE [3]</td><td>Penalizes <tex>(\log \sum \exp H)^2</tex></td><td>No (logit stabilizer)</td><td>None (improves stability)</td><td>Low</td></tr>
+<tr><td><strong>MegaBlocks (dMoE)</strong></td><td>MegaBlocks [4]</td><td>Block-sparse GPU GEMMs</td><td>No (100% dropless)</td><td>None (preserves accuracy)</td><td>High (custom kernels)</td></tr>
+<tr><td><strong>Dynamic Biases</strong></td><td>DeepSeek-V3 [6]</td><td><tex>s_i + b_i</tex> selection bias</td><td>No (100% dropless)</td><td>Zero (no loss gradients)</td><td>Medium</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Comparison of load balancing, numerical stabilization, and token capacity mechanisms in MoE training.</p>
+
+<h4>How would we train an MoE version of our model?</h4>
+<p>To convert our running <strong>Llama 3.1 8B pretraining run on 256 H100 GPUs</strong> into an MoE model with matching token compute throughput, we adopt the following design:</p>
+<ol>
+<li><strong>Architecture sizing</strong>:
+<ul>
+<li>Keep 32 layers, hidden dimension <tex>h = 4,096</tex>, 32 query heads, 8 KV heads.</li>
+<li>Replace the dense MLP in each layer with <tex>E = 8</tex> experts, with top-2 routing (<tex>k = 2</tex>).</li>
+<li>To keep active compute identical to Llama 3.1 8B, each expert is sized with intermediate dimension <tex>d_{\text{ffn}} = 7,168</tex> (half the dense 14,336 size). With <tex>k = 2</tex> active experts, active parameters per token remain exactly <tex>8.03\text{B}</tex>. Total parameter capacity expands to <tex>\approx 22.5\text{B}</tex> parameters.</li>
+</ul>
+</li>
+<li><strong>Parallel layout on 256 H100 GPUs (32 nodes × 8 GPUs)</strong>:
+<texblock>\text{EP} = 8 \text{ (intra-node over NVLink)}, \quad \text{DP} = 32 \text{ (inter-node over InfiniBand)}, \quad \text{TP} = 1, \quad \text{PP} = 1</texblock>
+Each 8-GPU node hosts all 8 experts for its local data stream (<tex>\text{EP} = 8</tex>). All-to-All dispatch and combine execute strictly across the 900 GB/s NVLink crossbar within each chassis, completing in under 20 ms. Across the 32 nodes, gradients for shared attention and router parameters synchronize via standard Data Parallel All-Reduce over InfiniBand.</li>
+<li><strong>Algorithmic choices</strong>:
+<ul>
+<li>Use <strong>MegaBlocks dropless block-sparse execution</strong> to eliminate token dropping and padding waste.</li>
+<li>Use <strong>DeepSeek-V3 dynamic bias balancing</strong> (<tex>s_i + b_i</tex>) paired with <strong>ST-MoE router z-loss</strong> (<tex>c_z = 10^{-4}</tex>) to maintain perfect expert balance and numerical stability without corrupting the language model loss.</li>
+</ul>
+</li>
+</ol>
+
+<h2>In Practice</h2>
+<p>The first tab implements a toy top-2 Mixture-of-Experts layer in PyTorch, complete with the Switch Transformer auxiliary load-balancing loss and the ST-MoE router z-loss. The second tab shows how to configure Expert Parallelism and MoE hyperparameters in Megatron-LM [7].</p>
+<codetabs>
+<tab label="PyTorch MoE Layer" lang="python">
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class Top2MoELayer(nn.Module):
+    def __init__(self, hidden_dim: int = 4096, ffn_dim: int = 7168, num_experts: int = 8,
+                 aux_loss_coeff: float = 0.01, z_loss_coeff: float = 1e-4):
+        super().__init__()
+        self.num_experts = num_experts
+        self.aux_loss_coeff = aux_loss_coeff
+        self.z_loss_coeff = z_loss_coeff
+
+        # Gating router: projects hidden_dim to num_experts logits
+        self.router = nn.Linear(hidden_dim, num_experts, bias=False)
+
+        # Independent expert MLP blocks (SwiGLU)
+        self.experts = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(hidden_dim, ffn_dim, bias=False),
+                nn.SiLU(),
+                nn.Linear(ffn_dim, hidden_dim, bias=False),
+            )
+            for _ in range(num_experts)
+        ])
+
+    def forward(self, x: torch.Tensor):
+        # x shape: [batch_size, seq_len, hidden_dim]
+        orig_shape = x.shape
+        x_flat = x.view(-1, orig_shape[-1])  # [num_tokens, hidden_dim]
+        num_tokens = x_flat.size(0)
+
+        # 1. Compute router logits
+        logits = self.router(x_flat)  # [num_tokens, num_experts]
+
+        # 2. Router z-loss (ST-MoE: penalize large logits to prevent overflow)
+        logsumexp_logits = torch.logsumexp(logits, dim=-1)
+        z_loss = self.z_loss_coeff * torch.mean(logsumexp_logits ** 2)
+
+        # 3. Softmax probabilities across all experts (for aux loss and gating)
+        probs = F.softmax(logits, dim=-1)  # [num_tokens, num_experts]
+
+        # 4. Top-2 Expert Selection
+        top2_weights, top2_indices = torch.topk(probs, k=2, dim=-1)
+        # Normalize top-2 weights so they sum to 1
+        top2_weights = top2_weights / (top2_weights.sum(dim=-1, keepdim=True) + 1e-9)
+
+        # 5. Switch Transformer Auxiliary Load Balancing Loss
+        # f_i: fraction of tokens routed to expert i
+        mask = F.one_hot(top2_indices, num_classes=self.num_experts).sum(dim=1)  # [tokens, experts]
+        dispatch_fraction = mask.float().mean(dim=0)  # [num_experts]
+        prob_fraction = probs.mean(dim=0)             # [num_experts]
+        aux_loss = self.aux_loss_coeff * self.num_experts * torch.sum(dispatch_fraction * prob_fraction)
+
+        # 6. Dispatch and combine token computations
+        out = torch.zeros_like(x_flat)
+        for expert_idx, expert in enumerate(self.experts):
+            # Mask tokens routed to this expert (in position 0 or position 1)
+            selected_pos0 = (top2_indices[:, 0] == expert_idx)
+            selected_pos1 = (top2_indices[:, 1] == expert_idx)
+
+            if selected_pos0.any():
+                tokens0 = x_flat[selected_pos0]
+                weights0 = top2_weights[selected_pos0, 0:1]
+                out[selected_pos0] += weights0 * expert(tokens0)
+
+            if selected_pos1.any():
+                tokens1 = x_flat[selected_pos1]
+                weights1 = top2_weights[selected_pos1, 1:2]
+                out[selected_pos1] += weights1 * expert(tokens1)
+
+        total_aux_loss = aux_loss + z_loss
+        return out.view(orig_shape), total_aux_loss
+</tab>
+<tab label="Megatron-LM MoE config" lang="bash">
+# Megatron-LM training launch flags for Expert Parallelism (EP)
+# 8 experts, top-2 routing, EP = 8 inside each 8-GPU node
+
+torchrun --nproc_per_node=8 --nnodes=32 pretrain_gpt.py \
+  --num-layers 32 \
+  --hidden-size 4096 \
+  --num-attention-heads 32 \
+  --seq-length 8192 \
+  --max-position-embeddings 8192 \
+  --micro-batch-size 1 \
+  --global-batch-size 512 \
+  --tensor-model-parallel-size 1 \
+  --pipeline-model-parallel-size 1 \
+  --expert-model-parallel-size 8 \
+  --num-experts 8 \
+  --moe-router-topk 2 \
+  --moe-router-load-balancing-type aux_loss \
+  --moe-aux-loss-coeff 0.01 \
+  --moe-z-loss-coeff 1e-4 \
+  --moe-token-dispatcher-type alltoall \
+  --bf16
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Shared experts in DeepSeekMoE</strong>: In addition to routed experts, DeepSeekMoE isolates 1 or 2 "shared experts" that process every single token unconditionally. The shared experts capture common linguistic syntax and universal representations, leaving the routed experts free to specialize in domain-specific knowledge [6].</li>
+<li><strong>Hierarchical All-to-All for multi-node EP</strong>: When scaling to 64 or 256 experts, EP must cross server nodes. Hierarchical All-to-All breaks the collective into two stages: an intra-node All-to-All over NVLink, followed by an inter-node All-to-All over InfiniBand. This reduces cross-rack network congestion.</li>
+<li><strong>Fine-grained vs coarse-grained experts</strong>: Early MoE models used coarse experts (e.g., 8 large experts with top-1 or top-2). Modern models (such as DeepSeek-V3) favor fine-grained architectures: 256 small experts with top-8 routing. Fine-grained experts allow exponentially more combinatorial routing patterns while maintaining identical active compute.</li>
+<li><strong>Expert specialization analysis</strong>: Contrary to early intuitions, empirical studies show that individual experts do not specialize strictly in semantic domains (e.g., "math" or "history"). Instead, experts specialize in syntactic structure, token frequencies, and morphological patterns across diverse text.</li>
+<li><strong>MoE checkpoint size during distributed save</strong>: Saving an MoE checkpoint with 671 billion parameters in FP32 master weights requires 2.7 terabytes of disk space. Distributed checkpointing frameworks (PyTorch DCP) write each expert shard directly from its host GPU in parallel to distributed storage, avoiding host-memory serialization bottlenecks.</li>
+<li><strong>Expert parallelism combined with Tensor Parallelism (TP + EP)</strong>: When individual experts are large, a single expert can be sharded across multiple GPUs using Tensor Parallelism inside each node, while different experts are partitioned across nodes using Expert Parallelism.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="015-summary.png" caption="Expert parallelism summary" optional="1">Mind map summarizing the expert parallelism lesson: router gradients, load balancing losses, dropless MegaBlocks execution, DeepSeek-V3 dynamic biases, and All-to-All communication.</fig>
+<ul>
+<li>Mixture-of-Experts (MoE) decouples model capacity from compute cost by activating only top-<tex>k</tex> experts per token, but introduces memory, routing gradient, and interconnect challenges absent in inference.</li>
+<li>Router gradients flow through continuous softmax coefficients into router weights <tex>W_g</tex>. Without constraints, positive feedback causes router collapse onto a few popular experts.</li>
+<li>The Switch Transformer auxiliary loss (<tex>\alpha E \sum f_i P_i</tex>) forces uniform token allocation, while the ST-MoE router z-loss penalizes large logits to eliminate numerical overflow in BF16.</li>
+<li>MegaBlocks dropless MoE eliminates token dropping and padding waste by reformulating MoE as block-sparse matrix multiplications (dMoE).</li>
+<li>DeepSeek-V3 achieves auxiliary-loss-free load balancing by adding dynamic biases (<tex>s_i + b_i</tex>) to selection scores while calculating gating weights with unbiased scores, updating biases algorithmically with zero loss gradients.</li>
+<li>Expert Parallelism requires four All-to-All collectives per MoE layer per step (forward dispatch/combine and backward dispatch/combine). Traffic is high (17.2 GB/step for Mixtral 8x7B) and must remain on intra-node NVLink (<tex>\text{EP} \le 8</tex>).</li>
+<li>The fundamental MoE asymmetry: training compute scales strictly with active parameters (<tex>6 N_{\text{active}} D</tex> FLOPs), while GPU memory scales strictly with total parameters (<tex>16 N_{\text{total}}</tex> bytes for Adam).</li>
+<li>To train an MoE version of our 8B model on 256 H100s, configure <tex>\text{EP}=8</tex> within each node over NVLink and <tex>\text{DP}=32</tex> across nodes over InfiniBand, with 8 experts and top-2 active.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Shazeer et al. Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer. <a href="https://arxiv.org/abs/1701.06538" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1701.06538</a>.<br>
+[2] Fedus et al. Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity. <a href="https://arxiv.org/abs/2101.03961" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2101.03961</a>.<br>
+[3] Zoph et al. ST-MoE: Designing Stable and Transferable Sparse Expert Models. <a href="https://arxiv.org/abs/2202.08906" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2202.08906</a>.<br>
+[4] Gale et al. MegaBlocks: Efficient Sparse Training with Mixture-of-Experts. <a href="https://arxiv.org/abs/2211.15841" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.15841</a>.<br>
+[5] Jiang et al. Mixtral of Experts. <a href="https://arxiv.org/abs/2401.04088" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.04088</a>.<br>
+[6] DeepSeek-AI. DeepSeek-V3 Technical Report. <a href="https://arxiv.org/abs/2412.19437" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2412.19437</a>.<br>
+[7] Shoeybi et al. Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism. <a href="https://arxiv.org/abs/1909.08053" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1909.08053</a>.<br>
+[8] Hwang et al. Tutel: Adaptive Mixture-of-Experts at Scale. <a href="https://arxiv.org/abs/2206.03382" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2206.03382</a>.</p>

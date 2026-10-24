@@ -1,0 +1,264 @@
+<h2>Introduction</h2>
+<p>Before an engineering organization commits millions of dollars and weeks of cluster time to pretraining a foundation model, it must determine how to allocate its compute budget. Should a budget of <tex>4.8 \times 10^{22}</tex> floating-point operations be spent training a 20-billion-parameter model on 400 billion tokens, an 8-billion-parameter model on 1 trillion tokens, or a 3-billion-parameter model on 2.6 trillion tokens? For years, machine learning teams answered this question by trial and error. Today, decisions are guided by <strong>scaling laws</strong>: empirical mathematical power laws that accurately predict validation loss from parameter count, dataset volume, and compute budget [1].</p>
+<p>Early scaling research by Kaplan et al. at OpenAI suggested that model size should scale much faster than dataset size, leading to an era of massive, undertrained models [1]. In 2022, Hoffmann et al. at DeepMind corrected this finding in the landmark "Chinchilla" study, proving that parameters and tokens should scale in roughly equal proportion, giving rise to the famous <strong>20 tokens per parameter</strong> rule of thumb [2]. Yet modern production models such as Meta's Llama 3 violate this compute-optimal rule by training on more than 1,800 tokens per parameter [3].</p>
+<fig src="008-kaplan-vs-chinchilla.svg" caption="Kaplan vs Hoffmann (Chinchilla): how scaling laws shifted">Comparison between early OpenAI scaling laws and DeepMind's Chinchilla findings. Kaplan et al. (2020) advised scaling model parameters three times faster than tokens (N proportional to C^0.73, D proportional to C^0.27), resulting in undertrained architectures like GPT-3 175B on 300B tokens. Hoffmann et al. (2022) showed that parameters and tokens should scale symmetrically (N and D proportional to C^0.50), establishing the Chinchilla-optimal ratio of approximately 20 tokens per parameter.</fig>
+<p>The explanation for this apparent paradox lies in the economics of the machine learning lifecycle: <strong>pretraining compute is paid once, whereas inference serving compute is paid on every user request forever</strong> (see Inference Lesson 20, Cost per Million Tokens). Sizing a pretraining run is therefore an optimization over total cost of ownership rather than training efficiency alone. Furthermore, engineering teams must navigate real-world constraints: exhausting clean human text, transferring hyperparameters from tiny proxy models via maximal update parametrization, and evaluating continuous capability gains versus claims of emergence.</p>
+<p>In this lesson, we examine the mathematical formulations of neural scaling laws, derive the compute-optimal frontier, analyze the serving cost trade-offs that drive modern overtraining, evaluate data repetition penalties in data-constrained regimes, explore zero-shot hyperparameter transfer via <tex>\mu</tex>P, and provide practical tools to fit and extrapolate scaling curves from small proxy runs.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In technical interviews and cluster architecture reviews, scaling law discussions evaluate an engineer's ability to trade off training efficiency against downstream serving economics. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: What is the total compute budget available for this pretraining project?<br>
+<strong>Interviewer</strong>: Our compute budget is fixed at approximately <tex>4.8 \times 10^{22}</tex> FLOPs, corresponding to running 256 NVIDIA H100 GPUs for about 5.5 days at 40% Model FLOPs Utilization (MFU).</p>
+<p><strong>Candidate</strong>: What is the intended lifecycle of the resulting model—is this an internal research checkpoint, or a customer-facing production model intended for high-volume inference serving?<br>
+<strong>Interviewer</strong>: It will power a high-traffic production application expected to serve hundreds of millions of user queries per month over the next two years.</p>
+<p><strong>Candidate</strong>: What does the compute-optimal Chinchilla frontier prescribe for this <tex>4.8 \times 10^{22}</tex> FLOP budget?<br>
+<strong>Interviewer</strong>: Under the standard 20 tokens per parameter rule of thumb, compute-optimal training yields a model of approximately 20 billion parameters trained on 400 billion tokens.</p>
+<p><strong>Candidate</strong>: If 20B on 400B tokens is compute-optimal, why are we planning to pretrain an 8-billion-parameter model on 1 trillion tokens instead?<br>
+<strong>Interviewer</strong>: That is precisely what we want you to explain. What do we trade away during pretraining by choosing an 8B model over a 20B model, and what do we gain during inference?</p>
+<p><strong>Candidate</strong>: Are we constrained by available pretraining data, and can we repeat high-quality tokens if we run out of unique text?<br>
+<strong>Interviewer</strong>: We have roughly 1 trillion tokens of clean text. If we scale further in the future, we need to know how many epochs we can safely train before performance degrades.</p>
+<p>The question underneath is: <em>How do we use scaling arithmetic to choose the exact model size and token count that minimizes total training and serving costs while guaranteeing optimal target accuracy?</em> To answer it, we begin with the historical power-law formulations.</p>
+
+<h2>Power Laws in Parameters, Data, and Compute</h2>
+<h3>The power-law relationship</h3>
+<p>Deep learning models exhibit remarkable predictability when evaluated on validation cross-entropy loss. While individual benchmark tasks can show noisy behavior, cross-entropy test loss <tex>L</tex> scales as a power law with respect to three fundamental axes: the number of active parameters <tex>N</tex>, the volume of training tokens <tex>D</tex>, and total training compute <tex>C</tex> [1]. A power law reflects diminishing returns: achieving equal linear reductions in loss requires exponentially larger increments of compute and data.</p>
+
+<h3>Kaplan et al. (2020) and the era of undertrained models</h3>
+<p>In 2020, Kaplan et al. at OpenAI published the first systematic empirical study of transformer scaling laws [1]. By training models ranging from 768 parameters to 1.5 billion parameters across various token budgets, they proposed a joint power law for test loss:</p>
+<texblock>L(N, D) = \left(\frac{N_c}{N}\right)^{\alpha_N} + \left(\frac{D_c}{D}\right)^{\alpha_D}</texblock>
+<p>Here <tex>N_c, D_c, \alpha_N,</tex> and <tex>\alpha_D</tex> are fitted empirical constants. Crucially, their empirical fits produced exponents of <tex>\alpha_N \approx 0.076</tex> and <tex>\alpha_D \approx 0.057</tex>. When constrained by the compute definition <tex>C \approx 6ND</tex>, minimizing loss led to the optimal scaling allocation:</p>
+<texblock>N \propto C^{0.73}, \quad D \propto C^{0.27}</texblock>
+<p>This result advised practitioners to scale model size aggressively while increasing training tokens slowly. When OpenAI scaled compute by <tex>10,000\times</tex> to build GPT-3, they followed this guidance: GPT-3 was scaled to 175 billion parameters but trained on only 300 billion tokens [4]. The ratio was just <strong>1.7 tokens per parameter</strong>.</p>
+<p>However, Kaplan et al.'s experiments contained a methodological flaw: they trained models with a fixed learning rate schedule and cosine decay duration of 250,000 steps, rather than tuning the schedule length to match each specific token budget. Consequently, smaller models were evaluated when their learning rates had not fully decayed, artificially understating their final performance [2].</p>
+
+<h3>Hoffmann et al. (2022) and the Chinchilla correction</h3>
+<p>In 2022, Hoffmann et al. resolved this discrepancy in <em>Training Compute-Optimal Large Language Models</em> [2]. By training over 400 language models ranging from 70 million to 16 billion parameters across diverse token budgets—with cosine learning rate schedules customized to decay precisely at the end of each run—they discovered that parameters and data should scale in equal proportion.</p>
+<p>Hoffmann et al. modeled the cross-entropy loss <tex>L(N, D)</tex> as a sum of three terms [2]:</p>
+<texblock>L(N, D) = E + \frac{A}{N^\alpha} + \frac{B}{D^\beta}</texblock>
+<p>The components represent distinct physical phenomena:</p>
+<ul>
+<li><strong>Irreducible loss (<tex>E \approx 1.69</tex>)</strong>: The fundamental entropy of the natural language text corpus that cannot be predicted even by an infinitely large model.</li>
+<li><strong>Model capacity penalty (<tex>A / N^\alpha</tex>)</strong>: The excess loss attributable to finite model capacity (<tex>A \approx 406.4, \alpha \approx 0.34</tex>).</li>
+<li><strong>Data shortage penalty (<tex>B / D^\beta</tex>)</strong>: The excess loss attributable to undertraining on finite data (<tex>B \approx 410.7, \beta \approx 0.28</tex>).</li>
+</ul>
+<p>Using Lagrange multipliers to minimize <tex>L(N, D)</tex> subject to the compute constraint <tex>C \approx 6ND</tex>, the optimal parameter count <tex>N_{\text{opt}}</tex> and token count <tex>D_{\text{opt}}</tex> satisfy [2]:</p>
+<texblock>N_{\text{opt}} \propto C^a, \quad D_{\text{opt}} \propto C^b \quad \text{where } a = \frac{\beta}{\alpha + \beta} \approx 0.45, \; b = \frac{\alpha}{\alpha + \beta} \approx 0.55</texblock>
+<p>Because <tex>a \approx b \approx 0.50</tex>, parameters and tokens should scale equally. In practical terms, for every doubling of compute, one should scale both parameter count and training data volume by approximately <tex>\sqrt{2} \approx 1.41\times</tex>. This yields the foundational <strong>Chinchilla rule of thumb</strong>:</p>
+<texblock>D_{\text{opt}} \approx 20 \times N_{\text{opt}}</texblock>
+<p>To validate this theory, DeepMind trained <strong>Chinchilla</strong> (70 billion parameters on 1.4 trillion tokens, exactly 20 tokens per parameter) using the same compute budget as Gopher (280B parameters on 300B tokens). Despite having <tex>4\times</tex> fewer parameters, Chinchilla substantially outperformed Gopher, GPT-3 (175B), and Megatron-Turing NLG (530B) across virtually every downstream benchmark [2].</p>
+
+<h3>Iso-compute curves and the optimal frontier</h3>
+<p>An <strong>iso-compute curve</strong> plots validation loss against parameter count for a fixed budget of floating-point operations. For any fixed budget <tex>C</tex>, a very small model trained on many tokens underperforms because its capacity saturates (<tex>A/N^\alpha</tex> dominates). Conversely, a very large model trained on few tokens underperforms because its weights remain undertrained (<tex>B/D^\beta</tex> dominates). The loss curve forms a parabola-like convex bowl, whose minimum defines the compute-optimal point [2].</p>
+<fig src="008-isocompute-curves.svg" caption="Iso-compute curves and the compute-optimal frontier">Illustrative iso-compute curves for fixed FLOP budgets. For each budget curve, the minimum loss represents the Chinchilla-optimal trade-off where D ≈ 20N. For our 4.8e22 FLOP budget, the theoretical minimum sits at 20B parameters trained on 400B tokens. Shifting to an 8B model trained on 1T tokens moves to the left into the overtrained regime, increasing validation loss by a negligible 0.005 while reducing serving parameters by 2.5×.</fig>
+<p>The collection of all curve minima forms the <strong>compute-optimal frontier</strong>. Along this frontier, every floating-point operation delivers the maximum possible reduction in pretraining loss.</p>
+
+<h2>Why Modern Models Train Far Past Compute-Optimal</h2>
+<h3>The lifecycle economics of language models</h3>
+<p>If Chinchilla optimality represents the mathematical ideal for training efficiency, why did Meta train Llama 3 8B on <strong>over 15 trillion tokens</strong> (more than 1,800 tokens per parameter) [3]? Why does our running scenario train an 8.03B model on 1 trillion tokens (125 tokens per parameter) instead of stopping at the compute-optimal 20B model on 400B tokens?</p>
+<p>The answer lies in the total cost of ownership across the model's entire lifecycle. The Chinchilla formula minimizes <em>training compute only</em>. It assumes that training is the entire objective. In commercial reality, <strong>pretraining compute is an amortized one-time capital investment, whereas inference compute is an ongoing operational expenditure incurred on every generated token</strong> [3].</p>
+<fig src="008-overtraining-inference-tradeoff.svg" caption="Why train past compute-optimal? The serving cost trade-off">Comparison of two models trained with the exact same 4.8e22 FLOP pretraining budget ($101,000). The Chinchilla-optimal 20B model (400B tokens) achieves a test loss of 2.049 but requires 40 GB of BF16 weights, forcing tensor parallelism or starving the KV cache. The inference-optimal 8B model (1T tokens) achieves nearly identical test loss (2.044), but its 16 GB weight footprint fits on a single GPU with 52 GiB of KV cache, cutting decode latency by 2.4× and slashing serving costs by over 60%.</fig>
+
+<h3>Worked example: 20B optimal vs 8B overtrained at 4.8e22 FLOPs</h3>
+<p>Let us rigorously calculate the trade-off for our pretraining budget of <tex>C = 4.818 \times 10^{22}\text{ FLOPs}</tex> using Hoffmann et al.'s parametric equation [2]:</p>
+<texblock>L(N, D) = 1.69 + \frac{406.4}{N^{0.34}} + \frac{410.7}{D^{0.28}}</texblock>
+
+<h4>Option A: The Chinchilla-optimal allocation (20B model, 400B tokens)</h4>
+<p>Under the 20 tokens per parameter rule (<tex>D = 20N</tex>), total dense compute is:</p>
+<texblock>C = 6 \times N \times (20N) = 120 N^2 \implies N_{\text{opt}} = \sqrt{\frac{4.818 \times 10^{22}}{120}} \approx 2.004 \times 10^{10}\text{ (20.04B params)}</texblock>
+<texblock>D_{\text{opt}} = 20 \times 2.004 \times 10^{10} \approx 4.008 \times 10^{11}\text{ tokens (400.8B tokens)}</texblock>
+<p>Evaluating the parametric loss equation yields:</p>
+<texblock>L_{\text{opt}} = 1.69 + \frac{406.4}{(2.004 \times 10^{10})^{0.34}} + \frac{410.7}{(4.008 \times 10^{11})^{0.28}} = 1.69 + 0.1235 + 0.2358 = 2.0493</texblock>
+
+<h4>Option B: The inference-optimal allocation (8.03B model, 1T tokens)</h4>
+<p>Now evaluate our running scenario model (<tex>N = 8.03 \times 10^9</tex>, <tex>D = 1.0 \times 10^{12}</tex>), which consumes the exact same pretraining compute (<tex>6 \times 8.03\text{e}9 \times 1\text{e}12 \approx 4.818 \times 10^{22}\text{ FLOPs}</tex>):</p>
+<texblock>L_{\text{8B}} = 1.69 + \frac{406.4}{(8.03 \times 10^9)^{0.34}} + \frac{410.7}{(1.0 \times 10^{12})^{0.28}} = 1.69 + 0.1685 + 0.1851 = 2.0436</texblock>
+<p>The difference in pretraining loss is astonishingly small: <strong>just 0.0057 cross-entropy nats</strong> (<tex>2.0436\text{ vs } 2.0493</tex>). In exchange for this negligible difference, the 8B model delivers massive operational advantages during production inference (see Inference Lesson 3, KV Cache):</p>
+<ul>
+<li><strong>Memory Footprint</strong>: In BF16, 8.03B weights require 16.06 GB (15.0 GiB), leaving approximately 52 GiB of High Bandwidth Memory on an 80 GB H100 for the KV cache. A 20B model requires 40.1 GB (37.3 GiB) of weights, consuming over half the GPU and severely restricting user concurrency.</li>
+<li><strong>Memory Bandwidth and Latency</strong>: LLM token generation is strictly memory-bandwidth bound (see Inference Lesson 2, Prefill vs Decode). At 3.35 TB/s HBM bandwidth on an H100, reading 16 GB of weights takes ~4.8 ms per step, whereas reading 40 GB takes ~11.9 ms per step. The 8B model decodes <strong>2.4 times faster per token</strong>.</li>
+<li><strong>Serving Infrastructure Cost</strong>: The 8B model serves high throughput on single-GPU instances or cost-effective NVIDIA L4 GPUs (24 GB). The 20B model requires 80 GB GPUs or 2-way Tensor Parallelism, doubling server rental expenses across millions of monthly user requests.</li>
+</ul>
+<p>This deliberate strategy is called <strong>overtraining</strong> or <strong>inference-optimal training</strong>. For any foundation model intended for widespread deployment, training far past the Chinchilla frontier is an economically mandatory decision.</p>
+
+<h2>Data-Constrained Scaling and Repeating Data</h2>
+<h3>The exhaustion of human text</h3>
+<p>As training budgets expand from <tex>10^{22}</tex> to <tex>10^{26}</tex> FLOPs, frontier AI labs face a structural barrier: the finite supply of high-quality human text on the public internet. Industry estimates suggest that high-quality human text totals between 5 trillion and 15 trillion tokens. Scaling models beyond 70B parameters on tens of trillions of tokens inevitably requires either repeating data across multiple epochs or generating synthetic datasets [5].</p>
+
+<h3>The multi-epoch penalty: Muennighoff et al. (2023)</h3>
+<p>Traditional scaling laws assume single-epoch pretraining over unique, independent and identically distributed (i.i.d.) text. What happens when a model is trained over the same dataset for multiple epochs? In <em>Scaling Data-Constrained Language Models</em>, Muennighoff et al. conducted hundreds of experiments to measure data repetition penalties [5].</p>
+<fig src="008-data-constrained-epochs.svg" caption="Data-constrained scaling: repeating data across epochs">Empirical multi-epoch scaling regimes from Muennighoff et al. (2023). In the safe regime (1 to 4 epochs), data repetition causes negligible loss degradation (<0.01) compared to unique tokens. Between 4 and 16 epochs, marginal compute utility decays rapidly. Beyond 16 epochs, models hit a steep performance plateau with severe risks of verbatim memorization and loss stagnation.</fig>
+<p>Their findings establish three clear operational regimes for engineering teams [5]:</p>
+<ol>
+<li><strong>Safe Multi-Epoch Regime (1 to 4 Epochs)</strong>: For a fixed compute budget, repeating clean data for up to 4 epochs incurs <strong>negligible loss degradation</strong> (less than 0.01 loss gap) compared to training on completely unique data. If a team possesses 250 billion tokens of pristine textbook and code data, they can safely train for 4 epochs to consume 1 trillion tokens without penalty.</li>
+<li><strong>Diminishing Returns Regime (4 to 16 Epochs)</strong>: Beyond 4 epochs, the marginal value of repeated tokens decays exponentially. Training a model on 8 epochs of data requires significantly more compute to match the loss of a model trained on unique data, effectively dropping data efficiency by 30% to 50%.</li>
+<li><strong>Plateau and Overfitting Regime (16+ Epochs)</strong>: At 16 to 40+ epochs, the marginal return of additional compute approaches zero. The model begins memorizing verbatim sequences, downstream reasoning degrades, and training risks numerical instability and loss divergence.</li>
+</ol>
+<p>Muennighoff et al. formulated a modified scaling law for the data-constrained regime, showing that the effective token count <tex>D_{\text{eff}}</tex> decays as an exponential function of unique tokens <tex>U_D</tex> and epochs <tex>E_D</tex> [5]:</p>
+<texblock>D_{\text{eff}} = U_D \left(1 + \frac{E_D - 1}{R}\right)^{\gamma}</texblock>
+<p>When constrained by data, the optimal allocation shifts: instead of wasting compute on repeated tokens beyond 4 epochs, teams should scale parameter count <tex>N</tex> or invest compute into rigorous deduplication and synthetic data generation (see Lesson 18, Deduplication and Quality Filtering).</p>
+
+<h2>Predicting Large Runs: Hyperparameter Transfer via muP</h2>
+<h3>The hyperparameter scaling dilemma</h3>
+<p>Training an 8B or 70B model requires configuring delicate hyperparameters: learning rate, Adam <tex>\beta_1/\beta_2</tex>, weight decay, and initialization variance. In standard deep learning practice, tuning hyperparameters requires running an exhaustive grid search. However, running a learning rate sweep on a 256-GPU cluster costs over $100,000 per trial—an impossible financial burden for all but the largest tech giants [6].</p>
+<p>Worse, in standard PyTorch parametrization (SP), <strong>optimal hyperparameters do not transfer across model sizes</strong>. If an engineer finds the optimal learning rate for a 40-million-parameter model, applying that exact learning rate to an 8-billion-parameter model causes immediate gradient explosion or catastrophic divergence. As hidden dimension <tex>d_{\text{model}}</tex> grows, the scale of activations and gradients drifts.</p>
+
+<h3>Maximal Update Parametrization (muP)</h3>
+<p>In 2022, Greg Yang et al. (Microsoft Research and OpenAI) introduced <strong>Maximal Update Parametrization (<tex>\mu</tex>P)</strong> in <em>Tensor Programs V</em> [6]. Building on the mathematical framework of infinite-width neural networks, <tex>\mu</tex>P rescales layer initializations and learning rates as a function of layer width such that every hidden representation receives a feature update of constant, non-vanishing, non-exploding magnitude throughout training.</p>
+<fig src="008-mup-transfer.svg" caption="Predicting large runs: hyperparameter transfer via muP">Contrast between Standard Parametrization (SP) and Maximal Update Parametrization (muP) across model widths (Yang et al., 2022) [6]. In SP, the optimal learning rate curve shifts unpredictably as width increases, forcing expensive tuning on large models. In muP, layer weights and learning rates are scaled by 1/d, rendering the optimal learning rate curve completely width-invariant. Hyperparameters tuned on a cheap 40M proxy transfer directly to 8B and 70B models with zero re-tuning.</fig>
+<p>Under <tex>\mu</tex>P, the scaling rules for a transformer with width <tex>d</tex> and base width <tex>d_{\text{base}}</tex> are [6]:</p>
+<ul>
+<li><strong>Embedding Layer</strong>: Weights initialized with variance <tex>\mathcal{O}(1)</tex>; learning rate scaled by <tex>\mathcal{O}(1)</tex>.</li>
+<li><strong>Hidden Linear Layers</strong>: Weights initialized with variance <tex>\mathcal{O}(1 / d)</tex>; learning rate scaled by <tex>\mathcal{O}(1 / d)</tex>.</li>
+<li><strong>Output Projection / Unembedding Head</strong>: Weights initialized with variance <tex>\mathcal{O}(1 / d^2)</tex>; learning rate scaled by <tex>\mathcal{O}(1 / d)</tex>.</li>
+<li><strong>Attention Softmax Scaling</strong>: The attention score <tex>Q K^\top</tex> is scaled by <tex>1 / d_{\text{head}}</tex> rather than standard <tex>1 / \sqrt{d_{\text{head}}}</tex>.</li>
+</ul>
+<p>The practical consequence is revolutionary: <strong>under <tex>\mu</tex>P, the optimal learning rate is width-invariant</strong>. A machine learning engineer can build a tiny 40-million-parameter proxy model, run a fine-grained 50-trial hyperparameter sweep on a single GPU for under $50, and transfer the resulting optimal learning rate, schedule, and weight decay directly to an 8-billion or 70-billion-parameter model with zero re-tuning [6].</p>
+
+<h2>Limits and Caveats of Scaling Laws</h2>
+<h3>Pretraining perplexity versus downstream tasks</h3>
+<p>While cross-entropy test loss scales with near-flawless mathematical precision, test loss does not always translate monotonically into downstream task success. Two checkpoints with identical pretraining loss (e.g., 2.04) can exhibit wildly disparate performance on Python coding, multi-step math problem solving, or human instruction following. Downstream capability depends heavily on <strong>data mixture quality</strong>: a model trained on 100 billion high-quality synthetic Python tokens will vastly outperform a model trained on 300 billion low-grade web scrape tokens on HumanEval, despite both achieving similar general perplexity (see Lesson 20, Data Mixtures and Curriculum).</p>
+
+<h3>The "emergent abilities" debate</h3>
+<p>In 2022, Wei et al. published <em>Emergent Abilities of Large Language Models</em>, arguing that certain reasoning tasks (such as modular arithmetic or multi-step logic) remain at 0% accuracy across small scales before suddenly exploding to high accuracy once a critical compute threshold is crossed [7]. This sparked widespread speculation that giant models undergo spontaneous phase transitions.</p>
+<fig src="008-emergent-abilities-mirage.svg" caption="The emergent abilities debate: sharp jump vs smooth progress">How metric choice manufactures the illusion of emergent abilities (Schaeffer et al., NeurIPS 2023). When measured with a discontinuous nonlinear metric such as Exact Match, performance appears to jump abruptly from 0% to high accuracy at 10^23 FLOPs. When the exact same task is measured with a continuous linear metric such as token log probability or Brier score, performance scales smoothly and predictably as a power law across all scales.</fig>
+<p>In 2023, Schaeffer, Miranda, and Koyejo from Stanford published <em>Are Emergent Abilities of Large Language Models a Mirage?</em>, demonstrating that apparent emergence is largely an artifact of <strong>discontinuous, nonlinear evaluation metrics</strong> [8]. When tasks are evaluated with non-linear metrics such as <em>Exact Match</em> (where a response is scored 1 if every single token in a 5-step derivation is correct and 0 otherwise), the probability of scoring 1 scales as <tex>p^k</tex>, where <tex>p</tex> is per-token accuracy and <tex>k</tex> is sequence length. Even though <tex>p</tex> improves smoothly and linearly across scale, <tex>p^k</tex> creates a sharp mathematical "hockey-stick" jump.</p>
+<p>When the authors replaced discontinuous metrics with continuous metrics (such as per-token cross-entropy loss, token log probabilities, or edit distance), the sharp jumps vanished: <strong>model competence scales smoothly, monotonically, and predictably across every order of magnitude</strong> [8]. Understanding this nuance prevents engineers from prematurely abandoning promising architectures that appear to "fail" under rigid binary benchmarks.</p>
+
+<h4>Which model size fits our compute budget?</h4>
+<p>We can now make the definitive architectural decision for our <tex>4.8 \times 10^{22}</tex> FLOP pretraining run. The three realistic choices on our 256 H100 cluster are:</p>
+<ol>
+<li><strong>Compute-Optimal 20B (400B tokens)</strong>: Achieves minimum training loss (<tex>2.049</tex>) in 5.5 days, but creates a cumbersome 40 GB model that requires tensor parallelism and halves inference throughput.</li>
+<li><strong>Inference-Optimal 8.03B (1.0T tokens)</strong>: Consumes the exact same 5.5 days and $101,000, achieves essentially identical test loss (<tex>2.044</tex>), fits within 16 GB of memory, runs at 2.4× higher token generation throughput, and preserves 52 GiB of KV cache for high-concurrency production serving.</li>
+<li><strong>Extreme Overtrained 3B (2.6T tokens)</strong>: Even cheaper to serve, but requires 2.6 trillion tokens of high-quality data (which exceeds our available 1T dataset and would require over 10 epochs of repetition, entering the severe degradation regime).</li>
+</ol>
+<p>We choose the <strong>8.03B model trained on 1 trillion tokens</strong>. It balances pretraining feasibility, fits our verified 1T dataset within a safe single epoch, matches the quality of a 20B model, and minimizes our operational serving bill over the two-year deployment lifecycle.</p>
+
+<h2>In Practice</h2>
+<p>The first tab provides a Python script that fits an empirical power law to small proxy training runs using <code>scipy.optimize.curve_fit</code> and extrapolates expected loss to the target cluster budget. The second tab implements the full Hoffmann et al. parametric Chinchilla equations to compute optimal parameter counts, token allocations, and expected test loss across arbitrary FLOP budgets.</p>
+
+<codetabs>
+<tab label="Power-Law Extrapolator" lang="python">
+import numpy as np
+from scipy.optimize import curve_fit
+
+def power_law(compute, e, a, alpha):
+    """
+    Parametric compute scaling law: L(C) = E + A * C^(-alpha)
+    E: Irreducible loss floor
+    A: Scaling constant
+    alpha: Compute scaling exponent
+    """
+    return e + a * np.power(compute, -alpha)
+
+# Empirical loss measurements from 5 small exploratory training runs
+# Compute in FLOPs (from 1e19 to 1e21)
+measured_compute = np.array([1.0e19, 3.0e19, 1.0e20, 3.0e20, 1.0e21])
+measured_loss = np.array([2.85, 2.62, 2.41, 2.28, 2.19])
+
+# Initial parameter guesses: E ~ 1.7, A ~ 100, alpha ~ 0.05
+initial_guess = [1.69, 100.0, 0.05]
+bounds = ([1.0, 0.1, 0.01], [2.2, 1e4, 0.5])
+
+# Fit power law curve
+popt, _ = curve_fit(power_law, measured_compute, measured_loss, p0=initial_guess, bounds=bounds)
+e_fit, a_fit, alpha_fit = popt
+
+print("Fitted Scaling Law Parameters:")
+print(f"  Irreducible Loss (E): {e_fit:.4f}")
+print(f"  Scaling Factor (A):   {a_fit:.4f}")
+print(f"  Compute Exponent (a): {alpha_fit:.4f}")
+
+# Target cluster budget for our pretraining run: 4.82e22 FLOPs
+target_compute = 4.818e22
+predicted_loss = power_law(target_compute, *popt)
+
+print("\nExtrapolation to Full Pretraining Run:")
+print(f"  Target Budget:   {target_compute:.2e} FLOPs")
+print(f"  Predicted Loss:  {predicted_loss:.4f}")
+</tab>
+<tab label="Chinchilla Frontier Sizer" lang="python">
+import math
+
+class ChinchillaSizer:
+    """
+    Implements the parametric scaling law from Hoffmann et al. (2022):
+    L(N, D) = E + A / (N^alpha) + B / (D^beta)
+    """
+    def __init__(
+        self,
+        e: float = 1.69,
+        a: float = 406.4,
+        b: float = 410.7,
+        alpha: float = 0.34,
+        beta: float = 0.28,
+    ):
+        self.e = e
+        self.a = a
+        self.b = b
+        self.alpha = alpha
+        self.beta = beta
+
+    def loss(self, n_params: float, d_tokens: float) -> float:
+        """Calculates expected cross-entropy test loss."""
+        return self.e + self.a / (n_params ** self.alpha) + self.b / (d_tokens ** self.beta)
+
+    def compute_optimal_allocation(self, total_flops: float):
+        """
+        Calculates compute-optimal (N, D) using the Chinchilla rule of thumb:
+        D = 20 * N  =>  C = 6 * N * (20 * N) = 120 * N^2
+        """
+        n_opt = math.sqrt(total_flops / 120.0)
+        d_opt = 20.0 * n_opt
+        opt_loss = self.loss(n_opt, d_opt)
+        return n_opt, d_opt, opt_loss
+
+
+sizer = ChinchillaSizer()
+budget = 4.818e22  # Our pretraining cluster budget
+
+# 1. Compute-optimal 20B allocation
+n_opt, d_opt, loss_opt = sizer.compute_optimal_allocation(budget)
+
+# 2. Our chosen inference-optimal 8.03B allocation
+n_8b = 8.03e9
+d_8b = 1.0e12
+loss_8b = sizer.loss(n_8b, d_8b)
+
+print("Pretraining Budget Sizing (4.82e22 FLOPs):")
+print(f"  Chinchilla-Optimal: {n_opt/1e9:.2f}B params on {d_opt/1e9:.1f}B tokens | Loss: {loss_opt:.4f}")
+print(f"  Inference-Optimal:  {n_8b/1e9:.2f}B params on {d_8b/1e9:.1f}B tokens  | Loss: {loss_8b:.4f}")
+print(f"  Loss Difference:    {loss_8b - loss_opt:+.4f} cross-entropy nats")
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Vocabulary Size Scaling and Parameter Overhead</strong>: Modern tokenizers have expanded from 32,000 tokens (Llama 1 and 2) to 128,256 tokens (Llama 3). Because the embedding matrix and unembedding head dimensions are <tex>V \times d_{\text{model}}</tex>, expanding vocabulary adds significant parameters (e.g., <tex>128,256 \times 4,096 \approx 525\text{M params per table}</tex>, or over 1 billion parameters across input and output). In scaling law fits, non-embedding parameters are traditionally separated from embedding parameters [2].</li>
+<li><strong>Cosine Annealing and Learning Rate Decay Traps</strong>: The learning rate schedule fundamentally distorts scaling measurements. In cosine decay, the model experiences its most rapid loss drops during the final 10% to 20% of training as the learning rate anneals to zero. Evaluating intermediate checkpoints along a single long cosine run yields artificially pessimistic scaling laws (as happened in Kaplan et al.) [2]. Modern labs use <strong>WSD (Warmup-Stable-Decay)</strong> schedules to evaluate checkpoints along the stable phase without premature decay penalties.</li>
+<li><strong>Synthetic Data as a Solution to Data Exhaustion</strong>: When clean human text is exhausted beyond 4 epochs, labs train smaller specialist models to generate, filter, and rewrite complex instructional and reasoning datasets. Synthetic data bypasses the multi-epoch repetition penalty by generating linguistically diverse variations of underlying factual knowledge [5].</li>
+<li><strong>Width vs Depth Scaling in Transformer Blocks</strong>: While Chinchilla models scale total parameters <tex>N</tex>, architectural decisions must balance depth (number of layers <tex>L</tex>) versus width (hidden dimension <tex>d</tex>). Deeper models incur longer sequential pipeline latency, while wider models increase tensor parallelism communication. Modern LLMs favor balanced width-depth aspect ratios with SwiGLU FFN ratios around <tex>8/3 \times d</tex> [3].</li>
+<li><strong>Post-Training Capability Leaps vs Pretraining Loss</strong>: Pretraining loss correlates with general world knowledge, but reasoning benchmarks (GSM8k, MATH, HumanEval) show massive leaps during post-training (Supervised Fine-Tuning and Reinforcement Learning). Reinforcement learning algorithms like GRPO unlock latent reasoning paths that are barely reflected in raw pretraining validation cross-entropy (see Lesson 26, RL with Verifiable Rewards - GRPO).</li>
+<li><strong>Precision Scaling: FP8 vs BF16 Numerical Impact</strong>: Recent research indicates that training in 8-bit floating point (FP8) matches BF16 scaling curves down to the irreducible loss floor, provided that tensor block scaling and master weights remain in higher precision (see Lesson 5, Mixed Precision Training - BF16 and FP8).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="008-summary.png" caption="Scaling laws summary" optional="1">Mind map summarizing the scaling laws lesson: power-law formulations, Chinchilla compute-optimal frontier, inference-optimal overtraining, data-constrained regimes, muP hyperparameter transfer, and evaluation caveats.</fig>
+<ul>
+<li>Neural scaling laws establish that language model cross-entropy test loss scales as a power law in parameters (<tex>N</tex>), training tokens (<tex>D</tex>), and compute (<tex>C \approx 6ND</tex>).</li>
+<li>Kaplan et al. (2020) advocated scaling parameters much faster than data (<tex>N \propto C^{0.73}</tex>), leading to severely undertrained models like GPT-3 175B on 300B tokens (1.7 tokens/param). Hoffmann et al. (2022, Chinchilla) proved that parameters and tokens should scale equally (<tex>N, D \propto C^{0.50}</tex>), establishing the <tex>\approx 20\text{ tokens per parameter}</tex> rule.</li>
+<li>Modern production models intentionally train far past the Chinchilla frontier. For our <tex>4.82 \times 10^{22}</tex> FLOP budget, Chinchilla optimality prescribes a 20B model on 400B tokens. Overtraining an 8.03B model on 1T tokens incurs a negligible loss penalty (+0.0057), but slashes model weights from 40 GB to 16 GB, doubling serving throughput and reducing inferencing costs by over 60%.</li>
+<li>In data-constrained regimes, repeating data up to 4 epochs incurs negligible loss degradation compared to unique text (Muennighoff et al., 2023) [5]. Beyond 4 epochs, diminishing returns accelerate, and training past 16 epochs risks loss stagnation and severe memorization.</li>
+<li>Maximal Update Parametrization (<tex>\mu</tex>P, Yang et al., 2022) scales layer initializations and learning rates so that feature representations update at constant magnitude across widths. Hyperparameters tuned on a cheap 40M proxy transfer zero-shot to 8B/70B models, eliminating costly full-scale grid searches.</li>
+<li>Apparent "emergent abilities" are largely an illusion created by nonlinear, discontinuous evaluation metrics like Exact Match (Schaeffer et al., 2023) [8]. When measured with continuous metrics, capabilities improve smoothly and predictably across scale.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Kaplan et al. Scaling Laws for Neural Language Models. <a href="https://arxiv.org/abs/2001.08361" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2001.08361</a>.<br>
+[2] Hoffmann et al. Training Compute-Optimal Large Language Models. <a href="https://arxiv.org/abs/2203.15556" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2203.15556</a>.<br>
+[3] Dubey et al. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[4] Brown et al. Language Models are Few-Shot Learners. <a href="https://arxiv.org/abs/2005.14165" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2005.14165</a>.<br>
+[5] Muennighoff et al. Scaling Data-Constrained Language Models. <a href="https://arxiv.org/abs/2305.16264" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.16264</a>.<br>
+[6] Yang et al. Tensor Programs V: Tuning Large Neural Networks via Zero-Shot Hyperparameter Transfer. <a href="https://arxiv.org/abs/2203.03466" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2203.03466</a>.<br>
+[7] Wei et al. Emergent Abilities of Large Language Models. <a href="https://arxiv.org/abs/2206.07682" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2206.07682</a>.<br>
+[8] Schaeffer et al. Are Emergent Abilities of Large Language Models a Mirage? <a href="https://arxiv.org/abs/2304.15004" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2304.15004</a>.</p>

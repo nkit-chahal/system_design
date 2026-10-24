@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">The Pretraining Domain Trade-Off Space</text>
+  <text x="25" y="48" class="sm" fill="#555">Balancing raw token availability, reasoning density, and cross-domain transfer</text>
+
+  <!-- Card 1: Curated Web -->
+  <rect x="25" y="70" width="145" height="225" rx="6" class="blue"/>
+  <text x="97" y="94" text-anchor="middle" class="b">Curated Web</text>
+  <text x="97" y="112" text-anchor="middle" class="sm" fill="#444">Common Crawl</text>
+  <line x1="35" y1="120" x2="160" y2="120" stroke="#6c8ebf" stroke-width="1"/>
+  <text x="35" y="140" class="sm"><tspan class="b">Volume:</tspan> Vast (15T+)</text>
+  <text x="35" y="160" class="sm"><tspan class="b">Density:</tspan> Medium</text>
+  <text x="35" y="180" class="sm"><tspan class="b">Role:</tspan> Broad world</text>
+  <text x="35" y="196" class="sm">knowledge &amp; fluency</text>
+  <text x="35" y="222" class="sm"><tspan class="b">Risk:</tspan> Low quality,</text>
+  <text x="35" y="238" class="sm">boilerplate &amp; noise</text>
+  <text x="35" y="264" class="sm"><tspan class="b">Epochs:</tspan> 1.0 (Fresh)</text>
+
+  <!-- Card 2: Code -->
+  <rect x="180" y="70" width="145" height="225" rx="6" class="orange"/>
+  <text x="252" y="94" text-anchor="middle" class="b">Source Code</text>
+  <text x="252" y="112" text-anchor="middle" class="sm" fill="#444">GitHub / The Stack</text>
+  <line x1="190" y1="120" x2="315" y2="120" stroke="#d79b00" stroke-width="1"/>
+  <text x="190" y="140" class="sm"><tspan class="b">Volume:</tspan> Moderate (2T)</text>
+  <text x="190" y="160" class="sm"><tspan class="b">Density:</tspan> High</text>
+  <text x="190" y="180" class="sm"><tspan class="b">Role:</tspan> Logic, syntax,</text>
+  <text x="190" y="196" class="sm">structured reasoning</text>
+  <text x="190" y="222" class="sm"><tspan class="b">Transfer:</tspan> Boosts</text>
+  <text x="190" y="238" class="sm">non-code reasoning</text>
+  <text x="190" y="264" class="sm"><tspan class="b">Epochs:</tspan> 2.0 to 3.0</text>
+
+  <!-- Card 3: Math & Science -->
+  <rect x="335" y="70" width="145" height="225" rx="6" class="green"/>
+  <text x="407" y="94" text-anchor="middle" class="b">Math &amp; Science</text>
+  <text x="407" y="112" text-anchor="middle" class="sm" fill="#444">arXiv / OpenWebMath</text>
+  <line x1="345" y1="120" x2="470" y2="120" stroke="#82b366" stroke-width="1"/>
+  <text x="345" y="140" class="sm"><tspan class="b">Volume:</tspan> Scarce (300B)</text>
+  <text x="345" y="160" class="sm"><tspan class="b">Density:</tspan> Ultra-High</text>
+  <text x="345" y="180" class="sm"><tspan class="b">Role:</tspan> Formal proofs,</text>
+  <text x="345" y="196" class="sm">multi-step deduction</text>
+  <text x="345" y="222" class="sm"><tspan class="b">Risk:</tspan> Tokenizer</text>
+  <text x="345" y="238" class="sm">inefficiency on LaTeX</text>
+  <text x="345" y="264" class="sm"><tspan class="b">Epochs:</tspan> 2.5 to 4.0</text>
+
+  <!-- Card 4: Books -->
+  <rect x="490" y="70" width="145" height="225" rx="6" class="yellow"/>
+  <text x="562" y="94" text-anchor="middle" class="b">Books &amp; Prose</text>
+  <text x="562" y="112" text-anchor="middle" class="sm" fill="#444">Gutenberg / Books</text>
+  <line x1="500" y1="120" x2="625" y2="120" stroke="#d6b656" stroke-width="1"/>
+  <text x="500" y="140" class="sm"><tspan class="b">Volume:</tspan> Scarce (500B)</text>
+  <text x="500" y="160" class="sm"><tspan class="b">Density:</tspan> High</text>
+  <text x="500" y="180" class="sm"><tspan class="b">Role:</tspan> Narrative flow,</text>
+  <text x="500" y="196" class="sm">extended context</text>
+  <text x="500" y="222" class="sm"><tspan class="b">Risk:</tspan> Copyright &amp;</text>
+  <text x="500" y="238" class="sm">archaic vocabulary</text>
+  <text x="500" y="264" class="sm"><tspan class="b">Epochs:</tspan> 1.0 to 1.5</text>
+
+  <!-- Card 5: Multilingual -->
+  <rect x="645" y="70" width="150" height="225" rx="6" class="purple"/>
+  <text x="720" y="94" text-anchor="middle" class="b">Multilingual</text>
+  <text x="720" y="112" text-anchor="middle" class="sm" fill="#444">Global Web &amp; News</text>
+  <line x1="655" y1="120" x2="785" y2="120" stroke="#9673a6" stroke-width="1"/>
+  <text x="655" y="140" class="sm"><tspan class="b">Volume:</tspan> 1.5T tokens</text>
+  <text x="655" y="160" class="sm"><tspan class="b">Density:</tspan> Medium</text>
+  <text x="655" y="180" class="sm"><tspan class="b">Role:</tspan> Cross-lingual</text>
+  <text x="655" y="196" class="sm">generalization</text>
+  <text x="655" y="222" class="sm"><tspan class="b">Risk:</tspan> High fertility</text>
+  <text x="655" y="238" class="sm">rate on non-Latin</text>
+  <text x="655" y="264" class="sm"><tspan class="b">Epochs:</tspan> 1.0 (Fresh)</text>
+</svg>

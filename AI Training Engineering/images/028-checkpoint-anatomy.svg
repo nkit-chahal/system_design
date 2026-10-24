@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Left Column: Heavy States (16 bytes/param) -->
+  <rect x="30" y="25" width="440" height="270" rx="8" class="group"/>
+  <text x="45" y="52" class="lg b">Model &amp; Optimizer States (~128.5 GB for 8B)</text>
+
+  <!-- Model Weights -->
+  <rect x="45" y="65" width="410" height="42" rx="4" class="orange"/>
+  <text x="60" y="90" class="b">Model Weights (BF16)</text>
+  <text x="320" y="90" class="sm b">2 bytes/param (16.1 GB)</text>
+
+  <!-- FP32 Master Weights -->
+  <rect x="45" y="115" width="410" height="42" rx="4" class="yellow"/>
+  <text x="60" y="140" class="b">FP32 Master Weights</text>
+  <text x="320" y="140" class="sm b">4 bytes/param (32.1 GB)</text>
+
+  <!-- Adam First Moment -->
+  <rect x="45" y="165" width="410" height="42" rx="4" class="blue"/>
+  <text x="60" y="190" class="b">Adam First Moment m (FP32)</text>
+  <text x="320" y="190" class="sm b">4 bytes/param (32.1 GB)</text>
+
+  <!-- Adam Second Moment -->
+  <rect x="45" y="215" width="410" height="42" rx="4" class="blue"/>
+  <text x="60" y="240" class="b">Adam Second Moment v (FP32)</text>
+  <text x="320" y="240" class="sm b">4 bytes/param (32.1 GB)</text>
+
+  <rect x="45" y="265" width="410" height="22" rx="3" class="gray"/>
+  <text x="55" y="280" class="sm">Gradients are not saved: they are recomputed upon restart.</text>
+
+  <!-- Right Column: Lightweight Exact Resumption States -->
+  <rect x="495" y="25" width="295" height="270" rx="8" class="group"/>
+  <text x="510" y="52" class="lg b">Execution Metadata (&lt; 1 MB)</text>
+
+  <!-- LR Scheduler -->
+  <rect x="510" y="65" width="265" height="42" rx="4" class="purple"/>
+  <text x="525" y="85" class="b">LR Scheduler State</text>
+  <text x="525" y="100" class="sm">Step count, current learning rate</text>
+
+  <!-- RNG States -->
+  <rect x="510" y="115" width="265" height="48" rx="4" class="green"/>
+  <text x="525" y="135" class="b">RNG Generator States</text>
+  <text x="525" y="152" class="sm">PyTorch, CUDA (all devices), Python, NumPy</text>
+
+  <!-- DataLoader State -->
+  <rect x="510" y="170" width="265" height="48" rx="4" class="purple"/>
+  <text x="525" y="190" class="b">DataLoader Position</text>
+  <text x="525" y="207" class="sm">Epoch, token offset, shard cursor</text>
+
+  <!-- Step Counter & Loss -->
+  <rect x="510" y="225" width="265" height="48" rx="4" class="gray"/>
+  <text x="525" y="245" class="b">Run Metadata</text>
+  <text x="525" y="262" class="sm">Global step, loss scaling, Git hash</text>
+</svg>

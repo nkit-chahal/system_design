@@ -1,0 +1,298 @@
+<h2>Introduction</h2>
+<p>Before a transformer processes a single word of text, that text must be converted into discrete numbers. Neural networks do not consume characters or words directly; they operate on sequences of integer token IDs looked up in an embedding table. <strong>Tokenization</strong> is the foundational translation layer between human language and the vector spaces of deep learning [1].</p>
+<p>The choice of tokenizer fundamentally dictates the efficiency, cost, and equity of an entire AI system. Tokenization decides the <strong>compression ratio</strong>—how many characters or words pack into a single token [2]. Because transformers exhibit quadratic attention complexity with sequence length (see Lesson 3, Training Memory) and decode text one token at a time during inference (see Inference Lesson 2, Prefill vs Decode, and Inference Lesson 5, Tokens per Second), a tokenizer that compresses text 20% more efficiently allows the model to absorb 20% more raw knowledge within the same token budget, process 20% longer documents in the same context window, and generate responses 20% faster [3].</p>
+<fig src="019-bpe-merge-walkthrough.svg" caption="Byte-Pair Encoding (BPE) iterative vocabulary construction">Starting from individual character frequencies, BPE iteratively counts adjacent symbol pairs, selects the most frequent pair ('e', 's'), merges it into a new subword token ('es'), and updates the corpus, compressing multi-character words into compact subwords.</fig>
+<p>However, vocabulary size involves a severe architectural trade-off: expanding vocabulary shrinks sequence lengths, but inflates the parameter count and GPU memory consumed by the model's <strong>embedding and output projection matrices</strong> [3]. In modern foundation models such as Llama 3.1 8B, the 128,256 vocabulary allocates over 1.05 billion parameters—more than 13% of the entire model—purely to embedding and unembedding tables.</p>
+<p>In this lesson, we examine subword tokenization algorithms (BPE, Byte-Level BPE, WordPiece, and Unigram), calculate the exact parameter and optimizer memory footprint of large vocabularies, analyze pre-tokenization regular expressions, measure multilingual and code fertility disparities, explore tokenizer-free byte-level architectures, and configure chat templates with special boundary tokens for post-training.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In a systems design interview for an AI infrastructure or modeling role, tokenization questions typically emerge when designing model architectures, optimizing pretraining throughput, or debugging vocabulary mismatch. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: What model architecture, hidden dimension, and context length are we targeting?<br>
+<strong>Interviewer</strong>: We are pretraining our running Llama 3.1 8B model: 32 layers, hidden dimension 4,096, sequence length 8,192 tokens, pretraining on 1 trillion tokens on 256 H100 GPUs at 40% MFU.</p>
+<p><strong>Candidate</strong>: Are we training a custom tokenizer from scratch on our 1T-token corpus mix, or adopting an established open tokenizer such as Llama 3's 128k tokenizer?<br>
+<strong>Interviewer</strong>: We need to evaluate both. If we train our own, what vocabulary size should we pick, and what are the exact memory and compute costs of expanding the vocabulary?</p>
+<p><strong>Candidate</strong>: What is the primary linguistic and domain composition of our corpus?<br>
+<strong>Interviewer</strong>: 70% English web text, 15% source code, 10% scientific papers, and 5% multilingual and curated encyclopedic data. In earlier models, non-English text and code suffered from severe token fragmentation.</p>
+<p><strong>Candidate</strong>: Are we tying the input embedding weights to the output language modeling head (tied embeddings), or are they separate matrices?<br>
+<strong>Interviewer</strong>: They are separate (untied) matrices, matching the published Llama 3 architecture.</p>
+<p><strong>Candidate</strong>: What downstream serving constraints exist for this model once training finishes?<br>
+<strong>Interviewer</strong>: The model will be served using engines like vLLM and TensorRT-LLM. Tokenization overhead directly affects Time to First Token (TTFT) and throughput (tokens per second).</p>
+<p>The question underneath is: <em>How does vocabulary sizing and tokenizer design impact pretraining memory, compression efficiency, multilingual fairness, and downstream serving latency, and which tokenizer configuration is optimal for our 8B model?</em> To answer it, we begin by comparing the fundamental subword algorithms.</p>
+
+<h2>Subword Tokenization: BPE to SentencePiece</h2>
+<h3>The evolution from words to subwords</h3>
+<p>Early NLP models tokenized text by splitting on whitespace and punctuation (word-level tokenization). Word-level tokenization suffers from two fatal flaws: an open vocabulary containing millions of rare words, typos, and morphologically inflected variants, and an inability to represent unseen words at inference time, resulting in out-of-vocabulary <code>[UNK]</code> tokens [1].</p>
+<p>Conversely, character-level tokenization eliminates unknown tokens by representing text as individual characters. However, character sequences are 4 to 6 times longer than word sequences, quadratically exploding attention compute and destroying long-range context capacity. Modern LLMs resolve this tension using <strong>subword tokenization</strong>: frequent words become single tokens (e.g., <code>"training"</code>), while rare words are broken into common morphemes (e.g., <code>"pre" + "training"</code>) [1].</p>
+
+<h3>Byte-Pair Encoding (BPE) and Byte-Level BPE</h3>
+<p><strong>Byte-Pair Encoding (BPE)</strong> was adapted for neural language processing by Sennrich et al. in 2016 [1]. Originally a data compression algorithm, BPE constructs a subword vocabulary iteratively from a training corpus (Figure 1):</p>
+<ol>
+<li><strong>Initialization</strong>: Initialize the vocabulary with all unique base symbols (characters) in the corpus. Every word in the corpus is represented as a sequence of individual characters with an end-of-word marker (e.g., <code>&lt;/w&gt;</code>).</li>
+<li><strong>Count adjacent pairs</strong>: Scan the entire corpus and compute the co-occurrence frequency of all adjacent symbol pairs <tex>(c_1, c_2)</tex>.</li>
+<li><strong>Greedy merge</strong>: Identify the most frequent pair <tex>(c_1, c_2)</tex>, create a new merged symbol <tex>c_{new} = c_1 \circ c_2</tex>, add <tex>c_{new}</tex> to the vocabulary, and record the merge rule in a merge table.</li>
+<li><strong>Iterate</strong>: Replace all occurrences of <tex>(c_1, c_2)</tex> with <tex>c_{new}</tex> across the corpus. Repeat steps 2 through 4 until the vocabulary reaches the target size <tex>V</tex>.</li>
+</ol>
+<p>While character-based BPE works well for Latin alphabets, handling arbitrary Unicode characters (emojis, mathematical symbols, Asian scripts) requires a base character vocabulary of tens of thousands of Unicode codepoints. OpenAI solved this in GPT-2 with <strong>Byte-Level BPE (BBPE)</strong> [4].</p>
+<p>Byte-Level BPE treats raw text as a sequence of <strong>raw UTF-8 bytes</strong>. Because an 8-bit byte takes values from 0 to 255, the initial base vocabulary contains exactly <strong>256 byte tokens</strong>. Every string in any human language, computer code, or binary format can be decomposed into bytes, meaning Byte-Level BPE <strong>never encounters an out-of-vocabulary (OOV) token</strong> [4]. Models such as GPT-4, Llama 2, and Llama 3 all rely on Byte-Level BPE.</p>
+
+<h3>WordPiece and Unigram Language Model</h3>
+<p>Two alternative subword algorithms are widely used in modern language architectures:</p>
+<ul>
+<li><strong>WordPiece</strong> (Schuster &amp; Nakajima, 2012; used by BERT) [5]: Like BPE, WordPiece starts with characters and iteratively merges symbol pairs. However, rather than picking the pair with the highest raw frequency, WordPiece chooses the pair that maximizes the <strong>likelihood of a unigram language model</strong> over the training corpus:
+<texblock>\text{Score}(c_1, c_2) = \frac{\text{Count}(c_1, c_2)}{\text{Count}(c_1) \times \text{Count}(c_2)}</texblock>
+This score measures mutual information, prioritizing pairs whose components rarely appear independently.</li>
+<li><strong>Unigram / SentencePiece</strong> (Kudo, 2018; used by T5, ALBERT, and Gemma) [6]: Rather than building a vocabulary from the bottom up via merges, the Unigram algorithm starts with an intentionally oversized initial vocabulary (e.g., 100,000 candidate subwords) and prunes it from the top down. At each iteration, it computes the loss increase caused by removing each candidate token; the subwords that contribute least to corpus likelihood are discarded until the target vocabulary size is reached [6]. SentencePiece also treats whitespace as a normal character (usually represented as <code>_</code>), enabling lossless, language-independent detokenization.</li>
+</ul>
+
+<h2>Vocabulary Sizing: Compression vs Parameter Tax</h2>
+<h3>Analytical footprint of embedding tables</h3>
+<p>How large should the vocabulary <tex>V</tex> be? In earlier foundation models, vocabularies were kept small: GPT-2 used <tex>V = 50,257</tex>, while Llama 1 and Llama 2 used <tex>V = 32,000</tex> [7]. In Llama 3 and 3.1, Meta expanded the vocabulary four-fold to <strong><tex>V = 128,256\text{ tokens}</tex></strong> [3].</p>
+<p>A transformer contains two vocabulary-dependent linear projection layers:</p>
+<ul>
+<li><strong>Input embedding matrix (<code>tok_embeddings</code>)</strong>: Maps discrete token IDs <tex>t \in [0, V-1]</tex> to <tex>d</tex>-dimensional hidden states. Shape: <tex>[V, d]</tex>.</li>
+<li><strong>Output language modeling head (<code>lm_head</code>)</strong>: Projects final hidden states <tex>[b, s, d]</tex> to logits over the entire vocabulary. Shape: <tex>[d, V]</tex>.</li>
+</ul>
+<p>When the model uses <strong>untied embeddings</strong> (the modern standard for 8B+ architectures), these matrices are stored independently. Let us calculate the exact parameter and memory footprint for our Llama 3.1 8B model with hidden size <tex>d = 4,096</tex> and vocabulary <tex>V = 128,256</tex>:</p>
+<texblock>\text{Parameters per Matrix} = V \times d = 128,256 \times 4,096 = 525,336,576\text{ parameters} \approx 525.3\text{M parameters}</texblock>
+<p>Across both untied matrices (input embeddings and output LM head):</p>
+<texblock>\text{Total Embedding Parameters} = 2 \times 525,336,576 = 1,050,673,152\text{ parameters} \approx 1.051\text{ billion parameters}</texblock>
+<p>As a fraction of the total 8.03-billion-parameter model:</p>
+<texblock>\text{Fraction of Model} = \frac{1.05067\times 10^9}{8.03\times 10^9} \approx 0.1308</texblock>
+<p><strong>Over 13% of all parameters in Llama 3.1 8B belong entirely to the embedding and unembedding matrices</strong>! In Llama 2 (with <tex>V = 32,000</tex>), each matrix had only <tex>32,000 \times 4,096 = 131,072,000\text{ parameters}</tex> (262.1M untied, or 3.8% of the 7B model). Expanding to 128k added <strong>788.6 million parameters</strong> purely to vocabulary tables.</p>
+<fig src="019-embedding-matrix-breakdown.svg" caption="Embedding and LM-head parameter breakdown in Llama 3.1 8B">The 128,256 vocabulary allocates 525.3M parameters to the input embedding table and 525.3M parameters to the output LM head. Combined, they consume 1.05B parameters (13.08% of model weights) and 16.81 GB of mixed-precision Adam optimizer memory.</fig>
+
+<h3>Memory and compute costs: The 16-byte tax and softmax spike</h3>
+<p>The memory footprint of this vocabulary during training is substantial:</p>
+<ul>
+<li><strong>BF16 weight memory</strong>: <tex>525.34\times 10^6 \times 2\text{ bytes} \approx 1.051\text{ GB}</tex> (0.979 GiB) per matrix. For both untied matrices: <strong>2.10 GB</strong>.</li>
+<li><strong>Mixed-precision Adam memory</strong>: As established in Lesson 3 (Training Memory), standard training stores 16 bytes per parameter (2B weight, 2B gradient, 4B master weight, 8B Adam moments <tex>m</tex> and <tex>v</tex>):
+<texblock>\text{Static Memory per Matrix} = 525,336,576 \times 16\text{ bytes} \approx 8.405\text{ GB} \approx 7.828\text{ GiB}</texblock>
+For both untied matrices, static training states consume <strong>16.81 GB</strong> (15.66 GiB). On a single GPU or intra-node FSDP shard, this memory cannot be avoided.</li>
+<li><strong>Unchunked logits activation memory spike</strong>: Computing cross-entropy loss over a micro-batch of sequence length <tex>s = 8,192</tex> and batch size <tex>b = 1</tex> projects hidden states <tex>[b, s, d]</tex> through the LM head to obtain a logits tensor of shape <tex>[8,192, 128,256]</tex>. In 32-bit floating point (required for numerical stability in softmax):
+<texblock>\text{Logits Memory} = 8,192 \times 128,256 \times 4\text{ bytes} = 4,202,692,608\text{ bytes} \approx 4.203\text{ GB} \approx 3.914\text{ GiB}</texblock>
+Allocating a 4.2 GB tensor purely for intermediate logits causes severe memory fragmentation and Out-Of-Memory (OOM) crashes. To avoid this, pretraining frameworks employ <strong>fused chunked cross-entropy</strong> (such as Liger Kernel or Flash-Cross-Entropy). Fused kernels chunk the sequence into tiles of 512 tokens, compute the log-sum-exp and cross-entropy loss in-kernel, and discard the logits immediately, reducing activation memory from 4.2 GB to under 260 MB.</li>
+</ul>
+
+<h3>The compression reward: Why 128k pays off</h3>
+<p>Why did Meta accept this 1.05-billion-parameter tax? Because a 128k vocabulary yields massive <strong>text compression</strong> (Figure 2) [3]:</p>
+<ul>
+<li><strong>English text compression</strong>: In English prose, Llama 2's 32k tokenizer averaged ~3.6 characters per token (~1.40 tokens per word). Llama 3's 128k tokenizer averages <strong>~4.2 characters per token</strong> (~1.25 tokens per word), representing a <strong>17% compression improvement</strong> [3].</li>
+<li><strong>Effective context expansion</strong>: Because transformers have a hard sequence limit (8,192 tokens), compressing text by 17% means an 8,192-token window holds <strong>17% more words</strong>. An 8k context window in Llama 3 accommodates the same text volume that required 9,600 tokens in Llama 2.</li>
+<li><strong>Pretraining compute savings</strong>: To expose a model to a fixed volume of human knowledge (e.g., 10 TB of clean books and web prose), a 128k tokenizer emits 17% fewer tokens than a 32k tokenizer. Because training compute scales linearly with token count (<tex>6ND</tex> FLOPs), <strong>the model learns the same amount of knowledge in 17% fewer optimizer steps</strong>, saving hundreds of thousands of dollars in cluster compute.</li>
+</ul>
+<fig src="019-vocab-tradeoff-curves.svg" caption="Vocabulary size trade-offs: compression versus parameter tax">Expanding vocabulary from 32,000 to 128,256 increases compression from 3.6 to 4.2 characters per token, but increases untied embedding parameters from 262M to 1.05B. Vocabularies beyond 128k face diminishing compression returns while consuming an unacceptable fraction of model weights.</fig>
+
+<h2>Pre-Tokenization Regex and Special Tokens</h2>
+<h3>Why regex pre-tokenization is critical</h3>
+<p>A naive BPE algorithm run directly on raw byte streams produces pathological tokenization failures. If a corpus contains many instances of <code>"hello."</code>, BPE will merge the period into the word, creating a dedicated token for <code>"hello."</code> distinct from <code>"hello"</code>. Even worse, numbers can be merged arbitrarily: <code>"2024"</code> might become a single token, while <code>"2025"</code> is split into three tokens, destroying the model's ability to learn arithmetic, place-value systems, and mathematical reasoning [3, 4].</p>
+<p>Modern tokenizers enforce a strict <strong>pre-tokenization regular expression</strong> that splits text into atomic chunks before BPE merge rules are evaluated (Figure 5). OpenAI introduced this pattern in GPT-4 (<code>cl100k_base</code>), and Meta refined it for Llama 3:</p>
+<pre><code>(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+</code></pre>
+<p>This regular expression enforces four critical lexical invariants [3]:</p>
+<ul>
+<li><code>(?i:'s|'t|'re|'ve|'m|'ll|'d)</code>: Isolates English contractions as standalone tokens, preventing <code>"don't"</code> from merging into an atomic subword.</li>
+<li><code>\p{N}{1,3}</code>: Restricts numbers to chunks of <strong>at most 3 digits</strong>. A 6-digit number like <code>123456</code> is deterministically split into <code>123</code> and <code>456</code>. No number longer than 3 digits can ever be merged into a single token, ensuring uniform representation across mathematical expressions.</li>
+<li><code>[^\r\n\p{L}\p{N}]?\p{L}+</code>: Matches alphabetic words preceded by at most one optional leading space. Punctuation marks are never allowed to merge into alphabetic words.</li>
+<li><code>?[^\s\p{L}\p{N}]+[\r\n]*</code>: Groups punctuation symbols together while keeping them completely isolated from letters and digits.</li>
+</ul>
+<fig src="019-pretokenization-regex.svg" caption="Pre-tokenization regex: preventing degenerate merges">Without regex pre-tokenization, BPE merges punctuation into words and absorbs arbitrary multi-digit numbers. The Llama 3 regex enforces 1-to-3 digit chunking, isolates contractions, and keeps punctuation separate from words.</fig>
+
+<h3>Special tokens and chat templates</h3>
+<p>In addition to regular vocabulary subwords learned from text, a tokenizer reserves a dedicated range of <strong>special tokens</strong>. Special tokens serve as structural delimiters during pretraining and post-training (Figure 6) [3]:</p>
+<ul>
+<li><code>&lt;|begin_of_text|&gt;</code> (ID 128000): Marks the start of a document or conversation.</li>
+<li><code>&lt;|end_of_text|&gt;</code> (ID 128001): Delimits documents in pretraining sequence packing (see Lesson 17).</li>
+<li><code>&lt;|start_header_id|&gt;</code> (ID 128006) and <code>&lt;|end_header_id|&gt;</code> (ID 128007): Demarcate role headers (<code>system</code>, <code>user</code>, <code>assistant</code>, <code>ipython</code>) in instruction-tuned chat formatting.</li>
+<li><code>&lt;|eot_id|&gt;</code> (ID 128009): "End Of Turn" token, indicating that the current speaker has finished their conversational turn and yielding execution back to the user or system.</li>
+</ul>
+<fig src="019-chat-template-tokens.svg" caption="Special tokens and chat templates in Llama 3">Pretraining sequences use simple document boundaries (&lt;|begin_of_text|&gt; and &lt;|end_of_text|&gt;). Post-training uses structured role delimiters (&lt;|start_header_id|&gt;, &lt;|end_header_id|&gt;, and &lt;|eot_id|&gt;) to enforce conversational boundaries and protect against prompt injection.</fig>
+<p>During inference, special tokens are formatted using <strong>Jinja2 chat templates</strong> stored in the tokenizer's <code>tokenizer_config.json</code> (see Lesson 22, Supervised Fine-Tuning). By reserving these tokens in the vocabulary table, user inputs cannot spoof role boundaries unless the system explicitly enables special token parsing, protecting the model against prompt injection attacks.</p>
+
+<h2>Multilingual Fairness and Tokenizer-Free Models</h2>
+<h3>The fertility tax: Why older tokenizers were unfair</h3>
+<p>A tokenizer's efficiency across languages is measured by its <strong>fertility ratio</strong>: the average number of tokens required to represent a single word of text [2]. In 32k vocabularies such as Llama 2, the vocabulary was dominated by English word stems. Non-Latin scripts (such as Devanagari for Hindi, Arabic, Cyrillic, or Hanzi for Chinese) were severely fragmented into single bytes (Figure 4) [3].</p>
+<ul>
+<li>In Llama 2 (32k), English required <strong>1.40 tokens per word</strong>, while Hindi required <strong>4.60 tokens per word</strong> and Arabic required <strong>3.90 tokens per word</strong>!</li>
+<li>This created a severe <strong>multilingual fertility tax</strong>: to communicate the exact same concept, a Hindi speaker consumed <strong>3.3 times more tokens</strong> than an English speaker.</li>
+<li>Because API providers charge per token (see Inference Lesson 31, Per-Request Token Accounting), non-Latin languages were <strong>over 300% more expensive to query</strong> and experienced <strong>3 times higher generation latency</strong>.</li>
+</ul>
+<p>Llama 3's 128k vocabulary allocates extensive token space to common multilingual subwords and character combinations. As shown in Figure 4, Llama 3 slashes Hindi fertility from 4.60 to <strong>1.85 tokens per word</strong> (a 2.5× improvement) and Arabic from 3.90 to <strong>1.70 tokens per word</strong>, drastically closing the equity gap across global users.</p>
+<fig src="019-multilingual-fertility.svg" caption="Tokenizer fertility disparity: Llama 2 (32k) versus Llama 3 (128k)">Tokens per word across languages. In Llama 2, non-Latin scripts (Hindi, Arabic, Chinese) paid a 3× to 4× fertility penalty compared to English. Llama 3's 128k vocabulary dramatically compresses non-Latin languages, reducing fertility to under 1.9 tokens per word globally.</fig>
+
+<h3>Tokenizer-free and byte-level models</h3>
+<p>Given the complexities of vocabulary training, parameter memory overhead, and language bias, can we eliminate tokenizers entirely?</p>
+<p><strong>Tokenizer-free architectures</strong> process text directly as raw UTF-8 bytes [8, 9]:</p>
+<ul>
+<li><strong>ByT5</strong> (Xue et al., 2022) [8]: A T5-style encoder-decoder that operates on individual byte sequences. It exhibits remarkable robustness to character noise, spelling typos, and adversarial Unicode substitutions. However, because byte sequences are 4× longer than subword sequences, standard attention mechanisms suffer a 16× quadratic compute explosion, making ByT5 slow and memory-intensive for long documents.</li>
+<li><strong>MegaByte</strong> (Yu et al., 2023) [9]: Uses a multi-scale hierarchy. A high-level transformer predicts patches of bytes, while a local autoregressive sub-model generates bytes within each patch. MegaByte reduces quadratic attention overhead, matching subword model efficiency on some benchmarks while remaining completely tokenizer-free.</li>
+<li><strong>MambaByte</strong> (Wang et al., 2024): Leverages linear-time state-space models (Mamba) to process raw byte sequences without quadratic attention penalties.</li>
+</ul>
+<p>While tokenizer-free research is promising, foundation model pretraining in production remains almost universally anchored on <strong>Byte-Level BPE with 100k+ vocabularies</strong> due to superior hardware efficiency and shorter sequence lengths.</p>
+
+<table>
+<thead><tr><th>Tokenizer</th><th>Algorithm</th><th>Vocab Size</th><th>Base Unit</th><th>Untied Params (<tex>d=4096</tex>)</th><th>English Chars/Tok</th></tr></thead>
+<tbody>
+<tr><td>GPT-2</td><td>Byte-Level BPE</td><td>50,257</td><td>256 Bytes</td><td>411.7M</td><td>~3.7</td></tr>
+<tr><td>BERT</td><td>WordPiece</td><td>30,522</td><td>Unicode chars</td><td>250.0M</td><td>~3.5</td></tr>
+<tr><td>Llama 2</td><td>SentencePiece BPE</td><td>32,000</td><td>Unicode + Bytes</td><td>262.1M</td><td>~3.6</td></tr>
+<tr><td>Gemma 2</td><td>SentencePiece (Unigram)</td><td>256,000</td><td>Unicode chars</td><td>2,097.2M</td><td>~4.4</td></tr>
+<tr><td>Llama 3 / 3.1</td><td>Byte-Level BPE</td><td>128,256</td><td>256 Bytes</td><td>1,050.7M</td><td>~4.2</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Architecture and parameter comparison across major subword tokenizers</p>
+
+<h4>Which tokenizer fits our model?</h4>
+<p>For our Llama 3.1 8B pretraining run, training a proprietary 128k tokenizer from scratch is a high-risk, low-reward engineering decision. Training a custom BPE tokenizer risks introducing subtle regex bugs, suboptimal merge orders, or vocabulary gaps that require weeks of ablation testing to uncover.</p>
+<p>The optimal engineering choice is to <strong>directly adopt the existing Llama 3.1 tokenizer (128,256 vocabulary)</strong>:</p>
+<ol>
+<li><strong>Parity and Compatibility</strong>: Adopting Llama 3's tokenizer guarantees 100% interoperability with all downstream open-source inference engines (vLLM, SGLang, TensorRT-LLM), quantizers (AWQ, AutoGPTQ), and fine-tuning harnesses (TRL, Axolotl) without custom tokenizer forks.</li>
+<li><strong>Proven Compression</strong>: Its 128k vocabulary has already been validated across 15 trillion tokens by Meta, demonstrating exceptional compression on English prose (~4.2 chars/tok) and source code (~4.0 chars/tok) [3].</li>
+<li><strong>Fairness &amp; Multilingual Quality</strong>: It delivers high multilingual fertility, ensuring our model handles code, technical formulas, and non-English text without fertility penalties.</li>
+</ol>
+
+<h2>In Practice</h2>
+<p>The first tab trains a Byte-Level BPE tokenizer from scratch using Hugging Face's <code>tokenizers</code> library, demonstrating pre-tokenization regex and special token configuration. The second tab compares token compression ratios across English, Python code, and non-Latin text using <code>tiktoken</code>. The third tab formats multi-turn chat templates using structured role delimiters.</p>
+<codetabs>
+<tab label="Train Byte-Level BPE" lang="python">
+from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
+
+def train_byte_level_bpe(
+    corpus_iterator,
+    vocab_size: int = 128_256,
+    special_tokens: list[str] | None = None,
+) -> Tokenizer:
+    """
+    Trains a Byte-Level BPE tokenizer with GPT-4/Llama-3 pre-tokenization regex
+    and custom special tokens using Hugging Face tokenizers.
+    """
+    if special_tokens is None:
+        special_tokens = [
+            "<|begin_of_text|>",
+            "<|end_of_text|>",
+            "<|start_header_id|>",
+            "<|end_header_id|>",
+            "<|eot_id|>",
+        ]
+
+    # 1. Initialize BPE model structure
+    tokenizer = Tokenizer(models.BPE())
+
+    # 2. Configure Byte-Level pre-tokenizer with regex splitting
+    # add_prefix_space=False ensures exact byte fidelity
+    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+
+    # 3. Configure BPE Trainer with target vocabulary and special tokens
+    trainer = trainers.BpeTrainer(
+        vocab_size=vocab_size,
+        min_frequency=2,
+        special_tokens=special_tokens,
+        show_progress=True,
+    )
+
+    # 4. Attach ByteLevel decoder for exact lossless reconstruction
+    tokenizer.decoder = decoders.ByteLevel()
+
+    # 5. Train tokenizer over corpus iterator
+    tokenizer.train_from_iterator(corpus_iterator, trainer=trainer)
+    return tokenizer
+</tab>
+<tab label="Measure compression" lang="python">
+import tiktoken
+
+def evaluate_tokenizer_compression(samples: dict[str, str]):
+    """
+    Evaluates compression efficiency (characters per token and tokens per word)
+    using OpenAI's tiktoken cl100k_base (100k vocab) representing modern Byte-Level BPE.
+    """
+    enc = tiktoken.get_encoding("cl100k_base")
+
+    print(f"{'Domain':<12} | {'Chars':<6} | {'Words':<6} | {'Tokens':<6} | {'Chars/Tok':<10} | {'Tok/Word':<8}")
+    print("-" * 60)
+
+    for domain, text in samples.items():
+        tokens = enc.encode(text)
+        num_chars = len(text)
+        num_words = len(text.split())
+        num_tokens = len(tokens)
+
+        chars_per_token = num_chars / num_tokens if num_tokens else 0
+        tokens_per_word = num_tokens / num_words if num_words else 0
+
+        print(
+            f"{domain:<12} | {num_chars:<6} | {num_words:<6} | {num_tokens:<6} | "
+            f"{chars_per_token:<10.2f} | {tokens_per_word:<8.2f}"
+        )
+
+if __name__ == "__main__":
+    test_data = {
+        "English": "Large language models are trained on trillions of tokens using distributed GPU clusters.",
+        "Python": "def binary_search(arr: list[int], target: int) -> int:\n    low, high = 0, len(arr) - 1\n",
+        "Spanish": "Los modelos de lenguaje se entrenan con billones de tokens en centros de datos modernos.",
+        "Hindi": "बड़े भाषा मॉडल आधुनिक डेटा केंद्रों में ट्रिलियन टोकन पर प्रशिक्षित होते हैं।",
+    }
+    evaluate_tokenizer_compression(test_data)
+</tab>
+<tab label="Chat template formatting" lang="python">
+def apply_llama3_chat_template(messages: list[dict[str, str]]) -> str:
+    """
+    Applies Llama 3 special token chat template to format multi-turn conversations
+    with strict role boundaries to prevent prompt injection.
+    """
+    bos_token = "<|begin_of_text|>"
+    start_header = "<|start_header_id|>"
+    end_header = "<|end_header_id|>"
+    eot_token = "<|eot_id|>"
+
+    formatted_text = bos_token
+    for msg in messages:
+        role = msg["role"]
+        content = msg["content"].strip()
+        formatted_text += f"{start_header}{role}{end_header}\n\n{content}{eot_token}"
+
+    # Append assistant generation prompt
+    formatted_text += f"{start_header}assistant{end_header}\n\n"
+    return formatted_text
+
+if __name__ == "__main__":
+    conversation = [
+        {"role": "system", "content": "You are a helpful coding assistant."},
+        {"role": "user", "content": "Write a Python function to compute factorial."},
+    ]
+    formatted = apply_llama3_chat_template(conversation)
+    print("Formatted Prompt:\n" + formatted)
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Vocabulary trimming for fine-tuning</strong>: When adapting a multilingual base model for a purely monolingual domain (such as English legal contracts), unused vocabulary rows can be pruned, reducing embedding memory by hundreds of megabytes during edge deployment.</li>
+<li><strong>Cross-entropy label smoothing and vocabulary size</strong>: In very large vocabularies (128k+), the vast majority of tokens have zero gradient at any given step. Label smoothing must be applied carefully to prevent uniform probability diffusion across thousands of unrelated tokens.</li>
+<li><strong>Token healing in prompt completions</strong>: When users provide a prompt ending with a partial word or trailing whitespace (e.g., <code>"The cat sat on "</code>), tokenizers often encode the trailing space into a distinct subword token. Token healing rewinds the last token and re-encodes it during inference to avoid biased generation.</li>
+<li><strong>Impact of vocabulary on inference KV cache</strong>: Sizing the vocabulary affects model weights and logits, but has <strong>zero effect on KV cache size</strong>. The KV cache depends exclusively on layer count, KV heads, and hidden head dimension (see Inference Lesson 3, KV Cache).</li>
+<li><strong>Pre-tokenization regex performance in Rust vs Python</strong>: Python's standard <code>re</code> module can become a bottleneck when tokenizing petabytes of data. Hugging Face's <code>tokenizers</code> library executes pre-tokenization in multi-threaded Rust using the <code>oniguruma</code> or <code>regex</code> engine, processing over 1 million words per second per core [10].</li>
+<li><strong>Tied vs untied embeddings in scaling laws</strong>: Small models (&lt; 1B parameters) frequently tie input and output embeddings to save parameter budget. Large models (&gt; 7B) use untied embeddings because the representation space of token inputs (semantic clustering) differs fundamentally from output logits (conditional next-token probability).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="019-summary.png" caption="Tokenizers summary" optional="1">Mind map summarizing the tokenizers lesson: subword algorithms, vocabulary sizing trade-offs, pre-tokenization regex, embedding parameter accounting, and multilingual fertility.</fig>
+<ul>
+<li>Tokenization dictates the text compression ratio (chars/token), setting how much human knowledge fits within a fixed token budget and context length.</li>
+<li>Byte-Level BPE starts with 256 byte tokens and iteratively merges the most frequent symbol pairs, guaranteeing zero out-of-vocabulary tokens across all languages and code.</li>
+<li>In Llama 3.1 8B, the 128,256 vocabulary allocates <strong>525.3M parameters per matrix</strong> (1.05 billion parameters untied, or 13.08% of model weights) and consumes <strong>16.81 GB of Adam training states</strong>.</li>
+<li>Materializing unchunked FP32 logits over 128k tokens at sequence length 8,192 requires <strong>4.20 GB of memory</strong>; fused chunked cross-entropy avoids this activation spike.</li>
+<li>Expanding vocabulary from 32k to 128k compresses English text by 17% and slashes non-Latin fertility (Hindi from 4.6 to 1.85 tokens/word), closing the global serving cost disparity.</li>
+<li>Pre-tokenization regular expressions prevent numbers from merging beyond 3 digits and isolate punctuation, preserving mathematical and lexical consistency.</li>
+<li>Reusing Llama 3's proven 128,256 tokenizer ensures ecosystem compatibility with serving runtimes (vLLM, TensorRT-LLM) without the risk of custom tokenizer bugs.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Sennrich et al. Neural Machine Translation of Rare Words with Subword Units. <a href="https://arxiv.org/abs/1508.07909" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1508.07909</a>.<br>
+[2] Rust et al. How Good is Your Tokenizer? On the Monolingual Performance of Multilingual Language Models. <a href="https://arxiv.org/abs/2012.15613" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2012.15613</a>.<br>
+[3] Dubey et al. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[4] Radford et al. Language Models are Unsupervised Multitask Learners. <a href="https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf" rel="noopener noreferrer" target="_blank">https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf</a>.<br>
+[5] Wu et al. Google's Neural Machine Translation System: Bridging the Gap between Human and Machine Translation. <a href="https://arxiv.org/abs/1609.08144" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1609.08144</a>.<br>
+[6] Kudo. Subword Regularization: Improving Neural Network Translation Models with Multiple Subword Candidates. <a href="https://arxiv.org/abs/1804.10959" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1804.10959</a>.<br>
+[7] Touvron et al. Llama 2: Open Foundation and Fine-Tuned Chat Models. <a href="https://arxiv.org/abs/2307.09288" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2307.09288</a>.<br>
+[8] Xue et al. ByT5: Towards a Token-Free Future with Pre-trained Byte-to-Byte Models. <a href="https://arxiv.org/abs/2105.13626" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2105.13626</a>.<br>
+[9] Yu et al. MEGABYTE: Predicting Million-byte Sequences with Multiscale Transformers. <a href="https://arxiv.org/abs/2305.07185" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.07185</a>.<br>
+[10] Hugging Face. Tokenizers: Fast State-of-the-Art Tokenization Library. <a href="https://github.com/huggingface/tokenizers" rel="noopener noreferrer" target="_blank">https://github.com/huggingface/tokenizers</a>.</p>

@@ -1,0 +1,280 @@
+<h2>Introduction</h2>
+<p>Training a multi-billion-parameter foundation model is an exercise in extreme numerical balance. At small scales, deep neural networks appear forgiving: standard Adam optimization routinely converges across a broad range of learning rates, weight initializations, and batch compositions. At scale, that forgiveness evaporates. When thousands of tensor cores calculate millions of matrix operations every second across hundreds of GPUs, tiny numerical anomalies compound exponentially. Without rigorous safeguards, <strong>training runs frequently suffer catastrophic loss spikes or sudden irrecoverable divergence</strong>.</p>
+<p>A <strong>loss spike</strong> occurs when the training loss abruptly jumps from its smooth downward trajectory to a value several times higher. In fortunate cases, the model recovers after several hundred steps; in catastrophic cases, the model enters <strong>divergence</strong>, where weight norms explode, gradients become infinite, and the loss collapses into <code>NaN</code> (Not a Number), permanently destroying the model weights [1]. For our running pretraining run—training an 8-billion-parameter model across 256 NVIDIA H100 GPUs at an operating cost of roughly $101,000—a divergence event on day four can waste tens of thousands of dollars and days of critical engineering schedule.</p>
+<fig src="032-loss-spike-anatomy.svg" caption="Anatomy of training instabilities: transient spikes versus divergence (Illustrative)">Illustrative cross-entropy loss trajectories during large-scale pretraining. A healthy baseline follows a smooth power-law descent. A transient spike at step 35k jumps sharply but self-recovers. At step 65k, an irrecoverable divergence event drives the loss to NaN, destroying model state without checkpoint rollback.</fig>
+<p>Historically, AI labs treated loss spikes as mysterious bad luck. Today, empirical research has unmasked their primary mechanisms: attention logit growth, low-precision dynamic range limits, corrupted data sequences, and optimizer momentum lag [1, 2]. In this lesson, we break down the root causes of training instability, analyze architectural stabilizers including <strong>Query-Key Normalization (QK-Norm)</strong> and <strong>logit z-loss</strong>, examine the empirical rewind-and-skip strategy pioneered by PaLM, establish real-time telemetry watchdogs, and walk through an incident diagnosis playbook.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In a systems design interview for an AI training or pretraining infrastructure role, stability questions often begin with an active production emergency. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: What model architecture, scale, and optimizer setup are we running?<br>
+<strong>Interviewer</strong>: We are pretraining a model with the Llama 3.1 8B architecture (8.03 billion parameters across 32 transformer layers, hidden dimension 4,096) on 256 NVIDIA H100 SXM GPUs. We use BF16 mixed-precision with the AdamW optimizer (<tex>\beta_1 = 0.9, \beta_2 = 0.95</tex>, weight decay 0.1), cosine learning rate decay with a peak learning rate of <tex>3 \times 10^{-4}</tex>, and global gradient clipping at 1.0.</p>
+<p><strong>Candidate</strong>: What failure symptom are we observing?<br>
+<strong>Interviewer</strong>: The run progressed smoothly for two days through step 38,400, reaching a cross-entropy loss of 2.45. Suddenly, on step 38,401, the loss spiked to 6.20. Over the next 20 steps, the loss hovered near 6.0, and on step 38,425, the global gradient norm exceeded 1,000 and the loss evaluated to <code>NaN</code>. The cluster halted.</p>
+<p><strong>Candidate</strong>: Did the team attempt to resume from the most recent checkpoint?<br>
+<strong>Interviewer</strong>: Yes. The operators resumed from the checkpoint saved at step 38,000, but when the run reached step 38,401, the exact same loss spike occurred and diverged again.</p>
+<p><strong>Candidate</strong>: Are we allowed to modify the data pipeline, the model architecture, or the optimizer hyperparameters to stabilize future runs?<br>
+<strong>Interviewer</strong>: Yes. We need to know: what caused this spike, how do we get this active run back on track without re-running two days of compute, and what stability defaults should we enforce so this never happens again?</p>
+<p>The question underneath is: <em>How do we distinguish between data-induced spikes and architectural instabilities, recover gracefully using checkpoint surgery, and architect the model to be fundamentally immune to numerical divergence?</em> To answer it, we analyze the root causes of instability.</p>
+
+<h2>Root Causes of Training Instabilities</h2>
+<h3>Learning rate aggression and schedule mismatch</h3>
+<p>The learning rate (<tex>\eta</tex>) is the single most volatile hyperparameter in deep learning. If <tex>\eta</tex> is set too high, the parameter updates <tex>\Delta W = -\eta \hat{m} / (\sqrt{\hat{v}} + \epsilon)</tex> overshoot the local curvature of the loss surface, landing the model in regions of steep gradient cliffs [2].</p>
+<p>At the start of training, random weight initialization produces chaotic, high-variance gradients. If the optimizer applies large learning rates immediately, initial updates destabilize layer activations permanently. Standard practice mandates a <strong>warmup schedule</strong>: linearly increasing the learning rate from 0 to peak <tex>\eta</tex> over the first 2,000 to 5,000 steps. Similarly, if the learning rate decays too slowly during the final stages of pretraining, large gradient steps can knock the model out of narrow, well-generalizing minima.</p>
+
+<h3>Bad data batches: corrupted tokens and sequence outliers</h3>
+<p>The vast majority of sudden, single-step loss spikes in large language model pretraining are triggered by <strong>corrupted or toxic data batches</strong> [1, 4]. Web-scale text scrapes (Common Crawl, raw forum dumps) contain pathological sequences that escape basic filtering (Lesson 18, Deduplication and Quality Filtering):</p>
+<ul>
+<li><strong>Extreme token repetitions</strong>: Long sequences of identical tokens (e.g. repeated whitespace, strings of punctuation, or thousands of null bytes) distort positional embeddings and concentrate attention scores into degenerate Dirac delta spikes.</li>
+<li><strong>Malformed markup and unicode fuzzing</strong>: Unescaped binary fragments, character encoding artifacts, or extremely long unbroken character sequences produce high-magnitude embedding lookups that shock initial layers.</li>
+<li><strong>Unmasked padding tokens</strong>: If a data pipeline incorrectly pads sequences without applying the causal attention mask, the model attempts to predict valid tokens from meaningless pad tokens, generating astronomical cross-entropy loss values.</li>
+</ul>
+<p>When an entire global batch of 4 million tokens contains a cluster of these pathological documents, the cross-entropy loss on those specific tokens spikes to 25+, producing massive gradient vectors that shock the Adam optimizer.</p>
+
+<h3>Numerical overflow in low precision (BF16, FP16, and FP8)</h3>
+<p>Modern pretraining uses 16-bit or 8-bit floating-point formats to maximize tensor core throughput (Lesson 5, Mixed Precision Training - BF16 and FP8). However, reduced precision severely restricts dynamic range:</p>
+<ul>
+<li><strong>IEEE FP16</strong>: Provides 5 exponent bits and 10 mantissa bits. The maximum representable finite number is <tex>65,504</tex>. Any intermediate dot product or layer activation exceeding 65,504 overflows directly to <code>+Inf</code>, causing subsequent operations to become <code>NaN</code>. FP16 requires dynamic loss scaling, which frequently encounters underflow/overflow oscillations at scale.</li>
+<li><strong>Bfloat16 (BF16)</strong>: Provides 8 exponent bits (identical to FP32) and 7 mantissa bits. Its dynamic range extends up to <tex>\approx 3.4 \times 10^{38}</tex>, making direct activation overflow virtually impossible under normal conditions. However, BF16 has reduced precision (only 3 decimal digits of precision). If gradient values differ by several orders of magnitude, smaller components vanish due to catastrophic cancellation.</li>
+<li><strong>FP8 (E4M3 and E5M2)</strong>: With only 8 total bits, FP8 has an extremely tight dynamic range (max representable value in E4M3 is 448). Pretraining in FP8 requires aggressive per-tensor or per-block delayed scaling factors; a single activation outlier triggers immediate saturation.</li>
+</ul>
+
+<h3>Attention logit growth and softmax collapse</h3>
+<p>The most subtle and prevalent structural instability in large Transformers is <strong>attention logit growth</strong> [2, 5]. In standard scaled dot-product attention, the attention logits are computed as:</p>
+<texblock>S_{ij} = \frac{q_i k_j^\top}{\sqrt{d_{\text{head}}}}</texblock>
+<p>The scaling factor <tex>1 / \sqrt{d_{\text{head}}}</tex> was derived by Vaswani et al. under the mathematical assumption that query and key vectors are independent random variables with zero mean and unit variance (<tex>\sigma^2 = 1</tex>) [3]. In this ideal state, the dot product <tex>q_i k_j^\top</tex> has mean 0 and variance <tex>d_{\text{head}}</tex>, so dividing by <tex>\sqrt{d_{\text{head}}}</tex> normalizes the variance back to 1.0.</p>
+<p>However, during actual training, weight matrices <tex>W_q</tex> and <tex>W_k</tex> grow in L2 norm as learning progresses. Consequently, the norms of vectors <tex>q</tex> and <tex>k</tex> drift upward. Over tens of thousands of steps, the variance of the dot product escalates far beyond <tex>d_{\text{head}}</tex>, driving the attention logits <tex>S_{ij}</tex> to values of 50, 80, or even 120 (Figure 2).</p>
+<fig src="032-attention-logit-growth.svg" caption="Attention logit growth and softmax collapse mechanism">Chain reaction of attention instability. Unbounded weight growth escalates query and key norms. Dot-product logits exceed 50, causing softmax to saturate into a degenerate one-hot vector (entropy collapses to zero). In the backward pass, gradients through saturated softmax vanish or explode, triggering sudden loss spikes.</fig>
+<p>When attention logits exceed 50, the <code>softmax</code> function undergoes <strong>entropy collapse</strong>: <tex>\exp(S_{ij})</tex> becomes so overwhelmingly large for a single dominant token that the softmax output vector collapses into a one-hot distribution (<tex>[0, 0, \dots, 1, \dots, 0]</tex>). The attention entropy drops to near zero. Once an attention head collapses into an argmax, the model can no longer attend to context. When an unexpected token sequence arrives, the sudden shift in attention produces extreme gradient shocks that derail the backward pass.</p>
+
+<h3>Optimizer momentum dynamics (Adam \beta_2 and \epsilon)</h3>
+<p>The AdamW optimizer updates parameters using running moving averages of past gradients (<tex>m_t</tex>) and squared gradients (<tex>v_t</tex>) [3, 7]:</p>
+<texblock>m_t = \beta_1 m_{t-1} + (1 - \beta_1) g_t \quad , \quad v_t = \beta_2 v_{t-1} + (1 - \beta_2) g_t^2</texblock>
+<texblock>\theta_t = \theta_{t-1} - \eta \frac{m_t / (1 - \beta_1^t)}{\sqrt{v_t / (1 - \beta_2^t)} + \epsilon}</texblock>
+<p>Two hyperparameter interactions frequently cause training divergence:</p>
+<ul>
+<li><strong>The <tex>\beta_2</tex> lag problem</strong>: The standard default for <tex>\beta_2</tex> in computer vision is 0.999, which corresponds to an exponential moving average memory of roughly <tex>1 / (1 - 0.999) = 1,000</tex> steps. In LLM pretraining, if a parameter receives near-zero gradients for several hundred steps, its accumulated <tex>v_t</tex> becomes exceptionally small. If a sudden gradient shock occurs, the denominator <tex>\sqrt{v_t} + \epsilon</tex> remains tiny because <tex>v_t</tex> updates very slowly (<tex>1 - \beta_2 = 0.001</tex>). The resulting step <tex>\Delta \theta</tex> explodes, destroying the parameter weights. Lowering <tex>\beta_2</tex> to <strong>0.95</strong> (memory of ~20 steps) allows the second moment to react quickly to gradient magnitude changes [4].</li>
+<li><strong>The <tex>\epsilon</tex> underflow trap</strong>: The stability constant <tex>\epsilon</tex> prevents division by zero. In PyTorch, <code>torch.optim.AdamW</code> defaults to <code>eps=1e-8</code>. In FP16 training, values smaller than <tex>10^{-7}</tex> underflow to zero. Even in BF16, if <tex>\epsilon</tex> is set to <tex>10^{-16}</tex> (a common bug when porting legacy FP64 code), <tex>\sqrt{v_t} + \epsilon</tex> underflows when gradients are small, causing massive coordinate updates. Setting <tex>\epsilon = 10^{-8}</tex> (or <tex>10^{-6}</tex> in FP16) guarantees numerical stability.</li>
+</ul>
+
+<h2>Architectural and Algorithmic Mitigations</h2>
+<h3>Query-Key Normalization (QK-Norm)</h3>
+<p>To eliminate attention logit growth permanently, modern architectures apply <strong>Query-Key Normalization (QK-Norm)</strong> [2, 5]. Pioneered by Dehghani et al. in <em>Scaling Vision Transformers to 22 Billion Parameters</em> and adopted by Google's Gemma 2 and AI2's OLMo 2, QK-Norm inserts a LayerNorm or RMSNorm layer directly onto the projected query and key vectors before computing the attention dot product (Figure 3, Left):</p>
+<texblock>\hat{q} = \text{RMSNorm}(q) \quad , \quad \hat{k} = \text{RMSNorm}(k)</texblock>
+<texblock>S_{ij} = \frac{\hat{q}_i \hat{k}_j^\top}{\sqrt{d_{\text{head}}}}</texblock>
+<p>Because RMSNorm scales each vector such that its root-mean-square norm is exactly 1.0, the L2 norm of each head vector of dimension <tex>d_{\text{head}}</tex> is strictly constrained to <tex>\|\hat{q}\|_2 = \sqrt{d_{\text{head}}}</tex>. By the Cauchy-Schwarz inequality, the maximum possible dot product between <tex>\hat{q}_i</tex> and <tex>\hat{k}_j</tex> is bounded:</p>
+<texblock>|\hat{q}_i \hat{k}_j^\top| \le \|\hat{q}_i\|_2 \|\hat{k}_j\|_2 = \sqrt{d_{\text{head}}} \times \sqrt{d_{\text{head}}} = d_{\text{head}}</texblock>
+<p>Dividing by the attention scale factor <tex>\sqrt{d_{\text{head}}}</tex> yields an absolute, inviolable mathematical ceiling on the attention logits:</p>
+<texblock>|S_{ij}| \le \frac{d_{\text{head}}}{\sqrt{d_{\text{head}}}} = \sqrt{d_{\text{head}}}</texblock>
+<p>For Llama 3.1 8B with <tex>d_{\text{head}} = 128</tex>, the maximum attention logit can <strong>never exceed <tex>\sqrt{128} \approx 11.31</tex></strong>, regardless of training step count, learning rate, or batch composition. Softmax saturation and attention entropy collapse are rendered mathematically impossible. QK-Norm adds less than 0.1% to per-layer compute while completely eliminating attention-induced loss spikes.</p>
+
+<h3>Output logit z-loss</h3>
+<p>In standard language modeling, the model predicts the next token by projecting the final hidden state to vocabulary logits <tex>z \in \mathbb{R}^V</tex> (where <tex>V = 128,256</tex>) and computing cross-entropy loss via softmax. Notice that the cross-entropy loss is shift-invariant: adding a constant scalar <tex>c</tex> to all logits leaves the probabilities unchanged:</p>
+<texblock>\text{softmax}(z_i + c) = \frac{\exp(z_i + c)}{\sum_j \exp(z_j + c)} = \frac{\exp(c) \exp(z_i)}{\exp(c) \sum_j \exp(z_j)} = \text{softmax}(z_i)</texblock>
+<p>Because the cross-entropy objective does not penalize the absolute magnitude of the logits, the unnormalized values <tex>z_i</tex> can drift toward positive or negative infinity over millions of steps. When logits become large (<tex>|z_i| > 80</tex>), floating-point roundoff errors in the log-sum-exp denominator introduce severe numerical gradients.</p>
+<p>In the PaLM architecture, Chowdhery et al. introduced an elegant solution: <strong>logit z-loss</strong> [1]. An auxiliary loss term regularizes the partition function <tex>Z = \sum_i \exp(z_i)</tex>:</p>
+<texblock>\mathcal{L}_z = 10^{-4} \times (\log Z)^2 = 10^{-4} \times \left( \log \sum_{i=1}^V \exp(z_i) \right)^2</texblock>
+<p>The total training objective becomes <tex>\mathcal{L} = \mathcal{L}_{\text{CE}} + \mathcal{L}_z</tex>. By penalizing large values of <tex>(\log Z)^2</tex>, z-loss forces the partition function to stay close to <tex>\log Z \approx 0</tex> (<tex>Z \approx 1</tex>), preventing logit drift without degrading language modeling accuracy (Figure 3, Right).</p>
+<fig src="032-qk-norm-and-z-loss.svg" caption="Architectural stabilizers: QK-Norm and Logit Z-Loss">Two proven mathematical guardrails against training instabilities. Left: QK-Norm applies RMSNorm to Q and K, bounding attention logits to at most sqrt(d_head) (11.3 for d=128). Right: Logit z-loss penalizes the squared log-partition function, keeping vocabulary logits centered near zero.</fig>
+
+<h3>Removing bias terms and LayerNorm tuning</h3>
+<p>Recent state-of-the-art architectures (PaLM, Llama 2, Llama 3) eliminate all additive bias parameters from linear layers (<code>bias=False</code>) [1, 4]. Removing biases yields multiple stability benefits:</p>
+<ul>
+<li><strong>Eliminating unregularized drift</strong>: Weight decay is universally applied to 2D weight matrices but excluded from 1D bias vectors. Over long pretraining runs, unregularized bias vectors accumulate drift, gradually skewing activation distributions.</li>
+<li><strong>Stabilizing zero-mean activations</strong>: Without additive biases, linear layers cannot shift the mean of activation distributions, reducing activation variance across deep transformer stacks.</li>
+<li><strong>RMSNorm over LayerNorm</strong>: Replacing LayerNorm with Root Mean Square Normalization (RMSNorm) eliminates mean-centering and additive bias, computing normalization strictly from the root mean square of activation activations, reducing floating-point operations while improving numerical stability.</li>
+</ul>
+
+<h3>Gradient clipping by global norm</h3>
+<p>Gradient clipping acts as a circuit breaker against transient gradient shocks. Before the optimizer updates weights, the global L2 norm across all parameters is evaluated [5]:</p>
+<texblock>\|g\|_2 = \sqrt{\sum_{p} \|g_p\|_2^2}</texblock>
+<p>If <tex>\|g\|_2</tex> exceeds a maximum threshold <tex>G_{\text{max}}</tex> (standard default is <tex>1.0</tex>), all gradients are scaled down proportionally:</p>
+<texblock>g_p \leftarrow g_p \times \frac{G_{\text{max}}}{\max(\|g\|_2, G_{\text{max}})}</texblock>
+<p>Global norm clipping preserves the <em>direction</em> of the gradient vector while strictly capping the maximum parameter displacement in parameter space. Even if a corrupted data batch produces a gradient norm of 500, clipping rescales the update to norm 1.0, preventing weight destruction.</p>
+
+<h3>The PaLM empirical recipe: rewind and skip</h3>
+<p>Despite all architectural guardrails, unprecedented data anomalies in massive trillion-token corpora can still trigger loss spikes. In <em>PaLM: Scaling Language Modeling with Pathways</em>, Google researchers trained a 540-billion-parameter model on 6,144 TPU v4 chips and observed roughly 20 distinct loss spikes during pretraining [1].</p>
+<p>Through extensive ablation, the PaLM team discovered that attempting to let the model "train through" a spike rarely succeeded: even if the loss recovered, downstream evaluation metrics remained degraded. Furthermore, simply restarting from the checkpoint immediately preceding the spike (step <tex>T - 1</tex>) failed because <strong>Adam's momentum buffers (<tex>m_t, v_t</tex>) had already become polluted by corrupted gradients tens of steps prior to the visible spike</strong>.</p>
+<p>The PaLM team formulated an empirical mitigation strategy that has become the gold standard across AI labs (Figure 4):</p>
+<fig src="032-rewind-and-skip-workflow.svg" caption="The PaLM empirical recovery strategy: rewind checkpoint and skip bad batches">Workflow for recovering from an unresolvable loss spike. The training loop rewinds 100 steps to checkpoint T-100 to flush polluted Adam momentum buffers. The data loader offset advances by 300 batches, skipping the poisoned token sequence. Training resumes cleanly on fresh data.</fig>
+<ol>
+<li><strong>Detect the spike at step <tex>T</tex></strong>: Training halts automatically when loss exceeds <tex>3\sigma</tex> above the running moving average or produces <code>NaN</code>.</li>
+<li><strong>Rewind 100 steps (<tex>T - 100</tex>)</strong>: Rather than restoring the latest checkpoint, restore the checkpoint saved approximately 100 steps <em>prior</em> to the spike. This rolls back the weights and, crucially, restores uncorrupted Adam first and second moments.</li>
+<li><strong>Skip 200 to 500 data batches</strong>: Fast-forward the deterministic data loader offset by 200 to 500 batches (e.g. from step <tex>T - 50</tex> through <tex>T + 250</tex>). This guarantees that the toxic document or corrupted sequence that triggered the divergence is completely bypassed.</li>
+<li><strong>Resume training</strong>: Resume training from the <tex>T - 100</tex> checkpoint on the advanced data stream. In every documented instance in PaLM, training resumed smoothly and continued without recurring spikes.</li>
+</ol>
+
+<h2>Real-Time Monitoring and Incident Triage</h2>
+<h3>The four early-warning telemetry signals</h3>
+<p>Loss spikes do not occur in a vacuum; internal tensor dynamics exhibit warning signs dozens of steps before the loss curve visibly jumps. Production training harnesses monitor four primary telemetry metrics every 10 steps (Figure 5) [4, 8]:</p>
+<fig src="032-early-warning-metrics.svg" caption="Four early-warning telemetry signals for training stability">Dashboard metrics for early anomaly detection: Global Gradient Norm, Update-to-Weight Ratio, Attention Logit Max, and Output Logit Norm. Tracking these signals allows automated watchdogs to initiate rollbacks before loss diverges.</fig>
+<ol>
+<li><strong>Global Gradient Norm (<tex>\|g\|_2</tex>)</strong>: In a stable run, gradient norm hovers between 0.3 and 0.8. A persistent climb toward 2.0 indicates growing curvature; a sudden jump above 5.0 signals an immediate data shock.</li>
+<li><strong>Update-to-Weight Ratio (<tex>\|\Delta W\|_2 / \|W\|_2</tex>)</strong>: Evaluated per layer. Healthy updates alter weights by roughly <tex>10^{-4}</tex> to <tex>10^{-3}</tex> of their total norm per step. If this ratio exceeds <tex>10^{-2}</tex>, the learning rate is too aggressive for that layer.</li>
+<li><strong>Maximum Attention Logit</strong>: Evaluates <tex>\max(q k^\top / \sqrt{d})</tex> across all layers. If this value crosses 25, attention entropy is collapsing. If QK-Norm is active, this value is clamped mathematically.</li>
+<li><strong>Logit Partition Norm (<tex>\log Z</tex>)</strong>: Tracks <tex>\log \sum_i \exp(z_i)</tex> at the LM head. If <tex>|\log Z|</tex> drifts past 15, vocabulary projection weights are becoming unbounded.</li>
+<li><strong>Held-out Validation Loss</strong>: Evaluated every 500 steps on a fixed, pristine validation set (Lesson 34, Evaluation During Training). If validation loss diverges while training loss appears flat, the model is overfitting or experiencing silent gradient corruption.</li>
+</ol>
+
+<h3>Incident walkthrough: step-by-step spike diagnosis</h3>
+<p>When an automated monitoring alert fires, the on-call training engineer executes the triage playbook outlined in Figure 6:</p>
+<fig src="032-spike-diagnosis-flowchart.svg" caption="Incident triage flowchart for diagnosing and mitigating loss spikes">Step-by-step decision flow when a loss spike occurs: distinguishing NaN overflows, evaluating gradient norm dynamics, differentiating data batch corruption from hyperparameter instability, and executing rollback actions.</fig>
+<ul>
+<li><strong>Phase 1: Classify the failure mode</strong>: Check training logs. Did the loss jump to <code>NaN</code> or did it remain finite? If <code>NaN</code>, inspect whether loss scaling underflowed in FP16 or whether a division-by-zero occurred in normalization. If finite, note the exact step number <tex>T_{\text{spike}}</tex>.</li>
+<li><strong>Phase 2: Inspect gradient norm history</strong>:
+  <ul>
+  <li><em>Case A (Instant Single-Step Jump)</em>: The gradient norm jumped from 0.5 to 35.0 on step <tex>T</tex> with zero prior escalation. <strong>This is a data-induced shock</strong>. Do not lower the global learning rate. Extract the batch index from the data loader, log the batch tokens for offline decontamination (Lesson 18), rewind 100 steps, fast-forward the data loader past the toxic batch, and resume.</li>
+  <li><em>Case B (Progressive Escalation over 50+ Steps)</em>: The gradient norm grew steadily from 0.5 to 1.2 to 2.8 over the preceding 50 steps. <strong>This is an optimizer or learning rate instability</strong>. Rewind 200 steps, lower the peak learning rate by 20%, and reduce Adam <tex>\beta_2</tex> from 0.99 to 0.95 to clear stale second-moment lag.</li>
+  </ul>
+</li>
+<li><strong>Phase 3: Inspect attention and logit telemetry</strong>: Check whether attention entropy dropped to zero or whether output logits exploded. If logits drifted, inject logit z-loss (<tex>10^{-4}</tex>) upon restart.</li>
+</ul>
+
+<h4>What stability defaults for our run?</h4>
+<p>We can now establish the concrete stability configuration for our running pretraining scenario (Llama 3.1 8B on 256 H100s for 1T tokens):</p>
+<ul>
+<li><strong>Precision</strong>: Pure BF16 mixed-precision (FP32 master weights and optimizer states, BF16 forward/backward). Avoid FP16 to eliminate dynamic loss scaler underflow.</li>
+<li><strong>Attention Architecture</strong>: Enable <strong>QK-Norm</strong> (per-head RMSNorm on query and key projections) across all 32 transformer layers. This mathematically caps attention logits to <tex>\sqrt{128} \approx 11.3</tex>, guaranteeing zero softmax collapse.</li>
+<li><strong>Linear Layers</strong>: Remove all additive biases (<code>bias=False</code>) across attention and MLP projections. Use RMSNorm with <tex>\epsilon = 10^{-6}</tex>.</li>
+<li><strong>Logit Regularization</strong>: Add <strong>logit z-loss</strong> with coefficient <tex>10^{-4}</tex> to the cross-entropy objective.</li>
+<li><strong>Optimizer Hyperparameters</strong>: AdamW with <tex>\beta_1 = 0.9, \beta_2 = 0.95</tex> (lowered from 0.999 to prevent second-moment lag), <tex>\epsilon = 10^{-8}</tex>, and weight decay 0.1.</li>
+<li><strong>Warmup &amp; Clipping</strong>: Cosine decay with 2,000 steps of linear warmup. Global gradient norm clipping enforced at <tex>1.0</tex>.</li>
+<li><strong>Checkpoint Retention</strong>: Save Distributed Checkpoints (DCP) every 500 steps, retaining the last 5 checkpoints. If an unrecoverable data spike occurs, automated wrappers immediately execute the PaLM strategy: roll back 100 steps, advance the data loader by 300 batches, and resume.</li>
+</ul>
+
+<h2>In Practice</h2>
+<p>The first tab provides a complete PyTorch training loop that implements real-time stability monitoring, logs pre-clip gradient norms, computes auxiliary logit z-loss, and detects loss spikes to trigger automated rollbacks. The second tab provides a production-ready PyTorch module demonstrating Query-Key Normalization (QK-Norm) with RMSNorm.</p>
+<codetabs>
+<tab label="Stability training loop" lang="python">
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class StabilityManager:
+    """Manages training stability watchdogs, z-loss, and automated rollback triggers."""
+    def __init__(self, model, optimizer, z_loss_weight=1e-4, max_grad_norm=1.0):
+        self.model = model
+        self.optimizer = optimizer
+        self.z_loss_weight = z_loss_weight
+        self.max_grad_norm = max_grad_norm
+        self.loss_history = []
+
+    def compute_objective(self, logits: torch.Tensor, targets: torch.Tensor):
+        """Computes cross-entropy loss augmented with PaLM logit z-loss."""
+        # Standard cross-entropy loss
+        ce_loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+        
+        # PaLM logit z-loss: 1e-4 * mean((log sum exp(z))^2)
+        log_z = torch.logsumexp(logits, dim=-1)
+        z_loss = self.z_loss_weight * torch.mean(log_z ** 2)
+        
+        total_loss = ce_loss + z_loss
+        return total_loss, ce_loss, z_loss
+
+    def step(self, input_ids: torch.Tensor, targets: torch.Tensor, step_num: int):
+        self.optimizer.zero_grad()
+        
+        outputs = self.model(input_ids)
+        logits = outputs.logits if hasattr(outputs, "logits") else outputs
+        total_loss, ce_loss, z_loss = self.compute_objective(logits, targets)
+        
+        total_loss.backward()
+        
+        # 1. Telemetry: Compute pre-clip global gradient norm
+        total_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+        grad_norm_val = float(total_norm)
+
+        # 2. Watchdog: Detect loss spikes (> 2.5x moving average of last 20 steps)
+        loss_val = ce_loss.item()
+        if len(self.loss_history) >= 20:
+            moving_avg = sum(self.loss_history[-20:]) / 20.0
+            if loss_val > 2.5 * moving_avg or torch.isnan(ce_loss) or torch.isinf(ce_loss):
+                print(f"[ALERT] Loss spike at step {step_num}! Current: {loss_val:.4f}, Avg: {moving_avg:.4f}")
+                print(f"        Grad Norm: {grad_norm_val:.2f}. Triggering PaLM rollback protocol...")
+                return {"status": "spike", "step": step_num, "loss": loss_val, "grad_norm": grad_norm_val}
+
+        # 3. Apply optimizer step if healthy
+        self.optimizer.step()
+        self.loss_history.append(loss_val)
+        return {"status": "ok", "loss": loss_val, "z_loss": z_loss.item(), "grad_norm": grad_norm_val}
+</tab>
+<tab label="QK-Norm attention" lang="python">
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class RMSNorm(nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # RMSNorm: x / sqrt(mean(x^2) + eps) * weight
+        variance = x.pow(2).mean(-1, keepdim=True)
+        return x * torch.rsqrt(variance + self.eps) * self.weight
+
+class StableAttention(nn.Module):
+    """Transformer Multi-Head Attention stabilized with QK-Norm (OLMo 2 / Gemma 2)."""
+    def __init__(self, hidden_dim: int, num_heads: int, head_dim: int):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = head_dim
+        
+        # Projection matrices without additive biases (Llama / PaLM practice)
+        self.q_proj = nn.Linear(hidden_dim, num_heads * head_dim, bias=False)
+        self.k_proj = nn.Linear(hidden_dim, num_heads * head_dim, bias=False)
+        self.v_proj = nn.Linear(hidden_dim, num_heads * head_dim, bias=False)
+        self.out_proj = nn.Linear(num_heads * head_dim, hidden_dim, bias=False)
+
+        # QK-Norm: Normalizes query and key vectors per head prior to dot product
+        self.q_norm = RMSNorm(head_dim)
+        self.k_norm = RMSNorm(head_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        b, s, _ = x.shape
+        q = self.q_proj(x).view(b, s, self.num_heads, self.head_dim)
+        k = self.k_proj(x).view(b, s, self.num_heads, self.head_dim)
+        v = self.v_proj(x).view(b, s, self.num_heads, self.head_dim)
+
+        # Apply QK-Norm: clamps maximum possible attention logit to sqrt(head_dim)
+        q = self.q_norm(q).transpose(1, 2)
+        k = self.k_norm(k).transpose(1, 2)
+        v = v.transpose(1, 2)
+
+        # FlashAttention / SDPA execution (guaranteed bounded attention logits)
+        attn_out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        attn_out = attn_out.transpose(1, 2).contiguous().view(b, s, -1)
+        return self.out_proj(attn_out)
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Logit soft-capping (Gemma 2)</strong> [6]: Instead of QK-Norm, Gemma 2 bounds attention and output logits using a hyperbolic tangent soft-cap: <tex>\text{logits} \leftarrow \text{cap} \times \tanh(\text{logits} / \text{cap})</tex> (with cap = 50 for attention and cap = 30 for output logits). This smoothly saturates extreme values without hard truncation.</li>
+<li><strong>Weight decay on normalization layers</strong>: Standard AdamW practices strictly exclude 1D normalization weights (LayerNorm/RMSNorm scale parameters) and embedding biases from weight decay, as shrinking scale parameters unnaturally inflates subsequent layer gradients.</li>
+<li><strong>Batch size vs learning rate scaling</strong>: The linear scaling rule (<tex>\eta \propto B</tex>) breaks down at large batch sizes (e.g. 4M tokens). Following the critical batch size framework, learning rate should scale with the square root of batch size (<tex>\eta \propto \sqrt{B}</tex>) once past the critical noise scale.</li>
+<li><strong>Loss spike post-mortems and dataset curation</strong>: Leading foundation model labs maintain an automated quarantine pipeline: any batch triggering a gradient norm <tex>> 5.0</tex> is isolated and parsed into raw text documents to refine quality filter heuristics (Lesson 18, Deduplication and Quality Filtering).</li>
+<li><strong>Gradient accumulation precision</strong>: When accumulating gradients across multiple micro-batches, accumulating directly into BF16 introduces rounding stagnation. High-performance frameworks accumulate gradients into an FP32 buffer before casting to BF16 for reduction.</li>
+<li><strong>FP8 delayed scaling stability</strong>: In FP8 training (e.g. with NVIDIA Transformer Engine), sudden activation spikes cause delayed scale factors to saturate. Stabilizing FP8 requires maintaining per-tensor maximum history windows and decaying scale updates conservatively.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="032-summary.png" caption="Training stability summary" optional="1">Mind map summarizing training stability: primary causes of loss spikes, QK-Norm and z-loss mathematical mechanics, the PaLM rewind-and-skip empirical protocol, and telemetry thresholds.</fig>
+<ul>
+<li>Training instabilities arise from four primary sources: unchecked attention logit growth, corrupted data batches, numerical overflow in low precision, and Adam optimizer momentum lag (<tex>\beta_2</tex> lag).</li>
+<li>Attention logit growth escalates query and key norms, causing dot-product logits to exceed 50 and collapsing softmax into a one-hot distribution with zero entropy.</li>
+<li>QK-Norm applies RMSNorm to queries and keys per head before the dot product, mathematically capping attention logits to <tex>\sqrt{d_{\text{head}}}</tex> (11.3 for <tex>d=128</tex>) and permanently preventing softmax saturation.</li>
+<li>Logit z-loss adds an auxiliary penalty <tex>\mathcal{L}_z = 10^{-4} (\log \sum \exp(z_i))^2</tex> to vocabulary logits, keeping the partition function centered and preventing numerical drift.</li>
+<li>The PaLM recovery recipe addresses data-induced spikes: rewind to a checkpoint 100 steps prior (flushing corrupted Adam momentum) and skip 200–500 data batches.</li>
+<li>Telemetry watchdogs track Global Gradient Norm, Update-to-Weight Ratio, Attention Logits, and Output Logit Norm every 10 steps to trigger automated interventions before divergence.</li>
+<li>Stability defaults for our pretraining run: BF16 precision, QK-Norm active across all layers, logit z-loss (<tex>10^{-4}</tex>), AdamW with <tex>\beta_2 = 0.95, \epsilon = 10^{-8}</tex>, no linear biases, and gradient clipping at 1.0.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Chowdhery et al. PaLM: Scaling Language Modeling with Pathways. <a href="https://arxiv.org/abs/2204.02311" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2204.02311</a>.<br>
+[2] Loshchilov &amp; Hutter. Decoupled Weight Decay Regularization (AdamW). <a href="https://arxiv.org/abs/1711.05101" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1711.05101</a>.<br>
+[3] Vaswani et al. Attention Is All You Need. <a href="https://arxiv.org/abs/1706.03762" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1706.03762</a>.<br>
+[4] Dubey et al. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[5] Wortsman et al. Small-scale Proxies for Large-scale Transformer Training Instabilities. <a href="https://arxiv.org/abs/2309.14322" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.14322</a>.<br>
+[6] Team et al. Gemma 2: Improving Open Language Models at a Practical Size. <a href="https://arxiv.org/abs/2408.00118" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2408.00118</a>.</p>

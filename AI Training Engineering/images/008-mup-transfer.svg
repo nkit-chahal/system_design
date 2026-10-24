@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Predicting Large Runs: Hyperparameter Transfer via muP</text>
+  <text x="25" y="48" class="sm" fill="#555">Maximal Update Parametrization (Yang et al., 2022) enables zero-shot hyperparameter transfer across model widths</text>
+
+  <!-- Left Box: Standard Parametrization (SP) -->
+  <rect x="25" y="70" width="370" height="195" rx="6" class="red"/>
+  <text x="40" y="96" class="title" fill="#900">Standard Parametrization (SP)</text>
+  <text x="40" y="118" class="sm">• Optimal learning rate shifts as width d increases</text>
+  <text x="40" y="136" class="sm">• Feature update magnitude explodes or vanishes</text>
+  <text x="40" y="154" class="sm">• Tuning on a 40M proxy fails on an 8B model</text>
+  <rect x="40" y="168" width="340" height="84" rx="4" class="white"/>
+  <text x="50" y="188" class="sm b" fill="#900">Prohibitive Tuning Cost:</text>
+  <text x="50" y="206" class="sm">Requires running repeated learning rate sweeps directly</text>
+  <text x="50" y="224" class="sm">on the full 256-GPU cluster ($100k+ per trial),</text>
+  <text x="50" y="242" class="sm">wasting massive amounts of compute budget.</text>
+
+  <!-- Right Box: Maximal Update Parametrization (muP) -->
+  <rect x="425" y="70" width="370" height="195" rx="6" class="green"/>
+  <text x="440" y="96" class="title" fill="#274e13">Maximal Update Parametrization (muP)</text>
+  <text x="440" y="118" class="sm">• Scales weights and learning rates by 1/d</text>
+  <text x="440" y="136" class="sm">• Feature representations update at constant scale</text>
+  <text x="440" y="154" class="sm">• Optimal learning rate is width-invariant</text>
+  <rect x="440" y="168" width="340" height="84" rx="4" class="white"/>
+  <text x="450" y="188" class="sm b" fill="#274e13">Zero-Shot Transfer Across Scale:</text>
+  <text x="450" y="206" class="sm">Sweep learning rates and weight decays on a cheap</text>
+  <text x="450" y="224" class="sm">40M proxy on 1 GPU; transfer the exact best</text>
+  <text x="450" y="242" class="sm">hyperparameters directly to 8B/70B models.</text>
+
+  <!-- Bottom Explanatory Banner -->
+  <rect x="25" y="280" width="770" height="55" rx="6" class="gray"/>
+  <text x="40" y="302" class="b">Engineering Advantage:</text>
+  <text x="40" y="322" class="sm">muP eliminates speculative guessing on giant runs. Tuning takes 1% of compute instead of burning 20% on failed sweeps.</text>
+</svg>

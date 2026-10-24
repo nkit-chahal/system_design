@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="360" viewBox="0 0 820 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .reserved{fill:url(#hatch);stroke:#999;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Anatomy of GPU Memory During LLM Training</text>
+  <text x="25" y="48" class="sm" fill="#555">Four distinct memory consumers share the GPU's High Bandwidth Memory (HBM)</text>
+
+  <!-- Main Stacked Bar Container -->
+  <!-- Total width 770 px (x=25 to 795), height 64 px (y=65 to 129) -->
+  <!-- Segments: Static Model States 340px, Activations 220px, Temp Buffers 110px, Allocator Headroom 100px -->
+  <rect x="25" y="65" width="340" height="64" class="orange"/>
+  <text x="195" y="93" text-anchor="middle" class="b">Static Model States (16 bytes/param)</text>
+  <text x="195" y="113" text-anchor="middle" class="sm">Weights (2B) + Grads (2B) + Master (4B) + Adam m, v (8B)</text>
+
+  <rect x="365" y="65" width="220" height="64" class="blue"/>
+  <text x="475" y="93" text-anchor="middle" class="b">Activation Memory</text>
+  <text x="475" y="113" text-anchor="middle" class="sm">Saved for backward chain rule</text>
+
+  <rect x="585" y="65" width="110" height="64" class="purple"/>
+  <text x="640" y="93" text-anchor="middle" class="b">Buffers</text>
+  <text x="640" y="113" text-anchor="middle" class="sm">Scratch &amp; Comms</text>
+
+  <rect x="695" y="65" width="100" height="64" class="reserved"/>
+  <text x="745" y="93" text-anchor="middle" class="b">Headroom</text>
+  <text x="745" y="113" text-anchor="middle" class="sm">Fragmentation</text>
+
+  <!-- Detailed explanatory cards below -->
+  <!-- Card 1: Static Model States -->
+  <rect x="25" y="150" width="180" height="115" rx="6" class="gray"/>
+  <text x="35" y="172" class="b" fill="#b45f06">1. Model States</text>
+  <text x="35" y="192" class="sm">• Fixed size throughout run</text>
+  <text x="35" y="210" class="sm">• Independent of batch size</text>
+  <text x="35" y="228" class="sm">• Dominated by Adam states</text>
+  <text x="35" y="246" class="sm">• Sharded by FSDP / ZeRO</text>
+
+  <!-- Card 2: Activations -->
+  <rect x="220" y="150" width="180" height="115" rx="6" class="gray"/>
+  <text x="230" y="172" class="b" fill="#1c4587">2. Activations</text>
+  <text x="230" y="192" class="sm">• Dynamic peak in forward</text>
+  <text x="230" y="210" class="sm">• Scales with b × s × h × L</text>
+  <text x="230" y="228" class="sm">• Quadratic without FlashAttn</text>
+  <text x="230" y="246" class="sm">• Cut by recomputation</text>
+
+  <!-- Card 3: Temporary Buffers -->
+  <rect x="415" y="150" width="180" height="115" rx="6" class="gray"/>
+  <text x="425" y="172" class="b" fill="#4c1130">3. Workspaces &amp; Buffers</text>
+  <text x="425" y="192" class="sm">• cuBLAS / FlashAttn scratch</text>
+  <text x="425" y="210" class="sm">• FSDP / DDP comm buckets</text>
+  <text x="425" y="228" class="sm">• Logits &amp; cross-entropy loss</text>
+  <text x="425" y="246" class="sm">• Ephemeral spikes per step</text>
+
+  <!-- Card 4: Fragmentation -->
+  <rect x="610" y="150" width="185" height="115" rx="6" class="gray"/>
+  <text x="620" y="172" class="b" fill="#333">4. Allocator &amp; Driver</text>
+  <text x="620" y="192" class="sm">• PyTorch caching allocator</text>
+  <text x="620" y="210" class="sm">• Reserved vs allocated gap</text>
+  <text x="620" y="228" class="sm">• Non-contiguous chunk holes</text>
+  <text x="620" y="246" class="sm">• CUDA context (~1-2 GB)</text>
+
+  <!-- Contrast banner at bottom -->
+  <rect x="25" y="285" width="770" height="55" rx="6" class="white"/>
+  <text x="38" y="307" class="sm"><tspan class="b">Contrast with Inference:</tspan> Needs only weights (2B) + KV cache + minimal single-step activations.</text>
+  <text x="38" y="326" fill="#555" class="sm">Training requires 16 bytes/param for optimizer states and gradients, plus forward activation history for backprop.</text>
+</svg>

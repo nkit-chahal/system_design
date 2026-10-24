@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .lg { font-size: 16px; }
+    .b { font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .yellow { fill: #fff2cc; stroke: #d6b656; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #000; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="410" y="24" text-anchor="middle" class="lg b">Tensor Parallelism Scaling: Llama 3.1 8B versus 70B</text>
+
+  <!-- Left: 8B Model -->
+  <rect x="30" y="45" width="365" height="225" rx="5" class="gray"/>
+  <text x="212" y="68" text-anchor="middle" class="b">Llama 3.1 8B (16.1 GB Weights, 32 Layers)</text>
+
+  <rect x="50" y="80" width="325" height="30" rx="3" class="green"/>
+  <text x="60" y="100" class="sm b">TP = 1 (No TP):</text>
+  <text x="180" y="100" class="sm">Weights: 16.1 GB | Comm: 0 GB (Recommended)</text>
+
+  <rect x="50" y="115" width="325" height="30" rx="3" class="white"/>
+  <text x="60" y="135" class="sm b">TP = 2:</text>
+  <text x="130" y="135" class="sm">Weights: 8.0 GB | Comm: 8.6 GB (9.5 ms)</text>
+
+  <rect x="50" y="150" width="325" height="30" rx="3" class="white"/>
+  <text x="60" y="170" class="sm b">TP = 4:</text>
+  <text x="130" y="170" class="sm">Weights: 4.0 GB | Comm: 12.9 GB (14.3 ms)</text>
+
+  <rect x="50" y="185" width="325" height="30" rx="3" class="white"/>
+  <text x="60" y="205" class="sm b">TP = 8:</text>
+  <text x="130" y="205" class="sm">Weights: 2.0 GB | Comm: 15.0 GB (16.7 ms)</text>
+
+  <text x="212" y="245" text-anchor="middle" class="sm b" fill="#2b5797">Verdict: TP unnecessary for 8B; FSDP alone fits easily</text>
+
+  <!-- Right: 70B Model -->
+  <rect x="425" y="45" width="365" height="225" rx="5" class="gray"/>
+  <text x="607" y="68" text-anchor="middle" class="b">Llama 3.1 70B (141.1 GB Weights, 80 Layers)</text>
+
+  <rect x="445" y="80" width="325" height="30" rx="3" class="red"/>
+  <text x="455" y="100" class="sm b">TP = 1:</text>
+  <text x="515" y="100" class="sm">Weights: 141.1 GB (Cannot fit on 80 GB GPU)</text>
+
+  <rect x="445" y="115" width="325" height="30" rx="3" class="yellow"/>
+  <text x="455" y="135" class="sm b">TP = 2:</text>
+  <text x="515" y="135" class="sm">Weights: 70.6 GB (Exceeds memory with Adam)</text>
+
+  <rect x="445" y="150" width="325" height="30" rx="3" class="white"/>
+  <text x="455" y="170" class="sm b">TP = 4:</text>
+  <text x="515" y="170" class="sm">Weights: 35.3 GB | Comm: 64.4 GB (71.6 ms)</text>
+
+  <rect x="445" y="185" width="325" height="30" rx="3" class="green"/>
+  <text x="455" y="205" class="sm b">TP = 8:</text>
+  <text x="515" y="205" class="sm">Weights: 17.6 GB | Comm: 75.2 GB (83.5 ms)</text>
+
+  <text x="607" y="245" text-anchor="middle" class="sm b" fill="#82b366">Verdict: TP=8 across 8-GPU NVLink node is standard</text>
+
+  <!-- Bottom Summary Callout -->
+  <rect x="30" y="280" width="760" height="32" rx="4" class="yellow"/>
+  <text x="410" y="301" text-anchor="middle" class="sm b">Summary: Tensor Parallelism is reserved for models exceeding ~30B parameters where layers must be partitioned to run efficiently</text>
+</svg>

@@ -1,0 +1,438 @@
+<h2>Introduction</h2>
+<p>Training a foundation model requires more than feeding an undifferentiated firehose of text into an optimization loop. A modern large language model learns world facts, algorithmic reasoning, linguistic grammar, mathematical deduction, and conversational nuance simultaneously. These distinct capabilities do not reside in a single uniform corpus; they originate in wildly disparate data domains—filtered web scrapes, source code repositories, scientific papers, digitized books, and multilingual documents [1].</p>
+<p>The <strong>data mixture</strong>—the precise mathematical proportion allocated to each domain in the training stream—acts as the foundational genetic blueprint of the model. Allocating too little code damages the model's ability to plan and follow strict syntax, while allocating too much unstructured web text floods the parameters with low-density boilerplate. Deciding how to mix these sources, how many <strong>epochs</strong> of repetition scarce high-quality domains can tolerate, and how to schedule the data over time via a <strong>curriculum</strong> is what separates an average model from a frontier system [2].</p>
+<fig src="020-mixture-overview.svg" caption="The pretraining data mixture architecture">Heterogeneous data sources—curated web, source code, math and science, multilingual corpora, and books—are assigned explicit target weights. A deterministic, resumable streaming sampler draws examples according to these proportions and packs them into 8,192-token sequences to construct the global pretraining batch of 4 million tokens per step.</fig>
+<p>In this lesson, we examine the quantitative trade-offs among pretraining domains, analyze how mixture proportions are selected using proxy models and empirical scaling laws (DoReMi and RegMix), establish the bounds on data repetition, evaluate curriculum learning and late-stage <strong>annealing</strong>, hedge the role of synthetic data, construct a complete 1-trillion-token data mixture budget for our 256-GPU cluster, and implement a deterministic, resumable weighted data loader in PyTorch.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In an AI infrastructure and modeling interview, data mixture and curriculum questions typically begin with a capacity or quality trade-off under a fixed token budget. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: What model architecture, parameter count, and token budget are we targeting for this pretraining run?<br>
+<strong>Interviewer</strong>: We are pretraining a model with the Llama 3.1 8B architecture—8.03 billion parameters across 32 layers, hidden dimension 4,096, sequence length 8,192—on a fixed budget of 1.0 trillion tokens. We are training on 256 NVIDIA H100 GPUs across 32 nodes for approximately 5.5 days.</p>
+<p><strong>Candidate</strong>: What raw data corpora do we have available, and what are their estimated clean volumes?<br>
+<strong>Interviewer</strong>: We have over 15 trillion tokens of filtered Common Crawl web data, about 2 trillion tokens of GitHub and open-source code, 300 billion tokens of mathematical and scientific papers, 500 billion tokens of books, and 1.5 trillion tokens of multilingual text across 20 languages.</p>
+<p><strong>Candidate</strong>: Are we allowed to repeat data from scarce, high-density domains such as math and code?<br>
+<strong>Interviewer</strong>: Yes, provided the repetition does not induce overfitting, memorization, or degradation in downstream general knowledge.</p>
+<p><strong>Candidate</strong>: What is the primary evaluation objective?<br>
+<strong>Interviewer</strong>: A balanced frontier model: strong general knowledge (MMLU), strong programming capability (HumanEval), robust multi-step reasoning (GSM8K), and solid cross-lingual comprehension, without loss spikes during training.</p>
+<p><strong>Candidate</strong>: Should the data mixture remain constant throughout the run, or should we alter the distribution near the end?<br>
+<strong>Interviewer</strong>: We want you to determine whether a stationary mixture or a multi-stage curriculum with annealing yields the best return on our 1T-token compute budget.</p>
+<p>The question underneath is: <em>How do we allocate our 1-trillion-token budget across scarce and abundant domains, determine safe repetition limits, optimize mixing weights without wasting cluster compute, and design a curriculum that maximizes reasoning without causing catastrophic forgetting?</em> To answer it, we begin by analyzing the unique properties and trade-offs of each data source.</p>
+
+<h2>The Pretraining Domain Spectrum</h2>
+<p>A pretraining corpus is composed of distinct data modalities, each contributing unique inductive biases and representations to the transformer's self-attention and feed-forward layers [3]. Understanding these domains is essential before assigning mathematical mixing weights.</p>
+<fig src="020-domain-tradeoffs.svg" caption="The pretraining domain trade-off space">Comparison of the five primary pretraining domains across token volume availability, reasoning density, downstream capability transfer, and safe repetition bounds.</fig>
+
+<h3>1. Curated Web Text</h3>
+<p>Web text extracted from dumps such as Common Crawl (e.g., FineWeb or RefinedWeb) constitutes the vast majority of raw tokens available to AI practitioners [4]. It provides the foundation for general world knowledge, facts, trivia, commonsense reasoning, and colloquial dialogue. However, raw web text is dominated by SEO spam, cookie banners, navigation links, machine-translated gibberish, and toxic commentary. Even after rigorous heuristic and perplexity filtering (Lesson 18, Deduplication and Quality Filtering), web text exhibits moderate information density. Because web tokens exist in multi-trillion quantities, models rarely need to repeat web data; it is consumed in a single epoch.</p>
+
+<h3>2. Source Code and Repositories</h3>
+<p>Corpora such as GitHub, BigCode's The Stack, and StarCoder contain source code across hundreds of programming languages, compiler configurations, documentation, and technical commit histories [5]. Beyond enabling programming synthesis (HumanEval, MBPP), code data provides a profound structural benefit: it forces the language model to learn strict syntax, hierarchical parsing, variable tracking, long-range dependency resolution, and algorithmic execution. Empirical research confirms that training on code improves performance on natural language reasoning tasks that contain no executable code [6]. High-quality code is moderately abundant (1 to 2 trillion clean tokens) and tolerates 2 to 3 epochs of repetition.</p>
+
+<h3>3. Mathematics and Scientific Literature</h3>
+<p>Comprising arXiv preprints, PubMed papers, and specialized mathematical web scrapes (such as OpenWebMath [7]), this domain contains the highest density of multi-step logical deduction, formal proofs, symbolic equations, and analytical problem-solving. It directly drives performance on benchmarks like GSM8K and MATH. However, clean mathematical tokens are extremely scarce—rarely exceeding 300 to 500 billion unique tokens globally. Furthermore, standard tokenizers often tokenize LaTeX equations inefficiently (Lesson 19, Tokenizers). Because mathematical reasoning is concept-dense rather than fact-memorizing, math corpora can tolerate 3 to 4 epochs of repetition before exhibiting deleterious memorization.</p>
+
+<h3>4. Books and Long-Form Prose</h3>
+<p>Digitized books (such as Project Gutenberg and literary archives) provide continuous, grammatically rich, long-form narratives spanning tens of thousands of tokens per document. Unlike fragmented web articles, books train the attention mechanism to track characters, narrative arcs, and thematic consistency across full 8,192-token contexts. The primary constraints are copyright restrictions and archaic vocabulary in public-domain sets. Books represent approximately 500 billion unique tokens and are typically sampled for 1.0 to 1.5 epochs.</p>
+
+<h3>5. Multilingual Corpora</h3>
+<p>Web scrapes and news feeds in non-English languages expand the model's global applicability and enable cross-lingual knowledge transfer [8]. However, mixing multilingual data introduces a subtle tokenization penalty: byte-pair encoding vocabularies trained predominantly on English allocate fewer merge tokens to non-Latin scripts (e.g., Cyrillic, Arabic, Devanagari, or East Asian characters). This higher <strong>token fertility</strong> increases the sequence length required to express a given concept, consuming more compute per sentence. Frontier models typically allocate 8% to 20% of their mixture to non-English tokens to maintain broad linguistic competence without diluting English reasoning throughput.</p>
+
+<h2>Choosing Mixture Weights: Heuristics to Automated Laws</h2>
+<p>Historically, pretraining mixtures were determined through trial-and-error heuristics or human intuition (such as the original Pile mixture [1]). In modern foundation model training, where a single training run costs over $100,000 on 256 H100 GPUs, empirical and automated techniques are required to find optimal mixing weights.</p>
+<fig src="020-doremi-regmix.svg" caption="Automated mixture optimization: DoReMi versus RegMix">Two modern paradigms for data mixture selection. Left: DoReMi uses Group Distributionally Robust Optimization (Group DRO) on a 280M proxy model to dynamically upweight domains with high excess loss, transferring weights to an 8B model to achieve 2.6× faster convergence. Right: RegMix samples hundreds of random mixture proportions on 1M–10M parameter proxy models, fits a regression surface mapping mixture weights to loss, and simulates millions of mixtures to find the global optimum at 10% of DoReMi's compute cost.</fig>
+
+<h3>Proxy-Model Ablations</h3>
+<p>The standard baseline approach trains small <strong>proxy models</strong> (e.g., 100M to 300M parameters) on a reduced token budget (e.g., 5 to 10 billion tokens) across a grid of candidate mixtures [3]. Downstream evaluations and validation perplexities are measured to identify the strongest mixture. While intuitive, brute-force grid search suffers from a combinatorial explosion: evaluating five domains at 10% granularity requires exploring dozens of mixtures, consuming tens of thousands of GPU-hours on exploratory runs.</p>
+
+<h3>DoReMi: Domain Reweighting with Minimax Optimization</h3>
+<p>To eliminate manual tuning, Xie et al. introduced <strong>DoReMi</strong> (Domain Reweighting with Minimax Optimization) [9]. DoReMi frames mixture selection as a game between a learner and an adversary without requiring downstream benchmark labels:</p>
+<ol>
+<li><strong>Reference Model</strong>: Train a small reference model (e.g., 280M parameters) using a uniform or heuristic domain mixture <tex>\alpha_0</tex>.</li>
+<li><strong>Proxy Model with Group DRO</strong>: Train a small proxy model of the same size using <strong>Group Distributionally Robust Optimization</strong> (Group DRO). At each step <tex>t</tex>, the proxy model measures the <em>excess loss</em> (regret) on domain <tex>k</tex> relative to the reference model:
+<texblock>r_k(t) = \mathcal{L}_k(\theta_t) - \mathcal{L}_k(\theta_{\text{ref}})</texblock>
+The domain weights <tex>\alpha(t)</tex> are updated via exponentiated gradient ascent to prioritize domains where the proxy model lags furthest behind the reference model:
+<texblock>\alpha_k(t+1) = \frac{\alpha_k(t) \exp(\eta r_k(t))}{\sum_{j=1}^K \alpha_j(t) \exp(\eta r_j(t))}</texblock>
+where <tex>\eta</tex> is the step size.</li>
+<li><strong>Transfer to Full Scale</strong>: Average the domain weights produced over the proxy run and use them to train the full-scale model (e.g., 8B parameters).</li>
+</ol>
+<p>Xie et al. demonstrated that domain weights derived from a 280M proxy model transferred directly to an 8B model (a 30× scale factor), reaching the baseline model's downstream benchmark accuracy <strong>2.6× faster</strong> on The Pile [9].</p>
+
+<h3>RegMix and Data Mixing Laws</h3>
+<p>While DoReMi optimizes worst-case domain regret, it does not directly predict downstream benchmark performance. Liu et al. introduced <strong>RegMix</strong> (Data Mixture as Regression for Language Model Pre-training) [10], which treats data mixture selection as an empirical regression problem:</p>
+<ol>
+<li><strong>Dirichlet Sampling</strong>: Sample 256 to 512 diverse mixture weight vectors <tex>\vec{\alpha} = (\alpha_1, \alpha_2, \dots, \alpha_K)</tex> from a Dirichlet distribution.</li>
+<li><strong>Massive Micro-Proxy Training</strong>: Train hundreds of ultra-small proxy models (e.g., 1M to 10M parameters) on a small token slice (e.g., 1 billion tokens each). Because these models are tiny, training 512 models consumes less than 10% of the compute required for a single 1B-parameter ablation run.</li>
+<li><strong>Regression Fitting</strong>: Fit a regression model (e.g., Ridge regression, Random Forest, or Neural Network) mapping mixture proportions <tex>\vec{\alpha}</tex> to validation loss or downstream task accuracy:
+<texblock>\hat{\mathcal{L}}(\vec{\alpha}) = \sum_{k=1}^K w_k \alpha_k + \sum_{i \le j} w_{ij} \alpha_i \alpha_j + b</texblock>
+where interaction terms <tex>\alpha_i \alpha_j</tex> capture non-linear synergies between domains.</li>
+<li><strong>Simulation and Optimization</strong>: Evaluate millions of synthetic mixture vectors through the fitted regression model in seconds, finding the Pareto-optimal mixture vector <tex>\vec{\alpha}^*</tex> that minimizes target loss.</li>
+</ol>
+<p>Concurrently, Ye et al. established formal <strong>Data Mixing Laws</strong> [11], proving that multi-domain loss follows a predictable scaling surface governed by parameter capacity and domain transferability. Their findings revealed that code and web text exhibit strong positive transfer, whereas high-capacity models require higher code and math ratios than smaller models to fully saturate their representational capacity.</p>
+
+<table>
+<thead>
+<tr>
+<th>Strategy</th>
+<th>Compute Overhead</th>
+<th>Downstream Task Aware?</th>
+<th>Key Advantage</th>
+<th>Primary Limitation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Heuristic / Manual</strong></td>
+<td>Zero extra compute</td>
+<td>No</td>
+<td>Simple; based on human domain intuition</td>
+<td>Suboptimal; misses cross-domain synergies</td>
+</tr>
+<tr>
+<td><strong>Proxy Ablation Grid</strong></td>
+<td>High (15%–30% of run)</td>
+<td>Yes (evaluates proxies)</td>
+<td>Direct validation of specific candidate mixes</td>
+<td>Combinatorial bottleneck; explores few points</td>
+</tr>
+<tr>
+<td><strong>DoReMi (Group DRO)</strong></td>
+<td>Moderate (5%–10% of run)</td>
+<td>No (unsupervised regret)</td>
+<td>2.6× training speedup; provably robust weights</td>
+<td>Minimizes worst-case loss; cannot target specific benchmarks</td>
+</tr>
+<tr>
+<td><strong>RegMix / Mixing Laws</strong></td>
+<td>Low (1%–3% of run)</td>
+<td>Yes (predicts task loss)</td>
+<td>Simulates millions of mixes; captures domain synergy</td>
+<td>Requires robust regression fit across micro-proxies</td>
+</tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Comparison of data mixture optimization methodologies</p>
+
+<h2>Repetition, Epochs, and Data-Constrained Scaling</h2>
+<p>In classical machine learning, training for multiple epochs over a fixed dataset is standard practice. In modern large language model pretraining, Chinchilla scaling laws (Hoffmann et al., 2022 [12]; see Lesson 8, Scaling Laws) historically assumed that models should be trained on uniquely sampled tokens in a single epoch (<tex>D_{\text{unique}} = D_{\text{train}}</tex>). However, as pretraining budgets expand toward tens of trillions of tokens, high-quality human text is being exhausted.</p>
+<p>To quantify the exact degradation incurred when repeating data, Muennighoff et al. conducted extensive empirical studies in <em>Scaling Data-Constrained Language Models</em> [13]. Their findings establish three clear operational regimes:</p>
+<fig src="020-repetition-epochs.svg" caption="Impact of data repetition on validation loss (illustrative)">Empirical validation loss trajectories across repetition regimes. Unique data yields optimal scaling. Repeating data for up to 2 epochs causes no perceptible loss degradation. Up to 4 epochs incurs negligible loss (< 0.1%), making repetition highly effective for scarce domains. Beyond 4 epochs, severe memorization causes validation loss to plateau or diverge.</fig>
+<ul>
+<li><strong>1.0 to 2.0 Epochs</strong>: Training for up to two full passes over high-quality data yields performance indistinguishable from training on entirely unique tokens. The parameter updates continue to extract generalized linguistic and factual patterns without memorization.</li>
+<li><strong>2.0 to 4.0 Epochs</strong>: Between two and four passes, models experience minor diminishing returns. The validation loss gap between repeated data and unique data remains below 0.1%, which is negligible compared to the massive reasoning gains achieved by including dense mathematical or code corpora.</li>
+<li><strong>Beyond 4.0 Epochs</strong>: When repetition exceeds 4 to 5 passes, the rate of learning decays sharply. The model begins memorizing specific sequences, training loss continues to drop while validation loss on held-out text plateaus or diverges, and downstream generalization collapses.</li>
+</ul>
+<p>This empirical rule dictates our mixture design: abundant domains (curated web and multilingual) must receive exactly <strong>1.0 epoch</strong> (zero repetition), whereas scarce, high-density domains (code, mathematics, and academic science) can be safely repeated for <strong>2.0 to 3.0 epochs</strong> to hit target token allocations.</p>
+
+<h2>Curriculum Learning, Annealing, and Context Extension</h2>
+<h3>Curriculum Learning: Mixed Evidence</h3>
+<p>Curriculum learning, introduced by Bengio et al. [14], hypothesizes that neural networks learn faster and achieve better generalization when trained on easy examples first before advancing to complex concepts. In the context of LLMs, researchers have tested curricula based on sentence length, vocabulary complexity, reading level, and domain sequencing (e.g., training purely on Wikipedia and books before introducing raw web scrapes).</p>
+<p>However, extensive empirical investigations across foundation model pretraining have yielded <strong>mixed evidence</strong> [15]. Rigid early-stage curricula often induce catastrophic forgetting: a model trained exclusively on simple prose in early phases rapidly forgets those distributions when abruptly transitioned to technical code and mathematics. In practice, maintaining a <strong>stationary, uniform mixture</strong> across the vast majority of pretraining (90% to 95% of total tokens) proves remarkably robust, preventing domain drift while allowing all attention heads to develop balanced representations.</p>
+
+<h3>Late-Stage Annealing (Mid-Training)</h3>
+<p>While an early-stage curriculum provides questionable value, a late-stage curriculum—known as <strong>annealing</strong> or <strong>mid-training</strong>—has emerged as one of the most powerful techniques in frontier model engineering [2] [16].</p>
+<fig src="020-curriculum-annealing.svg" caption="Pretraining curriculum: phased context and annealing">The three-stage pretraining curriculum for Llama 3.1 8B. Stage 1 executes 95% of the run on an 8,192-token context with a stationary mixture and cosine learning rate decay. Stage 2 extends the context window to 32k/128k using RoPE scaling over 10B tokens. Stage 3 executes an annealing phase over the final 40B tokens, linearly decaying learning rate to zero while upsampling high-quality code and math to 80% of the stream.</fig>
+<p>In <em>The Llama 3 Herd of Models</em> [2], Meta detailed how annealing dramatically boosts downstream benchmark performance. During standard pretraining, the learning rate follows a cosine decay schedule. In the final phase of pretraining (covering the final 40 million to 40 billion tokens), two critical adjustments are applied simultaneously:</p>
+<ol>
+<li><strong>Data Distribution Shift</strong>: The pretraining mixture is dynamically altered to heavily upsample high-quality mathematical reasoning, algorithmic code, and curated instructional datasets, pushing their combined weight from ~32% to over 70%–80% of the active token stream.</li>
+<li><strong>Linear Learning Rate Decay to Zero</strong>: The learning rate is annealed linearly from its current value down to exactly zero.</li>
+<li><strong>Model Checkpoint Averaging</strong>: Multiple checkpoints saved across the annealing window are combined using uniform Polyak averaging to produce the final pre-trained weights.</li>
+</ol>
+<p>Meta reported that this late-stage annealing phase yielded dramatic gains on reasoning benchmarks for the Llama 3 8B model: validation accuracy on <strong>GSM8K surged by 24.0%</strong>, and performance on <strong>MATH improved by 6.4%</strong>, all without degrading general knowledge or reading comprehension [2]. Annealing acts as a low-cost alignment bridge between broad pretraining and post-training fine-tuning.</p>
+
+<h3>Phased Long-Context Extension</h3>
+<p>Modern foundation models support context windows of 32,768 to 131,072 tokens. However, training an 8B model from token 0 on 128k sequences is computationally prohibitive because self-attention memory and compute scale quadratically without specialized context parallelism (Lesson 12, Tensor, Sequence and Context Parallelism).</p>
+<p>The standard industry solution is a <strong>phased context curriculum</strong> [2]:</p>
+<ul>
+<li><strong>Phase 1 (Base Pretraining)</strong>: Train for 95% of the total budget (e.g., 950 billion tokens) at a standard context length of 8,192 tokens. This captures foundational language modeling and knowledge representations at maximum hardware MFU.</li>
+<li><strong>Phase 2 (Context Extension)</strong>: Increase the context window incrementally (e.g., 8k <tex>\to</tex> 32k <tex>\to</tex> 128k) over a small token slice (e.g., 10 to 50 billion tokens). During this phase, the Rotary Position Embedding (RoPE) base frequency <tex>\theta</tex> is scaled upward (e.g., from 10,000 to 500,000) to adjust frequency wavelengths for long sequences.</li>
+<li><strong>Phase 3 (Annealing)</strong>: Execute the final high-quality annealing phase at the target long-context window.</li>
+</ul>
+
+<h2>Synthetic Data in Pretraining</h2>
+<p>With high-quality human text approaching exhaustion, synthetic data generated by frontier models (such as GPT-4 or Claude 3.5 Sonnet) has gained significant traction. Pioneer studies such as Microsoft's <em>Textbooks Are All You Need</em> (Phi-1 and Phi-2 [17]) and Hugging Face's <em>Cosmopedia</em> [18] showed that training smaller models on synthetic textbooks, coding exercises, and synthetic web syntheses can achieve remarkably high benchmark scores with relatively few tokens.</p>
+<p>However, claims regarding synthetic pretraining data must be heavily <strong>hedged</strong> in production environments:</p>
+<ul>
+<li><strong>Evaluation Benchmark Contamination</strong>: When frontier models are prompted to generate synthetic "reasoning exercises", their outputs often mirror the exact stylistic patterns and problem templates found in public evaluation sets (GSM8K, HumanEval, ARC). High benchmark scores can reflect latent memorization rather than generalized reasoning.</li>
+<li><strong>Diversity and Tail Collapse</strong>: Synthetic data generators reflect the mode of their own training distributions. They lack the chaotic, idiosyncratic edge cases, obscure cultural references, and typographical anomalies present in real-world human writing. Training exclusively or excessively on synthetic data leads to <strong>model collapse</strong> and severe hallucinations on out-of-distribution prompts [19].</li>
+<li><strong>Stylistic Homogenization</strong>: Synthetic corpora frequently repeat distinct conversational boilerplate ("Certainly! Here is an explanation...", "In conclusion, it is important to remember..."), which degrades the base model's stylistic versatility.</li>
+</ul>
+<callout kind="tip" title="Production rule of thumb">Treat synthetic data as a targeted spice rather than the main meal. Allocate between 5% and 15% of your pretraining budget to synthetic data, focusing strictly on domains where human data is deficient (e.g., step-by-step mathematical solutions and unit-tested code explanation). Always execute MinHash deduplication between synthetic training prompts and evaluation test sets.</callout>
+
+<h2>Worked Example: A 1T-Token Mixture for Our Pretraining Run</h2>
+<p>We now size the complete data mixture for our running pretraining scenario: training a model with the <strong>Llama 3.1 8B architecture</strong> (8.03 billion parameters) on <strong>1.0 trillion tokens</strong> across <strong>256 NVIDIA H100 GPUs</strong>.</p>
+<fig src="020-token-allocation.svg" caption="1T-token pretraining mixture budget for Llama 3.1 8B">Detailed breakdown of total training tokens versus unique dataset tokens required. Web, multilingual, and books are consumed in 1.0 epoch, while code and math are repeated for 2.0 and 3.0 epochs respectively, requiring 820B unique tokens to deliver 1,000B trained tokens.</fig>
+
+<h3>The 1T-Token Mixture Budget</h3>
+<p>Applying the empirical findings of DoReMi, RegMix, and repetition scaling laws, we establish the target domain allocation:</p>
+<ul>
+<li><strong>Curated Web (55% = 550B tokens)</strong>: Filtered Common Crawl (FineWeb). Abundant unique data; 1.0 epoch (550B unique tokens).</li>
+<li><strong>Source Code (20% = 200B tokens)</strong>: GitHub repositories, documentation, and technical commits. We use 100B unique tokens repeated for <strong>2.0 epochs</strong>.</li>
+<li><strong>Mathematics & Science (12% = 120B tokens)</strong>: arXiv papers and OpenWebMath. We use 40B unique tokens repeated for <strong>3.0 epochs</strong>.</li>
+<li><strong>Multilingual Text (8% = 80B tokens)</strong>: Curated web and news across 20 high-resource languages; 1.0 epoch (80B unique tokens).</li>
+<li><strong>Books & Long-Form Prose (5% = 50B tokens)</strong>: Project Gutenberg and high-quality literary archives; 1.0 epoch (50B unique tokens).</li>
+</ul>
+
+<table>
+<thead>
+<tr>
+<th>Domain Source</th>
+<th>Target Weight (%)</th>
+<th>Total Tokens Trained</th>
+<th>Unique Tokens Required</th>
+<th>Repetition (Epochs)</th>
+<th>Primary Capability Target</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Curated Web (FineWeb)</strong></td>
+<td>55.0%</td>
+<td>550 Billion</td>
+<td>550 Billion</td>
+<td>1.0</td>
+<td>General world knowledge, facts, fluency</td>
+</tr>
+<tr>
+<td><strong>Source Code (GitHub)</strong></td>
+<td>20.0%</td>
+<td>200 Billion</td>
+<td>100 Billion</td>
+<td>2.0</td>
+<td>Algorithmic logic, syntax, reasoning</td>
+</tr>
+<tr>
+<td><strong>Math &amp; Science (arXiv)</strong></td>
+<td>12.0%</td>
+<td>120 Billion</td>
+<td>40 Billion</td>
+<td>3.0</td>
+<td>Multi-step deduction, formal proofs</td>
+</tr>
+<tr>
+<td><strong>Multilingual (20 languages)</strong></td>
+<td>8.0%</td>
+<td>80 Billion</td>
+<td>80 Billion</td>
+<td>1.0</td>
+<td>Cross-lingual transfer, global reach</td>
+</tr>
+<tr>
+<td><strong>Books &amp; High-Quality Prose</strong></td>
+<td>5.0%</td>
+<td>50 Billion</td>
+<td>50 Billion</td>
+<td>1.0</td>
+<td>Long-range coherence, narrative structure</td>
+</tr>
+<tr>
+<td><strong>Total Pretraining Run</strong></td>
+<td><strong>100.0%</strong></td>
+<td><strong>1,000 Billion (1T)</strong></td>
+<td><strong>820 Billion</strong></td>
+<td><strong>1.22 (avg)</strong></td>
+<td><strong>Balanced 8B Foundation Model</strong></td>
+</tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: 1-trillion-token pretraining data mixture and repetition accounting</p>
+<p>Notice the arithmetic: by safely repeating 100B tokens of code across 2.0 epochs and 40B tokens of mathematics across 3.0 epochs, our pipeline requires <strong>820 billion unique clean tokens</strong> to deliver 1,000 billion tokens of training compute. This saves 180 billion tokens of expensive data collection while remaining strictly within Muennighoff et al.'s safe repetition threshold (< 4 epochs) [13].</p>
+
+<h3>The Annealing Sub-Mixture</h3>
+<p>For the final 40 billion tokens of the run (from token 960B to 1,000B), the data loader dynamically shifts mixture weights to the annealing distribution: <strong>40% Mathematics</strong>, <strong>40% Source Code</strong>, and <strong>20% Curated Web</strong>. Concurrently, the optimizer learning rate linearly decays from <tex>3 \times 10^{-5}</tex> down to zero.</p>
+
+<h4>Which mixture strategy fits our run?</h4>
+<p>For our 256-GPU cluster pretraining Llama 3.1 8B, we select a <strong>two-stage hybrid strategy: RegMix optimization on micro-proxies followed by late-stage annealing</strong>. We run RegMix across 256 micro-models (10M parameters each) consuming less than 1,000 GPU-hours (< 3% of our 33,800 GPU-hour budget) to tune exact code and math interaction coefficients. We execute the main pretraining phase (0 to 960B tokens) using this stationary mixture at 8,192 sequence length. In the final 40B tokens, we transition to our high-quality annealing mix with linear learning rate decay. This maximizes compute efficiency, avoids early curriculum instability, and delivers peak reasoning performance on GSM8K and HumanEval.</p>
+
+<h2>In Practice</h2>
+<p>The first tab implements a deterministic, multi-source weighted streaming sampler in PyTorch. It samples tokens according to target domain weights, handles infinite cycling for repeated sources, and maintains resumable state pointers so that training can be paused and restarted without skipping or duplicating data. The second tab implements an annealing controller that dynamically adjusts domain sampling weights and manages linear learning rate decay during the final phase of pretraining.</p>
+
+<codetabs>
+<tab label="Resumable Sampler" lang="python">
+import json
+import random
+from typing import Dict, Iterator, List, Any
+import numpy as np
+
+class ResumableWeightedDataSampler:
+    """
+    Deterministic, resumable multi-source weighted data loader.
+    Samples tokens across heterogeneous domains according to target probabilities.
+    Supports state_dict and load_state_dict for seamless checkpoint resumption.
+    """
+    def __init__(
+        self,
+        domain_files: Dict[str, List[str]],
+        target_weights: Dict[str, float],
+        seed: int = 42,
+        tokens_per_sample: int = 8192
+    ):
+        self.domain_names = sorted(target_weights.keys())
+        total_w = sum(target_weights[d] for d in self.domain_names)
+        self.probabilities = np.array([target_weights[d] / total_w for d in self.domain_names], dtype=np.float64)
+        
+        self.seed = seed
+        self.rng = np.random.default_rng(seed)
+        self.tokens_per_sample = tokens_per_sample
+        
+        # State tracking per domain: shard index and document offset
+        self.domain_shards = domain_files
+        self.state = {
+            d: {"shard_idx": 0, "doc_offset": 0, "epoch": 0}
+            for d in self.domain_names
+        }
+        self.total_tokens_yielded = 0
+
+    def state_dict(self) -> Dict[str, Any]:
+        """Serialize sampler state for checkpointing."""
+        return {
+            "state": {d: dict(v) for d, v in self.state.items()},
+            "total_tokens_yielded": self.total_tokens_yielded,
+            "rng_state": self.rng.bit_generator.state
+        }
+
+    def load_state_dict(self, checkpoint: Dict[str, Any]) -> None:
+        """Restore exact sampler state from checkpoint."""
+        self.state = {d: dict(v) for d, v in checkpoint["state"].items()}
+        self.total_tokens_yielded = checkpoint["total_tokens_yielded"]
+        self.rng.bit_generator.state = checkpoint["rng_state"]
+
+    def sample_batch(self, batch_size: int = 8) -> List[Dict[str, Any]]:
+        """Sample a batch of sequences matching target domain distribution."""
+        selected_indices = self.rng.choice(len(self.domain_names), size=batch_size, p=self.probabilities)
+        batch = []
+        for idx in selected_indices:
+            domain = self.domain_names[idx]
+            # Advance domain offset; cycle to next epoch if shard completes
+            d_state = self.state[domain]
+            d_state["doc_offset"] += 1
+            if d_state["doc_offset"] >= 100_000:  # Illustrative shard size
+                d_state["doc_offset"] = 0
+                d_state["shard_idx"] += 1
+                if d_state["shard_idx"] >= len(self.domain_shards[domain]):
+                    d_state["shard_idx"] = 0
+                    d_state["epoch"] += 1
+            
+            self.total_tokens_yielded += self.tokens_per_sample
+            batch.append({
+                "domain": domain,
+                "shard": d_state["shard_idx"],
+                "offset": d_state["doc_offset"],
+                "epoch": d_state["epoch"]
+            })
+        return batch
+
+# Quick verification test
+domains = {
+    "web": ["s1.bin", "s2.bin"],
+    "code": ["c1.bin"],
+    "math": ["m1.bin"],
+    "books": ["b1.bin"],
+    "multi": ["ml1.bin"]
+}
+weights = {"web": 0.55, "code": 0.20, "math": 0.12, "books": 0.05, "multi": 0.08}
+sampler = ResumableWeightedDataSampler(domains, weights, seed=123)
+batch = sampler.sample_batch(100)
+counts = {d: sum(1 for x in batch if x["domain"] == d) for d in weights}
+print("Sampled distribution across 100 sequences:", counts)
+</tab>
+<tab label="Annealing Controller" lang="python">
+from typing import Dict
+import math
+
+class AnnealingCurriculumController:
+    """
+    Manages the transition from base pretraining mixture to late-stage annealing.
+    Dynamically shifts sampling weights and decays learning rate during final tokens.
+    """
+    def __init__(
+        self,
+        base_weights: Dict[str, float],
+        anneal_weights: Dict[str, float],
+        total_tokens: int = 1_000_000_000_000,
+        anneal_tokens: int = 40_000_000_000,
+        base_lr: float = 3e-4,
+        min_lr: float = 3e-5
+    ):
+        self.base_weights = base_weights
+        self.anneal_weights = anneal_weights
+        self.total_tokens = total_tokens
+        self.anneal_start_token = total_tokens - anneal_tokens
+        self.base_lr = base_lr
+        self.min_lr = min_lr
+
+    def get_config_at_token(self, current_token: int) -> Dict[str, Any]:
+        """Returns active domain weights and learning rate for current progress."""
+        if current_token < self.anneal_start_token:
+            # Stage 1 & 2: Cosine decay over main pretraining phase
+            progress = current_token / self.anneal_start_token
+            cosine_mult = 0.5 * (1.0 + math.cos(math.pi * progress))
+            lr = self.min_lr + (self.base_lr - self.min_lr) * cosine_mult
+            return {"weights": self.base_weights, "lr": lr, "phase": "base_pretraining"}
+        else:
+            # Stage 3: Annealing phase - Linear decay of LR to zero, upweighted mix
+            anneal_progress = (current_token - self.anneal_start_token) / (self.total_tokens - self.anneal_start_token)
+            anneal_progress = min(max(anneal_progress, 0.0), 1.0)
+            
+            # Interpolate domain weights toward annealing distribution
+            active_weights = {}
+            for d in self.base_weights:
+                w_start = self.base_weights.get(d, 0.0)
+                w_end = self.anneal_weights.get(d, 0.0)
+                active_weights[d] = w_start + (w_end - w_start) * anneal_progress
+            
+            # Linear decay from current LR down to zero
+            current_base_lr = self.min_lr
+            lr = current_base_lr * (1.0 - anneal_progress)
+            return {"weights": active_weights, "lr": lr, "phase": "annealing"}
+
+# Example progress checkpoints
+controller = AnnealingCurriculumController(
+    base_weights={"web": 0.55, "code": 0.20, "math": 0.12, "books": 0.05, "multi": 0.08},
+    anneal_weights={"web": 0.20, "code": 0.40, "math": 0.40, "books": 0.00, "multi": 0.00}
+)
+print("At 500B tokens:", controller.get_config_at_token(500_000_000_000))
+print("At 980B tokens:", controller.get_config_at_token(980_000_000_000))
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Loss Spikes from Malformed Data Shards</strong>: Sudden loss spikes during pretraining are frequently caused by bad data batches (e.g., a burst of repetitive spam, HTML table garbage, or extreme gradient norms from unexpected token sequences) rather than hardware faults. Isolating and skipping corrupted shards is covered in Lesson 32, Training Stability - Loss Spikes and Divergence.</li>
+<li><strong>Domain-Specific Learning Rates</strong>: While standard practice uses a single global optimizer learning rate, research in multi-task learning has explored per-domain learning rates or gradient clipping thresholds to prevent unstable updates on noisy web data.</li>
+<li><strong>Dynamic Batch Balancing across Data-Parallel Ranks</strong>: When sampling heterogeneous data streams across 256 GPUs, if one domain produces shorter documents that pack poorly, individual ranks may idle. Modern distributed loaders balance token volume across all DP ranks using coordinated distributed samplers.</li>
+<li><strong>Tokenizer Fertility Disparities</strong>: A tokenizer trained primarily on English requires 2× to 4× more tokens to represent Asian or Cyrillic languages. When allocating multilingual mixture weights, calculate weights by <em>information content</em> or byte volume rather than raw token count to avoid under-representing non-English semantics.</li>
+<li><strong>Polyak Checkpoint Averaging</strong>: Averaging model weights across the final 5 to 10 checkpoints saved during late-stage annealing acts as a stochastic weight averaging (SWA) regularizer, smoothing out loss landscape local minima and improving out-of-distribution evaluation scores.</li>
+<li><strong>Benchmark Contamination Auditing</strong>: Prior to freezing the pretraining mixture, run 8-gram or 13-gram exact match filtering against common evaluation benchmarks (GSM8K, MMLU, HumanEval) to prevent artificial benchmark inflation (Lesson 35, Benchmarks and Contamination).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="020-summary.png" caption="Data mixtures and curriculum summary" optional="1">Mind map summarizing data mixtures and curriculum: domain trade-offs, automated mixture selection via DoReMi and RegMix, repetition scaling limits, late-stage annealing, and our 1T-token pretraining budget.</fig>
+<ul>
+<li>Pretraining mixtures combine diverse sources (curated web, source code, mathematics, multilingual, and books) to impart world knowledge, algorithmic logic, deduction, and fluency simultaneously.</li>
+<li>Automated methods replace expensive manual tuning: <strong>DoReMi</strong> optimizes worst-case domain regret via Group DRO on a proxy model (2.6× faster convergence), while <strong>RegMix</strong> fits regression surfaces across micro-proxies at < 3% compute overhead.</li>
+<li>Data repetition scaling shows that scarce high-density domains (math, code) can be repeated for up to <strong>4 epochs</strong> with negligible degradation (< 0.1% loss), while abundant web text is consumed in a single epoch.</li>
+<li>Early-stage curricula show mixed results and risk catastrophic forgetting; late-stage <strong>annealing</strong> (linearly decaying learning rate to zero while upsampling code and math) provides massive reasoning boosts (+24% on GSM8K in Llama 3).</li>
+<li>For our 1T-token Llama 3.1 8B run on 256 H100 GPUs, we allocate 55% Web (1 ep), 20% Code (2 ep), 12% Math (3 ep), 8% Multilingual (1 ep), and 5% Books (1 ep), requiring <strong>820 billion unique tokens</strong>.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Gao et al. The Pile: An 800GB Dataset of Diverse Text for Language Modeling. <a href="https://arxiv.org/abs/2101.00027" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2101.00027</a>.<br>
+[2] Meta AI. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[3] Touvron et al. Llama 2: Open Foundation and Fine-Tuned Chat Models. <a href="https://arxiv.org/abs/2307.09288" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2307.09288</a>.<br>
+[4] Penedo et al. The RefinedWeb Dataset for Falcon LLM: Outperforming Curated Corpora with Web Data, and Web Data Only. <a href="https://arxiv.org/abs/2306.01116" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2306.01116</a>.<br>
+[5] Li et al. StarCoder: May the Source Be With You! <a href="https://arxiv.org/abs/2305.06161" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.06161</a>.<br>
+[6] Madaan et al. Language Models of Code are Few-Shot Commonsense Learners. <a href="https://arxiv.org/abs/2210.07128" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2210.07128</a>.<br>
+[7] Paster et al. OpenWebMath: An Open Dataset of High-Quality Mathematical Web Text. <a href="https://arxiv.org/abs/2310.06786" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2310.06786</a>.<br>
+[8] Conneau et al. Unsupervised Cross-lingual Representation Learning at Scale. <a href="https://arxiv.org/abs/1911.02116" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1911.02116</a>.<br>
+[9] Xie et al. DoReMi: Optimizing Data Mixtures Speeds Up Language Model Pre-Training. <a href="https://arxiv.org/abs/2305.10429" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.10429</a>.<br>
+[10] Liu et al. RegMix: Data Mixture as Regression for Language Model Pre-training. <a href="https://arxiv.org/abs/2407.01492" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.01492</a>.<br>
+[11] Ye et al. Data Mixing Laws: Optimizing Data Mixtures by Predicting Language Modeling Performance. <a href="https://arxiv.org/abs/2403.16952" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2403.16952</a>.<br>
+[12] Hoffmann et al. Training Compute-Optimal Large Language Models. <a href="https://arxiv.org/abs/2203.15556" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2203.15556</a>.<br>
+[13] Muennighoff et al. Scaling Data-Constrained Language Models. <a href="https://arxiv.org/abs/2305.16264" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.16264</a>.<br>
+[14] Bengio et al. Curriculum Learning. <a href="https://dl.acm.org/doi/10.1145/1553374.1553380" rel="noopener noreferrer" target="_blank">https://dl.acm.org/doi/10.1145/1553374.1553380</a>.<br>
+[15] Campos. Curriculum Learning for Language Modeling. <a href="https://arxiv.org/abs/2108.02170" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2108.02170</a>.<br>
+[16] Ibrahim et al. Simple and Scalable Strategies to Continually Pre-train Large Language Models. <a href="https://arxiv.org/abs/2403.08763" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2403.08763</a>.<br>
+[17] Gunasekar et al. Textbooks Are All You Need. <a href="https://arxiv.org/abs/2306.11644" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2306.11644</a>.<br>
+[18] Ben Allal et al. Cosmopedia: How to Create Large Synthetic Datasets for Pre-training. <a href="https://huggingface.co/datasets/HuggingFaceTB/cosmopedia" rel="noopener noreferrer" target="_blank">https://huggingface.co/datasets/HuggingFaceTB/cosmopedia</a>.<br>
+[19] Shumailov et al. The Curse of Recursion: Training on Generated Data Makes Models Forget. <a href="https://arxiv.org/abs/2305.17493" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.17493</a>.</p>

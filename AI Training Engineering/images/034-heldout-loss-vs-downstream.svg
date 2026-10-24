@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .axis { stroke: #333; stroke-width: 1.5; }
+    .grid { stroke: #eee; stroke-width: 1; }
+    .loss-curve { stroke: #6c8ebf; stroke-width: 2.5; fill: none; }
+    .downstream-curve { stroke: #d79b00; stroke-width: 2.5; fill: none; }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Held-Out Loss vs Downstream Task Accuracy: Why They Disagree (Illustrative)</text>
+  <text x="25" y="42" class="sm" fill="#555">Validation loss follows smooth power-law decay, whereas multi-step reasoning capabilities exhibit delayed non-linear emergence.</text>
+
+  <!-- Plot Area: Origin (70, 260), Width 440 (ends at 510). Max Y at Y=70 -->
+  <line x1="70" y1="260" x2="510" y2="260" class="axis"/>
+  <line x1="70" y1="70" x2="70" y2="260" class="axis"/>
+  <text x="30" y="165" class="sm b" fill="#2c5d88" transform="rotate(-90 30 165)" text-anchor="middle">Held-Out Loss (CE)</text>
+
+  <!-- Right Y Axis (GSM8K Accuracy %) at x=510 -->
+  <line x1="510" y1="70" x2="510" y2="260" class="axis"/>
+  <text x="575" y="165" class="sm b" fill="#b45f06" transform="rotate(90 575 165)" text-anchor="middle">GSM8K Accuracy (%)</text>
+
+  <!-- Left Y ticks (Loss): 1.8 to 3.4 -->
+  <line x1="70" y1="260" x2="510" y2="260" class="grid"/>
+  <text x="62" y="264" text-anchor="end" class="sm">1.8</text>
+  <line x1="70" y1="212" x2="510" y2="212" class="grid"/>
+  <text x="62" y="216" text-anchor="end" class="sm">2.2</text>
+  <line x1="70" y1="165" x2="510" y2="165" class="grid"/>
+  <text x="62" y="169" text-anchor="end" class="sm">2.6</text>
+  <line x1="70" y1="117" x2="510" y2="117" class="grid"/>
+  <text x="62" y="121" text-anchor="end" class="sm">3.0</text>
+  <line x1="70" y1="70" x2="510" y2="70" class="grid"/>
+  <text x="62" y="74" text-anchor="end" class="sm">3.4</text>
+
+  <!-- Right Y ticks (Accuracy): 0% to 60% at x=518 -->
+  <text x="518" y="264" class="sm">0%</text>
+  <text x="518" y="216" class="sm">15%</text>
+  <text x="518" y="169" class="sm">30%</text>
+  <text x="518" y="121" class="sm">45%</text>
+  <text x="518" y="74" class="sm">60%</text>
+
+  <!-- X ticks: 0, 250B, 500B, 750B, 1T Tokens -->
+  <!-- X positions: 70, 180, 290, 400, 510 -->
+  <line x1="180" y1="260" x2="180" y2="265" class="axis"/>
+  <text x="180" y="280" text-anchor="middle" class="sm">250B</text>
+  <line x1="290" y1="260" x2="290" y2="265" class="axis"/>
+  <text x="290" y="280" text-anchor="middle" class="sm">500B</text>
+  <line x1="400" y1="260" x2="400" y2="265" class="axis"/>
+  <text x="400" y="280" text-anchor="middle" class="sm">750B</text>
+  <line x1="510" y1="260" x2="510" y2="265" class="axis"/>
+  <text x="510" y="280" text-anchor="middle" class="sm">1T</text>
+  <text x="70" y="280" text-anchor="middle" class="sm">0</text>
+  <text x="290" y="302" text-anchor="middle" class="sm b">Pretraining Tokens Processed</text>
+
+  <!-- Trace 1: Held-out Loss (Blue) -->
+  <path d="M70,75 C130,140 200,195 290,218 C380,236 450,244 510,248" class="loss-curve"/>
+
+  <!-- Trace 2: Downstream Reasoning GSM8K (Orange) -->
+  <path d="M70,258 L160,256 C190,255 230,245 290,195 C350,140 430,96 510,86" class="downstream-curve"/>
+
+  <!-- Right Side Explanation Panel -->
+  <rect x="605" y="70" width="210" height="215" rx="5" class="gray"/>
+  <text x="615" y="92" class="b sm">The Disagreement Gap:</text>
+  <text x="615" y="112" class="sm"><tspan class="b" fill="#2c5d88">• Validation Loss</tspan>:</text>
+  <text x="625" y="128" class="sm">Smooth, continuous progress.</text>
+  <text x="625" y="144" class="sm">Reflects syntax &amp; n-grams.</text>
+
+  <text x="615" y="168" class="sm"><tspan class="b" fill="#b45f06">• Downstream Reasoning</tspan>:</text>
+  <text x="625" y="184" class="sm">Non-linear emergence.</text>
+  <text x="625" y="200" class="sm">Flat until ~200B tokens,</text>
+  <text x="625" y="216" class="sm">then surges rapidly.</text>
+
+  <text x="615" y="240" class="sm b">Key Insight:</text>
+  <text x="615" y="256" class="sm">Lowest loss != best checkpoint.</text>
+  <text x="615" y="272" class="sm">Always evaluate downstream tasks.</text>
+
+  <text x="25" y="335" class="sm" fill="#555">Illustrative curves contrasting continuous loss reduction with step-change metric behavior observed across foundation model runs.</text>
+</svg>

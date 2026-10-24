@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="300" viewBox="0 0 820 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .lg { font-size: 16px; }
+    .b { font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .yellow { fill: #fff2cc; stroke: #d6b656; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #000; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="410" y="24" text-anchor="middle" class="lg b">Why Tensor Parallelism Stays Inside a Node: NVLink versus InfiniBand</text>
+
+  <!-- Top note: 128 blocking all-reduces -->
+  <text x="410" y="45" text-anchor="middle" class="sm">TP requires 4 blocking All-Reduces per layer (128 per step for 8B model, 320 for 70B). Compute stalls until each completes.</text>
+
+  <!-- Left: Intra-Node NVLink (TP=8 within node) -->
+  <rect x="30" y="60" width="365" height="185" rx="6" class="gray"/>
+  <text x="212" y="85" text-anchor="middle" class="b">Intra-Node: NVLink (900 GB/s per GPU)</text>
+
+  <rect x="50" y="100" width="325" height="40" rx="3" class="green"/>
+  <text x="212" y="118" text-anchor="middle" class="sm b">128 All-Reduces Duration: 16.7 ms</text>
+  <text x="212" y="133" text-anchor="middle" class="sm">0.13 ms per all-reduce (imperceptible overhead)</text>
+
+  <rect x="50" y="150" width="325" height="50" rx="3" class="white"/>
+  <text x="212" y="170" text-anchor="middle" class="sm b">Step Compute Time: ~2,660 ms</text>
+  <text x="212" y="188" text-anchor="middle" class="sm" fill="#82b366">TP Overhead: &lt; 0.7% of step time</text>
+
+  <text x="212" y="225" text-anchor="middle" class="sm b" fill="#2b5797">Excellent MFU: Tensor Cores stay saturated</text>
+
+  <!-- Right: Inter-Node InfiniBand (TP across nodes) -->
+  <rect x="425" y="60" width="365" height="185" rx="6" class="gray"/>
+  <text x="607" y="85" text-anchor="middle" class="b">Inter-Node: InfiniBand NDR (50 GB/s per GPU)</text>
+
+  <rect x="445" y="100" width="325" height="40" rx="3" class="red"/>
+  <text x="607" y="118" text-anchor="middle" class="sm b">128 All-Reduces Duration: 300.6 ms</text>
+  <text x="607" y="133" text-anchor="middle" class="sm">2.35 ms per all-reduce (blocking latency)</text>
+
+  <rect x="445" y="150" width="325" height="50" rx="3" class="white"/>
+  <text x="607" y="170" text-anchor="middle" class="sm b">For 70B Model: 1,503.2 ms of stall time!</text>
+  <text x="607" y="188" text-anchor="middle" class="sm" fill="#b85450">TP Overhead: &gt; 35% of total step time</text>
+
+  <text x="607" y="225" text-anchor="middle" class="sm b" fill="#b85450">Severe MFU Collapse: GPUs idle waiting on network</text>
+
+  <!-- Bottom Callout -->
+  <rect x="30" y="255" width="760" height="32" rx="4" class="yellow"/>
+  <text x="410" y="276" text-anchor="middle" class="sm b">Rule of Thumb: Maximum Tensor Parallelism degree is capped at the number of GPUs per node (TP &lt;= 8 on NVLink)</text>
+</svg>

@@ -1,0 +1,7 @@
+center: Training FLOPs Time and MFU
+branch: Compute Accounting | two ND forward four ND backward | eight ND with full recomputation | quadratic attention term at long contexts
+branch: MFU Versus HFU | palm paper efficiency definitions | mfu measures algorithmic progress | hfu counts redundant recomputations
+branch: MFU Bottlenecks | memory bound normalization and activations | inter node collective communication | pipeline bubbles and dataloader starvation
+branch: Operational Telemetry | tokens per second per gpu | inverted formula monitors mfu | eight thousand two hundred tokens per h100
+branch: Planning Decision | target forty percent mfu | thirty percent wastes thirty four thousand dollars | adds nearly two full days
+branch: Running Scenario | four point eight e twenty two flops | five point five days on two hundred fifty six h100s | one hundred one thousand dollars

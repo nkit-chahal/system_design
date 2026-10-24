@@ -1,0 +1,7 @@
+center: AI Training Engineering
+branch: Training lifecycle | data ingestion and filtering | tokenization and packing | cluster model parallel passes | checkpointing and evaluation
+branch: Core vocabulary | micro batch per device | global batch across cluster | optimizer parameter step | model FLOPs utilization
+branch: Bounding numbers | sixteen bytes per parameter | six ND training FLOPs | five days on 256 H100s | one hundred thousand dollars
+branch: Design framework | requirements and token budget | memory and parallelism | cluster topology and network | evaluation and post training
+branch: Seven stages | how training works | compute and scaling laws | distributed model parallelism | data and post training
+branch: Training to inference | GQA cuts KV cache | overtraining lowers serving cost | checkpoint precision handoff

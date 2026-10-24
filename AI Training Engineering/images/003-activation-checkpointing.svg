@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="355" viewBox="0 0 820 355" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .discarded{fill:url(#hatch);stroke:#999;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .edge-back{fill:none;stroke:#b85450;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Full Activation Checkpointing: Trading 33% Compute to Save 94% Memory</text>
+  <text x="25" y="44" class="sm" fill="#555">Intermediate layer tensors are discarded in forward and recomputed on demand in backward</text>
+
+  <!-- Step 1: Forward Pass (Top Half) -->
+  <text x="25" y="74" class="b">Forward Pass: Save only layer boundary inputs, discard internal states</text>
+
+  <!-- Layer 0 Input Checkpoint -->
+  <rect x="25" y="85" width="80" height="45" rx="4" class="green"/>
+  <text x="65" y="103" text-anchor="middle" class="b">x₀</text>
+  <text x="65" y="119" text-anchor="middle" class="sm">67 MB</text>
+  <path d="M105,107 L140,107" class="edge"/>
+
+  <!-- Layer 0 internals (discarded) -->
+  <rect x="140" y="85" width="130" height="45" rx="4" class="discarded"/>
+  <text x="205" y="103" text-anchor="middle" class="sm b">Layer 0 Forward</text>
+  <text x="205" y="119" text-anchor="middle" class="sm" fill="#666">Intermediates freed</text>
+  <path d="M270,107 L305,107" class="edge"/>
+
+  <!-- Layer 1 Input Checkpoint -->
+  <rect x="305" y="85" width="80" height="45" rx="4" class="green"/>
+  <text x="345" y="103" text-anchor="middle" class="b">x₁</text>
+  <text x="345" y="119" text-anchor="middle" class="sm">67 MB</text>
+  <path d="M385,107 L420,107" class="edge"/>
+
+  <!-- Layer 1 internals (discarded) -->
+  <rect x="420" y="85" width="130" height="45" rx="4" class="discarded"/>
+  <text x="485" y="103" text-anchor="middle" class="sm b">Layer 1 Forward</text>
+  <text x="485" y="119" text-anchor="middle" class="sm" fill="#666">Intermediates freed</text>
+  <path d="M550,107 L585,107" class="edge"/>
+
+  <!-- Layer 2 Input Checkpoint -->
+  <rect x="585" y="85" width="80" height="45" rx="4" class="green"/>
+  <text x="625" y="103" text-anchor="middle" class="b">x₂</text>
+  <text x="625" y="119" text-anchor="middle" class="sm">67 MB</text>
+  <path d="M665,107 L700,107" class="edge"/>
+
+  <text x="730" y="112" class="b">...</text>
+
+  <!-- Step 2: Backward Pass (Middle) -->
+  <text x="25" y="160" class="b">Backward Pass: Recompute Layer 1 on the fly, compute gradients, then free</text>
+
+  <!-- Saved x1 feeds recomputation -->
+  <path d="M345,130 L345,175" class="edge"/>
+
+  <rect x="250" y="175" width="190" height="52" rx="4" class="orange"/>
+  <text x="345" y="196" text-anchor="middle" class="b">1. Recompute Layer 1</text>
+  <text x="345" y="214" text-anchor="middle" class="sm">Re-runs forward from x₁ (+2ND FLOPs)</text>
+
+  <path d="M440,201 L480,201" class="edge"/>
+
+  <rect x="480" y="175" width="190" height="52" rx="4" class="purple"/>
+  <text x="575" y="196" text-anchor="middle" class="b">2. Backward &amp; Gradients</text>
+  <text x="575" y="214" text-anchor="middle" class="sm">Calculate ∂L/∂W and ∂L/∂x₁</text>
+
+  <path d="M670,201 L710,201" class="edge"/>
+
+  <rect x="710" y="175" width="95" height="52" rx="4" class="gray"/>
+  <text x="757" y="196" text-anchor="middle" class="b">3. Free</text>
+  <text x="757" y="214" text-anchor="middle" class="sm">Memory clear</text>
+
+  <!-- Bottom Accounting Box -->
+  <rect x="25" y="246" width="770" height="92" rx="6" class="gray"/>
+  <text x="40" y="268" class="b">The Exact Compute / Memory Accounting (Llama 3.1 8B, b=1, s=8,192):</text>
+  <text x="40" y="288" class="sm">• <tspan class="b">Memory Saving</tspan>: Drops stored activations across 32 layers from <tspan class="b">36.5 GB</tspan> (34sbh) to <tspan class="b">2.15 GB</tspan> (2sbh) — a <tspan class="b">94% reduction</tspan>.</text>
+  <text x="40" y="308" class="sm">• <tspan class="b">Compute Penalty</tspan>: Standard = 2ND (fwd) + 4ND (bwd) = 6ND.</text>
+  <text x="52" y="326" class="sm">With recompute = 2ND + 4ND + 2ND = <tspan class="b">8ND FLOPs</tspan> (+33.3% compute, see Lesson 7).</text>
+</svg>

@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="25" y="30" class="lg b">HTML Text Extraction: Naive Stripping vs Document Parsers</text>
+  <text x="25" y="52" class="sm" fill="#555">Why pretraining pipelines extract from WARC with Trafilatura rather than using raw WET or regex</text>
+
+  <!-- Box 1: Raw HTML -->
+  <rect x="25" y="75" width="230" height="235" rx="5" class="blue"/>
+  <text x="140" y="100" class="b mid">Raw Web Page (WARC)</text>
+  
+  <rect x="40" y="115" width="200" height="24" rx="3" class="red"/>
+  <text x="140" y="131" class="sm mid">&lt;header&gt; Nav, Logo, Links &lt;/header&gt;</text>
+  
+  <rect x="40" y="145" width="200" height="24" rx="3" class="red"/>
+  <text x="140" y="161" class="sm mid">&lt;div class="ad"&gt; Banner ad &lt;/div&gt;</text>
+  
+  <rect x="40" y="175" width="200" height="50" rx="3" class="green"/>
+  <text x="140" y="195" class="sm b mid">&lt;article&gt;</text>
+  <text x="140" y="213" class="sm mid">&lt;h1&gt; Title &lt;p&gt; Main text... &lt;/article&gt;</text>
+
+  <rect x="40" y="231" width="200" height="24" rx="3" class="red"/>
+  <text x="140" y="247" class="sm mid">&lt;div class="cookie"&gt; Cookie consent &lt;/div&gt;</text>
+
+  <rect x="40" y="261" width="200" height="24" rx="3" class="red"/>
+  <text x="140" y="277" class="sm mid">&lt;footer&gt; Copyright, Terms &lt;/footer&gt;</text>
+
+  <line x1="255" y1="192" x2="295" y2="140" class="edge"/>
+  <line x1="255" y1="192" x2="295" y2="245" class="edge"/>
+
+  <!-- Box 2: Naive / WET Extraction -->
+  <rect x="300" y="75" width="240" height="130" rx="5" class="red"/>
+  <text x="420" y="100" class="b mid">Naive Regex / WET Dump</text>
+  <text x="315" y="125" class="sm" fill="#900">• Retains menus: "Home About Cart"</text>
+  <text x="315" y="145" class="sm" fill="#900">• Ingests ads: "Click here for 50% off"</text>
+  <text x="315" y="165" class="sm" fill="#900">• Pollutes model with cookie notices</text>
+  <text x="315" y="185" class="sm" fill="#900">• Strips paragraph structure and titles</text>
+
+  <!-- Box 3: Trafilatura Extraction -->
+  <rect x="300" y="220" width="240" height="110" rx="5" class="green"/>
+  <text x="420" y="245" class="b mid">Trafilatura Extraction</text>
+  <text x="315" y="270" class="sm" fill="#1b5e20">• Isolates main body &lt;article&gt; text</text>
+  <text x="315" y="290" class="sm" fill="#1b5e20">• Discards 100% of nav chrome and ads</text>
+  <text x="315" y="310" class="sm" fill="#1b5e20">• Preserves markdown headings &amp; lists</text>
+
+  <line x1="540" y1="275" x2="575" y2="275" class="edge"/>
+
+  <!-- Box 4: Impact on Pretraining -->
+  <rect x="580" y="140" width="215" height="170" rx="5" class="orange"/>
+  <text x="687" y="165" class="b mid">Impact on Pretraining</text>
+  <text x="595" y="195" class="sm">• WET text is ~35% noise</text>
+  <text x="595" y="215" class="sm">• Boilerplate wastes compute</text>
+  <text x="595" y="235" class="sm">• Repetitive footers bias logits</text>
+  <text x="595" y="255" class="sm b" fill="#b35900">• Trafilatura raises ARC</text>
+  <text x="595" y="275" class="sm b" fill="#b35900">  and MMLU benchmark scores</text>
+  <text x="595" y="295" class="sm">  by 2–3% in FineWeb ablations</text>
+</svg>

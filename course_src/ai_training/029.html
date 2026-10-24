@@ -1,0 +1,365 @@
+<h2>Introduction</h2>
+<p>Training a frontier large language model is one of the most mechanically demanding computational tasks in modern engineering. A multi-week pretraining run requires thousands of high-performance accelerators, terabytes of High Bandwidth Memory (HBM3), optical transceivers, and InfiniBand switches to operate in synchronized lockstep at thermal limits [1]. At this scale, <strong>hardware failures are not rare anomalies; they are continuous statistical certainties</strong>. When training across thousands of GPUs, an interruption occurs every few hours.</p>
+<p>If recovery requires manual on-call triage—an engineer waking up, reading logs, isolating a crashed node, editing cluster hostfiles, and resubmitting the job—cluster utilization collapses. In Meta's technical report on Llama 3 [1], pretraining on 16,384 NVIDIA H100 GPUs experienced <strong>466 interruptions over a 54-day period</strong> (averaging one interruption every 2.8 hours). Despite this relentless failure rate, Meta sustained greater than 90% effective training time. Figure 1 breaks down the empirical root causes behind these interruptions.</p>
+<fig src="029-llama3-failure-breakdown.svg" caption="Interruption statistics and root-cause breakdown from Meta's Llama 3 54-day pretraining run">Left: Across 54 days on 16,384 H100 GPUs, 466 total interruptions occurred (47 planned maintenance, 419 unplanned). Right: Hardware failures dominated unplanned downtime, led by GPU and NVLink faults (30.1% of total) and HBM3 ECC memory errors (17.2%). High goodput (&gt;90%) was sustained through automated detection and hot spare replacement.</fig>
+<p>Maximizing <strong>goodput</strong>—the ratio of productive training time to total elapsed wall-clock time—requires an automated resilience architecture [2]. The infrastructure must detect failures in seconds using non-blocking watchdogs, isolate faulty nodes without human intervention, swap in pre-warmed standby hardware, and reload distributed checkpoints seamlessly. While PyTorch provides elastic orchestration through <code>torchrun</code> [3], production pretraining clusters handle failures through fixed topologies with hot standby nodes to preserve exact mathematical optimization dynamics.</p>
+<p>In this lesson, we analyze empirical failure data from frontier training runs, scale failure probabilities mathematically to our running 256-GPU cluster, dissect the failure taxonomy from NVIDIA XID errors to Silent Data Corruption, evaluate multi-tier watchdog detection mechanisms, construct the goodput equation, compare elastic scaling with hot-spare replacement, and implement an automated Slurm and Python recovery harness.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Cluster reliability questions in infrastructure interviews typically explore how to protect expensive pretraining runs against hardware attrition. Here is how a discussion between a candidate and an interviewer unfolds:</p>
+<p><strong>Candidate</strong>: What is the scale and duration of our pretraining cluster?<br>
+<strong>Interviewer</strong>: We are pretraining our Llama 3.1 8B model across 256 NVIDIA H100 80 GB GPUs housed in 32 nodes (8 GPUs per node). The run processes 1 trillion tokens over approximately 5.5 days (33,800 GPU-hours).</p>
+<p><strong>Candidate</strong>: What is our target for cluster availability and goodput?<br>
+<strong>Interviewer</strong>: Total goodput—useful training compute divided by total elapsed wall-clock time—must exceed 95%. When an accelerator or network link crashes, the run must recover automatically without paging human on-call engineers.</p>
+<p><strong>Candidate</strong>: How quickly can our infrastructure detect a failure and restart?<br>
+<strong>Interviewer</strong>: Our shared Lustre storage reloads a sharded PyTorch Distributed Checkpoint (DCP) in about 1 minute. However, if a rank hangs silently inside an NCCL collective, default timeouts can stall the cluster for 30 minutes before aborting. We need detection within 30 seconds and total restart within 5 minutes.</p>
+<p><strong>Candidate</strong>: Should we use elastic training to dynamically continue on 31 nodes if one node fails?<br>
+<strong>Interviewer</strong>: You tell me. What happens to the global batch size, learning rate schedule, and FSDP sharding if we drop a node mid-run, and is that preferable to keeping spare nodes?</p>
+<p>The question underneath is: <em>How do we model failure rates from first principles, architect automated watchdog detection, and design a restart workflow that guarantees near-perfect goodput without destabilizing training dynamics?</em> To answer it, we begin with empirical failure statistics.</p>
+
+<h2>How Often Training Fails: The Numbers from Llama 3</h2>
+<h3>The 16,384-GPU Baseline</h3>
+<p>In the technical report <em>The Llama 3 Herd of Models</em> [1], Meta published the most detailed reliability dataset available for large-scale GPU pretraining. During a representative 54-day pretraining window on 16,384 NVIDIA H100 SXM GPUs, the run recorded:</p>
+<ul>
+<li><strong>Total interruptions</strong>: 466 incidents across 54 days (an average of 8.63 interruptions per day, or one interruption every 2.78 hours).</li>
+<li><strong>Planned interruptions</strong>: 47 incidents (10.1%), primarily driven by automated host operating system maintenance, security patching, and scheduled network re-routing.</li>
+<li><strong>Unplanned interruptions</strong>: 419 incidents (89.9%), averaging 7.76 unexpected failures per day (one every 3.09 hours).</li>
+<li><strong>Human intervention</strong>: Automated recovery handled over 99% of incidents; human engineers intervened only <strong>three times</strong> across the entire 54-day run.</li>
+</ul>
+<p>As detailed in Figure 1, hardware failures caused over 78% of all unplanned interruptions: general GPU and NVLink failures accounted for 30.1% (148 incidents), HBM3 memory errors accounted for 17.2% (72 incidents), and network link degradation accounted for 16.2% (68 incidents).</p>
+
+<h3>Scaling Failure Probabilities to Our 256-GPU Cluster</h3>
+<p>To plan our running pretraining scenario, we scale Meta's empirical failure rate to our cluster of 256 GPUs. First, calculate the total GPU-days in Meta's observation window:
+<texblock>\text{Total GPU-Days} = 16,384\text{ GPUs} \times 54\text{ days} = 884,736\text{ GPU-days}</texblock>
+The empirical unplanned failure rate per GPU-day, <tex>\lambda_{\text{GPU}}</tex>, is:
+<texblock>\lambda_{\text{GPU}} = \frac{419\text{ unplanned failures}}{884,736\text{ GPU-days}} \approx 4.736 \times 10^{-4}\text{ failures per GPU-day}</texblock>
+This corresponds to a single-GPU Mean Time Between Failures of:
+<texblock>\text{MTBF}_{\text{single GPU}} = \frac{1}{4.736 \times 10^{-4}} \approx 2,111\text{ days} \approx 50,675\text{ hours} \approx 5.78\text{ years}</texblock>
+While a single GPU is highly reliable (failing once every 5.8 years), distributed pretraining is an <strong>all-or-nothing workload</strong>: because all GPUs synchronize gradients at every step, a failure on any single GPU halts the entire cluster. For our cluster of <tex>N_{\text{cluster}} = 256</tex> GPUs, the aggregate failure rate <tex>\Lambda_{256}</tex> is:
+<texblock>\Lambda_{256} = 256 \times \lambda_{\text{GPU}} = 256 \times 4.736 \times 10^{-4} \approx 0.1212\text{ failures per day}</texblock>
+The Mean Time Between Failures (MTBF, <tex>M</tex>) for our 256-GPU cluster is:
+<texblock>M = \frac{1}{\Lambda_{256}} = \frac{1}{0.1212} \approx 8.25\text{ days} \approx 198\text{ hours}</texblock>
+Our pretraining run processes 1 trillion tokens over 5.5 days (Lesson 7, Training FLOPs, Time and MFU). Multiplying the daily failure rate by the run duration gives the expected number of interruptions:
+<texblock>\mathbb{E}[\text{Failures}] = 5.5\text{ days} \times 0.1212\text{ failures/day} \approx 0.67\text{ failures}</texblock>
+Across our entire 5.5-day pretraining run, <strong>we expect less than one unplanned interruption on average</strong>. However, because a single failure can occur at any moment, automated detection and recovery mechanisms are essential to prevent that failure from stalling the cluster indefinitely.</p>
+
+<h2>Failure Taxonomy: From XID Errors to Silent Corruption</h2>
+<p>Diagnosing cluster crashes requires understanding the physical mechanisms that halt distributed execution. Failures span three primary architectural layers (Figure 3).</p>
+<fig src="029-hardware-failure-modes.svg" caption="Hierarchy of large-scale training failure modes">Failures span three physical domains: 1. GPU and HBM memory errors (NVIDIA XID errors such as XID 79 bus drops and XID 48 uncorrectable ECC). 2. Interconnect fabric degradation (NVLink CRC packet corruption and InfiniBand optical link flapping). 3. Silent Data Corruption (SDC: ALU/Tensor Core bit flips that corrupt mathematical loss without triggering OS exceptions).</fig>
+
+<h3>1. GPU Hardware and NVIDIA XID Errors</h3>
+<p>When an accelerator encounters a fatal condition, the NVIDIA kernel driver logs an <strong>XID error event</strong> to the Linux system log (<code>dmesg</code>) [4] (see Inference Lesson 40, Reliability and Rollouts):</p>
+<ul>
+<li><strong>XID 79 (GPU fallen off the bus)</strong>: The GPU stops acknowledging PCIe transactions entirely, typically caused by a power supply glitch, thermal expansion fault, or physical interposer crack. The device becomes inaccessible (<code>nvidia-smi</code> reports <code>Unable to determine the device handle</code>). Recovery requires an out-of-band host reset or node power cycle.</li>
+<li><strong>XID 48 (Double-Bit ECC Error in HBM3)</strong>: High Bandwidth Memory uses Error-Correcting Code (ECC) to detect and correct bit flips. A single-bit error is corrected in hardware without interruption. A double-bit uncorrectable error (DBE) corrupts weight or activation data in HBM, generating XID 48 and immediately halting the running CUDA kernel to prevent corrupted data from propagating.</li>
+<li><strong>XID 62 (Dynamic Page Retirement)</strong>: When a memory address accumulates multiple correctable errors, the driver retires the physical memory page. While page retirement prevents uncorrectable crashes, excessive retirements indicate an aging, unreliable HBM stack that must be replaced.</li>
+<li><strong>XID 31 (GPU Memory Page Fault)</strong>: A software rank attempts to access unmapped GPU virtual memory, typically caused by out-of-bounds CUDA pointer arithmetic or mismatched collective communication buffer pointers.</li>
+</ul>
+
+<h3>2. Interconnect and Network Fabric Flaps</h3>
+<p>Training an 8B model with FSDP across 256 GPUs transfers 16 GB of gradients per step over intra-node NVLink (900 GB/s) and inter-node InfiniBand (50 GB/s per GPU). Network degradations manifest as:</p>
+<ul>
+<li><strong>NVLink CRC Packet Errors</strong>: High temperatures inside an 8×H100 node cause NVLink signal degradation. While hardware retries recover individual packets, excessive retries throttle NVLink bandwidth from 900 GB/s down to 300 GB/s, creating a massive intra-node bottleneck.</li>
+<li><strong>InfiniBand Link Downgrades and Flaps</strong>: Dirty optical transceivers or failing fiber cables cause an InfiniBand NDR NIC (400 Gb/s) to drop to 200 Gb/s (HDR) or flap repeatedly. Because ring and tree all-reduce collectives synchronize across all ranks in sequence (Lesson 10, Data Parallelism and All-Reduce), <strong>a single degraded link on one node throttles collective throughput across all 256 GPUs</strong>.</li>
+</ul>
+
+<h3>3. Silent Data Corruption (SDC)</h3>
+<p>The most dangerous failure mode in large-scale training is <strong>Silent Data Corruption (SDC)</strong> [1][5]. SDC occurs when a transistor in an ALU or Tensor Core experiences a transient bit flip during a matrix multiplication. Unlike ECC errors or XID traps, <strong>SDC does not trigger any hardware interrupt or operating system exception</strong>: the kernel executes normally, but produces an erroneous numerical result.</p>
+<p>If SDC flips an exponent bit in a forward pass activation tensor, the subsequent cross-entropy loss computation suddenly spikes to millions or produces <code>NaN</code> (Not a Number) and <code>Inf</code> values. Backpropagating a <code>NaN</code> gradient overwrites all parameter weights with <code>NaN</code>, permanently destroying the checkpoint. Detecting SDC requires continuous loss anomaly monitoring and mathematical integrity verification.</p>
+
+<h2>Detection: Watchdogs, Heartbeats, and Health Checks</h2>
+<p>By default, if an accelerator crashes on rank 112, the other 255 GPUs do not crash immediately: they proceed to the next collective communication barrier (such as an all-reduce) and wait. Without active detection, the 255 healthy GPUs will sit completely idle waiting for rank 112 until the default collective timeout (often 30 to 60 minutes) expires. Stalling 256 H100 GPUs for 30 minutes wastes 128 GPU-hours (~$384) per incident. Modern infrastructure deploys a multi-tier detection architecture (Figure 4).</p>
+<fig src="029-detection-watchdog.svg" caption="Multi-tier failure detection architecture for distributed training">Four concurrent monitors feed an automated watchdog: 1. NCCL async watchdog thread aborts collective deadlocks within 30 seconds. 2. Prometheus DCGM exporter monitors XID errors and throttling. 3. Progress heartbeat flags step latency spikes exceeding 3x baseline. 4. Loss anomaly detector halts training on NaN/Inf or 5-sigma loss explosions.</fig>
+
+<h3>1. NCCL Asynchronous Error Handling</h3>
+<p>PyTorch's distributed package incorporates an asynchronous error-handling thread for NCCL collectives [2][3]. Configuring the environment variables:</p>
+<codetabs>
+<tab label="NCCL Watchdog Configuration" lang="bash">
+# Enable asynchronous error handling and non-blocking watchdog threads
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export NCCL_ASYNC_ERROR_HANDLING=1
+
+# Set aggressive collective timeout (default is 1800s / 30 minutes)
+export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=60
+export NCCL_COMM_BLOCKING=0
+</tab>
+</codetabs>
+<p>When enabled, a background watchdog thread continuously polls NCCL communicator status. If any rank fails or stops acknowledging collective ring transfers within 30 to 60 seconds, the watchdog immediately tears down the process group, sends <code>SIGKILL</code> to all local worker processes, and raises a Python exception. This prevents silent collective hangs and allows the job scheduler to initiate recovery within seconds.</p>
+
+<h3>2. Step Progress and Heartbeat Monitoring</h3>
+<p>Even if NCCL does not hang, hardware throttling (such as thermal clock down-clocking or network link flapping) can turn a healthy rank into a <strong>straggler</strong>. A straggler rank takes 5× longer to compute its forward pass, forcing the remaining 255 GPUs to sit idle waiting at the gradient all-reduce barrier.</p>
+<p>The training harness records a <strong>step progress heartbeat</strong>: the timestamp and duration of every optimizer step. If the elapsed time for step <tex>n</tex> exceeds 3× the moving average of the previous 100 steps (e.g., jumping from 850 ms to 3,000 ms), the watchdog flags an anomaly, logs telemetry from NVIDIA Data Center GPU Manager (DCGM), and halts the run if performance does not recover within 5 steps.</p>
+
+<h3>3. Pre-Flight Node Health Checks</h3>
+<p>When a failed node reboots, it must never be admitted immediately back into a production pretraining run without validation. Clusters execute automated <strong>pre-flight burn-in tests</strong> [1]:</p>
+<ol>
+<li><strong>GPU Burn GEMM Test</strong>: Runs dense matrix multiplications on all 8 GPUs at 100% thermal design power (TDP) for 60 seconds, verifying that clocks reach 1,980 MHz without thermal throttling or XID errors.</li>
+<li><strong>Intra-Node NVLink Bandwidth Test</strong>: Measures all-to-all and all-reduce bandwidth across the 8 internal GPUs, asserting throughput &gt; 800 GB/s.</li>
+<li><strong>Inter-Node NCCL All-Reduce Benchmark</strong>: Executes an all-reduce collective over InfiniBand, verifying NDR transfer speed &gt; 45 GB/s per NIC.</li>
+</ol>
+<p>If a node fails any pre-flight test, it is automatically marked <code>DRAIN</code> in Slurm, preventing it from corrupting subsequent training attempts.</p>
+
+<h2>Automated Recovery and Goodput</h2>
+<h3>The Recovery Workflow</h3>
+<p>When the watchdog catches a fatal error, the cluster executes the automated recovery workflow illustrated in Figure 5:</p>
+<ol>
+<li><strong>Fast Process Termination</strong>: The watchdog issues <code>SIGKILL</code> to all Python processes across all 32 nodes, ensuring no orphan ranks hold GPU memory or TCP ports.</li>
+<li><strong>Faulty Node Triage and Exclusion</strong>: An orchestration daemon parses <code>dmesg</code> and DCGM logs to extract the failed host ID (e.g., <code>node014</code>). The scheduler marks <code>node014</code> as <code>DRAIN</code> and appends it to the job's exclusion list (<code>sbatch --exclude=node014</code>).</li>
+<li><strong>Standby Spare Allocation</strong>: The scheduler replaces the drained node with a pre-warmed idle standby node (e.g., <code>node033</code>) from a reserved pool of spare hardware.</li>
+<li><strong>Automatic Job Resubmission</strong>: The scheduler launches a fresh 32-node job executing <code>torchrun</code>.</li>
+<li><strong>DCP Resumption</strong>: The 256 GPUs load the latest valid checkpoint from shared Lustre storage using PyTorch DCP (Lesson 28, Checkpointing), restoring model weights, master weights, Adam states, and DataLoader token offsets in under 60 seconds.</li>
+</ol>
+<fig src="029-recovery-orchestration.svg" caption="End-to-end automated recovery workflow: from failure detection to DCP resumption">1. Hardware failure triggers the NCCL watchdog within 30 seconds. 2. Orchestrator drains the faulty host and excludes it from the job. 3. Pre-warmed hot spare node is allocated. 4. Slurm automatically resubmits the job with identical 32-node topology. 5. PyTorch DCP reloads the latest sharded checkpoint from Lustre, resuming training in under 5 minutes total downtime.</fig>
+
+<h3>Elastic Training with torchrun: Semantics and Limitations</h3>
+<p>PyTorch provides built-in elastic training through <code>torchrun</code> using the <code>--nnodes=min:max</code> flag [3]:</p>
+<codetabs>
+<tab label="torchrun Elastic Launch" lang="bash">
+# Launch elastic training allowing dynamic contraction from 32 to 30 nodes
+torchrun \
+  --nnodes=30:32 \
+  --nproc_per_node=8 \
+  --rdzv_id=pretrain_run_8b \
+  --rdzv_backend=c10d \
+  --rdzv_endpoint=master-node:29500 \
+  pretrain.py --config config.yaml
+</tab>
+</codetabs>
+<p>When configured with <code>--nnodes=30:32</code>, the PyTorch c10d rendezvous server allows training to proceed as long as at least 30 nodes (240 GPUs) are connected. If node 14 crashes, the remaining 31 nodes automatically re-rendezvous and continue training without terminating the job.</p>
+
+<h4>Why Pretraining Avoids Dynamic Elasticity</h4>
+<p>While dynamic elasticity is attractive in theory, <strong>frontier pretraining runs almost never use dynamic node contraction in production</strong> [1][6]. As illustrated in Figure 6, shrinking the cluster from 32 nodes (256 GPUs) to 31 nodes (248 GPUs) introduces severe algorithmic and systems problems:</p>
+<ul>
+<li><strong>Global Batch Size Shift</strong>: In standard distributed training, global batch size equals micro-batch size <tex>\times</tex> gradient accumulation steps <tex>\times</tex> data-parallel ranks. Dropping from 256 ranks to 248 ranks drops global batch size from 512 sequences down to 496 sequences. Changing the batch size mid-run alters the gradient noise scale, requiring complex dynamical adjustments to learning rate schedules [7].</li>
+<li><strong>Optimizer Momentum Perturbation</strong>: Changing the batch size and re-sharding model parameters across 248 ranks alters the empirical variance of gradient estimators, frequently triggering loss spikes.</li>
+<li><strong>Re-sharding Overhead</strong>: Re-slicing parameter tensors across a non-power-of-two number of ranks (248) breaks tensor alignment and slows collective communication kernels.</li>
+</ul>
+<fig src="029-elastic-vs-static-topology.svg" caption="Elastic node contraction versus static topology with hot spares">Left: Elastic contraction shrinks the cluster from 32 to 31 nodes, altering the global batch size, shifting gradient noise scale, and perturbing optimizer momentum. Right: Static topology with hot spares preserves identical 32-node hardware topology by swapping in a spare node, maintaining mathematical invariance across learning rate and momentum schedules.</fig>
+<p>Instead, industry standard practice is <strong>static topology with warm standby spares</strong>: maintain 2 to 4 spare nodes in the cluster. When a node fails, swap in a spare node to maintain the exact 32-node (256-GPU) topology, preserving complete mathematical invariance throughout the run.</p>
+
+<h2>The Goodput Equation</h2>
+<p><strong>Goodput</strong> measures the efficiency of a distributed training cluster over its total operational lifecycle [2]:</p>
+<texblock>\text{Goodput} = \frac{T_{\text{useful}}}{T_{\text{wall}}} = \frac{\text{Time spent computing productive forward and backward passes}}{\text{Total elapsed wall-clock time}}</texblock>
+<p>Total wall-clock time <tex>T_{\text{wall}}</tex> is partitioned into four components (Figure 2):</p>
+<ol>
+<li><tex>T_{\text{useful}}</tex>: Productive training compute.</li>
+<li><tex>T_{\text{save}}</tex>: Checkpoint save stalls, governed by save duration <tex>\delta</tex> and interval <tex>\tau</tex>: <tex>T_{\text{save}} = T_{\text{useful}} \times (\delta / \tau)</tex>.</li>
+<li><tex>T_{\text{lost}}</tex>: Compute rework lost upon failure. For failure rate <tex>\Lambda = 1 / M</tex>, expected lost work per failure is <tex>\tau / 2</tex>: <tex>T_{\text{lost}} = T_{\text{wall}} \times (\tau / (2 M))</tex>.</li>
+<li><tex>T_{\text{restart}}</tex>: Downtime spent detecting crashes, allocating spares, and reloading checkpoints: <tex>T_{\text{restart}} = T_{\text{wall}} \times (t_{\text{restart}} / M)</tex>.</li>
+</ol>
+<p>Combining these terms yields the analytical goodput formula:</p>
+<texblock>\text{Goodput} \approx \frac{1 - \frac{\delta}{\tau}}{1 + \frac{1}{M} \left( \frac{\tau}{2} + t_{\text{restart}} \right)}</texblock>
+
+<h3>Worked Numerical Example: Our 256-GPU Cluster</h3>
+<p>Let us evaluate goodput for our 256-GPU pretraining run using our production parameters:</p>
+<ul>
+<li>Cluster MTBF (<tex>M</tex>): <strong>198 hours</strong> (8.25 days).</li>
+<li>Checkpoint interval (<tex>\tau</tex>): <strong>30 minutes</strong> (<tex>0.5\text{ hours}</tex>).</li>
+<li>Asynchronous save stall (<tex>\delta</tex>): <strong>2 seconds</strong> (<tex>0.000555\text{ hours}</tex>).</li>
+<li>Total restart recovery time (<tex>t_{\text{restart}}</tex>): <strong>4.5 minutes</strong> (<tex>0.075\text{ hours}</tex>).</li>
+</ul>
+<p>Evaluate the individual penalty components:</p>
+<ol>
+<li><strong>Checkpoint Save Overhead</strong>:
+<texblock>\frac{\delta}{\tau} = \frac{0.000555\text{ h}}{0.5\text{ h}} \approx 0.00111 \quad (0.11\%)</texblock>
+</li>
+<li><strong>Rework and Restart Downtime</strong>:
+<texblock>\frac{1}{M} \left( \frac{\tau}{2} + t_{\text{restart}} \right) = \frac{1}{198\text{ h}} \left( 0.25\text{ h} + 0.075\text{ h} \right) = \frac{0.325}{198} \approx 0.00164 \quad (0.16\%)</texblock>
+</li>
+</ol>
+<p>Evaluating total goodput:</p>
+<texblock>\text{Goodput} \approx \frac{1 - 0.00111}{1 + 0.00164} \approx \frac{0.99889}{1.00164} \approx 0.9972 \approx 99.7\%</texblock>
+<p>On our 256-GPU cluster, <strong>goodput exceeds 99.7%</strong>! Total overhead from checkpointing, failure re-computation, and automated restarts accounts for less than 0.3% of total cluster time. In comparison, on a 16K-GPU cluster where MTBF drops to 3 hours, the rework and restart overhead climbs to ~9%, achieving the ~90.0% goodput observed in Llama 3.</p>
+
+<h4>Which reliability setup fits our run?</h4>
+<p>For our 256 H100 pretraining cluster, <strong>we select a static 32-node topology backed by 2 pre-warmed idle standby nodes, paired with an aggressive NCCL asynchronous watchdog (30s timeout) and automated Slurm job resubmission</strong>. Dynamic elastic contraction (running on 31 nodes) is strictly rejected because batch size shifts perturb optimizer momentum and risk loss instability. Checkpointing runs asynchronously every 30 minutes to Lustre. When a node fails, the watchdog triggers automated job resubmission, the faulty node is drained, a hot spare is swapped in, and PyTorch DCP restores states in under 4.5 minutes total downtime.</p>
+
+<h2>In Practice</h2>
+<p>The first tab provides a robust Slurm batch launch script with automated failure trapping, bad node exclusion, and job re-queuing. The second tab implements an active Python watchdog thread monitoring NCCL health, step latency heartbeats, and loss anomalies. The third tab executes a fast pre-flight cluster burn-in test validating GPU clocks and collective bandwidth before training begins.</p>
+<codetabs>
+<tab label="Slurm Fault-Tolerant Launch" lang="bash">
+#!/bin/bash
+#SBATCH --job-name=pretrain_8b
+#SBATCH --nodes=32
+#SBATCH --ntasks-per-node=8
+#SBATCH --gpus-per-node=8
+#SBATCH --cpus-per-task=12
+#SBATCH --time=7-00:00:00
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
+#SBATCH --open-mode=append
+
+set -euo pipefail
+
+# Fail-safe trap: if job exits abnormally, identify failing node and resubmit
+trap 'handle_failure' ERR SIGTERM
+
+handle_failure() {
+    echo "[RECOVERY] Job interrupted at $(date). Triaging failure..."
+    # Extract hostnames that logged GPU XID errors in dmesg
+    BAD_NODES=$(srun --ntasks-per-node=1 bash -c 'dmesg -T | grep -E "NVRM: Xid" | tail -n 1 | awk "{print \$0}"' || true)
+    
+    if [ -n "$BAD_NODES" ]; then
+        echo "[RECOVERY] Detected hardware fault on node. Appending to exclusion list."
+        # Update exclude list and resubmit identical 32-node job
+        sbatch --exclude="$BAD_NODES" "$0"
+    else
+        echo "[RECOVERY] Transient software/network hang. Resubmitting job to clean nodes..."
+        sbatch "$0"
+    fi
+}
+
+# Environment flags for non-blocking watchdog and aggressive timeout
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export NCCL_ASYNC_ERROR_HANDLING=1
+export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=60
+export NCCL_DEBUG=WARN
+export PYTHONUNBUFFERED=1
+
+MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+MASTER_PORT=29500
+
+echo "[LAUNCH] Starting 256-GPU pretraining with master $MASTER_ADDR:$MASTER_PORT"
+
+srun --kill-on-bad-exit=1 \
+  torchrun \
+    --nnodes=32 \
+    --nproc_per_node=8 \
+    --rdzv_id="$SLURM_JOB_ID" \
+    --rdzv_backend=c10d \
+    --rdzv_endpoint="$MASTER_ADDR:$MASTER_PORT" \
+    pretrain.py --config configs/llama3_8b.yaml
+</tab>
+<tab label="Python Watchdog Monitor" lang="python">
+import math
+import sys
+import time
+import torch
+import torch.distributed as dist
+
+class TrainingWatchdog:
+    """Monitors step execution latency, loss stability, and NCCL health."""
+    def __init__(self, rank: int, max_step_multiplier: float = 3.0):
+        self.rank = rank
+        self.max_step_mult = max_step_multiplier
+        self.step_history = []
+        self.last_step_time = time.perf_counter()
+
+    def check_step(self, step: int, loss: float):
+        now = time.perf_counter()
+        step_duration = now - self.last_step_time
+        self.last_step_time = now
+
+        # 1. Check for Loss Anomalies (NaN, Inf, or loss explosion)
+        if math.isnan(loss) or math.isinf(loss) or loss > 50.0:
+            print(f"[FATAL][Rank {self.rank}] Silent Data Corruption or Loss Divergence: loss={loss} at step {step}!", file=sys.stderr)
+            # Abort immediately to prevent corrupted weights from being checkpointed
+            dist.destroy_process_group()
+            sys.exit(1)
+
+        # 2. Check for Stragglers / Collective Throttling
+        if len(self.step_history) >= 20:
+            avg_duration = sum(self.step_history[-20:]) / 20.0
+            if step_duration > self.max_step_mult * avg_duration:
+                print(f"[WARN][Rank {self.rank}] Step {step} latency anomaly: {step_duration:.2f}s vs avg {avg_duration:.2f}s", file=sys.stderr)
+        
+        self.step_history.append(step_duration)
+        if len(self.step_history) > 100:
+            self.step_history.pop(0)
+
+    def verify_nccl_health(self):
+        """Execute lightweight non-blocking collective check."""
+        try:
+            # Quick 1-element all-reduce barrier to verify all 256 ranks are responsive
+            test_tensor = torch.ones(1, device="cuda")
+            dist.all_reduce(test_tensor, op=dist.ReduceOp.SUM)
+            assert test_tensor.item() == dist.get_world_size()
+        except Exception as e:
+            print(f"[FATAL][Rank {self.rank}] NCCL watchdog failed collective barrier: {e}", file=sys.stderr)
+            sys.exit(1)
+</tab>
+<tab label="Pre-Flight Health Check" lang="python">
+import time
+import torch
+import torch.distributed as dist
+
+def run_preflight_node_check():
+    """Fast 30-second burn-in test to validate GPUs and interconnect before job admission."""
+    dist.init_process_group(backend="nccl")
+    local_rank = dist.get_rank() % torch.cuda.device_count()
+    torch.cuda.set_device(local_rank)
+    
+    device = torch.device(f"cuda:{local_rank}")
+    world_size = dist.get_world_size()
+    
+    # 1. Dense GEMM Burn-in (tests tensor cores and clock stability)
+    size = 8192
+    a = torch.randn(size, size, dtype=torch.bfloat16, device=device)
+    b = torch.randn(size, size, dtype=torch.bfloat16, device=device)
+    
+    start = time.perf_counter()
+    for _ in range(50):
+        c = torch.matmul(a, b)
+    torch.cuda.synchronize()
+    gemm_time = time.perf_counter() - start
+    tflops = (50 * 2 * (size ** 3)) / (gemm_time * 1e12)
+    
+    # 2. NCCL All-Reduce Bandwidth Test (tests NVLink and InfiniBand)
+    tensor_bytes = 1024 * 1024 * 512  # 512 MB buffer
+    comm_tensor = torch.randn(tensor_bytes // 2, dtype=torch.bfloat16, device=device)
+    
+    dist.barrier()
+    start = time.perf_counter()
+    for _ in range(10):
+        dist.all_reduce(comm_tensor, op=dist.ReduceOp.SUM)
+    torch.cuda.synchronize()
+    comm_time = (time.perf_counter() - start) / 10.0
+    
+    # Bus bandwidth formula for ring all-reduce: 2 * (N-1)/N * bytes / time
+    bus_bw_gb_s = (2.0 * (world_size - 1) / world_size * (tensor_bytes / 1e9)) / comm_time
+    
+    if dist.get_rank() == 0:
+        print(f"[PREFLIGHT] GEMM Throughput: {tflops:.1f} TFLOPS per GPU (Expected > 750 TFLOPS)")
+        print(f"[PREFLIGHT] NCCL Bus Bandwidth: {bus_bw_gb_s:.2f} GB/s (Expected > 40 GB/s)")
+        if bus_bw_gb_s < 35.0 or tflops < 650.0:
+            print("[PREFLIGHT ERROR] Hardware performance below threshold. Marking node DRAIN.")
+            sys.exit(1)
+        print("[PREFLIGHT SUCCESS] All 256 GPUs healthy. Admitted to pretraining.")
+    
+    dist.destroy_process_group()
+
+# if __name__ == "__main__":
+#     run_preflight_node_check()
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Silent Data Corruption (SDC) detection via mathematical invariants</strong>: Implementing checksum kernels (such as Huang's checksum matrix multiplication) that detect tensor core bit flips during training without running expensive duplicate passes [5].</li>
+<li><strong>Kubernetes vs Slurm orchestration for AI workloads</strong>: Comparing Slurm's deterministic MPI-native process management with Kubernetes Volcano/KubeRay operators, and why hyperscalers often pair Slurm with automated node health controllers.</li>
+<li><strong>PyTorch Caching Allocator fragmentation</strong>: How fragmentation inside PyTorch's memory manager mimics out-of-memory errors, and how tuning <code>PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True</code> eliminates allocator-induced OOM crashes.</li>
+<li><strong>InfiniBand adaptive routing and congestion control</strong>: Preventing network hotspots in fat-tree network topologies using NVIDIA SHARP (Scalable Hierarchical Aggregation and Reduction Protocol) in-network computing.</li>
+<li><strong>Thermal cycling and solder fatigue</strong>: Why training runs experience failure clusters right after job restarts: sudden thermal ramping from 35°C idle to 80°C peak load stresses micro-solder balls on BGA packages.</li>
+<li><strong>Graceful preemption in public clouds</strong>: Handling Spot / preemptible cloud instances using AWS Spot termination notices (2-minute warning) or Google Cloud maintenance events to trigger immediate fast asynchronous checkpoints.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="029-summary.png" caption="Failures, restarts and elastic training summary" optional="1">Mind map summarizing cluster reliability: empirical failure rates from Llama 3, failure taxonomy, multi-tier watchdog detection, the goodput equation, and static topologies with hot spares.</fig>
+<ul>
+<li>At scale, hardware failures are statistical certainties: Meta's Llama 3 pretraining on 16K H100s experienced 419 unplanned interruptions in 54 days (~1 failure every 3 hours), dominated by GPU, NVLink, and HBM3 faults.</li>
+<li>Scaling to our 256-GPU cluster yields a Mean Time Between Failures of approximately 198 hours (~8.25 days), resulting in an expected 0.67 interruptions across our 5.5-day pretraining run.</li>
+<li>Failures span physical XID errors (XID 79 bus drops, XID 48 uncorrectable ECC), network link flapping, software deadlocks, and Silent Data Corruption (SDC) bit flips.</li>
+<li>The NCCL watchdog thread (<code>TORCH_NCCL_ASYNC_ERROR_HANDLING=1</code>) detects collective deadlocks within 30 seconds, replacing default 30-minute hangs with fast automated process termination.</li>
+<li>Static topologies with pre-warmed hot spares maintain invariant 32-node layouts, avoiding the batch size shifts, learning rate re-scaling, and loss instability inherent to dynamic elastic contraction.</li>
+<li>Total goodput exceeds 99.7% on our 256-GPU cluster under 30-minute asynchronous checkpointing, ensuring near-zero compute waste from hardware attrition.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Meta AI. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[2] Narayanan et al. Memory-Efficient Pipeline-Parallel DNN Training. <a href="https://arxiv.org/abs/2006.09503" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2006.09503</a>.<br>
+[3] PyTorch torchrun Elastic Training documentation. <a href="https://pytorch.org/docs/stable/elastic/quickstart.html" rel="noopener noreferrer" target="_blank">https://pytorch.org/docs/stable/elastic/quickstart.html</a>.<br>
+[4] NVIDIA Corporation. NVIDIA GPU XID Errors Documentation. <a href="https://docs.nvidia.com/deploy/xid-errors/index.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/deploy/xid-errors/index.html</a>.<br>
+[5] Dixit et al. Silent Data Corruptions at Scale. <a href="https://arxiv.org/abs/2102.11245" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2102.11245</a>.<br>
+[6] Qiao et al. Pollux: Co-adaptive Cluster Scheduling for Goodput-Optimized Deep Learning. <a href="https://arxiv.org/abs/2008.12260" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2008.12260</a>.<br>
+[7] McCandlish et al. An Empirical Model of Large-Batch Training. <a href="https://arxiv.org/abs/1812.06162" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1812.06162</a>.</p>

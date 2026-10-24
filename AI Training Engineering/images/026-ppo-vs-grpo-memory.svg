@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Left: PPO Memory (4 Models) -->
+  <rect x="30" y="25" width="360" height="295" rx="8" class="group"/>
+  <text x="50" y="52" class="lg b">Standard PPO Memory (8B Model)</text>
+
+  <!-- Policy -->
+  <rect x="50" y="70" width="320" height="42" rx="4" class="orange"/>
+  <text x="65" y="96" class="b">Actor / Policy Model (8B)</text>
+  <text x="260" y="96" class="sm b">128.5 GB (16B/p)</text>
+
+  <!-- Critic -->
+  <rect x="50" y="120" width="320" height="42" rx="4" class="red"/>
+  <text x="65" y="146" class="b">Critic / Value Model (8B)</text>
+  <text x="260" y="146" class="sm b">128.5 GB (16B/p)</text>
+
+  <!-- Reference Model -->
+  <rect x="50" y="170" width="320" height="34" rx="4" class="blue"/>
+  <text x="65" y="193">Reference Model (8B frozen)</text>
+  <text x="270" y="193" class="sm">16.1 GB (2B/p)</text>
+
+  <!-- Reward Model -->
+  <rect x="50" y="212" width="320" height="34" rx="4" class="yellow"/>
+  <text x="65" y="235">Reward Model (8B frozen)</text>
+  <text x="270" y="235" class="sm">16.1 GB (2B/p)</text>
+
+  <!-- Total PPO -->
+  <rect x="50" y="255" width="320" height="48" rx="4" class="red"/>
+  <text x="65" y="280" class="lg b">Total Static States: ~289 GB</text>
+  <text x="65" y="296" class="sm">Requires 4x H100s just to stage static states</text>
+
+  <!-- Right: GRPO Memory (1.1 Models) -->
+  <rect x="430" y="25" width="360" height="295" rx="8" class="group"/>
+  <text x="450" y="52" class="lg b">GRPO Memory (8B Model)</text>
+
+  <!-- Policy -->
+  <rect x="450" y="70" width="320" height="42" rx="4" class="orange"/>
+  <text x="465" y="96" class="b">Actor / Policy Model (8B)</text>
+  <text x="660" y="96" class="sm b">128.5 GB (16B/p)</text>
+
+  <!-- Critic Eliminated -->
+  <rect x="450" y="120" width="320" height="42" rx="4" class="green"/>
+  <text x="465" y="146" class="b">Critic Model: ELIMINATED</text>
+  <text x="670" y="146" class="sm b">0 GB (Saved!)</text>
+
+  <!-- Reference Model -->
+  <rect x="450" y="170" width="320" height="34" rx="4" class="blue"/>
+  <text x="465" y="193">Reference Model (8B frozen)</text>
+  <text x="670" y="193" class="sm">16.1 GB (2B/p)</text>
+
+  <!-- Rule Based Verifier -->
+  <rect x="450" y="212" width="320" height="34" rx="4" class="green"/>
+  <text x="465" y="235">Verifiable Program (CPU / Tests)</text>
+  <text x="680" y="235" class="sm b">0 GB VRAM</text>
+
+  <!-- Total GRPO -->
+  <rect x="450" y="255" width="320" height="48" rx="4" class="green"/>
+  <text x="465" y="280" class="lg b">Total Static States: ~144.5 GB</text>
+  <text x="465" y="296" class="sm">50% memory reduction; fits on 2x H100s</text>
+</svg>

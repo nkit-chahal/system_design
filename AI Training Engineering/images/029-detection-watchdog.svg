@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Left: Monitored Signals -->
+  <rect x="25" y="25" width="235" height="270" rx="8" class="group"/>
+  <text x="40" y="52" class="lg b">Cluster Telemetry Signals</text>
+
+  <rect x="40" y="70" width="205" height="42" rx="4" class="purple"/>
+  <text x="50" y="90" class="b">NCCL Watchdog Thread</text>
+  <text x="50" y="105" class="sm">Collective timeout (30s)</text>
+
+  <rect x="40" y="122" width="205" height="42" rx="4" class="blue"/>
+  <text x="50" y="142" class="b">DCGM Hardware Metrics</text>
+  <text x="50" y="157" class="sm">XID errors, PCIe AER, throttling</text>
+
+  <rect x="40" y="174" width="205" height="42" rx="4" class="orange"/>
+  <text x="50" y="194" class="b">Step Progress Heartbeat</text>
+  <text x="50" y="209" class="sm">Step latency &gt; 3x baseline</text>
+
+  <rect x="40" y="226" width="205" height="42" rx="4" class="yellow"/>
+  <text x="50" y="246" class="b">Loss Anomaly Monitor</text>
+  <text x="50" y="261" class="sm">NaN, Inf, or 5-sigma spike</text>
+
+  <!-- Connectors to Watchdog Engine -->
+  <path d="M245,91 L315,140" class="edge"/>
+  <path d="M245,143 L315,150" class="edge"/>
+  <path d="M245,195 L315,160" class="edge"/>
+  <path d="M245,247 L315,170" class="edge"/>
+
+  <!-- Middle: Watchdog Controller -->
+  <rect x="320" y="85" width="200" height="150" rx="8" class="red"/>
+  <text x="340" y="115" class="lg b" fill="#fff">Automated Watchdog</text>
+  <rect x="330" y="130" width="180" height="90" rx="4" class="white"/>
+  <text x="340" y="152" class="sm b">Failure Triage:</text>
+  <text x="340" y="170" class="sm">1. Correlate XID &amp; rank</text>
+  <text x="340" y="188" class="sm">2. Terminate hung processes</text>
+  <text x="340" y="206" class="sm">3. Alert cluster scheduler</text>
+
+  <!-- Arrow to Orchestrator Actions -->
+  <path d="M520,160 L575,160" class="edge"/>
+
+  <!-- Right: Automated Actions -->
+  <rect x="580" y="25" width="215" height="270" rx="8" class="group"/>
+  <text x="595" y="52" class="lg b">Remediation Action</text>
+
+  <rect x="595" y="70" width="185" height="55" rx="4" class="gray"/>
+  <text x="605" y="92" class="b">Drain Bad Node</text>
+  <text x="605" y="110" class="sm">Exclude from Slurm pool</text>
+
+  <rect x="595" y="135" width="185" height="55" rx="4" class="green"/>
+  <text x="605" y="157" class="b">Allocate Spare</text>
+  <text x="605" y="175" class="sm">Swap warm standby node</text>
+
+  <rect x="595" y="200" width="185" height="55" rx="4" class="orange"/>
+  <text x="605" y="222" class="b">Resubmit Job</text>
+  <text x="605" y="240" class="sm">Auto-restart from DCP save</text>
+</svg>

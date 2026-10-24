@@ -1,0 +1,7 @@
+center: Forward and Backward Passes
+branch: Four Step Phases | forward evaluates activations | loss scores prediction error | backward computes exact gradients | optimizer updates master weights
+branch: Hand Worked Backprop | linear output error | layer two weight gradient | layer one activation mask | exact reverse chain rule
+branch: Next Token Objective | logits over huge vocabulary | elegant p minus y gradient | chunked loss saves memory
+branch: The Six ND Rule | forward pass is two ND | backward pass is four ND | recomputation adds two ND
+branch: PyTorch Autograd | dynamic computation graph | backward accumulates gradients | no grad saves memory
+branch: Distributed Scaling | micro batch accumulation | two seconds per step | pretraining run compute budget

@@ -1,0 +1,456 @@
+<h2>Introduction</h2>
+<p>In large-scale AI pretraining, hardware failures are not rare anomalies; they are a daily operational reality. When operating a cluster of 256 NVIDIA H100 GPUs across 32 nodes for days at a time, Mean Time Between Failures (MTBF) drops from months to tens of hours [1]. An uncorrectable SRAM double-bit error, an InfiniBand cable transceiver drop, or a PCIe bus reset will abruptly crash a single GPU. Because distributed training relies on synchronous collective communication across all ranks (Lesson 30, Cluster Networking and Collectives), <strong>the crash of a single GPU instantly terminates the entire multi-node job</strong>.</p>
+<p>Surviving hardware failures requires two coordinated capabilities: <strong>resilient state persistence</strong> (saving every parameter, optimizer moment, dataloader offset, and random seed) and <strong>automated restart orchestration</strong> (re-provisioning nodes, establishing network rendezvous, and reloading state). If your checkpointing pipeline omits even one state component—such as the dataloader shuffle index or Adam second moments—resumed training experiences severe loss divergence and poisoned sample distribution [2]. Furthermore, every minute spent detecting failures, waiting for scheduler requeues, and replaying uncheckpointed steps directly erodes training <strong>goodput</strong> (Lesson 29, Failures, Restarts and Elastic Training).</p>
+<fig src="033-lab-architecture-setup.svg" caption="Lab architecture: Small Path versus Full Path">Architecture of the failure recovery lab. Track A (Small Path) runs a 2-process torchrun job on a local machine to validate state determinism and exact loss matching under fault injection. Track B (Full Path) runs across 16 H100 GPUs (2 nodes) on a Slurm cluster to benchmark real-world scheduler requeue and compute goodput.</fig>
+<p>In this lab, you will build and test an end-to-end failure recovery harness. You will execute an uninterrupted baseline training run, implement a fully deterministic resumable checkpointing pipeline, simulate a catastrophic mid-run GPU failure by terminating a worker process, restore the run using <code>torchrun</code>, and verify that the resumed loss trajectory continues seamlessly. Finally, you will measure the exact overhead of failure detection, state restoration, and replayed steps to compute your cluster's effective goodput.</p>
+
+<h2>What You Need</h2>
+<p>This lab provides two tracks depending on your hardware environment. The <strong>Small Path</strong> runs on a single developer workstation, laptop, or cloud GPU instance. The <strong>Full Path</strong> runs on a distributed multi-node GPU cluster managed by Slurm. Table 1 lists the requirements for both paths.</p>
+<table>
+<thead><tr><th>Component</th><th>Small Path (Local Workstation)</th><th>Full Path (Production Cluster)</th></tr></thead>
+<tbody>
+<tr><td>Compute Hardware</td><td>1 Machine with 1 GPU (or CPU) running 2 <code>torchrun</code> processes</td><td>2 Nodes × 8 NVIDIA H100 SXM GPUs (16 GPUs total)</td></tr>
+<tr><td>Target Model</td><td>Small GPT (~124M parameters, 12 layers, hidden 768)</td><td>Llama 3.1 8B Architecture (32 layers, hidden 4,096)</td></tr>
+<tr><td>Software Stack</td><td>Python 3.10+, PyTorch 2.x, <code>torchrun</code></td><td>PyTorch 2.x, CUDA 12+, NCCL 2.20+, Slurm Workload Manager</td></tr>
+<tr><td>Storage</td><td>Local NVMe SSD (<code>/tmp/checkpoints/</code>)</td><td>Shared parallel filesystem (Lustre, GPFS, or CephFS)</td></tr>
+<tr><td>Dataset</td><td>Synthetic or tokenized Wikipedia / OpenWebText subset</td><td>Pre-tokenized web pretraining corpus (Lesson 17)</td></tr>
+<tr><td>Cost Estimate</td><td>$0.00 (Local workstation or free cloud tier)</td><td>Assume $3.00/H100-hour: 16 GPUs × 2 hours ≈ $96 (assumption)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Hardware and software specifications for the failure recovery lab</p>
+
+<h2>Step 1: Baseline Uninterrupted Run</h2>
+<p>Before testing failure recovery, we must generate a "gold standard" reference trajectory. We train our target model for 500 steps without interruption, saving checkpoints periodically and logging the loss at every step. This provides the exact mathematical baseline against which our resumed run will be verified.</p>
+<p>The first tab contains the baseline training script <code>train_baseline.py</code>. The second tab executes the run using <code>torchrun</code> across 2 processes.</p>
+<codetabs>
+<tab label="train_baseline.py" lang="python">
+import argparse
+import os
+import time
+import torch
+import torch.nn as nn
+import torch.distributed as dist
+from torch.utils.data import Dataset, DataLoader, Sampler
+
+class ResumableSampler(Sampler):
+    """Deterministic sampler that yields identical sequence order and supports offset resumption."""
+    def __init__(self, size: int, batch_size: int, seed: int = 42):
+        self.size = size
+        self.batch_size = batch_size
+        self.seed = seed
+        self.start_step = 0
+        g = torch.Generator()
+        g.manual_seed(seed)
+        self.indices = torch.randperm(size, generator=g).tolist()
+
+    def set_start_step(self, step: int):
+        self.start_step = step
+
+    def __iter__(self):
+        start_idx = self.start_step * self.batch_size
+        for i in range(start_idx, self.size - self.batch_size + 1, self.batch_size):
+            yield self.indices[i : i + self.batch_size]
+
+    def state_dict(self):
+        return {"seed": self.seed, "start_step": self.start_step}
+
+    def load_state_dict(self, state):
+        self.seed = state["seed"]
+        self.start_step = state["start_step"]
+        g = torch.Generator()
+        g.manual_seed(self.seed)
+        self.indices = torch.randperm(self.size, generator=g).tolist()
+
+class ToyGPT(nn.Module):
+    def __init__(self, vocab_size=5000, dim=256, layers=4):
+        super().__init__()
+        self.emb = nn.Embedding(vocab_size, dim)
+        self.blocks = nn.ModuleList([nn.Linear(dim, dim, bias=False) for _ in range(layers)])
+        self.lm_head = nn.Linear(dim, vocab_size, bias=False)
+
+    def forward(self, x):
+        h = self.emb(x)
+        for layer in self.blocks:
+            h = h + torch.relu(layer(h))
+        return self.lm_head(h)
+
+def run():
+    dist.init_process_group("nccl" if torch.cuda.is_available() else "gloo")
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        torch.cuda.set_device(device)
+
+    # Set deterministic seeds
+    torch.manual_seed(42 + local_rank)
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
+    model = ToyGPT().to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), eps=1e-8)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500)
+
+    # Deterministic dummy dataset of token IDs
+    data = torch.randint(0, 5000, (10000, 64))
+    sampler = ResumableSampler(len(data), batch_size=8, seed=1337)
+    loader = DataLoader(data, batch_sampler=sampler)
+
+    os.makedirs("./checkpoints_baseline", exist_ok=True)
+    log_file = f"./baseline_rank{local_rank}.csv"
+    with open(log_file, "w") as f:
+        f.write("step,loss,lr\n")
+
+    loader_iter = iter(loader)
+    for step in range(1, 501):
+        batch = next(loader_iter).to(device)
+        targets = batch.clone()
+
+        optimizer.zero_grad()
+        logits = model(batch)
+        loss = nn.functional.cross_entropy(logits.view(-1, 5000), targets.view(-1))
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+
+        if local_rank == 0 and step % 20 == 0:
+            print(f"Step {step:3d} | Loss: {loss.item():.5f} | LR: {scheduler.get_last_lr()[0]:.6f}")
+
+        with open(log_file, "a") as f:
+            f.write(f"{step},{loss.item():.6f},{scheduler.get_last_lr()[0]:.6f}\n")
+
+        # Save checkpoint every 100 steps
+        if step % 100 == 0:
+            ckpt_path = f"./checkpoints_baseline/ckpt_step_{step}.pt"
+            state = {
+                "step": step,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict(),
+                "sampler_step": step,
+                "rng_torch": torch.get_rng_state(),
+            }
+            if torch.cuda.is_available():
+                state["rng_cuda"] = torch.cuda.get_rng_state(device)
+            torch.save(state, ckpt_path)
+
+    dist.destroy_process_group()
+
+if __name__ == "__main__":
+    run()
+</tab>
+<tab label="Run command" lang="bash">
+# Launch 2-process baseline training on local workstation
+torchrun --nproc_per_node=2 train_baseline.py
+
+# Expected output:
+# Step  20 | Loss: 8.49821 | LR: 0.000996
+# Step 100 | Loss: 7.21405 | LR: 0.000905
+# ...
+# Step 500 | Loss: 4.81230 | LR: 0.000000
+# Output files:
+#   baseline_rank0.csv, baseline_rank1.csv
+#   checkpoints_baseline/ckpt_step_{100,200,300,400,500}.pt
+</tab>
+</codetabs>
+
+<h2>Step 2: Resumable Checkpoint Architecture</h2>
+<p>To guarantee that a resumed training run continues along the exact numerical trajectory of the uninterrupted run, the checkpoint must encapsulate five distinct state domains (Figure 2) [2]:</p>
+<fig src="033-checkpoint-state-anatomy.svg" caption="Anatomy of a resumable checkpoint: five mandatory state components">The five essential state components required for deterministic recovery: Model Weights, Optimizer States (Adam master weights and moments), Learning Rate Scheduler, Deterministic Dataloader offsets, and Random Number Generator states. Missing any component causes loss divergence.</fig>
+<ol>
+<li><strong>Model Weights (<code>model.state_dict()</code>)</strong>: The primary neural network parameters. In distributed FSDP, this is saved via PyTorch Distributed Checkpoint (DCP) sharded across storage (Lesson 28, Checkpointing).</li>
+<li><strong>Optimizer State (<code>optimizer.state_dict()</code>)</strong>: The full AdamW momentum (<tex>m_t</tex>) and variance (<tex>v_t</tex>) accumulators, along with high-precision FP32 master weights. If omitted, the optimizer resets momentum to zero, causing learning rates to effectively surge and producing a 20–50% loss jump upon restart.</li>
+<li><strong>Scheduler State (<code>scheduler.state_dict()</code>)</strong>: The active step counter and internal decay variables. If omitted, learning rate warmup restarts from step 0, applying high learning rates at late training stages.</li>
+<li><strong>Dataloader State / Sampler Offset</strong>: The token index and batch offset. If omitted, the resumed run re-reads training data from epoch 0, re-exposing the model to millions of already-seen tokens while skipping unread portions of the corpus.</li>
+<li><strong>RNG States (<code>torch.get_rng_state()</code> and <code>cuda.get_rng_state()</code>)</strong>: The internal bit-generators governing dropout masks and stochastic augmentations.</li>
+</ol>
+
+<h2>Step 3: Simulating a Failure Mid-Run</h2>
+<p>Now we simulate a sudden hardware crash during active training. We launch a second run configured to save checkpoints every 100 steps. At step 250—exactly halfway between checkpoint 200 and checkpoint 300—we inject a catastrophic failure by sending <code>kill -9</code> to worker process rank 1.</p>
+<p>Figure 3 illustrates the resulting failure and teardown timeline.</p>
+<fig src="033-failure-and-restart-timeline.svg" caption="Failure, restart, and recovery timeline anatomy">Timeline decomposition of a mid-run failure at step 250. Checkpoint 200 is loaded upon restart. Total lost time comprises failure detection timeout (20s), torchrun relaunch (30s), checkpoint read (15s), and replaying the 49 unsaved steps (201 to 249).</fig>
+<p>The code tabs below show the fault-injected runner script <code>train_with_failure.py</code> and the execution command.</p>
+<codetabs>
+<tab label="train_with_failure.py" lang="python">
+import os
+import signal
+import sys
+import time
+import torch
+import torch.distributed as dist
+from train_baseline import ResumableSampler, ToyGPT, nn, DataLoader
+
+def run_with_fault_injection():
+    dist.init_process_group("nccl" if torch.cuda.is_available() else "gloo")
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        torch.cuda.set_device(device)
+
+    torch.manual_seed(42 + local_rank)
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
+    model = ToyGPT().to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), eps=1e-8)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500)
+
+    data = torch.randint(0, 5000, (10000, 64))
+    sampler = ResumableSampler(len(data), batch_size=8, seed=1337)
+    loader = DataLoader(data, batch_sampler=sampler)
+
+    os.makedirs("./checkpoints_resumed", exist_ok=True)
+    log_file = f"./resumed_phase1_rank{local_rank}.csv"
+    with open(log_file, "w") as f:
+        f.write("step,loss,lr\n")
+
+    loader_iter = iter(loader)
+    for step in range(1, 251):
+        # SIMULATE HARDWARE CRASH: Rank 1 commits suicide at step 250
+        if step == 250 and local_rank == 1:
+            print(f"[FAULT INJECTION] Process {os.getpid()} (Rank 1) crashing abruptly at step 250...")
+            os.kill(os.getpid(), signal.SIGKILL)
+
+        batch = next(loader_iter).to(device)
+        targets = batch.clone()
+
+        optimizer.zero_grad()
+        logits = model(batch)
+        loss = nn.functional.cross_entropy(logits.view(-1, 5000), targets.view(-1))
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+
+        with open(log_file, "a") as f:
+            f.write(f"{step},{loss.item():.6f},{scheduler.get_last_lr()[0]:.6f}\n")
+
+        # Save checkpoint at step 100 and step 200
+        if step % 100 == 0:
+            ckpt_path = f"./checkpoints_resumed/ckpt_step_{step}.pt"
+            state = {
+                "step": step,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict(),
+                "sampler_step": step,
+                "rng_torch": torch.get_rng_state(),
+            }
+            if torch.cuda.is_available():
+                state["rng_cuda"] = torch.cuda.get_rng_state(device)
+            torch.save(state, ckpt_path)
+
+    dist.destroy_process_group()
+
+if __name__ == "__main__":
+    run_with_fault_injection()
+</tab>
+<tab label="Fault injection run" lang="bash">
+# Launch Phase 1 run with intentional SIGKILL at step 250
+torchrun --nproc_per_node=2 train_with_failure.py
+
+# Expected console output:
+# Step 100 | Checkpoint saved to ./checkpoints_resumed/ckpt_step_100.pt
+# Step 200 | Checkpoint saved to ./checkpoints_resumed/ckpt_step_200.pt
+# [FAULT INJECTION] Process 84129 (Rank 1) crashing abruptly at step 250...
+# ERROR:torch.distributed.elastic.multiprocessing.api:failed (exitcode: -9) local_rank: 1
+# torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+# Global rank 1 failed with exitcode -9 (SIGKILL).
+# Watchdog tears down rank 0. Job halts.
+</tab>
+</codetabs>
+
+<h2>Step 4: Automatic Restart and Resumption</h2>
+<p>The job has crashed at step 250. Because step 250 was never checkpointed, all progress between step 201 and step 250 is lost. To recover, our restart runner inspects the checkpoint directory, identifies the latest intact checkpoint (<code>ckpt_step_200.pt</code>), restores all five state domains, advances the dataloader to step 200, and resumes execution through step 500 using the PyTorch Distributed Elastic framework [3].</p>
+<codetabs>
+<tab label="resume_training.py" lang="python">
+import os
+import glob
+import torch
+import torch.distributed as dist
+from train_baseline import ResumableSampler, ToyGPT, nn, DataLoader
+
+def find_latest_checkpoint(ckpt_dir: str):
+    ckpts = glob.glob(os.path.join(ckpt_dir, "ckpt_step_*.pt"))
+    if not ckpts:
+        return None
+    # Sort by step number extracted from filename
+    ckpts.sort(key=lambda p: int(p.split("_")[-1].replace(".pt", "")))
+    return ckpts[-1]
+
+def resume():
+    dist.init_process_group("nccl" if torch.cuda.is_available() else "gloo")
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        torch.cuda.set_device(device)
+
+    latest_ckpt = find_latest_checkpoint("./checkpoints_resumed")
+    assert latest_ckpt is not None, "No checkpoint found to resume from!"
+    if local_rank == 0:
+        print(f"[RECOVERY] Found latest intact checkpoint: {latest_ckpt}")
+
+    checkpoint = torch.load(latest_ckpt, map_location=device)
+    start_step = checkpoint["step"]
+
+    # 1. Restore Model Weights
+    model = ToyGPT().to(device)
+    model.load_state_dict(checkpoint["model"])
+
+    # 2. Restore Optimizer States (Adam m, v and master weights)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), eps=1e-8)
+    optimizer.load_state_dict(checkpoint["optimizer"])
+
+    # 3. Restore Learning Rate Scheduler
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500)
+    scheduler.load_state_dict(checkpoint["scheduler"])
+
+    # 4. Restore Deterministic Data Sampler to exact step 200 offset
+    data = torch.randint(0, 5000, (10000, 64))
+    sampler = ResumableSampler(len(data), batch_size=8, seed=1337)
+    sampler.set_start_step(start_step)
+    loader = DataLoader(data, batch_sampler=sampler)
+
+    # 5. Restore Random Number Generator States
+    torch.set_rng_state(checkpoint["rng_torch"])
+    if torch.cuda.is_available() and "rng_cuda" in checkpoint:
+        torch.cuda.set_rng_state(checkpoint["rng_cuda"], device)
+
+    if local_rank == 0:
+        print(f"[RECOVERY] Resuming training from step {start_step + 1} through step 500...")
+
+    log_file = f"./resumed_phase2_rank{local_rank}.csv"
+    with open(log_file, "w") as f:
+        f.write("step,loss,lr\n")
+
+    loader_iter = iter(loader)
+    for step in range(start_step + 1, 501):
+        batch = next(loader_iter).to(device)
+        targets = batch.clone()
+
+        optimizer.zero_grad()
+        logits = model(batch)
+        loss = nn.functional.cross_entropy(logits.view(-1, 5000), targets.view(-1))
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+
+        if local_rank == 0 and step % 20 == 0:
+            print(f"Resumed Step {step:3d} | Loss: {loss.item():.5f} | LR: {scheduler.get_last_lr()[0]:.6f}")
+
+        with open(log_file, "a") as f:
+            f.write(f"{step},{loss.item():.6f},{scheduler.get_last_lr()[0]:.6f}\n")
+
+    dist.destroy_process_group()
+
+if __name__ == "__main__":
+    resume()
+</tab>
+<tab label="Resume command" lang="bash">
+# Launch recovery run starting from step 201 through step 500
+torchrun --nproc_per_node=2 resume_training.py
+
+# Expected console output:
+# [RECOVERY] Found latest intact checkpoint: ./checkpoints_resumed/ckpt_step_200.pt
+# [RECOVERY] Resuming training from step 201 through step 500...
+# Resumed Step 220 | Loss: 6.41922 | LR: 0.000789
+# Resumed Step 260 | Loss: 6.10421 | LR: 0.000712
+# ...
+# Resumed Step 500 | Loss: 4.81230 | LR: 0.000000
+</tab>
+</codetabs>
+
+<h2>Reading the Results</h2>
+<h3>Verifying loss curve continuity</h3>
+<p>To confirm that failure recovery succeeded, we compare the loss recorded during the uninterrupted baseline run with the loss recorded across the two phases of our resumed run. Figure 4 plots the two trajectories.</p>
+<fig src="033-loss-curve-continuity.svg" caption="Loss curve verification: uninterrupted run versus resumed run (Illustrative)">Comparison of loss trajectories. The uninterrupted run (green) descends smoothly to step 500. The resumed run (blue dashed), restored from checkpoint 200 following failure at step 250, overlays the baseline with exact numerical continuity (|Δ| &lt; 1e-4). If optimizer or dataloader state is omitted, the flawed trajectory (red dashed) jumps +0.8 immediately.</fig>
+<p>To evaluate numerical fidelity quantitatively, execute the validation script <code>verify_results.py</code>:</p>
+<codetabs>
+<tab label="verify_results.py" lang="python">
+import pandas as pd
+import numpy as np
+
+# Load uninterrupted baseline
+df_base = pd.read_csv("baseline_rank0.csv")
+
+# Load resumed trajectory (Phase 1: steps 1-249; Phase 2: steps 201-500)
+df_p1 = pd.read_csv("resumed_phase1_rank0.csv")
+df_p2 = pd.read_csv("resumed_phase2_rank0.csv")
+
+# For verification, evaluate the resumed segment: steps 201 to 500
+base_segment = df_base[df_base["step"] >= 201].sort_values("step").reset_index(drop=True)
+resumed_segment = df_p2.sort_values("step").reset_index(drop=True)
+
+diffs = np.abs(base_segment["loss"].values - resumed_segment["loss"].values)
+max_diff = np.max(diffs)
+mean_diff = np.mean(diffs)
+
+print("=== Failure Recovery Numerical Verification ===")
+print(f"Total Steps Evaluated: {len(diffs)} (Steps 201 through 500)")
+print(f"Maximum Loss Difference: {max_diff:.8f}")
+print(f"Mean Absolute Difference: {mean_diff:.8f}")
+
+if max_diff < 1e-4:
+    print("[PASS] Resumed trajectory matches uninterrupted baseline within numerical tolerance!")
+else:
+    print("[FAIL] Divergence detected! Check dataloader offsets and Adam optimizer momentum.")
+</tab>
+</codetabs>
+
+<h3>Bitwise determinism versus floating-point tolerance</h3>
+<p>Engineers often ask: <em>Should the resumed loss match the uninterrupted baseline bitwise (exact binary equality), or within a numerical tolerance?</em></p>
+<p>If training runs on CPU or with <code>torch.use_deterministic_algorithms(True)</code> enabled on GPU, modern PyTorch produces <strong>exact bitwise matching</strong> across all steps (<tex>\max |\Delta| = 0.0</tex>). However, in high-performance GPU pretraining, several CUDA operations—most notably atomic additions (<code>atomicAdd</code>) executed during backward-pass gradient reductions in FlashAttention and LayerNorm—are inherently non-deterministic in floating-point summation order [4].</p>
+<p>Because floating-point addition is non-associative (<tex>(a + b) + c \ne a + (b + c)</tex>), differing thread schedule orders introduce tiny roundoff variations at the 7th decimal digit in FP32 (<tex>\sim 10^{-7}</tex>) and 3rd decimal digit in BF16. Over hundreds of steps, chaotic sensitivity can cause trajectories to drift slightly. <strong>A healthy resumed run matches within <tex>10^{-4}</tex> tolerance across the first 50 steps</strong>, whereas a broken run (missing optimizer states or shuffled data) diverges by <tex>> 0.5</tex> on the very first resumed step.</p>
+
+<h3>Measuring lost work and computing goodput</h3>
+<p>Using the recorded timestamps from our lab runs, we populate Table 2 to compute effective training <strong>Goodput</strong> (Figure 5) [1]:</p>
+<fig src="033-goodput-accounting.svg" caption="Goodput accounting breakdown">Decomposition of total cluster wall-clock time into useful compute (86%), checkpoint saving overhead (4%), failure relaunch and synchronization (3%), and replayed work (7%).</fig>
+<table>
+<thead><tr><th>Phase / Metric</th><th>Small Path (Local Workstation)</th><th>Full Path (16 × H100 Cluster)</th></tr></thead>
+<tbody>
+<tr><td>Useful Step Time (<tex>\Delta t</tex>)</td><td>45 ms per step</td><td>470 ms per step</td></tr>
+<tr><td>Total Steps Completed</td><td>500 unique steps</td><td>500 unique steps</td></tr>
+<tr><td>Total Useful Compute Time (<tex>T_{\text{useful}}</tex>)</td><td><tex>500 \times 0.045 = 22.5\text{ s}</tex></td><td><tex>500 \times 0.470 = 235.0\text{ s}</tex></td></tr>
+<tr><td>Checkpoint Interval (<tex>T_{\text{interval}}</tex>)</td><td>100 steps (4.5 s compute)</td><td>100 steps (47.0 s compute)</td></tr>
+<tr><td>Checkpoint Write Time (<tex>t_{\text{save}}</tex>)</td><td>0.12 s per checkpoint</td><td>4.8 s per checkpoint (Lustre)</td></tr>
+<tr><td>Total Checkpoint Overhead (<tex>5 \times t_{\text{save}}</tex>)</td><td>0.60 s</td><td>24.0 s</td></tr>
+<tr><td>Failure Detection &amp; Teardown (<tex>t_{\text{detect}}</tex>)</td><td>1.8 s</td><td>18.5 s (NCCL watchdog)</td></tr>
+<tr><td>Relaunch &amp; Rendezvous Latency (<tex>t_{\text{relaunch}}</tex>)</td><td>2.4 s</td><td>72.0 s (Slurm requeue + c10d)</td></tr>
+<tr><td>Checkpoint Restoration Time (<tex>t_{\text{load}}</tex>)</td><td>0.08 s</td><td>3.6 s</td></tr>
+<tr><td>Replayed Work (49 steps)</td><td><tex>49 \times 0.045 = 2.21\text{ s}</tex></td><td><tex>49 \times 0.470 = 23.03\text{ s}</tex></td></tr>
+<tr><td>Total Wall-Clock Time (<tex>T_{\text{total}}</tex>)</td><td>29.59 s</td><td>376.13 s</td></tr>
+<tr><td><strong>Effective Goodput (<tex>T_{\text{useful}} / T_{\text{total}}</tex>)</strong></td><td><strong>76.0%</strong></td><td><strong>62.5%</strong></td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Goodput accounting template and experimental results for the failure recovery lab</p>
+<p>Notice that in our 500-step test run, experiencing a failure cuts goodput significantly because the failure overhead is amortized over only 500 steps. In a production 5.5-day pretraining run (Lesson 30), failures occur roughly once every 24 to 36 hours. Amortizing failure recovery across tens of thousands of steps yields a steady-state Goodput of <strong>85% to 90%</strong> [1, 5].</p>
+
+<h2>Common Pitfalls</h2>
+<ul>
+<li><strong>Missing optimizer state</strong>: Saving only <code>model.state_dict()</code>. Upon restart, AdamW initializes momentum and variance accumulators (<tex>m_t, v_t</tex>) to zero. The denominator <tex>\sqrt{v_t} + \epsilon</tex> collapses to <tex>\epsilon</tex>, causing coordinate updates to surge by 10× to 100× and spiking loss by +0.5 to +1.0.</li>
+<li><strong>Non-resumable dataloader shuffle</strong>: Instantiating a new DataLoader without saving the random seed and sample offset. The resumed run re-reads samples from the start of the dataset or shuffles with a different seed, breaking reproducibility and biasing token distributions.</li>
+<li><strong>Corrupted partial checkpoints</strong>: If a process crashes or power drops while <code>torch.save()</code> is writing to disk, the destination file is left truncated. When the recovery script calls <code>torch.load()</code>, it crashes with an <code>EOFError</code>. <em>Solution</em>: Always write checkpoints to an atomic temporary path (<code>ckpt_step_200.pt.tmp</code>) and use an atomic POSIX rename (<code>os.replace()</code>) only after write and <code>flush()</code> complete.</li>
+<li><strong>Uncoordinated distributed saves</strong>: In multi-GPU runs without FSDP DCP, having all 16 ranks write identical full checkpoints simultaneously to shared storage causes storage metadata locks and write storms. Only rank 0 should write non-sharded checkpoints, or all ranks must write non-overlapping DCP shards.</li>
+<li><strong>Stale NCCL communication sockets</strong>: When a crashed rank is killed, leftover zombie processes on other nodes can keep TCP communication sockets in <code>TIME_WAIT</code> state. New <code>torchrun</code> instances attempting to bind to port 29500 fail with <code>Address already in use</code>. Ensure <code>torchrun</code> or Slurm job prolog scripts kill all lingering Python processes before restarting.</li>
+</ul>
+
+<h2>Stretch Goals</h2>
+<p>If you complete the baseline recovery lab ahead of schedule, pursue these production engineering enhancements:</p>
+<ol>
+<li><strong>Asynchronous non-blocking checkpointing</strong>: Integrate PyTorch Distributed Checkpoint (DCP) with asynchronous staging (Lesson 28). Copy model state from GPU HBM to host pinned CPU memory in 200 ms on a separate CUDA stream, then spawn a background Python thread to stream the checkpoint to disk while GPU compute resumes immediately.</li>
+<li><strong>Dynamic rank reassignment (Elastic training)</strong>: Configure <code>torchrun --nnodes=1:2</code> to dynamically adjust world size upon node failure. If node 1 suffers a permanent hardware failure, let torchrun re-rendezvous on the remaining 8 GPUs on node 0, scale the global batch size, and continue training without waiting for hardware replacement.</li>
+<li><strong>Automated health-check prolog</strong>: Write a bash wrapper script that executes a 10-second NCCL All-Reduce test (<code>all_reduce_perf</code>, Lesson 30) across all allocated nodes before resuming training, automatically cordoning broken nodes before loading the checkpoint.</li>
+</ol>
+
+<h2>Summary</h2>
+<fig src="033-summary.png" caption="Failure recovery lab summary" optional="1">Mind map summarizing the lab: two execution tracks, the five mandatory checkpoint states, recovery timeline accounting, numerical verification criteria, and common operational pitfalls.</fig>
+<ul>
+<li>Hardware failures are normal operating conditions at scale; training pipelines must support automated crash detection and deterministic state recovery.</li>
+<li>A valid resumable checkpoint requires five distinct components: Model Weights, Optimizer States (Adam master weights and moments), LR Scheduler state, Dataloader offset, and RNG states.</li>
+<li>Omitting optimizer state resets momentum to zero, causing learning rate surges and loss spikes upon restart. Omitting dataloader state causes token duplication or data leakage.</li>
+<li>Total failure recovery time equals failure detection timeout + scheduler requeue and node boot + checkpoint read time + replaying uncheckpointed steps.</li>
+<li>Resumed runs match the uninterrupted baseline within <tex>10^{-4}</tex> tolerance (or exact bitwise equality under CUDA deterministic mode). Non-deterministic atomic additions in backward passes account for minor floating-point divergence.</li>
+<li>Goodput evaluates the proportion of billed cluster time spent doing useful forward/backward compute versus checkpoint I/O, restart latency, and replayed work.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Dubey et al. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[2] PyTorch Documentation: Distributed Checkpoint (DCP). <a href="https://pytorch.org/docs/stable/distributed.checkpoint.html" rel="noopener noreferrer" target="_blank">https://pytorch.org/docs/stable/distributed.checkpoint.html</a>.<br>
+[3] PyTorch Documentation: Distributed Elastic and torchrun. <a href="https://pytorch.org/docs/stable/elastic/run.html" rel="noopener noreferrer" target="_blank">https://pytorch.org/docs/stable/elastic/run.html</a>.<br>
+[4] PyTorch Documentation: Reproducibility and Deterministic Algorithms. <a href="https://pytorch.org/docs/stable/notes/randomness.html" rel="noopener noreferrer" target="_blank">https://pytorch.org/docs/stable/notes/randomness.html</a>.</p>

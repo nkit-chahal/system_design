@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="380" viewBox="0 0 820 380" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .kernel-compute{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1}
+    .kernel-nccl{fill:#e1d5e7;stroke:#9673a6;stroke-width:1}
+    .kernel-cpu{fill:#f5f5f5;stroke:#666;stroke-width:1}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .wait-line{stroke:#b85450;stroke-width:1.5;stroke-dasharray:3 3}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">PyTorch Profiler Traces: DDP vs FSDP Stream Overlap</text>
+  <text x="25" y="46" class="sm" fill="#555">Chrome tracing timeline (chrome://tracing) showing CUDA compute streams and NCCL communication streams</text>
+
+  <!-- Legend in top-right -->
+  <g transform="translate(560, 24)">
+    <rect x="0" y="0" width="16" height="12" class="kernel-compute"/>
+    <text x="22" y="10" class="sm">Compute Stream</text>
+    <rect x="130" y="0" width="16" height="12" class="kernel-nccl"/>
+    <text x="152" y="10" class="sm">NCCL Stream</text>
+  </g>
+
+  <!-- Top Panel: DDP Trace -->
+  <g transform="translate(25, 68)">
+    <rect x="0" y="0" width="770" height="125" rx="6" class="gray"/>
+    <text x="15" y="20" class="b" fill="#1c4587">DDP Profiler Trace (Gradient Bucketing)</text>
+
+    <!-- CPU Driver Track -->
+    <text x="15" y="44" class="sm">CPU Driver:</text>
+    <rect x="110" y="32" width="220" height="16" class="kernel-cpu"/>
+    <text x="220" y="44" text-anchor="middle" class="sm">backward() dispatch</text>
+
+    <!-- GPU Compute Stream Track (Stream 7) -->
+    <text x="15" y="74" class="sm b">GPU (s:7):</text>
+    <rect x="110" y="62" width="85" height="18" class="kernel-compute"/>
+    <text x="152" y="75" text-anchor="middle" class="sm">GEMM L23</text>
+
+    <rect x="205" y="62" width="85" height="18" class="kernel-compute"/>
+    <text x="247" y="75" text-anchor="middle" class="sm">GEMM L22</text>
+
+    <rect x="300" y="62" width="85" height="18" class="kernel-compute"/>
+    <text x="342" y="75" text-anchor="middle" class="sm">GEMM L21</text>
+
+    <rect x="395" y="62" width="85" height="18" class="kernel-compute"/>
+    <text x="437" y="75" text-anchor="middle" class="sm">GEMM L20</text>
+    <text x="495" y="75" class="sm">... compute continues</text>
+
+    <!-- NCCL Stream Track (Stream 14) -->
+    <text x="15" y="104" class="sm b">NCCL (s:14):</text>
+    <rect x="205" y="92" width="125" height="18" class="kernel-nccl"/>
+    <text x="267" y="105" text-anchor="middle" class="sm b">All-Reduce B0</text>
+
+    <rect x="345" y="92" width="125" height="18" class="kernel-nccl"/>
+    <text x="407" y="105" text-anchor="middle" class="sm b">All-Reduce B1</text>
+
+    <!-- Overlap Callout -->
+    <text x="490" y="105" class="sm" fill="#274e13">✓ 100% hidden behind compute</text>
+  </g>
+
+  <!-- Bottom Panel: FSDP Profiler Trace -->
+  <g transform="translate(25, 205)">
+    <rect x="0" y="0" width="770" height="125" rx="6" class="gray"/>
+    <text x="15" y="20" class="b" fill="#b45f06">FSDP2 Profiler Trace (Layer Prefetching &amp; Reduce-Scatter)</text>
+
+    <!-- GPU Compute Stream Track (Stream 7) -->
+    <text x="15" y="52" class="sm b">GPU (s:7):</text>
+    <rect x="110" y="40" width="105" height="18" class="kernel-compute"/>
+    <text x="162" y="53" text-anchor="middle" class="sm">Fwd GEMM L0</text>
+
+    <rect x="235" y="40" width="105" height="18" class="kernel-compute"/>
+    <text x="287" y="53" text-anchor="middle" class="sm">Fwd GEMM L1</text>
+
+    <rect x="360" y="40" width="105" height="18" class="kernel-compute"/>
+    <text x="412" y="53" text-anchor="middle" class="sm">Fwd GEMM L2</text>
+
+    <!-- NCCL Stream Track (Stream 14) -->
+    <text x="15" y="85" class="sm b">NCCL (s:14):</text>
+    <rect x="110" y="73" width="105" height="18" class="kernel-nccl"/>
+    <text x="162" y="86" text-anchor="middle" class="sm">All-Gather L1</text>
+
+    <rect x="235" y="73" width="105" height="18" class="kernel-nccl"/>
+    <text x="287" y="86" text-anchor="middle" class="sm">All-Gather L2</text>
+
+    <rect x="360" y="73" width="105" height="18" class="kernel-nccl"/>
+    <text x="412" y="86" text-anchor="middle" class="sm">All-Gather L3</text>
+
+    <!-- Arrow indicating prefetch overlap -->
+    <text x="480" y="86" class="sm" fill="#b45f06">Prefetching L(i+1) during L(i) GEMM</text>
+
+    <text x="15" y="112" class="sm" fill="#555">If All-Gather takes longer than GEMM, the compute stream stalls with cudaStreamWaitEvent.</text>
+  </g>
+
+  <!-- Bottom Annotation Bar -->
+  <rect x="25" y="340" width="770" height="30" rx="4" class="white"/>
+  <text x="35" y="360" class="sm"><tspan class="b">Trace Inspection:</tspan> Look for ncclKernel in Chrome tracing to verify whether communication is overlapping or stalling GEMMs.</text>
+</svg>

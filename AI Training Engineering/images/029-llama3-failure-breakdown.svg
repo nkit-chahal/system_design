@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Left: Overview Card -->
+  <rect x="25" y="25" width="250" height="270" rx="8" class="group"/>
+  <text x="40" y="52" class="lg b">Llama 3 54-Day Run</text>
+  <text x="40" y="70" class="sm gray">16,384 H100 GPUs (Meta, 2024)</text>
+
+  <rect x="40" y="85" width="220" height="50" rx="4" class="purple"/>
+  <text x="50" y="108" class="b">Total Interruptions: 466</text>
+  <text x="50" y="125" class="sm">~8.6 interruptions / day</text>
+
+  <rect x="40" y="145" width="220" height="42" rx="4" class="blue"/>
+  <text x="50" y="167" class="b">Planned: 47 (10.1%)</text>
+  <text x="50" y="180" class="sm">Host OS &amp; network maintenance</text>
+
+  <rect x="40" y="198" width="220" height="42" rx="4" class="red"/>
+  <text x="50" y="220" class="b">Unplanned: 419 (89.9%)</text>
+  <text x="50" y="233" class="sm">Unexpected hardware / software</text>
+
+  <rect x="40" y="248" width="220" height="35" rx="3" class="green"/>
+  <text x="50" y="270" class="sm b">Automated Goodput: &gt; 90%</text>
+
+  <!-- Right: Root-Cause Breakdown of Unplanned Interruptions -->
+  <rect x="295" y="25" width="495" height="270" rx="8" class="group"/>
+  <text x="315" y="52" class="lg b">Root Causes of 419 Unplanned Interruptions</text>
+
+  <!-- GPU / NVLink -->
+  <rect x="315" y="68" width="455" height="40" rx="4" class="orange"/>
+  <text x="325" y="92" class="b">GPU &amp; NVLink Failures: 148 incidents (30.1% of total)</text>
+
+  <!-- HBM3 Memory -->
+  <rect x="315" y="115" width="455" height="40" rx="4" class="red"/>
+  <text x="325" y="139" class="b">HBM3 Memory Failures (ECC / SBE / DBE): 72 incidents (17.2%)</text>
+
+  <!-- Silent Data Corruption (SDC) -->
+  <rect x="315" y="162" width="455" height="38" rx="4" class="yellow"/>
+  <text x="325" y="185" class="b">Silent Data Corruption &amp; Flapping Links: 41 incidents (9.8%)</text>
+
+  <!-- Network & InfiniBand -->
+  <rect x="315" y="206" width="455" height="38" rx="4" class="blue"/>
+  <text x="325" y="229" class="b">Host Network &amp; InfiniBand Cable Flaps: 68 incidents (16.2%)</text>
+
+  <!-- Software, NCCL, Watchdog Hangs -->
+  <rect x="315" y="250" width="455" height="38" rx="4" class="gray"/>
+  <text x="325" y="273" class="b">Software Bugs, NCCL Deadlocks &amp; PyTorch Hangs: 90 incidents (21.5%)</text>
+</svg>

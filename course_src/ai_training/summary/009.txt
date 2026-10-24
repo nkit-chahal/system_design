@@ -1,0 +1,7 @@
+center: Lab Size a Training Run
+branch: Step Sizing Pipeline | compute budget and model allocation | planned mfu and wall clock days | memory headroom and network overlap
+branch: Memory Verification | sixteen bytes per parameter baseline | fsdp intra node sharding | thirty four gigabytes fits in eighty
+branch: Network Overlap | all reduce takes six hundred milliseconds | backward pass takes thirteen hundred milliseconds | communication hides behind compute
+branch: Financial Budgeting | base rental one hundred one thousand | ten percent buffer for restarts | five percent buffer for evals
+branch: Empirical Calibration | one hundred step validation trial | measure real step duration | recalibrate schedule and cluster spend
+branch: Results And Alternatives | running eight billion scenario | compute optimal twenty billion model | frontier scale seventy billion run

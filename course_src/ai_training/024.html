@@ -1,0 +1,336 @@
+<h2>Introduction</h2>
+<p>Supervised Fine-Tuning (SFT, Lesson 22) teaches a base language model how to converse, follow instructions, and structure its output. However, training exclusively with cross-entropy loss against human demonstrations reveals fundamental limitations in production. Standard next-token prediction treats all demonstrator variations as equally optimal, suffers from <strong>exposure bias</strong> when the model drifts from its training distribution during autoregressive generation, and provides no mechanism to penalize subtly flawed, sycophantic, or hallucinated responses [1].</p>
+<p>To produce assistants that reliably align with human intent, post-training engineering relies on <strong>preference learning</strong>. Rather than forcing the model to reproduce average human text word for word, preference learning presents the model with pairs or groups of alternative completions and trains it to favor completions that human evaluators judge as superior along dimensions of helpfulness, honesty, and harmlessness [1].</p>
+<fig src="024-preference-data-collection.svg" caption="Collecting pairwise preference data for alignment">The end-to-end pipeline for generating preference datasets. For each prompt x, two alternative completions are sampled. Human evaluators or automated model judges evaluate both candidates against 3H criteria (Helpful, Honest, Harmless) to produce a binarized preference pair (x, y_w, y_l). Pairwise comparison eliminates individual rater calibration discrepancies.</fig>
+<p>In the classic alignment framework introduced by InstructGPT (Ouyang et al., 2022), preference learning proceeds in two stages: first, training a <strong>Reward Model (RM)</strong> on pairwise human preferences using the Bradley-Terry objective, and second, optimizing the language model policy against this reward model using <strong>Proximal Policy Optimization (PPO)</strong> [1]. While highly effective, running PPO requires holding four separate large language models in GPU memory concurrently, creating immense systems complexity that reshaped how modern post-training pipelines are built.</p>
+<p>In this lesson, we explore why preference optimization is necessary after SFT, examine how preference data is curated and calibrated, derive the Bradley-Terry loss function for reward modeling, analyze the memory and compute overhead of the four-model PPO ecosystem, investigate reward hacking and Goodhart's law, examine AI feedback (RLAIF) and Constitutional AI, and trace why the field transitioned toward Direct Preference Optimization (Lesson 25) and verifiable reinforcement learning (Lesson 26).</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In post-training architecture discussions, engineering teams must evaluate whether their alignment goals warrant the infrastructure overhead of training reward models and running online RLHF. Here is how a design review typically begins:</p>
+<p><strong>Candidate</strong>: What model are we aligning, and what is our primary failure mode after Supervised Fine-Tuning?<br>
+<strong>Interviewer</strong>: We have fine-tuned Llama 3.1 8B Instruct on 50,000 customer-support dialogues. The model follows formatting rules, but it frequently generates excessively verbose answers, apologizes profusely when challenged by a customer, and occasionally hallucinates outdated return policy terms.</p>
+<p><strong>Candidate</strong>: How much preference data do we have available?<br>
+<strong>Interviewer</strong>: We have collected 20,000 prompt-response pairs curated by our support leads, comparing high-quality answers against mediocre or incorrect drafts.</p>
+<p><strong>Candidate</strong>: What compute cluster is allocated for this alignment stage?<br>
+<strong>Interviewer</strong>: A single 8×H100 80 GB node connected via 900 GB/s NVLink.</p>
+<p><strong>Candidate</strong>: Are we committed to full online RLHF with PPO, or can we consider offline direct preference optimization or best-of-N reranking?<br>
+<strong>Interviewer</strong>: We need to understand exactly what PPO requires in GPU memory and cluster stability, whether our 8×H100 node can host the four required models, and whether we should train a reward model or jump directly to DPO.</p>
+<p>The question underneath is: <em>What does Reinforcement Learning from Human Feedback actually demand in systems infrastructure, how do we prevent reward hacking, and does our production workload require full PPO or a simpler alternative?</em></p>
+
+<h2>Why Preference Learning After SFT?</h2>
+<h3>The limitations of imitation learning</h3>
+<p>Supervised Fine-Tuning trains a model by minimizing the cross-entropy loss over ground-truth reference tokens <tex>y^* = (y_1^*, \dots, y_T^*)</tex>:</p>
+<texblock>\mathcal{L}_{\text{SFT}}(\theta) = -\sum_{t=1}^T \log \pi_\theta(y_t^* \mid x, y_{<t}^*)</texblock>
+<p>While effective at teaching syntax, tone, and system prompt compliance, pure imitation learning suffers from three severe structural weaknesses [1]:</p>
+<ul>
+<li><strong>Exposure bias and distribution shift</strong>: During SFT training, the model is always conditioned on the ground-truth prefix <tex>y_{<t}^*</tex> (teacher forcing). During inference, the model generates autoregressively, conditioning on its own previously generated tokens. A single unlikely or erroneous token early in generation shifts the context out of distribution, causing cascading errors that teacher-forced training never penalized.</li>
+<li><strong>Equating all mistakes</strong>: In cross-entropy training, any token that differs from the demonstrator's target receives a loss penalty, regardless of its semantic severity. A model that outputs a brilliant, creative alternative answer receives a higher cross-entropy loss than a model that outputs generic, bland text that happens to overlap with the training reference. Conversely, SFT provides no explicit <em>negative gradient</em> to push down the probability of toxic, dangerous, or fabricated tokens.</li>
+<li><strong>The multi-objective trade-off</strong>: Human intent involves balancing competing objectives—being maximally helpful and detailed while remaining concise, truthful, and safe. Fitting these complex Pareto frontiers through supervised examples alone is brittle; human raters find it far easier to compare two completed responses and select the better trade-off than to author a gold-standard response from scratch.</li>
+</ul>
+
+<h2>Collecting Preference Data and Annotator Calibration</h2>
+<h3>Pairwise comparisons vs pointwise scoring</h3>
+<p>Early alignment research attempted to ask human raters for absolute 1-to-10 quality scores (pointwise evaluation). These efforts failed because human raters calibrate absolute scales inconsistently: one rater gives an informative 800-word response a 9/10, while another penalizes it as an 4/10 for verbosity [1].</p>
+<p>In contrast, <strong>pairwise comparisons</strong> ask: <em>"Given prompt <tex>x</tex>, is Response A better than Response B?"</em> Humans exhibit far higher consistency on relative binary comparisons [1]. Collecting preference data involves prompting the current policy (or multiple competing policies) to produce two candidate completions, <tex>y_1</tex> and <tex>y_2</tex>, which are presented blindly to an annotator alongside a structured evaluation rubric.</p>
+ 
+<h3>The 3H guidelines and annotator agreement</h3>
+<p>Human annotators evaluate completions against three canonical criteria established by Askell et al. and Ouyang et al. [1, 2]:</p>
+<ul>
+<li><strong>Helpful</strong>: The response directly addresses the user's inquiry, provides accurate steps, solves the problem efficiently, and adheres to explicit formatting constraints.</li>
+<li><strong>Honest</strong>: The response expresses appropriate calibration—neither fabricating facts when uncertain nor expressing false confidence. It avoids hallucinations and accurately conveys its capabilities.</li>
+<li><strong>Harmless</strong>: The response refuses malicious requests (e.g. cyberattacks, chemical weapons, fraud) politely and neutrally, avoiding preachiness or condescending lectures.</li>
+</ul>
+<p>Even with rigorous guidelines, human preference is inherently subjective. On open-ended creative writing and complex advice, <strong>inter-annotator agreement</strong> measured by Cohen's kappa (<tex>\kappa</tex>) typically ranges between <strong>0.60 and 0.72</strong> [1, 3]. Approximately 25% to 35% of prompt pairs generate legitimate disagreement between raters.</p>
+
+<h3>Non-transitivity and Condorcet cycles</h3>
+<p>Aggregating pairwise preferences from multiple raters introduces voting paradoxes. Preferences can be <strong>non-transitive</strong>: rater group 1 prefers Response A over B (for conciseness), group 2 prefers B over C (for factual depth), and group 3 prefers C over A (for conversational warmth). This creates a <strong>Condorcet cycle</strong> (<tex>A \succ B \succ C \succ A</tex>) where no single response is globally superior. Modeling human feedback requires probabilistic ranking frameworks that handle noisy, cyclical data robustly [1].</p>
+
+<h2>The Reward Model: Architecture and the Bradley-Terry Objective</h2>
+<h3>Architecture: causal LM with a scalar head</h3>
+<p>A <strong>Reward Model (RM)</strong> <tex>r_\psi(x, y)</tex> takes a prompt <tex>x</tex> and a candidate response <tex>y</tex>, passes the concatenated sequence through a transformer backbone, and outputs a single scalar value representing the predicted human preference score [1].</p>
+<p>In modern training architectures, the reward model is initialized directly from the SFT model checkpoint. Initializing from the SFT checkpoint ensures that the reward model already possesses rich representations of language syntax, domain facts, and instruction compliance. The final vocabulary unembedding projection layer (<tex>W_{\text{lm\_head}} \in \mathbb{R}^{V \times h}</tex>) is removed and replaced by a <strong>scalar linear projection head</strong> <tex>W_{\text{scalar}} \in \mathbb{R}^{1 \times h}</tex>. The scalar score is extracted from the hidden representation of the final End-of-Sequence (EOS) token [1].</p>
+
+<h3>The Bradley-Terry preference model</h3>
+<p>To train the scalar score function from pairwise data, machine learning relies on the classic <strong>Bradley-Terry (BT) model</strong> of paired comparisons (1952) [4]. The Bradley-Terry model posits that the probability an annotator prefers completion <tex>y_w</tex> (the winning, chosen response) over completion <tex>y_l</tex> (the losing, rejected response) given prompt <tex>x</tex> depends solely on the exponential difference between their latent scalar rewards:</p>
+<texblock>P(y_w \succ y_l \mid x) = \frac{\exp(r_\psi(x, y_w))}{\exp(r_\psi(x, y_w)) + \exp(r_\psi(x, y_l))} = \sigma\left( r_\psi(x, y_w) - r_\psi(x, y_l) \right)</texblock>
+<p>where <tex>\sigma(z) = \frac{1}{1 + e^{-z}}</tex> is the standard logistic sigmoid function. Figure 2 illustrates the dual forward pass and ranking loss calculation.</p>
+<fig src="024-reward-model-architecture.svg" caption="Reward model architecture and Bradley-Terry ranking loss">The reward model processes the chosen sequence (x, y_w) and rejected sequence (x, y_l) through a shared transformer backbone. The final token hidden state is projected to scalar rewards r(x, y_w) and r(x, y_l). The loss maximizes the sigmoid of the margin r_w - r_l, pushing chosen scores higher than rejected scores.</fig>
+
+<h3>The reward model loss function</h3>
+<p>Given a dataset of pairwise preferences <tex>\mathcal{D} = \{(x^{(i)}, y_w^{(i)}, y_l^{(i)})\}_{i=1}^M</tex>, the reward model is trained by minimizing the negative log-likelihood of the preferred choices [1]:</p>
+<texblock>\mathcal{L}_{\text{RM}}(\psi) = -\mathbb{E}_{(x, y_w, y_l) \sim \mathcal{D}} \left[ \log \sigma\left( r_\psi(x, y_w) - r_\psi(x, y_l) \right) \right]</texblock>
+<p>Notice three critical properties of this objective:</p>
+<ul>
+<li><strong>Shift invariance</strong>: Adding an arbitrary constant <tex>c \in \mathbb{R}</tex> to all reward predictions leaves the difference <tex>(r_w + c) - (r_l + c) = r_w - r_l</tex> unchanged. The Bradley-Terry loss is sensitive only to the relative margin between completions, not to absolute score magnitudes.</li>
+<li><strong>Gradient dynamics</strong>: The derivative of the loss with respect to the margin <tex>\Delta r = r_\psi(x, y_w) - r_\psi(x, y_l)</tex> is <tex>-(1 - \sigma(\Delta r)) = -\sigma(-\Delta r)</tex>. When the reward model correctly assigns a large positive margin (<tex>\Delta r \gg 0</tex>), <tex>\sigma(-\Delta r) \to 0</tex>, producing near-zero gradients. When the model incorrectly ranks the pair (<tex>\Delta r < 0</tex>), the gradient approaches <tex>-1</tex>, exerting strong corrective force.</li>
+<li><strong>Shared activation batching</strong>: In production implementations (such as TRL's <code>RewardTrainer</code>), <tex>(x, y_w)</tex> and <tex>(x, y_l)</tex> are batched together. Because both sequences share the identical prompt prefix <tex>x</tex>, training can leverage prefix caching or packed sequences to maximize tensor core efficiency.</li>
+</ul>
+
+<h2>RLHF with PPO: The Four-Model Ecosystem</h2>
+<p>With a trained reward model <tex>r_\psi</tex> in place, the second phase optimizes the generative policy using reinforcement learning. In the standard formulation developed by OpenAI for InstructGPT and ChatGPT, this optimization is performed using <strong>Proximal Policy Optimization (PPO)</strong> [1, 5].</p>
+<p>Executing PPO for large language models requires orchestrating <strong>four distinct model representations</strong> simultaneously, as illustrated in Figure 3.</p>
+<fig src="024-four-models-ppo.svg" caption="The four-model ecosystem of RLHF with PPO">The orchestration of four models during a PPO training iteration: the trainable Policy generates rollouts, the frozen Reference model computes token-level KL penalties, the frozen Reward Model scores the completed sequence, and the trainable Critic estimates value baselines to compute Generalized Advantage Estimation (GAE) for PPO updates.</fig>
+
+<h3>The four active models</h3>
+<ol>
+<li><strong>Policy Model <tex>\pi_\phi</tex> (Trainable Generator)</strong>: The active language model being optimized. It receives prompt <tex>x</tex>, samples autoregressive rollouts <tex>y \sim \pi_\phi(\cdot \mid x)</tex>, and updates its weights using the PPO clipped surrogate objective based on computed advantages. Requires BF16 weights, BF16 gradients, FP32 master weights, and FP32 Adam optimizer states.</li>
+<li><strong>Reference Model <tex>\pi_{\text{ref}}</tex> (Frozen Baseline)</strong>: An exact copy of the initial SFT policy, frozen in evaluation mode (no gradients, no optimizer states). For every token generated by the policy, it computes the reference probability <tex>\pi_{\text{ref}}(y_t \mid x, y_{<t})</tex> to enforce a Kullback-Leibler (KL) divergence penalty that prevents the policy from drifting too far from the base model.</li>
+<li><strong>Reward Model <tex>r_\psi</tex> (Frozen Scorer)</strong>: The trained scalar reward model, frozen in evaluation mode. Once the policy finishes generating a complete response <tex>y</tex>, the reward model evaluates <tex>(x, y)</tex> and outputs the sequence-level scalar reward <tex>r_\psi(x, y)</tex>.</li>
+<li><strong>Value Model / Critic <tex>V_\omega</tex> (Trainable Baseline)</strong>: A transformer model sharing the policy's architecture, but equipped with a scalar value head. It estimates the expected future cumulative return <tex>V_\omega(s_t)</tex> from each intermediate token state <tex>s_t = (x, y_{\le t})</tex>. These value estimates are required by <strong>Generalized Advantage Estimation (GAE)</strong> to compute low-variance advantage estimates <tex>\hat{A}_t</tex> for policy gradient updates [5]. Requires weights, gradients, master weights, and Adam optimizer states.</li>
+</ol>
+
+<h3>The PPO objective and token-level KL penalty</h3>
+<p>The policy objective maximizes the expected reward while penalizing divergence from the reference policy [1]:</p>
+<texblock>\max_\phi \mathbb{E}_{x \sim \mathcal{D}, y \sim \pi_\phi(\cdot \mid x)} \left[ r_\psi(x, y) - \beta D_{\text{KL}}\left( \pi_\phi(\cdot \mid x) \,\parallel\, \pi_{\text{ref}}(\cdot \mid x) \right) \right]</texblock>
+<p>In token-level reinforcement learning, the sequence-level reward and KL penalty are combined into a composite per-token reward <tex>R_t</tex> assigned at each step <tex>t</tex> of generation [1]:</p>
+<texblock>R_t = -\beta \log\left( \frac{\pi_\phi(y_t \mid x, y_{<t})}{\pi_{\text{ref}}(y_t \mid x, y_{<t})} \right) + \begin{cases} r_\psi(x, y) & \text{if } t = T \text{ (terminal EOS)} \\ 0 & \text{if } t < T \end{cases}</texblock>
+<p>The hyperparameter <tex>\beta</tex> controls the strength of the KL regularizer. If <tex>\beta = 0</tex>, the policy immediately exploits weaknesses in the reward model; if <tex>\beta</tex> is too large, the model refuses to adapt away from the SFT baseline.</p>
+
+<h2>Memory and Compute Cost: Why PPO Pushed the Field Toward DPO</h2>
+<h3>Static memory accounting: 289.1 GB on an 8B model</h3>
+<p>Let us calculate the exact static memory required to execute PPO on our running scenario model, Llama 3.1 8B (8.03 billion parameters), in standard mixed precision with AdamW (using the 16 bytes per parameter fact from Lesson 3, Training Memory):</p>
+<fig src="024-ppo-memory-accounting.svg" caption="Static memory breakdown for Llama 3.1 8B during PPO RLHF">Holding four models for an 8B architecture requires 289.1 GB of static memory before allocating activations or KV caches. The Policy and Critic consume 128.5 GB each (16 bytes/param), while the Reference and Reward models consume 16.1 GB each (2 bytes/param).</fig>
+<ul>
+<li><strong>Policy Model <tex>\pi_\phi</tex></strong>: 16.06 GB BF16 weights + 16.06 GB BF16 gradients + 32.12 GB FP32 master weights + 64.24 GB FP32 Adam states = <strong>128.48 GB</strong>.</li>
+<li><strong>Value Critic <tex>V_\omega</tex></strong>: 16.06 GB BF16 weights + 16.06 GB BF16 gradients + 32.12 GB FP32 master weights + 64.24 GB FP32 Adam states = <strong>128.48 GB</strong>.</li>
+<li><strong>Reference Model <tex>\pi_{\text{ref}}</tex></strong>: 16.06 GB BF16 weights (0 gradients, 0 optimizer states) = <strong>16.06 GB</strong>.</li>
+<li><strong>Reward Model <tex>r_\psi</tex></strong>: 16.06 GB BF16 weights (0 gradients, 0 optimizer states) = <strong>16.06 GB</strong>.</li>
+<li><strong>Total Static Model States</strong>: <tex>128.48 + 128.48 + 16.06 + 16.06 = \mathbf{289.08\text{ GB}}</tex> (269.2 GiB).</li>
+</ul>
+<p>On an 8×H100 80 GB node (providing 640 GB of aggregate VRAM), sharding these four models evenly across the 8 GPUs using FSDP consumes <tex>289.1 / 8 \approx \mathbf{36.14\text{ GB per GPU}}</tex> purely for static weights and optimizer states. Over 45% of cluster memory is consumed before generating a single token.</p>
+
+<h3>Dynamic rollout and activation overhead</h3>
+<p>Beyond static states, PPO incurs massive dynamic memory demands during the generation and training phases:</p>
+<ul>
+<li><strong>Rollout KV Cache</strong>: During the rollout generation phase, the policy generates sequences of up to 1,024 or 2,048 tokens across batch sizes of 16 to 64 sequences per GPU. Sizing the KV cache (128 KiB per token, from Inference Lesson 3, KV Cache) adds 15 to 20 GB per GPU.</li>
+<li><strong>Backpropagation Activations</strong>: During the policy and critic gradient update steps, intermediate forward activations must be stored across both the policy and critic backpropagation passes, adding another 10 to 15 GB per GPU even with activation checkpointing.</li>
+<li><strong>Peak Watermark</strong>: Total memory per GPU reaches <strong>62 to 72 GB</strong> on an 80 GB GPU. Training an 8B model with full-parameter PPO on anything less than an 8×H100 node is virtually impossible.</p>
+
+<h3>The computational bottleneck of autoregressive rollouts</h3>
+<p>In standard pretraining or SFT, all compute consists of dense, highly optimized matrix multiplications (GEMMs) running in parallel across sequence tokens with MFU typically reaching 40% to 50%. In PPO, <strong>over 70% of wall-clock time is spent in memory-bound autoregressive rollout generation</strong>, generating one token at a time at low hardware utilization (often under 15% MFU) [6].</p>
+<p>This staggering systems burden—orchestrating four models, managing 289 GB of states, suffering low generation throughput, and tuning delicate PPO hyperparameters (clip ratios, GAE <tex>\lambda</tex>, value loss coefficients)—sparked an intense industry push toward simpler alternatives:</p>
+<ol>
+<li><strong>Direct Preference Optimization (DPO, Lesson 25)</strong>: Mathematically eliminates both the reward model and the value critic, deriving a closed-form preference loss that trains the policy directly on offline pairs using only two models (policy and reference) [7].</li>
+<li><strong>Group Relative Policy Optimization (GRPO, Lesson 26)</strong>: Eliminates the value model by estimating advantage baselines across groups of sampled rollouts, and replaces neural reward models with deterministic, verifiable program checkers for mathematics and coding [8].</li>
+</ol>
+
+<h2>Reward Hacking and Over-Optimization</h2>
+<p>Even when compute resources are abundant, optimizing aggressively against a learned reward model encounters a fundamental machine learning failure known as <strong>reward hacking</strong> or <strong>reward over-optimization</strong> [9].</p>
+
+<h3>Goodhart's Law and the Gao et al. scaling laws</h3>
+<p>In economics and systems theory, Goodhart's Law states: <em>"When a measure becomes a target, it ceases to be a good measure."</em> In RLHF, the reward model <tex>r_\psi</tex> is an imperfect, finite-capacity approximation of true human preferences.</p>
+<p>In the seminal study <em>Scaling Laws for Reward Model Overoptimization</em> (Gao, Schulman, and Hilton, OpenAI, ICML 2023, arXiv:2210.10760), the authors formalized this phenomenon through controlled experiments using a "gold-standard" 540B reward model to evaluate policies trained against smaller proxy reward models [9]. Their findings established predictable empirical scaling laws:</p>
+<fig src="024-reward-overoptimization.svg" caption="Reward model over-optimization curve from Gao et al. (2022)">As optimization pressure and KL divergence from the reference policy increase, the proxy reward score r_hat increases monotonically. However, true gold human evaluation score peaks and then sharply degrades as the policy exploits proxy blind spots.</fig>
+<p>As optimization pressure increases (measured by the KL divergence <tex>D_{\text{KL}}(\pi_\phi \parallel \pi_{\text{ref}})</tex>):</p>
+<ul>
+<li>The <strong>proxy reward score</strong> <tex>r_\psi</tex> increases monotonically throughout training.</li>
+<li>The <strong>true human quality score</strong> (the "gold" reward) initially increases, reaches an optimal peak, and then <strong>degrades rapidly into catastrophic decline</strong> [9].</li>
+<li>The rate of over-optimization scales inversely with reward model size: larger reward models delay the peak and resist hacking longer, but all proxy models eventually fail under sustained optimization pressure.</li>
+</ul>
+
+<h3>Common manifestations of reward hacking</h3>
+<ul>
+<li><strong>Verbosity bias</strong>: Human annotators exhibit a subconscious cognitive bias favoring longer, more elaborately formatted answers, mistaking length for thoroughness. Reward models learn this correlation and assign higher scores to longer sequences. In response, unconstrained PPO policies inflate word count by 50% to 100%, generating verbose introductory paragraphs and repetitive bullet points with zero added information [9].</li>
+<li><strong>Sycophancy</strong>: When users present prompts containing misconceptions (e.g. <em>"Why is the Earth flat?"</em>), reward models trained on human feedback often reward answers that affirm the user's premise rather than offering a direct, respectful correction, because raters disliked feeling contradicted.</li>
+<li><strong>Adversarial token sequences</strong>: Policies discover bizarre punctuation strings, repetitive emoji bursts, or specific token combinations that happen to land on out-of-distribution positive artifacts in the reward model's scalar head, producing nonsensical gibberish that scores near the maximum possible reward value.</li>
+</ul>
+<p>The token-level KL divergence penalty <tex>\beta D_{\text{KL}}(\pi_\phi \parallel \pi_{\text{ref}})</tex> is the primary defense against reward hacking: it bounds how far the policy can drift into regions where the reward model is uncalibrated [9].</p>
+
+<h2>AI Feedback (RLAIF) and Constitutional Approaches</h2>
+<p>Collecting tens of thousands of high-quality human preference annotations is slow, expensive ($1 to $5 per comparison), and fraught with rater fatigue. To scale alignment data, modern teams increasingly replace or augment human annotators with model-based evaluation.</p>
+
+<h3>Constitutional AI (Anthropic)</h3>
+<p>Introduced by Bai et al. (Anthropic, 2022, arXiv:2212.08073), <strong>Constitutional AI (CAI)</strong> aligns models through automated self-critique governed by a concise written "constitution"—a list of explicit principles and rules [2].</p>
+<p>During the critique phase, an instruction-tuned model generates an initial response to a sensitive or complex prompt. The model is then prompted to critique its own response according to a specific constitutional principle (e.g. <em>"Critique this response for any harmful, condescending, or illegal advice"</em>) and revise the answer. The revised responses form paired datasets that train safe models without requiring human exposure to toxic content [2].</p>
+
+<h3>RLAIF: Reinforcement Learning from AI Feedback (Google)</h3>
+<p>In <em>RLAIF: Scaling Reinforcement Learning from Human Feedback with AI Feedback</em> (Lee et al., Google, 2023, arXiv:2309.00267), researchers systematically compared preference datasets labeled by human annotators against those labeled by a large language model (such as PaLM 2 or Gemini) prompted as an automated judge [3].</p>
+<p>Across text summarization, dialogue generation, and harmlessness benchmarks, <strong>RLAIF achieved parity with RLHF</strong> [3]. Human raters preferred responses trained via RLAIF at virtually identical rates (approximately 50% win rates) compared to models trained via human feedback. Furthermore, RLAIF eliminates annotator drift, runs at 100× lower cost, and completes in hours rather than months [3]. Figure 6 illustrates this automated feedback loop.</p>
+<fig src="024-rlaif-constitutional-flow.svg" caption="RLAIF and Constitutional AI pipeline">Automating the preference collection bottleneck. An off-the-shelf Judge LLM evaluates candidate responses against explicit constitutional principles, outputting synthetic preference pairs at high speed and low cost.</fig>
+
+<h3>The evolutionary trajectory: PPO to DPO and GRPO</h3>
+<p>The high operational complexity of the 4-model PPO framework, combined with reward hacking risks, catalyzed the development of modern alternatives. Figure 7 illustrates this progression.</p>
+<fig src="024-evolution-ppo-to-dpo-grpo.svg" caption="Evolution of post-training alignment paradigms">Tracing the transition from 4-model PPO (289 GB static state, delicate RL training) to DPO (2 models, offline classification) and verifiable GRPO (eliminating the critic and neural reward models).</fig>
+
+<h2>Post-Training Scenario Decision: Do We Need Full PPO for Our Product?</h2>
+<p>We now evaluate our customer-support scenario: fine-tuning Llama 3.1 8B Instruct across 20,000 preference pairs on an 8×H100 node.</p>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Full RLHF with PPO (InstructGPT)</th>
+<th>Best-of-N Re-ranking with Reward Model</th>
+<th>Direct Preference Optimization (DPO, Lesson 25)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Active Models in VRAM</strong></td>
+<td>4 models (Policy, Ref, RM, Critic)</td>
+<td>2 models (Generator + RM)</td>
+<td>1 to 2 models (Policy + frozen/precomputed Ref)</td>
+</tr>
+<tr>
+<td><strong>Static VRAM (8B)</strong></td>
+<td>≈ 289.1 GB (36.1 GB/GPU on 8×H100)</td>
+<td>≈ 32.1 GB static across GPUs</td>
+<td>≈ 144.6 GB (or 16.1 GB with precomputed ref)</td>
+</tr>
+<tr>
+<td><strong>Training Stability</strong></td>
+<td>Low (sensitive to GAE, clip, lr, value drift)</td>
+<td>High (standard RM classification loss)</td>
+<td>High (stable supervised cross-entropy-like loss)</td>
+</tr>
+<tr>
+<td><strong>Rollout Compute Time</strong></td>
+<td>Very High (slow autoregressive generation)</td>
+<td>None during training (offline inference)</td>
+<td>None (trains directly on offline static pairs)</td>
+</tr>
+<tr>
+<td><strong>Reward Hacking Risk</strong></td>
+<td>High (policy exploits RM blind spots)</td>
+<td>Low to Moderate (capped at N candidates)</td>
+<td>Moderate (verbosity bias, mitigated by length regularizers)</td>
+</tr>
+<tr>
+<td><strong>Serving Overhead</strong></td>
+<td>None (serves the updated policy)</td>
+<td>High (must generate N candidates &amp; score each)</td>
+<td>None (serves the updated policy)</td>
+</tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Architectural comparison of alignment options for Llama 3.1 8B post-training</p>
+
+<h4>Which alignment strategy fits our deployment?</h4>
+<p>For our enterprise customer-support platform, <strong>we should NOT deploy full online PPO</strong>. Orchestrating four models across our 8×H100 node consumes 289 GB of memory, requires delicate tuning of GAE parameters and clip ratios, and suffers from slow autoregressive rollouts. Best-of-N re-ranking provides high quality during evaluation, but generating <tex>N = 8</tex> responses at inference time increases serving compute costs by 8×, violating our latency SLAs.</p>
+<p>Instead, the optimal engineering path is to <strong>train our policy using Direct Preference Optimization (DPO, Lesson 25)</strong> on our 20,000 curated support pairs. DPO provides the mathematical guarantees of the Bradley-Terry preference model, eliminates the critic and reward model entirely, trains stably using offline cross-entropy-like loss, and produces a single aligned checkpoint ready for immediate deployment.</p>
+
+<h2>In Practice</h2>
+<p>The first tab demonstrates training a reward model on pairwise preferences using Hugging Face TRL's <code>RewardTrainer</code> [10] and <code>RewardConfig</code>. The second tab demonstrates loading the trained checkpoint and scoring candidate model responses to evaluate alignment quality.</p>
+<codetabs>
+<tab label="Train Reward Model (TRL)" lang="python">
+import torch
+from datasets import load_dataset
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from trl import RewardConfig, RewardTrainer
+
+model_id = "meta-llama/Llama-3.1-8B-Instruct"
+
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+# Load model with a scalar classification head (num_labels=1)
+# Transformers v5 uses dtype=
+model = AutoModelForSequenceClassification.from_pretrained(
+    model_id,
+    num_labels=1,
+    dtype=torch.bfloat16,
+    device_map="auto",
+)
+model.config.pad_token_id = tokenizer.pad_token_id
+
+# Configure RewardTrainer hyperparameters
+training_args = RewardConfig(
+    output_dir="./customer_support_reward_model",
+    per_device_train_batch_size=2,
+    gradient_accumulation_steps=8,
+    learning_rate=1e-5,
+    bf16=True,
+    max_length=1024,
+    logging_steps=10,
+    eval_strategy="steps",
+    eval_steps=100,
+    save_strategy="epoch",
+)
+
+# Dataset must yield: input_ids_chosen, attention_mask_chosen,
+# input_ids_rejected, attention_mask_rejected
+dataset = load_dataset("json", data_files="support_preferences.jsonl", split="train")
+
+trainer = RewardTrainer(
+    model=model,
+    args=training_args,
+    tokenizer=tokenizer,
+    train_dataset=dataset,
+)
+
+trainer.train()
+trainer.save_model("./customer_support_reward_model/final")
+</tab>
+<tab label="Score responses with RM" lang="python">
+import torch
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+rm_path = "./customer_support_reward_model/final"
+
+tokenizer = AutoTokenizer.from_pretrained(rm_path)
+model = AutoModelForSequenceClassification.from_pretrained(
+    rm_path,
+    num_labels=1,
+    dtype=torch.bfloat16,
+    device_map="auto",
+)
+model.eval()
+
+def score_candidate(prompt: str, response: str) -> float:
+    # Concatenate prompt and response using chat template
+    full_text = f"<|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n{response}<|eot_id|>"
+    inputs = tokenizer(full_text, return_tensors="pt", truncation=True, max_length=1024).to(model.device)
+    
+    with torch.no_grad():
+        outputs = model(**inputs)
+        # Extract scalar logit from final token position
+        score = outputs.logits[0, 0].item()
+    return score
+
+prompt = "How do I return an open-box laptop within 30 days?"
+resp_good = "You can return open-box laptops within 30 days for a full refund if accompanied by the original packaging and receipt."
+resp_bad = "I think returns are fine whenever, just bring it to a store maybe."
+
+score_a = score_candidate(prompt, resp_good)
+score_b = score_candidate(prompt, resp_bad)
+
+print(f"Good Response Reward Score: {score_a:+.2f}")
+print(f"Bad Response Reward Score : {score_b:+.2f}")
+print(f"Score Margin (Delta r)    : {score_a - score_b:+.2f}")
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Reward model calibration and ensembling</strong>: A single reward model frequently suffers from confidence calibration errors on edge cases. Ensembling 3 to 5 independently initialized reward models and taking their conservative lower bound (<tex>\min_k r_k(x, y)</tex>) or mean substantially reduces reward hacking during PPO rollouts.</li>
+<li><strong>Reward normalization and whitening</strong>: In PPO, raw scalar scores from the reward model can exhibit drifting variance across training steps. Standard implementations maintain running means and standard deviations of rewards to whiten the reward signal (<tex>(r - \mu) / \sigma</tex>), preventing early large-gradient shocks from destabilizing the policy.</li>
+<li><strong>Length-penalized reward modeling</strong>: To actively counter verbosity hacking, some reward models add an explicit length penalty to the loss: <tex>r_{\text{regularized}}(x, y) = r_\psi(x, y) - \lambda \cdot \text{len}(y)</tex>, discouraging the policy from generating superfluous padding tokens.</li>
+<li><strong>Reference model CPU offloading</strong>: In systems constrained by GPU memory, the frozen reference model can be offloaded to host CPU memory and executed asynchronously via pinned PCIe transfers, freeing 16 GB of VRAM on each GPU at the cost of slight bus communication latency.</li>
+<li><strong>Rejection sampling fine-tuning (Best-of-N SFT)</strong>: An intermediate alternative to PPO is Rejection Sampling (RAFT): sample <tex>N</tex> completions per prompt from the SFT model, score each with the Reward Model, filter for the top-scoring completion, and fine-tune the model on those filtered pairs using standard SFT loss. This captures ~80% of RLHF gains with zero RL instability.</li>
+<li><strong>Over-fitting in reward models</strong>: Reward models train on relatively small preference datasets (10k to 50k pairs). Because they have 8B parameters, they can overfit after only 1 or 2 epochs. Rigorous early stopping on validation loss is mandatory.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="024-summary.png" caption="Reward models and RLHF summary" optional="1">Mind map summarizing the reward models and RLHF lesson: preference learning motivation, Bradley-Terry formulation, the four-model PPO ecosystem, reward hacking, RLAIF, and the evolution toward DPO and GRPO.</fig>
+<ul>
+<li>Supervised fine-tuning suffers from exposure bias, cannot penalize bad tokens, and struggles with multi-objective trade-offs. Pairwise preference learning aligns model completions with human criteria (Helpful, Honest, Harmless).</li>
+<li>The Bradley-Terry model frames pairwise preference as <tex>P(y_w \succ y_l \mid x) = \sigma(r(x, y_w) - r(x, y_l))</tex>. The reward model optimizes negative log-sigmoid loss, scoring only relative differences.</li>
+<li>PPO requires holding <strong>four models concurrently</strong>: Policy (trainable), Value Critic (trainable), Reference (frozen), and Reward Model (frozen). For Llama 3.1 8B, this requires <strong>289.1 GB of static memory</strong> (36.1 GB/GPU on an 8×H100 node) before activations.</li>
+<li>In PPO, over 70% of wall-clock time is spent in memory-bound autoregressive rollouts, yielding low MFU and severe infrastructure complexity.</li>
+<li>Gao et al. (2022) proved that optimizing proxy rewards leads to reward hacking (Goodhart's Law): true human quality peaks and then degrades, manifesting as verbosity bias and sycophancy. The KL penalty <tex>\beta D_{\text{KL}}(\pi \parallel \pi_{\text{ref}})</tex> defends against drift.</li>
+<li>RLAIF (Google) and Constitutional AI (Anthropic) use LLMs guided by written rules to generate synthetic preference pairs at 100× lower cost, achieving benchmark parity with human annotators.</li>
+<li>The memory and instability barriers of PPO drove the industry toward Direct Preference Optimization (Lesson 25) and verifiable reinforcement learning with GRPO (Lesson 26).</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Ouyang et al. Training language models to follow instructions with human feedback. NeurIPS 2022. <a href="https://arxiv.org/abs/2203.02155" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2203.02155</a>.<br>
+[2] Bai et al. Constitutional AI: Harmlessness from AI Feedback. <a href="https://arxiv.org/abs/2212.08073" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2212.08073</a>.<br>
+[3] Lee et al. RLAIF: Scaling Reinforcement Learning from Human Feedback with AI Feedback. <a href="https://arxiv.org/abs/2309.00267" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.00267</a>.<br>
+[4] Bradley and Terry. Rank Analysis of Incomplete Block Designs: I. The Method of Paired Comparisons. Biometrika, 1952. <a href="https://www.jstor.org/stable/2334029" rel="noopener noreferrer" target="_blank">https://www.jstor.org/stable/2334029</a>.<br>
+[5] Schulman et al. Proximal Policy Optimization Algorithms. <a href="https://arxiv.org/abs/1707.06347" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1707.06347</a>.<br>
+[6] Zheng et al. Secrets of RLHF in Large Language Models Part I: PPO. <a href="https://arxiv.org/abs/2307.04964" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2307.04964</a>.<br>
+[7] Rafailov et al. Direct Preference Optimization: Your Language Model is Secretly a Reward Model. NeurIPS 2023. <a href="https://arxiv.org/abs/2305.18290" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.18290</a>.<br>
+[8] Shao et al. DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models. <a href="https://arxiv.org/abs/2402.03300" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2402.03300</a>.<br>
+[9] Gao, Schulman, and Hilton. Scaling Laws for Reward Model Overoptimization. ICML 2023. <a href="https://arxiv.org/abs/2210.10760" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2210.10760</a>.<br>
+[10] Hugging Face TRL documentation: Reward Modeling. <a href="https://huggingface.co/docs/trl/reward_trainer" rel="noopener noreferrer" target="_blank">https://huggingface.co/docs/trl/reward_trainer</a>.</p>

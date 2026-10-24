@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .lg { font-size: 16px; }
+    .b { font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .yellow { fill: #fff2cc; stroke: #d6b656; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #000; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="410" y="24" text-anchor="middle" class="lg b">ZeRO Memory Sharding Stages: Static Footprint for Llama 3.1 8B (N = 8 GPUs)</text>
+
+  <!-- Physical 80GB H100 limit line -->
+  <path d="M 40 120 L 780 120" stroke="#b85450" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <text x="770" y="112" text-anchor="end" class="sm b" fill="#b85450">H100 Usable Memory Limit: 79.6 GiB (85.5 GB)</text>
+
+  <!-- Baseline DDP Bar -->
+  <rect x="60" y="45" width="145" height="235" rx="4" class="gray"/>
+  <text x="132" y="65" text-anchor="middle" class="b">Baseline DDP</text>
+  <rect x="75" y="75" width="115" height="28" rx="3" class="orange"/>
+  <text x="132" y="93" text-anchor="middle" class="sm">Weights: 16.1 GB</text>
+  <rect x="75" y="105" width="115" height="28" rx="3" class="yellow"/>
+  <text x="132" y="123" text-anchor="middle" class="sm">Grads: 16.1 GB</text>
+  <rect x="75" y="135" width="115" height="100" rx="3" class="purple"/>
+  <text x="132" y="175" text-anchor="middle" class="sm b">Adam States:</text>
+  <text x="132" y="195" text-anchor="middle" class="sm">96.4 GB (12 B/p)</text>
+  <text x="132" y="250" text-anchor="middle" class="sm b" fill="#b85450">128.5 GB (OOM)</text>
+
+  <!-- ZeRO-1 Bar -->
+  <rect x="240" y="130" width="145" height="150" rx="4" class="gray"/>
+  <text x="312" y="150" text-anchor="middle" class="b">ZeRO Stage 1</text>
+  <rect x="255" y="160" width="115" height="26" rx="3" class="orange"/>
+  <text x="312" y="177" text-anchor="middle" class="sm">Weights: 16.1 GB</text>
+  <rect x="255" y="188" width="115" height="26" rx="3" class="yellow"/>
+  <text x="312" y="205" text-anchor="middle" class="sm">Grads: 16.1 GB</text>
+  <rect x="255" y="216" width="115" height="30" rx="3" class="purple"/>
+  <text x="312" y="235" text-anchor="middle" class="sm">Shard Opt: 12.0 GB</text>
+  <text x="312" y="265" text-anchor="middle" class="sm b" fill="#2b5797">44.2 GB (Fits)</text>
+
+  <!-- ZeRO-2 Bar -->
+  <rect x="420" y="160" width="145" height="120" rx="4" class="gray"/>
+  <text x="492" y="180" text-anchor="middle" class="b">ZeRO Stage 2</text>
+  <rect x="435" y="190" width="115" height="26" rx="3" class="orange"/>
+  <text x="492" y="207" text-anchor="middle" class="sm">Weights: 16.1 GB</text>
+  <rect x="435" y="218" width="115" height="24" rx="3" class="yellow"/>
+  <text x="492" y="234" text-anchor="middle" class="sm">Shard Grads: 2.0 GB</text>
+  <rect x="435" y="244" width="115" height="24" rx="3" class="purple"/>
+  <text x="492" y="260" text-anchor="middle" class="sm">Shard Opt: 12.0 GB</text>
+  <text x="492" y="278" text-anchor="middle" class="sm b" fill="#2b5797">30.1 GB (Fits)</text>
+
+  <!-- ZeRO-3 / FSDP Bar -->
+  <rect x="600" y="200" width="145" height="80" rx="4" class="gray"/>
+  <text x="672" y="218" text-anchor="middle" class="b">ZeRO-3 / FSDP</text>
+  <rect x="615" y="228" width="115" height="42" rx="3" class="green"/>
+  <text x="672" y="246" text-anchor="middle" class="sm b">All States Sharded</text>
+  <text x="672" y="262" text-anchor="middle" class="sm">16.06 GB total</text>
+  <text x="672" y="278" text-anchor="middle" class="sm b" fill="#2b5797">16.1 GB (Fits)</text>
+
+  <!-- Legend at bottom -->
+  <rect x="70" y="305" width="14" height="14" rx="2" class="orange"/>
+  <text x="90" y="317" class="sm">BF16 Weights (2B)</text>
+  <rect x="240" y="305" width="14" height="14" rx="2" class="yellow"/>
+  <text x="260" y="317" class="sm">BF16 Gradients (2B)</text>
+  <rect x="430" y="305" width="14" height="14" rx="2" class="purple"/>
+  <text x="450" y="317" class="sm">FP32 Adam States (12B)</text>
+  <rect x="640" y="305" width="14" height="14" rx="2" class="green"/>
+  <text x="660" y="317" class="sm">Full Shard (2B/rank)</text>
+</svg>

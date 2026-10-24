@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="300" viewBox="0 0 800 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Held-out Prompts -->
+  <rect x="25" y="105" width="120" height="70" rx="6" class="purple"/>
+  <text x="35" y="132" class="b">Held-Out Test</text>
+  <text x="35" y="152" class="sm">500 prompts</text>
+  <text x="35" y="168" class="sm">Customer support</text>
+
+  <!-- Fan out to SFT and DPO -->
+  <path d="M145,130 L185,90" class="edge"/>
+  <path d="M145,150 L185,190" class="edge"/>
+
+  <rect x="190" y="65" width="130" height="50" rx="4" class="orange"/>
+  <text x="202" y="90" class="b">SFT Model</text>
+  <text x="202" y="106" class="sm">Candidate A</text>
+
+  <rect x="190" y="165" width="130" height="50" rx="4" class="blue"/>
+  <text x="202" y="190" class="b">DPO Model</text>
+  <text x="202" y="206" class="sm">Candidate B</text>
+
+  <!-- Pairwise Combiner / Shuffler -->
+  <path d="M320,90 L365,125" class="edge"/>
+  <path d="M320,190 L365,155" class="edge"/>
+
+  <rect x="370" y="105" width="135" height="70" rx="6" class="yellow"/>
+  <text x="382" y="132" class="b">Position Shuffler</text>
+  <text x="382" y="152" class="sm">Swap (A,B) &amp; (B,A)</text>
+  <text x="382" y="168" class="sm">Controls position bias</text>
+
+  <!-- Judge Model -->
+  <path d="M505,140 L545,140" class="edge"/>
+  <rect x="550" y="105" width="115" height="70" rx="6" class="gray"/>
+  <text x="560" y="132" class="b">Judge Model</text>
+  <text x="560" y="152" class="sm">Strict rubric</text>
+  <text x="560" y="168" class="sm">Conciseness check</text>
+
+  <!-- Metric Output -->
+  <path d="M665,140 L700,140" class="edge"/>
+  <rect x="705" y="95" width="80" height="90" rx="6" class="green"/>
+  <text x="712" y="122" class="b">Win Rate</text>
+  <text x="712" y="145" class="lg b">64.2%</text>
+  <text x="712" y="168" class="sm">DPO vs SFT</text>
+
+  <!-- Bottom: Evaluation guardrails -->
+  <rect x="25" y="235" width="760" height="45" rx="6" class="gray"/>
+  <text x="38" y="255" class="sm b">Evaluation Guardrails:</text>
+  <text x="38" y="271" class="sm">Shuffling presentation order eliminates first-candidate bias. Length penalization prevents verbosity gaming.</text>
+</svg>

@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="380" viewBox="0 0 900 380" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:13px;fill:#000}
+    .sm{font-size:11px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Left: GPU Ranks & Micro-batches -->
+  <rect x="15" y="15" width="415" height="275" rx="6" class="group"/>
+  <text x="30" y="38" class="b">Per-GPU Micro-Batches &amp; Accumulation (G = 2)</text>
+
+  <!-- Rank 0 box -->
+  <rect x="25" y="55" width="395" height="100" rx="4" class="gray"/>
+  <text x="35" y="75" class="b">Rank 0</text>
+  
+  <rect x="110" y="65" width="135" height="35" rx="4" class="blue"/>
+  <text x="177" y="82" text-anchor="middle" class="sm">Micro-batch 1: 8,192 tok</text>
+  <text x="177" y="94" text-anchor="middle" class="sm">forward + backward</text>
+
+  <rect x="110" y="110" width="135" height="35" rx="4" class="blue"/>
+  <text x="177" y="127" text-anchor="middle" class="sm">Micro-batch 2: 8,192 tok</text>
+  <text x="177" y="139" text-anchor="middle" class="sm">forward + backward</text>
+
+  <rect x="265" y="75" width="145" height="60" rx="4" class="orange"/>
+  <text x="337" y="98" text-anchor="middle" class="b sm">Accumulated Gradients</text>
+  <text x="337" y="116" text-anchor="middle" class="sm">local grad += micro grad</text>
+
+  <path d="M245,82 L263,95" class="edge"/>
+  <path d="M245,127 L263,115" class="edge"/>
+
+  <!-- Middle dots for other ranks -->
+  <text x="222" y="180" text-anchor="middle" class="b">· · ·  ranks 1 to 254 replicate this process  · · ·</text>
+
+  <!-- Rank 255 box -->
+  <rect x="25" y="195" width="395" height="85" rx="4" class="gray"/>
+  <text x="35" y="240" class="b">Rank 255</text>
+
+  <rect x="110" y="210" width="135" height="55" rx="4" class="blue"/>
+  <text x="177" y="233" text-anchor="middle" class="sm">2 micro-batches</text>
+  <text x="177" y="251" text-anchor="middle" class="sm">16,384 tokens total</text>
+
+  <rect x="265" y="205" width="145" height="65" rx="4" class="orange"/>
+  <text x="337" y="228" text-anchor="middle" class="b sm">Accumulated Gradients</text>
+  <text x="337" y="246" text-anchor="middle" class="sm">local grad += micro grad</text>
+
+  <path d="M245,237 L263,237" class="edge"/>
+
+  <!-- Collective communication connector -->
+  <path d="M430,150 L470,150" class="edge"/>
+  <rect x="472" y="110" width="135" height="80" rx="6" class="purple"/>
+  <text x="539" y="135" text-anchor="middle" class="b">All-Reduce</text>
+  <text x="539" y="153" text-anchor="middle" class="sm">or Reduce-Scatter</text>
+  <text x="539" y="171" text-anchor="middle" class="sm">across 256 GPUs</text>
+
+  <path d="M607,150 L645,150" class="edge"/>
+
+  <!-- Right: Global Batch & Optimizer Step -->
+  <rect x="647" y="15" width="238" height="275" rx="6" class="green"/>
+  <text x="766" y="42" text-anchor="middle" class="b">Optimizer Step (Global Batch)</text>
+
+  <rect x="660" y="60" width="212" height="65" rx="4" class="white"/>
+  <text x="766" y="82" text-anchor="middle" class="b sm">Global Batch Size (B)</text>
+  <text x="766" y="100" text-anchor="middle" class="sm">256 GPUs × 1 seq × 2 micro</text>
+  <text x="766" y="115" text-anchor="middle" class="sm">= 512 seq ≈ 4.19M tokens</text>
+
+  <rect x="660" y="135" width="212" height="80" rx="4" class="white"/>
+  <text x="766" y="157" text-anchor="middle" class="b sm">AdamW Parameter Update</text>
+  <text x="766" y="175" text-anchor="middle" class="sm">updates FP32 master weights</text>
+  <text x="766" y="191" text-anchor="middle" class="sm">updates momentum &amp; variance</text>
+  <text x="766" y="207" text-anchor="middle" class="sm">casts new weights to BF16</text>
+
+  <rect x="660" y="225" width="212" height="50" rx="4" class="white"/>
+  <text x="766" y="246" text-anchor="middle" class="b sm">Step Wall Time ≈ 2.0 s</text>
+  <text x="766" y="263" text-anchor="middle" class="sm">238,419 steps for 1T tokens</text>
+
+  <!-- Bottom banner: vocabulary summary -->
+  <rect x="15" y="305" width="870" height="62" rx="6" class="white"/>
+  <text x="30" y="327" class="sm"><tspan class="b">Micro-batch</tspan>: data processed in one forward+backward pass per GPU (8,192 tokens)   |   <tspan class="b">Step</tspan>: one optimizer weight update (~2.0 s)</text>
+  <text x="30" y="347" class="sm"><tspan class="b">Global batch</tspan>: 4.19M tokens per step   |   <tspan class="b">Epoch</tspan>: 1 pass over 1T tokens (238,419 steps)   |   <tspan class="b">MFU</tspan>: 40% (2.02e17 FLOPs / step ÷ 2.0 s)</text>
+</svg>

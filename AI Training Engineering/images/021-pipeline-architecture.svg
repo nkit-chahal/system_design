@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Filtering and Deduplication Pipeline Architecture</text>
+  <text x="25" y="48" class="sm" fill="#555">Five-stage processing graph transforming raw web text into clean, tokenized pretraining shards</text>
+
+  <!-- Stage 1: Ingestion -->
+  <rect x="25" y="70" width="135" height="110" rx="6" class="blue"/>
+  <text x="92" y="94" text-anchor="middle" class="b">Stage 1</text>
+  <text x="92" y="112" text-anchor="middle" class="sm b">Ingest &amp; Extract</text>
+  <text x="92" y="132" text-anchor="middle" class="sm">HuggingFaceFW/</text>
+  <text x="92" y="148" text-anchor="middle" class="sm">fineweb (ODC-By)</text>
+  <text x="92" y="166" text-anchor="middle" class="sm">WARC/WET stream</text>
+
+  <path d="M 160 125 L 185 125" class="edge"/>
+
+  <!-- Stage 2: Language -->
+  <rect x="185" y="70" width="135" height="110" rx="6" class="purple"/>
+  <text x="252" y="94" text-anchor="middle" class="b">Stage 2</text>
+  <text x="252" y="112" text-anchor="middle" class="sm b">Language Filter</text>
+  <text x="252" y="132" text-anchor="middle" class="sm">fastText / CLD2</text>
+  <text x="252" y="148" text-anchor="middle" class="sm">Threshold &gt; 0.65</text>
+  <text x="252" y="166" text-anchor="middle" class="sm">Isolate en / target</text>
+
+  <path d="M 320 125 L 345 125" class="edge"/>
+
+  <!-- Stage 3: Heuristics -->
+  <rect x="345" y="70" width="140" height="110" rx="6" class="orange"/>
+  <text x="415" y="94" text-anchor="middle" class="b">Stage 3</text>
+  <text x="415" y="112" text-anchor="middle" class="sm b">Heuristic Quality</text>
+  <text x="415" y="132" text-anchor="middle" class="sm">Length &amp; words</text>
+  <text x="415" y="148" text-anchor="middle" class="sm">Symbol-word ratio</text>
+  <text x="415" y="166" text-anchor="middle" class="sm">Repetition checks</text>
+
+  <path d="M 485 125 L 510 125" class="edge"/>
+
+  <!-- Stage 4: Dedup -->
+  <rect x="510" y="70" width="140" height="110" rx="6" class="yellow"/>
+  <text x="580" y="94" text-anchor="middle" class="b">Stage 4</text>
+  <text x="580" y="112" text-anchor="middle" class="sm b">Deduplication</text>
+  <text x="580" y="132" text-anchor="middle" class="sm">Exact: SHA-256</text>
+  <text x="580" y="148" text-anchor="middle" class="sm">Fuzzy: MinHash LSH</text>
+  <text x="580" y="166" text-anchor="middle" class="sm">Jaccard &gt; 0.80</text>
+
+  <path d="M 650 125 L 675 125" class="edge"/>
+
+  <!-- Stage 5: Tokenization -->
+  <rect x="675" y="70" width="120" height="110" rx="6" class="green"/>
+  <text x="735" y="94" text-anchor="middle" class="b">Stage 5</text>
+  <text x="735" y="112" text-anchor="middle" class="sm b">Tokenization</text>
+  <text x="735" y="132" text-anchor="middle" class="sm">Llama 3.1 BPE</text>
+  <text x="735" y="148" text-anchor="middle" class="sm">Token counts</text>
+  <text x="735" y="166" text-anchor="middle" class="sm">Binary .bin shards</text>
+
+  <!-- Lower Panel: Output & Metrics Inspection -->
+  <rect x="25" y="200" width="770" height="120" rx="6" class="gray"/>
+  <text x="45" y="224" class="b">Inspection, Statistics, and Production Scale</text>
+
+  <rect x="45" y="235" width="230" height="70" rx="4" class="white"/>
+  <text x="55" y="255" class="sm b">Quality Funnel Tracking</text>
+  <text x="55" y="273" class="sm">• Document retention counts</text>
+  <text x="55" y="291" class="sm">• Token attrition per stage</text>
+
+  <rect x="295" y="235" width="230" height="70" rx="4" class="white"/>
+  <text x="305" y="255" class="sm b">Precision Audit</text>
+  <text x="305" y="273" class="sm">• Sample rejected documents</text>
+  <text x="305" y="291" class="sm">• Protect valid math &amp; code</text>
+
+  <rect x="545" y="235" width="230" height="70" rx="4" class="white"/>
+  <text x="555" y="255" class="sm b">1T Token Scaling</text>
+  <text x="555" y="273" class="sm">• CPU-hours &amp; IOPS budget</text>
+  <text x="555" y="291" class="sm">• Datatrove / Ray cluster path</text>
+</svg>

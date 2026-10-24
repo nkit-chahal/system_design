@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Scaling to 1T Tokens: Distributed Datatrove / Ray Architecture</text>
+  <text x="25" y="48" class="sm" fill="#555">Multi-node cluster execution pattern across CPU pools and high-throughput object storage</text>
+
+  <!-- Left: S3 Raw Storage -->
+  <rect x="25" y="70" width="130" height="150" rx="6" class="blue"/>
+  <text x="90" y="94" text-anchor="middle" class="b">Raw S3 Bucket</text>
+  <text x="35" y="118" class="sm">• 3.5T raw tokens</text>
+  <text x="35" y="136" class="sm">• ~14 TB WARC/WET</text>
+  <text x="35" y="154" class="sm">• 50,000 files</text>
+  <text x="35" y="172" class="sm">• Common Crawl</text>
+  <text x="35" y="190" class="sm">  Parquet shards</text>
+
+  <path d="M 155 145 L 195 145" class="edge"/>
+
+  <!-- Middle: Distributed Compute Pool -->
+  <rect x="195" y="70" width="410" height="150" rx="6" class="gray"/>
+  <text x="400" y="94" text-anchor="middle" class="b">Distributed Worker Pool (512–1,024 CPU Cores via Ray / Slurm)</text>
+
+  <!-- Step A: Filter workers -->
+  <rect x="210" y="110" width="180" height="42" rx="4" class="purple"/>
+  <text x="300" y="128" text-anchor="middle" class="sm b">Task 1: Filter &amp; Exact Dedup</text>
+  <text x="300" y="144" text-anchor="middle" class="sm">Fast regex, lang ID, xxHash</text>
+
+  <!-- Step B: MinHash Signatures -->
+  <rect x="405" y="110" width="185" height="42" rx="4" class="orange"/>
+  <text x="497" y="128" text-anchor="middle" class="sm b">Task 2: MinhashDedupSignature</text>
+  <text x="497" y="144" text-anchor="middle" class="sm">Compute 128 64-bit hashes/doc</text>
+
+  <!-- Step C: Shuffle & Reducer -->
+  <rect x="210" y="162" width="380" height="45" rx="4" class="white"/>
+  <text x="400" y="180" text-anchor="middle" class="sm b">Task 3: MinhashDedupBuckets &amp; Cluster Reducers</text>
+  <text x="400" y="196" text-anchor="middle" class="sm">Sort signatures into 16 bucket tables; cluster duplicates</text>
+
+  <path d="M 605 145 L 645 145" class="edge"/>
+
+  <!-- Right: Tokenized Binary Output -->
+  <rect x="645" y="70" width="150" height="150" rx="6" class="green"/>
+  <text x="720" y="94" text-anchor="middle" class="b">Clean Storage</text>
+  <text x="655" y="118" class="sm">• 1.0T clean tokens</text>
+  <text x="655" y="136" class="sm">• 2.0 TB uint16</text>
+  <text x="655" y="154" class="sm">• 10,000 .bin shards</text>
+  <text x="655" y="172" class="sm">• Llama 3.1 BPE</text>
+  <text x="655" y="190" class="sm">• Ready for FSDP</text>
+
+  <!-- Bottom Scaling Metrics Card -->
+  <rect x="25" y="235" width="770" height="85" rx="6" class="gray"/>
+  <text x="40" y="258" class="b">Resource Sizing for 1T Clean Tokens (Derived from Empirical Micro-Benchmarking)</text>
+  <text x="40" y="280" class="sm">Throughput: ~10,000 tokens/sec/core ⇒ ~97,200 CPU-core-hours (~8 days on 512 AMD EPYC cores).</text>
+  <text x="40" y="302" class="sm">Compute cost: ~$3,400 at $0.035/vCPU-hour · Intermediate disk: 15 TB NVMe scratch for MinHash bucket sort.</text>
+</svg>

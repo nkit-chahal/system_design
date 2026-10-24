@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="370" viewBox="0 0 840 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #666; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+    .rdzv-edge { stroke: #9673a6; stroke-width: 1.5; stroke-dasharray: 4 3; fill: none; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">The Standard Multi-Node Launch Pattern: Slurm srun + torchrun</text>
+  <text x="25" y="42" class="sm" fill="#555">srun launches 1 torchrun process per node (--ntasks-per-node=1). torchrun spawns 8 local GPU worker ranks.</text>
+
+  <!-- Step 1: sbatch Top Banner -->
+  <rect x="25" y="58" width="790" height="46" rx="4" class="orange"/>
+  <text x="35" y="78" class="b sm">1. sbatch Allocation Request:</text>
+  <text x="235" y="78" class="sm">#SBATCH --nodes=32 --ntasks-per-node=1 --gpus-per-node=8 --exclusive</text>
+  <text x="35" y="94" class="sm" fill="#555">Slurm grants 32 exclusive nodes. MASTER_ADDR extracted via `scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1`</text>
+
+  <!-- Node 0 Container -->
+  <rect x="25" y="115" width="375" height="175" rx="5" class="group"/>
+  <text x="35" y="133" class="b sm">Node 0 (Head / Master Node)</text>
+
+  <!-- torchrun agent on Node 0 -->
+  <rect x="35" y="142" width="355" height="42" rx="4" class="purple"/>
+  <text x="212" y="160" text-anchor="middle" class="b sm">srun launches torchrun agent (Node 0)</text>
+  <text x="212" y="175" text-anchor="middle" class="sm">Hosts c10d rendezvous backend on MASTER_ADDR:29500</text>
+
+  <!-- 8 worker ranks on Node 0 -->
+  <rect x="35" y="194" width="355" height="85" rx="4" class="green"/>
+  <text x="45" y="214" class="b sm">Spawns 8 Local Python Worker Processes:</text>
+  <text x="45" y="232" class="sm">• Rank 0 (GPU 0), Rank 1 (GPU 1), ..., Rank 7 (GPU 7)</text>
+  <text x="45" y="248" class="sm">• Injects LOCAL_RANK=0..7, RANK=0..7, WORLD_SIZE=256</text>
+  <text x="45" y="264" class="sm">• Automatically restarts all 8 local ranks on failure</text>
+
+  <!-- Node 31 Container -->
+  <rect x="440" y="115" width="375" height="175" rx="5" class="group"/>
+  <text x="450" y="133" class="b sm">Node 31 (Worker Node)</text>
+
+  <!-- torchrun agent on Node 31 -->
+  <rect x="450" y="142" width="355" height="42" rx="4" class="blue"/>
+  <text x="627" y="160" text-anchor="middle" class="b sm">srun launches torchrun agent (Node 31)</text>
+  <text x="627" y="175" text-anchor="middle" class="sm">Connects to MASTER_ADDR:29500 to synchronize</text>
+
+  <!-- 8 worker ranks on Node 31 -->
+  <rect x="450" y="194" width="355" height="85" rx="4" class="green"/>
+  <text x="460" y="214" class="b sm">Spawns 8 Local Python Worker Processes:</text>
+  <text x="460" y="232" class="sm">• Rank 248 (GPU 0), ..., Rank 255 (GPU 7)</text>
+  <text x="460" y="248" class="sm">• Injects LOCAL_RANK=0..7, RANK=248..255, WORLD_SIZE=256</text>
+  <text x="460" y="264" class="sm">• Health checks workers; notifies master on fault</text>
+
+  <!-- Rendezvous handshake arrow between agents -->
+  <path d="M450,163 L390,163" class="rdzv-edge"/>
+  <text x="415" y="155" text-anchor="middle" class="sm b" fill="#9673a6">c10d Rendezvous</text>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="300" width="790" height="55" rx="4" class="white"/>
+  <text x="38" y="320" class="b sm">Why --ntasks-per-node=1 is mandatory:</text>
+  <text x="315" y="320" class="sm">If you set --ntasks-per-node=8 with torchrun,</text>
+  <text x="38" y="338" class="sm">srun will start 8 torchruns per node, each spawning 8 workers = 64 processes per node, crashing GPU memory immediately.</text>
+</svg>

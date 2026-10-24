@@ -1,0 +1,7 @@
+center: Training Memory
+branch: Four Footprint Components | static model states | dynamic backward activations | temporary buffers and fragmentation
+branch: Mixed Precision Adam | sixteen bytes per parameter | cannot fit on one gpu | seventy five percent optimizer states
+branch: Activation Scaling | flash attention keeps linear terms | quadratic attention scores eliminated | checkpointing drops activation footprint
+branch: Checkpointing Tradeoff | saves only layer boundaries | cuts activations ninety four percent | thirty three percent more compute
+branch: Sharding Levers | intra node fsdp uses nvlink | full cluster sharding starves network | hybrid sharding balances bandwidth
+branch: Measuring In PyTorch | max memory allocated | memory snapshots and visualizer | pytorch org memory viz

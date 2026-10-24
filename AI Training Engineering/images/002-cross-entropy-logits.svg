@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b85450"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .edge-back{fill:none;stroke:#b85450;stroke-width:1.3;marker-end:url(#arrow-red)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Next-Token Prediction: Cross-Entropy and Logit Gradients</text>
+  <text x="25" y="48" class="sm" fill="#555">From transformer hidden states to vocabulary probabilities, scalar loss, and the derivative p - y</text>
+
+  <!-- 1. Hidden State -->
+  <rect x="25" y="80" width="110" height="90" rx="5" class="blue"/>
+  <text x="80" y="105" text-anchor="middle" class="b">Hidden State</text>
+  <text x="80" y="125" text-anchor="middle" class="sm">h in R^(4096)</text>
+  <text x="80" y="145" text-anchor="middle" class="sm">Final layer norm</text>
+  <text x="80" y="160" text-anchor="middle" class="sm">output vector</text>
+
+  <!-- Forward Projection Arrow -->
+  <path d="M 135 125 L 175 125" class="edge"/>
+  <text x="155" y="117" text-anchor="middle" class="sm" fill="#555">W_vocab</text>
+
+  <!-- 2. Logits Tensor -->
+  <rect x="180" y="75" width="125" height="100" rx="5" class="purple"/>
+  <text x="242" y="98" text-anchor="middle" class="b">Logits (z)</text>
+  <text x="242" y="118" text-anchor="middle" class="sm">z = W_vocab h</text>
+  <text x="242" y="138" text-anchor="middle" class="sm">V = 128,256 items</text>
+  <text x="242" y="156" text-anchor="middle" class="sm b" fill="#6f42c1">4.2 GB unchunked</text>
+
+  <!-- Arrow to Softmax -->
+  <path d="M 305 125 L 345 125" class="edge"/>
+  <text x="325" y="117" text-anchor="middle" class="sm" fill="#555">Softmax</text>
+
+  <!-- 3. Probability Distribution -->
+  <rect x="350" y="75" width="135" height="100" rx="5" class="blue"/>
+  <text x="417" y="98" text-anchor="middle" class="b">Probabilities (p)</text>
+  <text x="417" y="118" text-anchor="middle" class="sm">p_i = exp(z_i) / Sum</text>
+  <text x="417" y="138" text-anchor="middle" class="sm">Target token c: p_c</text>
+  <text x="417" y="156" text-anchor="middle" class="sm">All sum to 1.0</text>
+
+  <!-- Arrow to Loss -->
+  <path d="M 485 125 L 530 125" class="edge"/>
+
+  <!-- 4. Target & Cross-Entropy Loss -->
+  <rect x="535" y="75" width="260" height="100" rx="5" class="yellow"/>
+  <text x="665" y="98" text-anchor="middle" class="b">Cross-Entropy Loss (L)</text>
+  <text x="665" y="120" text-anchor="middle" class="sm">Target token index y = c (one-hot)</text>
+  <text x="665" y="140" text-anchor="middle" class="sm b" fill="#d79b00">L = -log(p_c) = -z_c + log(Sum_j exp(z_j))</text>
+  <text x="665" y="160" text-anchor="middle" class="sm">Penalizes low probability on true next token</text>
+
+  <!-- Derivative Panel -->
+  <rect x="25" y="200" width="770" height="120" rx="6" class="gray"/>
+  <text x="40" y="224" class="b" fill="#b85450">The Logit Gradient: Elegant Analytical Subtraction</text>
+
+  <!-- Left: Equation -->
+  <rect x="40" y="235" width="370" height="72" rx="4" class="white"/>
+  <text x="55" y="258" class="b sm">Vector Formulation:</text>
+  <text x="55" y="280" class="sm b" fill="#b85450">dL / dz = p - y</text>
+  <text x="55" y="298" class="sm">Predicted probability minus one-hot ground truth</text>
+
+  <!-- Right: Breakdown -->
+  <rect x="425" y="235" width="355" height="72" rx="4" class="red"/>
+  <text x="435" y="258" class="sm b">Coordinate Behavior (i in 1..V):</text>
+  <text x="435" y="278" class="sm">• Incorrect classes (i != c): <tspan class="b">dL / dz_i = +p_i</tspan> (pushes logit down)</text>
+  <text x="435" y="298" class="sm">• Target token (i = c): <tspan class="b">dL / dz_c = p_c - 1</tspan> (pushes logit up)</text>
+</svg>

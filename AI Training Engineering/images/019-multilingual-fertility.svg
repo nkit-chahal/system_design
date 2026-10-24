@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .axis{stroke:#000;stroke-width:1.2}
+    .grid{stroke:#e0e0e0;stroke-width:1;stroke-dasharray:3 3}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="25" y="30" class="lg b">Tokenizer Fertility Disparity: Llama 2 (32k) vs Llama 3 (128k)</text>
+  <text x="25" y="52" class="sm" fill="#555">Average tokens required per word across languages: closing the non-Latin fertility tax</text>
+
+  <!-- Legend -->
+  <rect x="520" y="20" width="14" height="14" class="gray"/>
+  <text x="540" y="32" class="sm">Llama 2 (32k vocab)</text>
+  <rect x="680" y="20" width="14" height="14" class="green"/>
+  <text x="700" y="32" class="sm">Llama 3 (128k vocab)</text>
+
+  <!-- Bar Chart: x in [70, 780], y in [80, 270] -->
+  <line x1="70" y1="270" x2="780" y2="270" class="axis"/>
+  <line x1="70" y1="80" x2="70" y2="270" class="axis"/>
+
+  <!-- Ticks on Y axis: 0, 1, 2, 3, 4, 5 tokens/word (height 190, 38px per unit) -->
+  <line x1="70" y1="232" x2="780" y2="232" class="grid"/>
+  <text x="60" y="236" class="sm" text-anchor="end">1.0</text>
+
+  <line x1="70" y1="194" x2="780" y2="194" class="grid"/>
+  <text x="60" y="198" class="sm" text-anchor="end">2.0</text>
+
+  <line x1="70" y1="156" x2="780" y2="156" class="grid"/>
+  <text x="60" y="160" class="sm" text-anchor="end">3.0</text>
+
+  <line x1="70" y1="118" x2="780" y2="118" class="grid"/>
+  <text x="60" y="122" class="sm" text-anchor="end">4.0</text>
+
+  <line x1="70" y1="80" x2="780" y2="80" class="grid"/>
+  <text x="60" y="84" class="sm" text-anchor="end">5.0</text>
+
+  <text x="25" y="175" class="b mid" transform="rotate(-90 25 175)">Tokens / Word</text>
+
+  <!-- 6 Categories: English, Python, Spanish, Chinese, Hindi, Arabic -->
+  <!-- 1. English: Llama2=1.40 (53px -> y=217), Llama3=1.25 (47px -> y=223) -->
+  <rect x="95" y="217" width="38" height="53" rx="2" class="gray"/>
+  <text x="114" y="211" class="sm mid">1.40</text>
+  <rect x="137" y="223" width="38" height="47" rx="2" class="green"/>
+  <text x="156" y="217" class="sm b mid" fill="#2d572c">1.25</text>
+  <text x="135" y="290" class="sm b mid">English</text>
+
+  <!-- 2. Python Code: Llama2=1.95 (74px -> y=196), Llama3=1.35 (51px -> y=219) -->
+  <rect x="210" y="196" width="38" height="74" rx="2" class="gray"/>
+  <text x="229" y="190" class="sm mid">1.95</text>
+  <rect x="252" y="219" width="38" height="51" rx="2" class="green"/>
+  <text x="271" y="213" class="sm b mid" fill="#2d572c">1.35</text>
+  <text x="250" y="290" class="sm b mid">Python</text>
+
+  <!-- 3. Spanish: Llama2=1.65 (63px -> y=207), Llama3=1.30 (49px -> y=221) -->
+  <rect x="325" y="207" width="38" height="63" rx="2" class="gray"/>
+  <text x="344" y="201" class="sm mid">1.65</text>
+  <rect x="367" y="221" width="38" height="49" rx="2" class="green"/>
+  <text x="386" y="215" class="sm b mid" fill="#2d572c">1.30</text>
+  <text x="365" y="290" class="sm b mid">Spanish</text>
+
+  <!-- 4. Chinese: Llama2=2.80 (106px -> y=164), Llama3=1.60 (61px -> y=209) -->
+  <rect x="440" y="164" width="38" height="106" rx="2" class="gray"/>
+  <text x="459" y="158" class="sm mid">2.80</text>
+  <rect x="482" y="209" width="38" height="61" rx="2" class="green"/>
+  <text x="501" y="203" class="sm b mid" fill="#2d572c">1.60</text>
+  <text x="480" y="290" class="sm b mid">Chinese</text>
+
+  <!-- 5. Hindi: Llama2=4.60 (175px -> y=95), Llama3=1.85 (70px -> y=200) -->
+  <rect x="555" y="95" width="38" height="175" rx="2" class="gray"/>
+  <text x="574" y="89" class="sm mid">4.60</text>
+  <rect x="597" y="200" width="38" height="70" rx="2" class="green"/>
+  <text x="616" y="194" class="sm b mid" fill="#2d572c">1.85</text>
+  <text x="595" y="290" class="sm b mid">Hindi</text>
+
+  <!-- 6. Arabic: Llama2=3.90 (148px -> y=122), Llama3=1.70 (65px -> y=205) -->
+  <rect x="670" y="122" width="38" height="148" rx="2" class="gray"/>
+  <text x="689" y="116" class="sm mid">3.90</text>
+  <rect x="712" y="205" width="38" height="65" rx="2" class="green"/>
+  <text x="731" y="199" class="sm b mid" fill="#2d572c">1.70</text>
+  <text x="710" y="290" class="sm b mid">Arabic</text>
+
+  <text x="25" y="322" class="sm" fill="#555">In 32k vocabularies, Hindi and Arabic paid a 3× token penalty. Llama 3 cuts fertility to under 1.9 tokens/word globally.</text>
+</svg>

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Memory Breakdown: Full Fine-Tuning vs LoRA (Llama 3.1 8B)</text>
+  <text x="25" y="48" class="sm" fill="#555">Static memory for weights, gradients, and Adam optimizer states (8.03B base parameters, r = 16)</text>
+
+  <!-- Section 1: Full Fine-Tuning -->
+  <text x="25" y="78" class="b">Full Fine-Tuning: 128.5 GB static state</text>
+  
+  <!-- Stacked bar FFT total 750px wide representing 128.5 GB (5.83 px per GB) -->
+  <rect x="25" y="88" width="94" height="42" class="blue"/>
+  <text x="72" y="113" text-anchor="middle" class="sm">Wts 16.1G</text>
+
+  <rect x="119" y="88" width="94" height="42" class="yellow"/>
+  <text x="166" y="113" text-anchor="middle" class="sm">Grad 16.1G</text>
+
+  <rect x="213" y="88" width="187" height="42" class="purple"/>
+  <text x="306" y="113" text-anchor="middle" class="sm">Master Wts (FP32) 32.1G</text>
+
+  <rect x="400" y="88" width="375" height="42" class="red"/>
+  <text x="587" y="113" text-anchor="middle" class="sm">Adam Moments m and v (FP32) 64.2G</text>
+
+  <!-- H100 80 GB limit marker line -->
+  <line x1="491" y1="74" x2="491" y2="136" stroke="#b85450" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="495" y="78" class="sm" fill="#b85450">H100 80 GB Limit (OOM: +48.5 GB)</text>
+
+  <!-- Section 2: LoRA -->
+  <text x="25" y="162" class="b">LoRA (r = 16, 41.9M params): 16.73 GB static state</text>
+
+  <!-- Stacked bar LoRA total 16.73 GB = 94px base + 6px adapter -->
+  <rect x="25" y="174" width="94" height="42" class="blue"/>
+  <text x="72" y="200" text-anchor="middle" class="sm">Base 16.1G</text>
+
+  <rect x="119" y="174" width="8" height="42" class="orange"/>
+  
+  <!-- Bracket for adapter tiny states -->
+  <line x1="123" y1="218" x2="123" y2="238" stroke="#000" stroke-width="1"/>
+  <line x1="123" y1="238" x2="190" y2="238" stroke="#000" stroke-width="1"/>
+  <text x="195" y="242" class="sm">Adapter states (Wts 0.08G + Grads 0.08G + Adam 0.50G = <tspan class="b">0.67 GB</tspan>)</text>
+
+  <!-- Available memory on 80 GB GPU -->
+  <rect x="127" y="174" width="364" height="42" class="green"/>
+  <text x="309" y="200" text-anchor="middle" class="sm b">~63 GB Headroom for Activations &amp; Larger Batches</text>
+
+  <line x1="491" y1="160" x2="491" y2="222" stroke="#82b366" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="500" y="162" class="sm" fill="#82b366">H100 Capacity</text>
+
+  <!-- Comparison Summary Table / Container -->
+  <rect x="25" y="262" width="770" height="72" rx="4" class="gray"/>
+  <text x="40" y="283" class="b">Key Takeaways for Training Engineering:</text>
+  <text x="40" y="303" class="sm">• Optimizer and gradient footprint collapses from <tspan class="b">112.4 GB</tspan> to <tspan class="b">0.67 GB</tspan> (168x reduction).</text>
+  <text x="40" y="321" class="sm">• Activation memory is NOT reduced: backprop through frozen base weights still requires saving all layer activations.</text>
+</svg>

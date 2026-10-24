@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="30" y="28" class="lg b">Goodput Breakdown Timeline: Useful Work versus Failure Overhead</text>
+
+  <!-- Timeline Bar -->
+  <!-- 1. Useful Training -->
+  <rect x="30" y="65" width="310" height="50" rx="4" class="green"/>
+  <text x="110" y="93" class="b">Useful Training Compute</text>
+  <text x="120" y="108" class="sm">40% MFU forward/backward</text>
+
+  <!-- 2. Checkpoint Save -->
+  <rect x="340" y="65" width="25" height="50" rx="2" class="yellow"/>
+  <text x="343" y="93" class="sm b">Save</text>
+
+  <!-- 3. Pre-Crash Useful Compute (Lost Rework) -->
+  <rect x="365" y="65" width="130" height="50" rx="4" class="orange"/>
+  <text x="375" y="90" class="b">Lost Rework</text>
+  <text x="382" y="106" class="sm">avg tau / 2</text>
+
+  <!-- Flash/Crash Marker -->
+  <line x1="495" y1="48" x2="495" y2="125" stroke="#b85450" stroke-width="2.5" stroke-dasharray="3 3"/>
+  <rect x="470" y="42" width="52" height="18" rx="3" class="red"/>
+  <text x="475" y="55" class="sm b">Crash!</text>
+
+  <!-- 4. Detection Delay -->
+  <rect x="495" y="65" width="45" height="50" rx="2" class="red"/>
+  <text x="500" y="90" class="sm b">Detect</text>
+  <text x="502" y="106" class="sm">30s</text>
+
+  <!-- 5. Job Restart & Standby Allocation -->
+  <rect x="540" y="65" width="70" height="50" rx="2" class="purple"/>
+  <text x="548" y="90" class="sm b">Restart</text>
+  <text x="550" y="106" class="sm">Slurm 2m</text>
+
+  <!-- 6. Checkpoint Reload -->
+  <rect x="610" y="65" width="55" height="50" rx="2" class="blue"/>
+  <text x="618" y="90" class="sm b">Reload</text>
+  <text x="620" y="106" class="sm">DCP 1m</text>
+
+  <!-- 7. Resumed Useful Compute -->
+  <rect x="665" y="65" width="125" height="50" rx="4" class="green"/>
+  <text x="680" y="93" class="b">Useful Train</text>
+  <text x="695" y="108" class="sm">Resumed</text>
+
+  <!-- Bottom Detailed Cost Breakdown Boxes -->
+  <rect x="30" y="135" width="235" height="155" rx="6" class="green"/>
+  <text x="45" y="160" class="b">1. Productive Compute</text>
+  <text x="45" y="180" class="sm">• Active parameter optimization</text>
+  <text x="45" y="200" class="sm">• Gradient all-reduce passes</text>
+  <text x="45" y="225" class="b">Goodput Target: &gt; 90%</text>
+  <text x="45" y="245" class="sm">Pretraining: ~98.4% on 256 GPUs</text>
+  <text x="45" y="265" class="sm">Meta 16K GPUs: &gt; 90.0% sustained</text>
+
+  <rect x="285" y="135" width="245" height="155" rx="6" class="orange"/>
+  <text x="300" y="160" class="b">2. Lost Rework (Recomputation)</text>
+  <text x="300" y="180" class="sm">• Progress since last saved step</text>
+  <text x="300" y="200" class="sm">• For interval tau, expected loss is</text>
+  <text x="310" y="220" class="b sm">E[lost] = tau / 2</text>
+  <text x="300" y="245" class="sm">• At tau=30m: avg rework = 15m</text>
+  <text x="300" y="265" class="sm">• At tau=3h: avg rework = 90m</text>
+
+  <rect x="550" y="135" width="240" height="155" rx="6" class="red"/>
+  <text x="565" y="160" class="b">3. Recovery Friction</text>
+  <text x="565" y="180" class="sm">• NCCL watchdog timeout (30s)</text>
+  <text x="565" y="200" class="sm">• Slurm job rescheduling (~2m)</text>
+  <text x="565" y="220" class="sm">• Hot swap node boot (~1m)</text>
+  <text x="565" y="240" class="sm">• DCP reload from Lustre (~1m)</text>
+  <text x="565" y="265" class="b sm">Total Restart Time: ~4.5 min</text>
+</svg>

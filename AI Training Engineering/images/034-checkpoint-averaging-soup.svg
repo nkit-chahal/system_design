@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+    .basin { fill: none; stroke: #6c8ebf; stroke-width: 2.5; }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Checkpoint Selection and Weight Averaging (Model Soup / SWA)</text>
+  <text x="25" y="42" class="sm" fill="#555">Averaging weights of late-stage checkpoints finds the flat loss basin, hedging against evaluation noise.</text>
+
+  <!-- Left Side: Loss Basin Diagram -->
+  <rect x="25" y="58" width="460" height="215" rx="5" class="gray"/>
+  <text x="40" y="80" class="b sm">Loss Landscape Basin (Late Training Stage):</text>
+
+  <!-- Basin Curve: parabolic valley -->
+  <path d="M60,110 C140,230 360,230 440,110" class="basin"/>
+
+  <!-- Checkpoint A (Step 94k) -->
+  <circle cx="120" cy="175" r="5" fill="#d79b00"/>
+  <text x="120" y="160" text-anchor="middle" class="sm b" fill="#b45f06">Ckpt 94k</text>
+  <text x="120" y="196" text-anchor="middle" class="sm">MMLU: 64.8%</text>
+
+  <!-- Checkpoint B (Step 97k) -->
+  <circle cx="380" cy="175" r="5" fill="#d79b00"/>
+  <text x="380" y="160" text-anchor="middle" class="sm b" fill="#b45f06">Ckpt 97k</text>
+  <text x="380" y="196" text-anchor="middle" class="sm">GSM8K: 54.2%</text>
+
+  <!-- Checkpoint C (Step 100k) -->
+  <circle cx="210" cy="216" r="5" fill="#d79b00"/>
+  <text x="210" y="234" text-anchor="middle" class="sm b" fill="#b45f06">Ckpt 100k</text>
+
+  <!-- Averaged Weight Vector Center (Green) -->
+  <circle cx="250" cy="222" r="7" fill="#82b366" stroke="#274e13" stroke-width="2"/>
+  <text x="250" y="206" text-anchor="middle" class="b sm" fill="#274e13">Averaged Weights (W_soup)</text>
+  <text x="250" y="246" text-anchor="middle" class="sm b">Flat, generalized minimum</text>
+
+  <!-- Right Side Explanation Panel -->
+  <rect x="500" y="58" width="315" height="215" rx="5" class="white"/>
+  <text x="515" y="80" class="b sm">Why Checkpoint Averaging Works:</text>
+
+  <text x="515" y="105" class="sm b" fill="#2c5d88">1. The Single-Checkpoint Trap:</text>
+  <text x="515" y="122" class="sm">• In the final 5% of training, loss</text>
+  <text x="525" y="138" class="sm">oscillates within a flat valley.</text>
+  <text x="515" y="154" class="sm">• Different checkpoints win on</text>
+  <text x="525" y="170" class="sm">different noisy benchmarks.</text>
+
+  <text x="515" y="195" class="sm b" fill="#274e13">2. Uniform Soup Averaging:</text>
+  <text x="515" y="212" class="sm">• W_soup = (W_94k + W_97k + W_100k) / 3</text>
+  <text x="515" y="230" class="sm">• Centers the model in the widest basin.</text>
+  <text x="515" y="248" class="sm">• Outperforms all individual checkpoints.</text>
+  <text x="515" y="264" class="sm">• Zero extra training compute cost.</text>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="284" width="790" height="52" rx="4" class="white"/>
+  <text x="38" y="304" class="b sm">Best Practice:</text>
+  <text x="135" y="304" class="sm">Save the last 5 checkpoints during minimum learning rate.</text>
+  <text x="38" y="322" class="sm">Evaluate each checkpoint, then evaluate the simple parameter average: it routinely gains +0.5% to +1.0% across all benchmarks.</text>
+</svg>

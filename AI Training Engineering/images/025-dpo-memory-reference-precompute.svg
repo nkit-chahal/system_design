@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">DPO Memory: Online Reference vs Precomputed Log-Probabilities</text>
+  <text x="25" y="48" class="sm" fill="#555">Eliminating the frozen reference model from VRAM by precomputing static log-probabilities offline</text>
+
+  <!-- Left Column: Standard DPO (Both in GPU) -->
+  <rect x="25" y="70" width="370" height="205" rx="6" class="gray"/>
+  <text x="210" y="94" text-anchor="middle" class="b">Standard Online DPO (2 Models in VRAM)</text>
+
+  <rect x="45" y="110" width="330" height="42" rx="4" class="orange"/>
+  <text x="210" y="135" text-anchor="middle" class="sm b">Policy Model pi_theta (Trainable: Weights + Grads + Adam)</text>
+
+  <rect x="45" y="162" width="330" height="42" rx="4" class="blue"/>
+  <text x="210" y="187" text-anchor="middle" class="sm b">Reference Model pi_ref (Frozen: 16.1 GB BF16 Weights)</text>
+
+  <text x="45" y="225" class="sm">• Both models run forward passes at every step.</text>
+  <text x="45" y="245" class="sm">• Consumes 16.1 GB VRAM just to hold frozen reference weights.</text>
+  <text x="45" y="263" class="sm">• Dual forward passes double memory bandwidth pressure.</text>
+
+  <!-- Right Column: Precomputed DPO -->
+  <rect x="425" y="70" width="370" height="205" rx="6" class="gray"/>
+  <text x="610" y="94" text-anchor="middle" class="b">Optimized: Precomputed Reference Log-Probs</text>
+
+  <!-- Offline Phase Step -->
+  <rect x="445" y="110" width="330" height="42" rx="4" class="yellow"/>
+  <text x="610" y="128" text-anchor="middle" class="sm b">Offline 1x Pass with pi_ref (Before Training)</text>
+  <text x="610" y="144" text-anchor="middle" class="sm">Saves ref_logps_chosen &amp; ref_logps_rejected to dataset</text>
+
+  <!-- Training Phase -->
+  <rect x="445" y="162" width="330" height="42" rx="4" class="green"/>
+  <text x="610" y="187" text-anchor="middle" class="sm b">Training Phase: ONLY Policy pi_theta in VRAM!</text>
+
+  <text x="445" y="225" class="sm">• Reference model pi_ref is completely unloaded from VRAM.</text>
+  <text x="445" y="245" class="sm">• Saves 16.1 GB VRAM throughout training.</text>
+  <text x="445" y="263" class="sm">• Eliminates redundant forward passes, speeding up training by ~40%.</text>
+
+  <!-- Bottom Banner -->
+  <rect x="25" y="285" width="770" height="50" rx="4" class="green"/>
+  <text x="410" y="306" text-anchor="middle" class="b">Engineering Win: Precomputing log-probs allows full DPO on a single GPU with LoRA</text>
+  <text x="410" y="324" text-anchor="middle" class="sm">Because offline preference pairs do not change, their reference log-probabilities never change.</text>
+</svg>

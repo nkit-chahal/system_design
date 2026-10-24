@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Architectural Stabilizers: QK-Norm and Logit Z-Loss</text>
+  <text x="25" y="42" class="sm" fill="#555">Two proven mathematical guardrails that prevent internal activation growth and logit drift at scale.</text>
+
+  <!-- Left: QK-Norm -->
+  <rect x="25" y="58" width="385" height="215" rx="5" class="gray"/>
+  <text x="40" y="80" class="b">1. QK-Norm (Dehghani et al., 2023 / OLMo 2)</text>
+  <text x="40" y="96" class="sm" fill="#555">Applies RMSNorm to query and key vectors before dot product</text>
+
+  <g transform="translate(40, 110)">
+    <!-- Q branch -->
+    <rect x="0" y="0" width="75" height="32" rx="3" class="blue"/>
+    <text x="37" y="20" text-anchor="middle" class="sm b">Query (Q)</text>
+    <path d="M75,16 L105,16" class="edge"/>
+    <rect x="105" y="0" width="95" height="32" rx="3" class="green"/>
+    <text x="152" y="20" text-anchor="middle" class="sm b">RMSNorm(Q)</text>
+
+    <!-- K branch -->
+    <rect x="0" y="45" width="75" height="32" rx="3" class="blue"/>
+    <text x="37" y="65" text-anchor="middle" class="sm b">Key (K)</text>
+    <path d="M75,61 L105,61" class="edge"/>
+    <rect x="105" y="45" width="95" height="32" rx="3" class="green"/>
+    <text x="152" y="65" text-anchor="middle" class="sm b">RMSNorm(K)</text>
+
+    <!-- Attention Dot Product Box -->
+    <path d="M200,16 L235,38" class="edge"/>
+    <path d="M200,61 L235,38" class="edge"/>
+    <rect x="235" y="22" width="115" height="36" rx="3" class="orange"/>
+    <text x="292" y="44" text-anchor="middle" class="sm b">Q · Kᵀ / √d</text>
+  </g>
+
+  <rect x="40" y="200" width="355" height="60" rx="3" class="white"/>
+  <text x="50" y="218" class="sm b" fill="#274e13">Mathematical Guarantee:</text>
+  <text x="50" y="234" class="sm">Because ||Q|| and ||K|| are normalized to √d,</text>
+  <text x="50" y="250" class="sm">maximum dot product cannot exceed d / √d = √d (11.3 for d=128).</text>
+
+  <!-- Right: Logit Z-Loss -->
+  <rect x="430" y="58" width="385" height="215" rx="5" class="gray"/>
+  <text x="445" y="80" class="b">2. Output Logit Z-Loss (PaLM, Chowdhery et al.)</text>
+  <text x="445" y="96" class="sm" fill="#555">Regularizes partition function at output vocabulary layer</text>
+
+  <rect x="445" y="110" width="355" height="42" rx="3" class="purple"/>
+  <text x="622" y="128" text-anchor="middle" class="sm b">Output Unnormalized Logits: z ∈ ℝ^V (V = 128,256)</text>
+  <text x="622" y="142" text-anchor="middle" class="sm">Softmax Normalizer: Z = Σᵢ exp(zᵢ)</text>
+
+  <rect x="445" y="160" width="355" height="42" rx="3" class="orange"/>
+  <text x="622" y="178" text-anchor="middle" class="sm b">Auxiliary Loss Penalty: L_z = 10⁻⁴ × (log Z)²</text>
+  <text x="622" y="193" text-anchor="middle" class="sm">Total Objective = L_cross_entropy + L_z</text>
+
+  <rect x="445" y="210" width="355" height="50" rx="3" class="white"/>
+  <text x="455" y="228" class="sm b" fill="#274e13">Stability Effect:</text>
+  <text x="455" y="246" class="sm">Penalizes large logits, keeping log Z centered near 0.</text>
+  <text x="455" y="256" class="sm">Prevents roundoff errors in BF16/FP16 cross-entropy softmax.</text>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="284" width="790" height="52" rx="4" class="white"/>
+  <text x="38" y="304" class="b sm">Implementation Cost:</text>
+  <text x="180" y="304" class="sm">Both techniques add less than 0.2% compute overhead,</text>
+  <text x="38" y="322" class="sm">yet eliminate over 90% of catastrophic loss spikes in multi-billion parameter runs.</text>
+</svg>

@@ -1,0 +1,7 @@
+center: Training Memory Accounting
+branch: Analytical Sizing | sixteen bytes per parameter | megatron activation scaling law | ephemeral logits buffer spike
+branch: PyTorch Profiling | max memory allocated | memory snapshot visualizer | pytorch org memory viz
+branch: Mixed Precision Impact | bf16 cuts activations half | fp32 master weights retained | enables consumer gpu training
+branch: Checkpointing Tradeoff | saves only layer boundaries | drops activation memory drastically | adds thirty three percent compute
+branch: Micro Batch Tuning | gradient accumulation slices activations | static states remain unchanged | matches large batch math
+branch: Hardware Realities | gpt two fits eight gb | one b fits h one hundred | allocator fragmentation headroom

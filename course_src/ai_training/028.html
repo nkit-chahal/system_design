@@ -1,0 +1,344 @@
+<h2>Introduction</h2>
+<p>Training a large language model across hundreds or thousands of GPUs is an exercise in managing inevitable interruptions. High-performance accelerators, high-bandwidth memory (HBM3), optical transceivers, and complex collective communication fabrics fail regularly under sustained thermal load [1]. Without a reliable checkpointing strategy, an unhandled GPU failure or node reboot wipes out days of expensive cluster progress. <strong>Checkpointing is the insurance policy of large-scale distributed training</strong>: it periodically serializes the exact execution state of the model and optimizer to persistent storage so training can resume seamlessly after an interruption.</p>
+<p>However, saving model state at scale introduces a severe systems tension. For an 8-billion parameter model such as Llama 3.1 8B, the mixed-precision AdamW optimizer states, FP32 master weights, and BF16 model parameters consume <strong>16 bytes per parameter, or approximately 128.5 GB</strong> (Lesson 3, Training Memory). If 256 GPUs halt execution to write their states synchronously over a shared network file system, storage bandwidth bottlenecks stall training for minutes. Over a multi-week pretraining run, synchronous checkpoint stalls directly degrade Model FLOPs Utilization (MFU) and waste hundreds of thousands of dollars in idle GPU capacity.</p>
+<fig src="028-checkpoint-anatomy.svg" caption="Anatomy of a complete distributed training checkpoint">A complete training checkpoint divides into two categories: massive parameter and optimizer states (~128.5 GB for an 8B model) comprising BF16 weights, FP32 master weights, and Adam first and second moments; and lightweight execution metadata (&lt; 1 MB) comprising learning rate scheduler step counters, multi-device RNG states, and DataLoader token cursors.</fig>
+<p>Modern distributed systems resolve this tension through <strong>sharded distributed checkpointing</strong> (where each rank writes its local tensor shard concurrently without rank-0 consolidation) and <strong>asynchronous checkpointing</strong> (where states are rapidly copied to host RAM in milliseconds while a background thread flushes to storage without stalling compute) [2][3]. Furthermore, determining the optimal checkpoint frequency requires balancing the time spent saving against the expected rework lost upon failure, governed mathematically by the classical <strong>Young/Daly optimal interval formula</strong> [4][5].</p>
+<p>In this lesson, we examine everything a checkpoint must contain to guarantee bit-for-bit mathematical resumption, derive the exact I/O overhead of synchronous versus sharded saving, explore PyTorch Distributed Checkpoint (DCP) and asynchronous background staging, calculate the optimal checkpoint interval for our running 256-GPU cluster, design a multi-tier storage retention lifecycle, and demonstrate how to convert sharded training checkpoints into standalone Hugging Face artifacts for evaluation and serving.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In a systems design interview for an AI infrastructure role, checkpointing questions typically begin with a storage bottleneck or an elastic restart scenario. Here is how a discussion between a candidate and an interviewer unfolds:</p>
+<p><strong>Candidate</strong>: What model architecture, cluster size, and parallelism strategy are we sizing for?<br>
+<strong>Interviewer</strong>: We are pretraining our running model—the Llama 3.1 8B architecture (8.03 billion parameters)—on 256 NVIDIA H100 80 GB GPUs across 32 nodes. We use Fully Sharded Data Parallelism (FSDP) with mixed-precision AdamW.</p>
+<p><strong>Candidate</strong>: What storage infrastructure connects to the cluster?<br>
+<strong>Interviewer</strong>: Each 8-GPU node has 3.8 TB of local NVMe SSD storage capable of 10 GB/s sequential writes. All 32 nodes mount a shared parallel cluster file system (Lustre) delivering an aggregate peak write throughput of 25 GB/s.</p>
+<p><strong>Candidate</strong>: How often does the cluster experience interruptions, and what is our target restart time?<br>
+<strong>Interviewer</strong>: Across our 256 GPUs, hardware and network interruptions occur roughly once every 8 days (Mean Time Between Failures, MTBF <tex>\approx 198</tex> hours; Lesson 29, Failures, Restarts and Elastic Training). However, when a job restarts, we want to lose at most a fraction of an hour of compute and resume within 5 minutes.</p>
+<p><strong>Candidate</strong>: Are we allowed to resume on a different number of GPUs if a node suffers permanent hardware damage?<br>
+<strong>Interviewer</strong>: Yes. If a failed node must be drained, the system might restart on 31 nodes (248 GPUs) or allocate a spare node. The checkpoint format must support dynamic resharding without offline re-indexing.</p>
+<p><strong>Candidate</strong>: Does saving a checkpoint stall training compute, and what MFU penalty is acceptable?<br>
+<strong>Interviewer</strong>: Our pretraining run targets 40% MFU. Total checkpointing overhead—including saving stalls and lost work upon crash—must account for less than 1% of total cluster time.</p>
+<p>The question underneath is: <em>How do we architect a checkpoint pipeline that saves 128.5 GB of distributed state reliably, eliminates GPU compute stalls, reshard across arbitrary topologies upon restart, and identifies the mathematically optimal save frequency?</em> To answer it, we begin with the anatomy of an exact checkpoint.</p>
+
+<h2>What an Exact Checkpoint Must Contain</h2>
+<p>A machine learning checkpoint is not merely a dictionary of neural network weights. While inference requires only the trained BF16 weights (16.06 GB for an 8B model), <strong>resuming training deterministically requires restoring the complete optimization and data-loading state</strong>. If any state is omitted or corrupted, optimization dynamics diverge, learning rates jump unexpectedly, or training samples are duplicated or skipped.</p>
+
+<h3>1. Heavy Model and Optimizer States (16 Bytes per Parameter)</h3>
+<p>For an 8.03-billion parameter model trained with mixed-precision AdamW, the primary memory footprint comprises five tensors per parameter (Figure 1):</p>
+<ul>
+<li><strong>BF16 Model Weights (2 bytes/param)</strong>: The active network parameters used in forward and backward matrix multiplications: <tex>8.03 \times 10^9 \times 2 = 16.06\text{ GB}</tex>.</li>
+<li><strong>FP32 Master Weights (4 bytes/param)</strong>: The high-precision reference parameters updated by the optimizer step: <tex>8.03 \times 10^9 \times 4 = 32.12\text{ GB}</tex>.</li>
+<li><strong>FP32 Adam First Moment <tex>m</tex> (4 bytes/param)</strong>: The running exponentially decaying average of past gradients: <tex>32.12\text{ GB}</tex>.</li>
+<li><strong>FP32 Adam Second Moment <tex>v</tex> (4 bytes/param)</strong>: The running exponentially decaying average of past squared gradients: <tex>32.12\text{ GB}</tex>.</li>
+</ul>
+<p>Summing these four components gives exactly 14 bytes per parameter that must be saved to disk:
+<texblock>\text{Checkpoint State Size} = 8.03 \times 10^9 \times (2 + 4 + 4 + 4)\text{ bytes} = 112.42\text{ GB} \approx 104.7\text{ GiB}</texblock>
+In implementations where gradients or optimizer FP32 step counts are stored within state dictionaries, the serialized footprint reaches the canonical <strong>16 bytes per parameter, or approximately 128.5 GB (119.7 GiB)</strong>. Notice that <strong>gradients themselves are never saved</strong>: before a checkpoint is triggered, the optimizer executes its step and zeroes the gradients, so gradients upon resumption are naturally recomputed during the next forward/backward pass.</p>
+
+<h3>2. Lightweight Execution and Determinism Metadata (&lt; 1 MB)</h3>
+<p>While optimizer states account for 99.999% of bytes on disk, deterministic resumption depends completely on lightweight scalar and generator metadata:</p>
+<ul>
+<li><strong>Learning Rate Scheduler State</strong>: The current global step index, learning rate value, warmup stage, and cosine decay phase. If the scheduler is not saved, restarting resets the learning rate to its initial maximum or triggers a second warmup phase, destabilizing the optimizer.</li>
+<li><strong>Random Number Generator (RNG) States</strong>: The internal bit-generator seeds for PyTorch CPU (<code>torch.get_rng_state()</code>), CUDA devices across all GPUs (<code>torch.cuda.get_rng_state_all()</code>), Python's built-in <code>random.getstate()</code>, and NumPy's <code>np.random.get_state()</code>. Restoring RNG states guarantees that data shuffling, stochastic dropout masks, and tensor augmentations produce identical sequences across restarts.</li>
+<li><strong>DataLoader Position and Cursor</strong>: In pretraining across 1 trillion tokens, the data loader must record the exact dataset epoch, shard index, and sample token offset. If the DataLoader position is lost, the restarted run restarts from token zero (re-reading data already trained on) or skips entire data shards, violating curriculum balance.</li>
+<li><strong>Global Step Counter and Loss Scaler</strong>: The integer step index and dynamic loss scale factor (used in FP16 or FP8 training to prevent underflow).</li>
+</ul>
+
+<h2>The I/O Bottleneck: Synchronous Stalls versus Sharded DCP</h2>
+<h3>The Failure of Naive torch.save()</h3>
+<p>In early distributed training scripts, engineers frequently wrote checkpoints using PyTorch's naive serialization: <code>torch.save(model.state_dict(), path)</code>. In a distributed data-parallel run across 256 GPUs, naive saving fails disastrously in two ways:</p>
+<ol>
+<li><strong>Rank-0 Consolidation OOM</strong>: If rank 0 gathers all model and optimizer states across the cluster via an all-gather collective to write a single monolithic file, rank 0's host RAM must hold 128.5 GB of weights plus communication buffers simultaneously. This causes an immediate out-of-memory crash on standard host nodes.</li>
+<li><strong>I/O Concurrency Contention</strong>: If every rank writes an unsharded duplicate copy of the model, 256 GPUs attempt to write 16.06 GB concurrently over the network:
+<texblock>\text{Total Unsharded Traffic} = 256 \times 16.06\text{ GB} \approx 4,111\text{ GB} \approx 4.11\text{ TB}</texblock>
+Over a shared Lustre file system delivering 25 GB/s aggregate write bandwidth, writing 4.11 TB takes:
+<texblock>t_{\text{unsharded}} = \frac{4,111\text{ GB}}{25\text{ GB/s}} \approx 164.4\text{ seconds} \approx 2.74\text{ minutes}</texblock>
+Stalling the entire cluster for nearly three minutes at every checkpoint severely degrades training throughput.</li>
+</ol>
+
+<h3>Distributed Checkpoint (DCP): Parallel Rank-Local Shards</h3>
+<p>Modern distributed training frameworks—including PyTorch FSDP2 and torchtitan—use <strong>PyTorch Distributed Checkpoint (DCP)</strong> (<code>torch.distributed.checkpoint</code>) [2]. In DCP, no consolidation takes place. Instead, each of the 256 GPU ranks writes only its locally sharded parameter and optimizer tensors directly to a dedicated shard file in a shared directory.</p>
+<p>Figure 3 illustrates the filesystem architecture of a DCP checkpoint. The destination directory contains:</p>
+<ul>
+<li><strong><code>.metadata</code></strong>: A single compact coordinator file written by rank 0. It contains the global tensor shapes, data types, sharding metadata, and a spatial index mapping global tensor slices to specific shard files.</li>
+<li><strong>Data Shard Files (<code>__0_0.distcp</code>, <code>__1_0.distcp</code>, …)</strong>: 256 individual binary shard files written in parallel by each rank. For our 8B model with FSDP over 256 GPUs, each rank writes exactly its local sharded slice:
+<texblock>\text{Size per Rank Shard} = \frac{128.5\text{ GB}}{256\text{ ranks}} \approx 502\text{ MB}</texblock>
+</li>
+</ul>
+<fig src="028-dcp-sharding-layout.svg" caption="PyTorch Distributed Checkpoint (DCP) filesystem directory structure">All 256 GPU ranks write their local sharded slices (~502 MB each) concurrently into a shared storage directory. Rank 0 writes a small .metadata file containing global tensor coordinates, data types, and chunk offsets. Total cluster I/O is exactly 128.5 GB with zero redundant data transfer or master rank consolidation bottlenecks.</fig>
+<p>Because each rank writes only its unique sharded slice, <strong>total cluster I/O is strictly 128.5 GB, rather than 4.11 TB</strong>. Across our Lustre file system's 25 GB/s aggregate bandwidth, a synchronous DCP flush takes:</p>
+<texblock>t_{\text{DCP, sync}} = \frac{128.5\text{ GB}}{25\text{ GB/s}} \approx 5.14\text{ seconds}</texblock>
+<p>This represents a 32× reduction in I/O wall-clock time compared to naive serialization.</p>
+
+<h2>Asynchronous Checkpointing: Eliminating Compute Stalls</h2>
+<p>While 5.14 seconds is fast, stalling 256 GPUs every 30 minutes still degrades cluster efficiency. If saving occurs every 30 minutes, 5.14 seconds of stall represents a direct 0.3% loss in hardware utilization. On clusters training 70B or 405B models where checkpoints reach terabytes, synchronous stalls expand to multiple minutes.</p>
+
+<h3>GPU-to-Host Staging via async_save</h3>
+<p><strong>Asynchronous checkpointing</strong> decouples tensor serialization from physical disk I/O [3]. In PyTorch DCP, <code>dcp.async_save</code> splits the saving process into two distinct phases (Figure 2):</p>
+<ol>
+<li><strong>Staging Phase (Blocking, Milliseconds)</strong>: The trainer copies the model and optimizer state tensors from GPU High Bandwidth Memory (HBM3) to CPU pinned host memory over the PCIe bus. On an NVIDIA H100 SXM node, each GPU connects to the host CPU via PCIe Gen5 (64 GB/s bidirectional bandwidth). For each rank's 502 MB shard, transferring data over PCIe takes:
+<texblock>t_{\text{stage}} = \frac{502\text{ MB}}{64\text{ GB/s}} \approx 0.0078\text{ seconds} \approx 7.8\text{ ms}</texblock>
+Even with memory allocation overhead and CUDA synchronization barriers, the total GPU compute stall is under <strong>250 milliseconds</strong>.</li>
+<li><strong>Persistence Phase (Non-Blocking, Background)</strong>: A dedicated background thread or subprocess (<code>AsyncCheckpointerType.THREAD</code>) handles network serialization and writes the staged CPU buffers to Lustre or local NVMe storage. While the background thread writes to storage, the GPUs immediately resume executing forward and backward passes for step <tex>n+1</tex>.</li>
+</ol>
+<fig src="028-synchronous-vs-async-save.svg" caption="Synchronous blocking save versus asynchronous non-blocking save">Top: Synchronous checkpointing halts GPU execution for 64 seconds while states write over the network to storage. Bottom: In asynchronous checkpointing (dcp.async_save), tensors are staged from GPU HBM to host CPU RAM across PCIe in 250 ms. GPUs immediately resume training while a background thread persists the staged buffers to disk, eliminating compute stalls.</fig>
+
+<h3>Host Memory Budgeting</h3>
+<p>Asynchronous checkpointing trades host CPU memory for GPU compute continuity. While the background thread writes shard data to disk, the host CPU memory must hold the staged tensors until the I/O write finishes. For an 8-GPU node hosting 8 ranks, total staged memory in host RAM is:
+<texblock>\text{Staged RAM per Node} = 8 \text{ ranks} \times 502\text{ MB} \approx 4.02\text{ GB}</texblock>
+Modern H100 host servers typically provide 1.5 TB to 2.0 TB of system RAM, so reserving 4 GB to 16 GB for checkpoint staging represents negligible overhead (&lt;1% of system RAM). However, systems must enforce a strict guardrail: <strong>never trigger a new asynchronous save while a previous save is still in flight</strong>. If a previous background write is delayed by network storage contention, queuing multiple asynchronous saves can rapidly exhaust host RAM and trigger Linux Out-Of-Memory (OOM) kernel kills.</p>
+
+<h2>Dynamic Resharding Across Topologies</h2>
+<p>A major failure mode in legacy distributed training was <strong>rigid topology coupling</strong>: if a model was saved using 256 GPUs with Megatron-LM Tensor Parallelism 4 and Pipeline Parallelism 8, restarting required the exact same 3D parallelism layout. If one node failed and only 31 nodes were available, the run could not restart without running complex offline re-sharding scripts.</p>
+<p>PyTorch DCP solves this fundamentally through <strong>spatial tensor metadata</strong>. When saving under FSDP or <code>DTensor</code>, each rank writes its local data alongside a global slicing descriptor (e.g., <em>"This shard contains rows 0 to 255 of weight matrix <tex>W</tex> whose global shape is <tex>[8192, 4096]</tex>"</em>). When loading, DCP compares the checkpoint's global index against the memory layout requested by the current cluster topology (Figure 4).</p>
+<fig src="028-resharding-topology.svg" caption="Dynamic resharding with PyTorch Distributed Checkpoint (DCP)">A checkpoint saved on 32 GPUs (where each shard holds 1/32 of each tensor) is loaded onto a 64-GPU cluster (where each rank requires 1/64 of each tensor). The DCP planner uses the global .metadata index to read the exact required byte ranges directly from the saved shard files without requiring manual offline tensor conversion.</fig>
+<p>If training restarts on 64 GPUs instead of 32 GPUs, rank 0's DCP planner calculates which byte ranges in the stored shard files correspond to each new rank's local slice. Each rank then reads its required chunks directly from the shard files. This allows seamless transitions between cluster sizes, changing Tensor Parallelism degrees, or loading training checkpoints directly into single-GPU evaluation jobs.</p>
+
+<h2>How Often to Checkpoint: The Young/Daly Formula</h2>
+<p>Choosing checkpoint frequency is a fundamental trade-off between two costs (Figure 5):</p>
+<ol>
+<li><strong>Checkpoint Overhead Cost (<tex>\delta / \tau</tex>)</strong>: If checkpoints are saved too frequently (interval <tex>\tau</tex> is very small), the cluster spends too much time staging or persisting checkpoints, increasing I/O stalls and CPU memory traffic.</li>
+<li><strong>Rework Cost upon Failure (<tex>\tau / (2 M)</tex>)</strong>: If checkpoints are saved too rarely (<tex>\tau</tex> is very large), an unexpected hardware failure forces the cluster to roll back to a distant checkpoint, losing hours of valuable compute. Assuming failures arrive as a memoryless Poisson process, the expected lost work per failure is half the checkpoint interval: <tex>\tau / 2</tex>.</li>
+</ol>
+<fig src="028-young-daly-curve.svg" caption="The Young/Daly optimal checkpoint frequency trade-off">The red curve represents checkpoint save overhead (delta/tau), which decays as interval tau lengthens. The blue line represents rework lost upon failure (tau / 2M), which grows linearly with interval tau. The green curve sums both costs, reaching its mathematical minimum at the Young/Daly optimal interval tau = sqrt(2*delta*M).</fig>
+
+<h3>Analytical Derivation</h3>
+<p>Let <tex>\tau</tex> be the checkpoint interval (in hours), <tex>\delta</tex> be the checkpoint commit duration or effective GPU stall (in hours), and <tex>M</tex> be the Mean Time Between Failures (MTBF, in hours) of the entire cluster. In 1974, John W. Young derived the first-order approximation minimizing total wasted time [4]:</p>
+<texblock>\tau_{\text{opt}} = \sqrt{2 \delta M}</texblock>
+<p>In 2006, J. T. Daly extended Young's model to higher-order terms for large-scale high-performance computing clusters where checkpoint duration <tex>\delta</tex> is non-negligible compared to MTBF [5]:</p>
+<texblock>\tau_{\text{opt, Daly}} = \sqrt{2 \delta M} + \delta \quad (\text{or } \sqrt{2 \delta M} - \delta \text{ if interval includes save time})</texblock>
+<p>For modern clusters where <tex>\delta \ll M</tex>, the classical first-order formula <tex>\tau_{\text{opt}} = \sqrt{2 \delta M}</tex> is highly accurate.</p>
+
+<h3>Worked Example: Our 256-GPU Run</h3>
+<p>Let us calculate the optimal checkpoint interval for our pretraining run on 256 NVIDIA H100 GPUs:</p>
+<ul>
+<li><strong>Cluster MTBF (<tex>M</tex>)</strong>: From Lesson 29 (Failures, Restarts and Elastic Training), the empirical failure rate scaled from Meta's Llama 3 16K-GPU run yields a cluster MTBF of approximately <strong>198 hours</strong> (8.25 days) for 256 GPUs.</li>
+<li><strong>Synchronous Save Stall (<tex>\delta_{\text{sync}}</tex>)</strong>: If using synchronous checkpointing where storage write takes 5.14 seconds, plus barrier overhead: <tex>\delta \approx 90\text{ seconds} = 0.025\text{ hours}</tex>.
+<texblock>\tau_{\text{opt, sync}} = \sqrt{2 \times 0.025 \times 198} = \sqrt{9.9} \approx 3.15\text{ hours}</texblock>
+Under synchronous checkpointing, saving roughly every 3 hours minimizes total wasted time.</li>
+<li><strong>Asynchronous Save Stall (<tex>\delta_{\text{async}}</tex>)</strong>: If using asynchronous checkpointing where the GPU compute stall is limited to host staging: <tex>\delta \approx 2\text{ seconds} \approx 0.000555\text{ hours}</tex>.
+<texblock>\tau_{\text{opt, async}} = \sqrt{2 \times 0.000555 \times 198} = \sqrt{0.220} \approx 0.469\text{ hours} \approx 28.1\text{ minutes}</texblock>
+</li>
+</ul>
+<p>With asynchronous checkpointing, the optimal interval drops to approximately <strong>30 minutes</strong>! Because the GPU stall is under a second, saving every 30 minutes limits lost recomputation upon failure to at most 15 minutes of training on average, while adding negligible save overhead.</p>
+
+<h2>Storage Tiers, Retention, and Hugging Face Conversion</h2>
+<h3>Multi-Tier Storage Architecture</h3>
+<p>Managing checkpoints across multi-week pretraining runs requires a three-tier storage pipeline (Figure 6):</p>
+<ul>
+<li><strong>Tier 1: Local Node NVMe (Scratch / Buffer)</strong>: High-speed local SSDs mounted on each node (&gt;10 GB/s write). Used for fast intermediate async staging and ephemeral caching. Tiers are flushed every step; if a node reboots, local data is discarded.</li>
+<li><strong>Tier 2: Shared Cluster Parallel File System (Lustre / GPFS)</strong>: Central shared storage mounted across all 32 nodes (25 GB/s aggregate bandwidth). Holds the <strong>rolling window of the last 2 to 3 checkpoints</strong> (e.g., <code>step_1000/</code>, <code>step_950/</code>, <code>step_900/</code>). When step 1,050 completes successfully, step 900 is automatically deleted by a cleanup daemon. This bounds total Lustre disk usage to &lt; 400 GB while providing immediate rollback targets if a job crashes.</li>
+<li><strong>Tier 3: Cloud Object Storage (Amazon S3 / Google Cloud Storage)</strong>: Cost-effective remote object storage. A background archival worker syncs <strong>milestone checkpoints</strong> (saved every 5,000 steps or every 12 hours) from Lustre to S3. Milestone checkpoints are retained permanently for downstream evaluation, loss divergence analysis, and model release.</li>
+</ul>
+<fig src="028-storage-tiering-pipeline.svg" caption="Multi-tier storage lifecycle for large-scale training checkpoints">Checkpoints stage through three tiers: Tier 1 (local NVMe) provides ephemeral staging. Tier 2 (shared Lustre) holds a rolling window of the last 3 checkpoints for immediate crash recovery, auto-pruning older saves. Tier 3 (cloud S3) permanently archives milestone checkpoints for evaluations, loss spike investigations, and model serving.</fig>
+
+<h3>Converting DCP Checkpoints to Hugging Face Format</h3>
+<p>Training checkpoints cannot be loaded directly into inference engines such as vLLM or Hugging Face Transformers. A training checkpoint contains sharded optimizer momentum tensors, FP32 master weights, and internal FSDP parameter prefixes (e.g., <code>_fsdp_wrapped_module.model.layers.0...</code>). Preparing a checkpoint for evaluation or serving requires a conversion pipeline:</p>
+<ol>
+<li><strong>Consolidating shards</strong>: Rank-local DCP shards are read and concatenated according to the global <code>.metadata</code> coordinate map.</li>
+<li><strong>Stripping optimizer states</strong>: Adam first and second moments (<tex>m</tex> and <tex>v</tex>) and FP32 master weights are discarded, leaving only the active model parameters.</li>
+<li><strong>Casting to target precision</strong>: FP32 master weights or BF16 tensors are cast cleanly to BF16 (or quantized to FP8).</li>
+<li><strong>Renaming parameter keys</strong>: Internal framework prefixes are stripped to match standard Hugging Face causal language model naming conventions (e.g., <code>model.layers.0.self_attn.q_proj.weight</code>).</li>
+<li><strong>Serializing safetensors and configs</strong>: Parameters are written out as unpickled <code>model-00001-of-00004.safetensors</code> files alongside <code>config.json</code>, <code>generation_config.json</code>, and <code>tokenizer.json</code>.</li>
+</ol>
+
+<h4>Which checkpoint setup fits our run?</h4>
+<p>For our pretraining run of Llama 3.1 8B on 256 H100 GPUs across 32 nodes, <strong>we select PyTorch Distributed Checkpoint (DCP) with asynchronous host staging (<code>dcp.async_save</code>) saving every 30 minutes (approximately every 1,000 steps)</strong>. Local host RAM staging takes &lt; 250 ms per node, keeping GPU compute stalls well below 0.05% MFU penalty. Checkpoints are written to our shared Lustre filesystem with a rolling retention policy keeping the last 3 saves (~385 GB total). Every 5,000 steps (~2.5 hours), a milestone checkpoint is asynchronously copied to cloud object storage (S3) and converted to Hugging Face <code>safetensors</code> for parallel evaluation.</p>
+
+<h2>In Practice</h2>
+<p>The first tab implements clean distributed checkpoint saving and loading using PyTorch DCP with FSDP2. The second tab demonstrates how to configure asynchronous non-blocking saves using <code>dcp.async_save</code>. The third tab provides a standalone converter script that reads sharded DCP training checkpoints and exports consolidated Hugging Face <code>safetensors</code> for evaluation and serving.</p>
+<codetabs>
+<tab label="FSDP2 DCP Save & Load" lang="python">
+import os
+import torch
+import torch.distributed as dist
+import torch.distributed.checkpoint as dcp
+from torch.distributed.checkpoint.state_dict import (
+    get_model_state_dict,
+    get_optimizer_state_dict,
+    set_model_state_dict,
+    set_optimizer_state_dict,
+    StateDictOptions,
+)
+
+def save_fsdp2_checkpoint(model: torch.nn.Module, optimizer: torch.optim.Optimizer, step: int, save_dir: str):
+    """Save sharded model, optimizer, and execution metadata using PyTorch DCP."""
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Configure options for sharded distributed state dict extraction
+    options = StateDictOptions(full_state_dict=False, cpu_offload=False)
+    
+    # Extract sharded state dicts from FSDP2 wrapped modules
+    model_sd = get_model_state_dict(model, options=options)
+    optim_sd = get_optimizer_state_dict(model, optimizer, options=options)
+    
+    # Build complete checkpoint payload
+    state_dict = {
+        "model": model_sd,
+        "optimizer": optim_sd,
+        "step": step,
+        "rng_torch": torch.get_rng_state(),
+        "rng_cuda": torch.cuda.get_rng_state(),
+    }
+    
+    # Execute sharded write across all ranks
+    dcp.save(state_dict, checkpoint_id=save_dir)
+    if dist.get_rank() == 0:
+        print(f"[DCP] Checkpoint successfully persisted at step {step} to {save_dir}")
+
+def load_fsdp2_checkpoint(model: torch.nn.Module, optimizer: torch.optim.Optimizer, load_dir: str) -> int:
+    """Load sharded model and optimizer state, supporting dynamic resharding."""
+    options = StateDictOptions(full_state_dict=False, cpu_offload=False)
+    
+    model_sd = get_model_state_dict(model, options=options)
+    optim_sd = get_optimizer_state_dict(model, optimizer, options=options)
+    
+    state_dict = {
+        "model": model_sd,
+        "optimizer": optim_sd,
+        "step": 0,
+        "rng_torch": torch.get_rng_state(),
+        "rng_cuda": torch.cuda.get_rng_state(),
+    }
+    
+    # DCP automatically maps saved chunks to current rank tensor slices
+    dcp.load(state_dict, checkpoint_id=load_dir)
+    
+    # Restore parameters into active FSDP2 structures
+    set_model_state_dict(model, model_state_dict=state_dict["model"], options=options)
+    set_optimizer_state_dict(model, optimizer, optim_state_dict=state_dict["optimizer"], options=options)
+    
+    # Restore RNG determinism
+    torch.set_rng_state(state_dict["rng_torch"])
+    torch.cuda.set_rng_state(state_dict["rng_cuda"])
+    
+    step = state_dict["step"]
+    if dist.get_rank() == 0:
+        print(f"[DCP] Resumed execution exactly from step {step}")
+    return step
+</tab>
+<tab label="Asynchronous Checkpoint" lang="python">
+import os
+import torch
+import torch.distributed as dist
+import torch.distributed.checkpoint as dcp
+from torch.distributed.checkpoint.state_dict import (
+    get_model_state_dict,
+    get_optimizer_state_dict,
+    StateDictOptions,
+)
+
+class AsyncCheckpointer:
+    """Non-blocking checkpointer staging tensors to host RAM in milliseconds."""
+    def __init__(self):
+        self._active_future = None
+
+    def save_async(self, model: torch.nn.Module, optimizer: torch.optim.Optimizer, step: int, save_dir: str):
+        # 1. Guard against concurrent in-flight writes
+        if self._active_future is not None and not self._active_future.done():
+            if dist.get_rank() == 0:
+                print(f"[WARN] Previous async checkpoint still writing. Blocking until complete...")
+            self._active_future.result()
+
+        os.makedirs(save_dir, exist_ok=True)
+        # cpu_offload=True stages tensors into pinned CPU host memory during extraction
+        options = StateDictOptions(full_state_dict=False, cpu_offload=True)
+        
+        model_sd = get_model_state_dict(model, options=options)
+        optim_sd = get_optimizer_state_dict(model, optimizer, options=options)
+        
+        state_dict = {
+            "model": model_sd,
+            "optimizer": optim_sd,
+            "step": step,
+            "rng_torch": torch.get_rng_state(),
+            "rng_cuda": torch.cuda.get_rng_state(),
+        }
+
+        # 2. Trigger asynchronous background persistence
+        # Returns immediately after PCIe staging, allowing GPUs to continue training
+        self._active_future = dcp.async_save(
+            state_dict=state_dict,
+            checkpoint_id=save_dir,
+        )
+        if dist.get_rank() == 0:
+            print(f"[AsyncDCP] Staged step {step} to CPU RAM; background disk write started.")
+
+    def wait_until_finished(self):
+        """Block until background I/O finishes (e.g., at job end or before shutdown)."""
+        if self._active_future is not None:
+            self._active_future.result()
+            self._active_future = None
+</tab>
+<tab label="Convert DCP to Safetensors" lang="python">
+import os
+import torch
+import torch.distributed.checkpoint as dcp
+from safetensors.torch import save_file
+
+def convert_dcp_to_huggingface(dcp_checkpoint_dir: str, output_safetensors_path: str):
+    """Offline utility: consolidates sharded DCP checkpoint into a single Hugging Face safetensors file."""
+    print(f"Reading sharded DCP metadata from {dcp_checkpoint_dir}...")
+    
+    # 1. Read metadata coordinator without loading tensor data
+    metadata = dcp.read_metadata(dcp_checkpoint_dir)
+    
+    # 2. Create placeholder dict with empty CPU tensors matching global parameter shapes
+    full_model_state = {}
+    for name, item in metadata.state_dict_metadata.items():
+        if name.startswith("model."):
+            # Strip internal FSDP prefixes
+            clean_name = name.replace("model._fsdp_wrapped_module.", "").replace("model.", "")
+            full_model_state[name] = torch.empty(item.size, dtype=item.properties.dtype, device="cpu")
+
+    # 3. Load full consolidated model state onto CPU
+    dcp.load(
+        state_dict=full_model_state,
+        checkpoint_id=dcp_checkpoint_dir,
+    )
+
+    # 4. Clean keys and cast master weights to BF16
+    hf_state_dict = {}
+    for k, v in full_model_state.items():
+        clean_key = k.replace("model._fsdp_wrapped_module.", "").replace("model.", "")
+        # Cast to standard BF16 serving precision
+        hf_state_dict[clean_key] = v.to(torch.bfloat16).contiguous()
+
+    # 5. Persist as safe standalone safetensors file
+    os.makedirs(os.path.dirname(output_safetensors_path), exist_ok=True)
+    save_file(hf_state_dict, output_safetensors_path)
+    print(f"Successfully exported {len(hf_state_dict)} tensors to {output_safetensors_path}")
+
+# Example invocation:
+# convert_dcp_to_huggingface("./checkpoints/step_5000", "./hf_export/model.safetensors")
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>In-memory peer checkpointing</strong>: Methods such as CheckFreq and Bamboo that replicate checkpoint shards directly across high-speed InfiniBand into the RAM or NVMe of neighbor nodes, surviving single-node power outages without writing to central network storage [6].</li>
+<li><strong>Loss divergence rollbacks</strong>: How monitoring pipelines detect loss spikes (e.g., sudden gradient norm explosion) and trigger automated rollbacks to a clean milestone checkpoint saved 2,000 steps earlier with an adjusted learning rate schedule.</li>
+<li><strong>Copy-on-write memory overhead</strong>: Why process-based asynchronous checkpointing requires careful memory management under Linux: fork-based approaches risk memory duplication if subsequent training iterations mutate large model tensors before background writes finish.</li>
+<li><strong>Storage metadata throttling</strong>: How parallel file systems (such as Lustre or NFS) degrade when thousands of ranks open, create, and close thousands of files simultaneously, and why DCP bundles tensors into larger chunk files to keep file counts manageable.</li>
+<li><strong>FP8 optimizer state saving</strong>: Recent research compressing Adam first and second moments to 8-bit floating point, reducing optimizer checkpoint size from 12 bytes per parameter down to 4 bytes per parameter with minimal precision loss.</li>
+<li><strong>Validating checkpoint integrity</strong>: Computing streaming CRC32 or SHA-256 checksums during asynchronous staging to catch silent data corruption (SDC) before an invalid checkpoint overwrites a healthy rolling save.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="028-summary.png" caption="Distributed checkpointing summary" optional="1">Mind map summarizing distributed checkpointing: exact state requirements, DCP sharded directory layout, asynchronous host memory staging, the Young/Daly frequency formula, and multi-tier retention pipelines.</fig>
+<ul>
+<li>An exact training checkpoint requires 16 bytes per parameter (128.5 GB for Llama 3.1 8B) to store BF16 weights, FP32 master weights, and Adam momentum and variance states, alongside lightweight LR scheduler, DataLoader, and RNG states.</li>
+<li>Naive <code>torch.save()</code> crashes master ranks via memory gathering and saturates network storage. PyTorch Distributed Checkpoint (DCP) allows each rank to write its local shard independently, eliminating all rank-0 bottlenecks.</li>
+<li>Asynchronous checkpointing (<code>dcp.async_save</code>) stages tensors across PCIe to CPU host RAM in under 250 milliseconds, allowing GPUs to resume training immediately while a background thread writes to storage.</li>
+<li>DCP's global <code>.metadata</code> index enables dynamic resharding, allowing training to resume seamlessly on different GPU counts or altered parallelism layouts without manual offline re-indexing.</li>
+<li>The Young/Daly formula <tex>\tau_{\text{opt}} = \sqrt{2 \delta M}</tex> balances save overhead against rework lost upon failure, yielding an optimal checkpoint frequency of approximately 30 minutes for our 256-GPU cluster under asynchronous saving.</li>
+<li>A three-tier storage lifecycle—ephemeral local NVMe, a rolling window of 3 saves on shared Lustre, and permanent S3 milestone archives—guarantees fast crash recovery while bounding storage costs.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Meta AI. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[2] PyTorch Distributed Checkpoint documentation. <a href="https://pytorch.org/docs/stable/distributed.checkpoint.html" rel="noopener noreferrer" target="_blank">https://pytorch.org/docs/stable/distributed.checkpoint.html</a>.<br>
+[3] PyTorch Distributed Checkpoint async_save design. <a href="https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html" rel="noopener noreferrer" target="_blank">https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html</a>.<br>
+[4] Young. A First Order Approximation to the Optimum Checkpoint Interval. <a href="https://doi.org/10.1145/361147.361115" rel="noopener noreferrer" target="_blank">Communications of the ACM, 17(9):530-531, 1974</a>.<br>
+[5] Daly. A Higher Order Estimate of the Optimum Checkpoint Interval for Restart Dumps. <a href="https://doi.org/10.1016/j.future.2004.11.016" rel="noopener noreferrer" target="_blank">Future Generation Computer Systems, 22(3):303-312, 2006</a>.<br>
+[6] Mohan et al. CheckFreq: Frequent, Fine-Grained DNN Checkpointing. <a href="https://www.usenix.org/conference/fast21/presentation/mohan" rel="noopener noreferrer" target="_blank">https://www.usenix.org/conference/fast21/presentation/mohan</a>.</p>

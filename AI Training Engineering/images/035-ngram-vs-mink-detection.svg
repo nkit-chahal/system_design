@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 740 390" width="740" height="390">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#333333"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="740" height="390" fill="#FFFFFF"/>
+
+  <!-- Title -->
+  <text x="370" y="26" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" fill="#222222">Contamination Auditing: Surface n-gram Overlap vs. Min-K% Prob</text>
+  <text x="370" y="44" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#666666">Comparing fast syntactic substring matching against distribution-based membership inference</text>
+
+  <!-- Left Column: n-gram Overlap Filtering -->
+  <rect x="25" y="65" width="335" height="235" rx="6" fill="#dae8fc" stroke="#6c8ebf" stroke-width="1.5"/>
+  <text x="192" y="88" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#1d447a">1. Surface n-gram Overlap (Syntactic)</text>
+  <line x1="35" y1="98" x2="350" y2="98" stroke="#6c8ebf" stroke-width="1"/>
+
+  <text x="40" y="118" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" fill="#222222">Methodology (Llama 3, GPT-4):</text>
+  <text x="40" y="134" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Shingle test sets into 8- to 13-grams</text>
+  <text x="40" y="150" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Query training corpus via Bloom filters or index</text>
+  <text x="40" y="166" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Flag document if overlap exceeds threshold</text>
+
+  <text x="40" y="192" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" fill="#2e7d32">Strengths:</text>
+  <text x="40" y="208" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Fast: scales to 15+ trillion tokens</text>
+  <text x="40" y="224" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Deterministic exact matches easily purged</text>
+
+  <text x="40" y="250" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" fill="#c62828">Failure Modes:</text>
+  <text x="40" y="266" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Defeated by rephrasing or minor formatting</text>
+  <text x="40" y="282" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Blind to synthetic distillation leakage</text>
+
+  <!-- Right Column: Min-K% Prob Inference -->
+  <rect x="380" y="65" width="335" height="235" rx="6" fill="#d5e8d4" stroke="#82b366" stroke-width="1.5"/>
+  <text x="547" y="88" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#274e13">2. Min-K% Prob Inference (Probabilistic)</text>
+  <line x1="390" y1="98" x2="705" y2="98" stroke="#82b366" stroke-width="1"/>
+
+  <text x="395" y="118" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" fill="#222222">Methodology (Shi et al., NeurIPS 2023):</text>
+  <text x="395" y="134" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Compute token log-probabilities log P(x_t)</text>
+  <text x="395" y="150" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Sort tokens; select lowest k% (e.g. k=10%)</text>
+  <text x="395" y="166" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Mean log-prob score over outlier tokens</text>
+
+  <text x="395" y="192" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" fill="#2e7d32">Strengths:</text>
+  <text x="395" y="208" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Detects memorization under rephrasing</text>
+  <text x="395" y="224" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Catches distilled synthetic data leakage</text>
+
+  <text x="395" y="250" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" fill="#c62828">Failure Modes:</text>
+  <text x="395" y="266" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Computationally heavy: requires model forward pass</text>
+  <text x="395" y="282" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#444444">• Requires calibration against clean reference text</text>
+
+  <!-- Bottom Comparison Bar -->
+  <rect x="25" y="315" width="690" height="60" rx="6" fill="#fff2cc" stroke="#d6b656" stroke-width="1.5"/>
+  <text x="370" y="333" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" text-anchor="middle" fill="#8c6b00">Standard Practice for Frontier Audits</text>
+  <text x="370" y="350" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle" fill="#444444">Run 13-gram exact filtering during corpus ingestion to purge raw matches (link Lesson 18),</text>
+  <text x="370" y="366" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle" fill="#444444">then audit final model checkpoints with Min-K% Prob on suspicious benchmark score outliers.</text>
+</svg>

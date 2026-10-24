@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.xs{font-size:11px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Waterfall of Efficiency: How Parallelism Choices Shape MFU</text>
+  <text x="25" y="44" class="sm" fill="#555">From theoretical hardware peak to the 38%–43% MFU achieved in frontier 4D training runs (Llama 3 405B).</text>
+
+  <!-- Horizontal Waterfall Bar: total width 770px (x=25 to 795) -->
+  <!-- 1. Kernel roofline loss: 100% to 65% (loss = 35% -> 270px) -->
+  <!-- 2. TP all-reduce loss: 65% to 56% (loss = 9% -> 70px) -->
+  <!-- 3. PP bubble loss: 56% to 46% (loss = 10% -> 77px) -->
+  <!-- 4. FSDP & CP comms: 46% to 41% (loss = 5% -> 38px) -->
+  <!-- 5. Achieved MFU: 41% -> 315px -->
+
+  <!-- Top bar representing 100% peak -->
+  <rect x="25" y="65" width="770" height="30" rx="4" class="gray"/>
+  <text x="410" y="85" text-anchor="middle" class="sm b">100% Theoretical Hardware Peak (989 TFLOPS dense BF16 on H100)</text>
+
+  <!-- Step cards -->
+  <!-- Step 1: Single-GPU Kernel Efficiency -->
+  <rect x="25" y="110" width="175" height="135" rx="4" class="orange"/>
+  <text x="112" y="130" text-anchor="middle" class="b">Kernel Roofline</text>
+  <text x="112" y="148" text-anchor="middle" class="xs b" fill="#b45f06">Loss: ≈ 35%</text>
+  <text x="35" y="172" class="xs">• GEMM tensor efficiency</text>
+  <text x="35" y="188" class="xs">• Memory bandwidth limits</text>
+  <text x="35" y="204" class="xs">• Non-GEMM ops (RMSNorm)</text>
+  <text x="35" y="220" class="xs">• Preserves: <tspan class="b">≈ 65% MFU</tspan></text>
+
+  <!-- Step 2: TP Overhead -->
+  <rect x="215" y="110" width="175" height="135" rx="4" class="red"/>
+  <text x="302" y="130" text-anchor="middle" class="b">TP All-Reduce</text>
+  <text x="302" y="148" text-anchor="middle" class="xs b" fill="#900">Loss: ≈ 8–10%</text>
+  <text x="225" y="172" class="xs">• 2 All-Reduces per layer</text>
+  <text x="225" y="188" class="xs">• NVLink bandwidth sharing</text>
+  <text x="225" y="204" class="xs">• Sync barrier overhead</text>
+  <text x="225" y="220" class="xs">• Preserves: <tspan class="b">≈ 55–57%</tspan></text>
+
+  <!-- Step 3: PP Bubble Overhead -->
+  <rect x="405" y="110" width="180" height="135" rx="4" class="purple"/>
+  <text x="495" y="130" text-anchor="middle" class="b">PP Bubble &amp; Imbalance</text>
+  <text x="495" y="148" text-anchor="middle" class="xs b" fill="#6a329f">Loss: ≈ 10–12%</text>
+  <text x="415" y="172" class="xs">• Bubble: (p − 1)/(m+p−1)</text>
+  <text x="415" y="188" class="xs">• Warmup &amp; cooldown idle</text>
+  <text x="415" y="204" class="xs">• Stage work imbalance</text>
+  <text x="415" y="220" class="xs">• Preserves: <tspan class="b">≈ 45–47%</tspan></text>
+
+  <!-- Step 4: FSDP & CP Comm -->
+  <rect x="600" y="110" width="195" height="135" rx="4" class="green"/>
+  <text x="697" y="130" text-anchor="middle" class="b">FSDP &amp; CP Collectives</text>
+  <text x="697" y="148" text-anchor="middle" class="xs b" fill="#2d7600">Loss: ≈ 4–6%</text>
+  <text x="610" y="172" class="xs">• All-gather &amp; reduce-scatter</text>
+  <text x="610" y="188" class="xs">• Ring attention P2P (CP)</text>
+  <text x="610" y="204" class="xs">• Overlapped via streams</text>
+  <text x="610" y="220" class="xs">• Final MFU: <tspan class="b">38% – 43%</tspan></text>
+
+  <!-- Bottom Explanatory Banner -->
+  <rect x="25" y="260" width="770" height="65" rx="4" class="gray"/>
+  <text x="40" y="282" class="b">Understanding the Frontier MFU Benchmark:</text>
+  <text x="40" y="302" class="sm">• Achieving 40%+ MFU across thousands of GPUs represents world-class execution. Every percentage point gained</text>
+  <text x="40" y="318" class="sm">  on our 256-GPU cluster saves approximately 845 GPU-hours ($2,535) across a 1-trillion token pretraining run.</text>
+</svg>

@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="370" viewBox="0 0 820 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">The FSDP Wrapping Pitfall: Root Wrapping vs Block Wrapping</text>
+  <text x="25" y="46" class="sm" fill="#555">Why failing to wrap individual transformer blocks destroys memory savings in FSDP</text>
+
+  <!-- Left Container: Root-Only Wrapping (Pitfall) -->
+  <g transform="translate(25, 70)">
+    <rect x="0" y="0" width="370" height="230" rx="6" class="red"/>
+    <text x="185" y="24" text-anchor="middle" class="b" fill="#900">Pitfall: Root-Only Wrapping</text>
+    <text x="185" y="42" text-anchor="middle" class="sm" fill="#555">fully_shard(model) without wrapping layers</text>
+
+    <!-- Code box -->
+    <rect x="20" y="55" width="330" height="40" rx="4" class="white"/>
+    <text x="30" y="72" class="sm" font-family="monospace"># INCORRECT: single root wrap</text>
+    <text x="30" y="88" class="sm" font-family="monospace">fully_shard(model)</text>
+
+    <!-- Visual Box -->
+    <rect x="20" y="105" width="330" height="48" rx="4" class="gray"/>
+    <text x="185" y="125" text-anchor="middle" class="sm b" fill="#900">All-Gathers ENTIRE Model (16.1 GB)</text>
+    <text x="185" y="143" text-anchor="middle" class="sm">All 32 layers gathered simultaneously!</text>
+
+    <!-- Consequence -->
+    <g transform="translate(20, 165)">
+      <text x="0" y="14" class="sm b" fill="#900">✗ Instantaneous OOM Failure:</text>
+      <text x="0" y="32" class="sm">• Sharded states: 16.1 GB</text>
+      <text x="0" y="50" class="sm">• Gathered weights buffer: +16.1 GB</text>
+      <text x="0" y="66" class="sm">• Memory savings completely negated</text>
+    </g>
+  </g>
+
+  <!-- Right Container: Block-Level Wrapping (Correct) -->
+  <g transform="translate(425, 70)">
+    <rect x="0" y="0" width="370" height="230" rx="6" class="green"/>
+    <text x="185" y="24" text-anchor="middle" class="b" fill="#274e13">Correct: Block-Level Wrapping</text>
+    <text x="185" y="42" text-anchor="middle" class="sm" fill="#555">Wrap each transformer block individually</text>
+
+    <!-- Code box -->
+    <rect x="20" y="55" width="330" height="40" rx="4" class="white"/>
+    <text x="30" y="70" class="sm" font-family="monospace">for b in model.transformer.h:</text>
+    <text x="45" y="86" class="sm" font-family="monospace">fully_shard(b); fully_shard(model)</text>
+
+    <!-- Visual Box -->
+    <rect x="20" y="105" width="330" height="48" rx="4" class="white"/>
+    <text x="185" y="125" text-anchor="middle" class="sm b" fill="#274e13">All-Gathers ONE Block (0.50 GB)</text>
+    <text x="185" y="143" text-anchor="middle" class="sm">Layer freed immediately after compute</text>
+
+    <!-- Consequence -->
+    <g transform="translate(20, 165)">
+      <text x="0" y="14" class="sm b" fill="#274e13">✓ Minimal Buffer Overhead:</text>
+      <text x="0" y="32" class="sm">• Sharded states: 16.1 GB</text>
+      <text x="0" y="50" class="sm">• Active block buffer: only 0.50 GB</text>
+      <text x="0" y="66" class="sm">• Retains 97% of sharding memory gains</text>
+    </g>
+  </g>
+
+  <!-- Bottom Annotation Bar -->
+  <rect x="25" y="315" width="770" height="40" rx="4" class="gray"/>
+  <text x="35" y="339" class="sm"><tspan class="b">Rule of Thumb:</tspan> Always wrap at the transformer layer granularity so that FSDP can interleave compute and free each layer's weights.</text>
+</svg>

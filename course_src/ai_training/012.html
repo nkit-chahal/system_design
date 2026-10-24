@@ -1,0 +1,256 @@
+<h2>Introduction</h2>
+<p>In Lesson 10, Data Parallelism and All-Reduce, and Lesson 11, ZeRO and FSDP, we explored data parallelism and state sharding. Sharded data parallelism scales training across hundreds of GPUs by distributing optimizer states, gradients, and model parameters. However, data parallelism partitions the training workload exclusively along the <em>batch dimension</em>. When scaling modern transformer models, two distinct engineering barriers arise that data parallelism cannot resolve alone [1, 2]:</p>
+<ol>
+<li><strong>The Parameter and GEMM Scale Barrier</strong>: For models with 70 billion or more parameters, individual weight matrices are too massive for efficient single-device matrix multiplication, and single-layer working memory constraints cause out-of-memory spikes. To accelerate computation and fit layer weights, individual weight matrices must be partitioned across multiple GPUs. This is <strong>Tensor Parallelism (TP)</strong> [1].</li>
+<li><strong>The Context Length Barrier</strong>: As training sequences extend from 8,192 tokens to 32,768, 131,072, or 1 million tokens, intermediate attention activations scale quadratically (<tex>\mathcal{O}(s^2)</tex>) or linearly with FlashAttention, demanding hundreds of gigabytes per sequence [2, 3]. To prevent activation memory exhaustion on long contexts, the sequence must be sharded across cooperating GPUs. This is achieved via <strong>Sequence Parallelism (SP)</strong> within layers and <strong>Context Parallelism (CP)</strong> across layers [2, 3, 4].</li>
+</ol>
+<fig src="012-megatron-tp-fwd-bwd.svg" caption="Megatron-LM Tensor Parallelism forward and backward execution">Architecture of Megatron-LM Tensor Parallelism across self-attention and MLP blocks. Linear projections are split column-wise or row-wise. In the forward pass, each layer executes two all-reduces. In the backward pass, backpropagation through column-parallel projections adds two additional all-reduces, totaling four all-reduce collectives per layer per step.</fig>
+<p>While inference systems use tensor parallelism purely to reduce serving latency (see Inference Lesson 18, Tensor Parallelism), <strong>training transforms the communication physics of tensor parallelism</strong>. In training, the backward pass requires an identical set of collective operations to propagate input gradients, doubling the communication frequency to four all-reduces per transformer layer [1]. Because these collective operations are synchronous and blocking, tensor parallelism is strictly bound to ultra-high-speed intra-node NVLink interconnects [1].</p>
+<p>In this lesson, we break down Megatron-LM tensor parallelism in training, examine why backpropagation doubles the all-reduce volume, analyze how sequence parallelism eliminates activation redundancy with zero communication penalty, study Ring Attention and DeepSpeed-Ulysses for context parallelism, prove why TP must never cross node boundaries, and determine whether our 8B pretraining run requires TP or CP.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In distributed training architecture interviews, questions surrounding multi-dimensional parallelism test whether a candidate understands the boundaries between batch, intra-layer, and sequence distribution. Here is how a discussion unfolds:</p>
+<p><strong>Candidate</strong>: What model architecture, parameter scale, and context length are we pretraining?<br>
+<strong>Interviewer</strong>: We are pretraining a model with the Llama 3.1 8B architecture—8.03 billion parameters across 32 transformer layers, hidden dimension 4,096, 32 query heads, 8 KV heads. The context length is 8,192 tokens.</p>
+<p><strong>Candidate</strong>: What cluster infrastructure and interconnects are provisioned?<br>
+<strong>Interviewer</strong>: We have 256 NVIDIA H100 80 GB SXM GPUs arranged across 32 nodes (8 GPUs per node). Inside each node, GPUs communicate via NVLink at 900 GB/s per GPU. Across nodes, each node connects through 8 InfiniBand NDR NICs providing 400 Gb/s (50 GB/s) per GPU.</p>
+<p><strong>Candidate</strong>: What is the global batch size and target hardware efficiency?<br>
+<strong>Interviewer</strong>: The global batch size is 512 sequences of 8,192 tokens (~4 million tokens). We target at least 40% Model FLOPs Utilization (MFU).</p>
+<p><strong>Candidate</strong>: Should we enable Tensor Parallelism of degree 2 or 4 within each node, or should we enable Context Parallelism for the 8,192-token sequences?<br>
+<strong>Interviewer</strong>: That is the central question. Can you quantify the communication latency if we turn on TP=8 on this 8B model, how does it compare to FSDP alone, and at what model size or context length do TP and CP become mandatory?</p>
+<p>The question underneath is: <em>How do Tensor, Sequence, and Context Parallelism interact with GPU compute kernels and network bandwidth, why does backpropagation double TP communication, and why is TP unnecessary for 8B models at 8K context but essential for 70B models?</em></p>
+
+<h2>Tensor Parallelism in Training: The Backward Pass Multiplier</h2>
+<h3>Column and row parallel matrix decomposition</h3>
+<p>Tensor parallelism, formulated by Shoeybi et al. in Megatron-LM [1], shards the weight matrices of linear projections within each transformer layer across <tex>\text{TP}</text> GPUs. Linear layers in transformers are organized in pairs: the Self-Attention block projects inputs via <tex>W_q, W_k, W_v</tex> followed by output projection <tex>W_{\text{out}}</tex>; the MLP block projects via <tex>W_{\text{gate}}, W_{\text{up}}</tex> followed by down projection <tex>W_{\text{down}}</tex> [1].</p>
+<p>Megatron-LM alternates between <strong>ColumnParallel</strong> and <strong>RowParallel</strong> linear layers to minimize communication [1]:</p>
+<ul>
+<li><strong>ColumnParallel Linear</strong>: The weight matrix <tex>A \in \mathbb{R}^{h \times d}</tex> is split along its column (output) dimension into <tex>\text{TP}</text> shards: <tex>A = [A_1, A_2, \dots, A_{\text{TP}}]</tex>. The input activation tensor <tex>X \in \mathbb{R}^{s \times b \times h}</tex> is replicated across all TP workers. Each worker evaluates:
+<texblock>Y_i = X A_i</texblock>
+In the forward pass, this requires <strong>zero communication</strong>; each worker produces a disjoint slice of the output channels [1].</li>
+<li><strong>RowParallel Linear</strong>: The weight matrix <tex>B \in \mathbb{R}^{d \times h}</tex> is split along its row (input) dimension into <tex>\text{TP}</text> shards: <tex>B = [B_1; B_2; \dots; B_{\text{TP}}]</tex>. The input to this layer is the column-split output <tex>Y_i</tex>. Each worker computes a local matrix product <tex>Z_i = Y_i B_i</tex>. Because matrix multiplication is bilinear:
+<texblock>Z = X A B = \sum_{i=1}^{\text{TP}} Y_i B_i = \sum_{i=1}^{\text{TP}} Z_i</texblock>
+To produce the full output <tex>Z</tex> before adding the residual connection, the workers must sum their local results. In the forward pass, this requires <strong>one all-reduce collective</strong> across the TP group [1].</li>
+</ul>
+<p>In inference, this pair requires exactly one all-reduce. In a complete transformer layer (Self-Attention + MLP), the forward pass executes exactly <strong>2 all-reduces per layer</strong>: one after <tex>W_{\text{out}}</tex> and one after <tex>W_{\text{down}}</tex> (see Inference Lesson 18, Tensor Parallelism).</p>
+
+<h3>Why the backward pass doubles all-reduces</h3>
+<p>Engineers transitioning from inference serving to model training frequently overlook the communication demands of backpropagation. In training, gradients must be propagated backward through the network layers using the chain rule of calculus [1].</p>
+<p>Let us examine what occurs when backpropagating through RowParallel and ColumnParallel layers:</p>
+
+<h4>1. Backpropagation through RowParallel Linear (<tex>W_{\text{down}}</tex> or <tex>W_{\text{out}}</tex>)</h4>
+<p>The input to the backward pass is the upstream gradient <tex>\partial \mathcal{L} / \partial Z</tex>. Because the forward pass concluded with an all-reduce, <tex>\partial \mathcal{L} / \partial Z</tex> is already present identically on all TP workers [1]. The gradient with respect to the local input activation slice <tex>Y_i</tex> is:</p>
+<texblock>\frac{\partial \mathcal{L}}{\partial Y_i} = \left(\frac{\partial \mathcal{L}}{\partial Z}\right) B_i^\top</texblock>
+<p>Each worker computes this matrix multiplication locally using its local weight shard <tex>B_i</tex>. <strong>No communication is required</strong> in the backward pass of a RowParallel layer.</p>
+
+<h4>2. Backpropagation through ColumnParallel Linear (<tex>W_q, W_k, W_v</tex> or <tex>W_{\text{gate}}, W_{\text{up}}</tex>)</h4>
+<p>The input activation <tex>X</tex> was fed identically into all <tex>\text{TP}</text> shards during the forward pass. According to the multivariable chain rule, the gradient of the loss with respect to input <tex>X</tex> is the sum of partial gradients flowing from all column shards [1]:</p>
+<texblock>\frac{\partial \mathcal{L}}{\partial X} = \sum_{i=1}^{\text{TP}} \left(\frac{\partial \mathcal{L}}{\partial Y_i}\right) A_i^\top</texblock>
+<p>Each worker evaluates its local product <tex>(\partial \mathcal{L} / \partial Y_i) A_i^\top</tex>. To assemble the complete gradient <tex>\partial \mathcal{L} / \partial X</tex> feeding back into the preceding residual addition and LayerNorm, the workers must execute an <strong>all-reduce collective (sum) across the TP group</strong> [1]!</p>
+
+<h4>Total collective count in training</h4>
+<p>Because RowParallel requires an all-reduce in forward, and ColumnParallel requires an all-reduce in backward, every transformer layer executes [1]:</p>
+<ul>
+<li>Self-Attention Block: 1 forward all-reduce + 1 backward all-reduce = 2 all-reduces</li>
+<li>MLP Block: 1 forward all-reduce + 1 backward all-reduce = 2 all-reduces</li>
+</ul>
+<p>Total per layer: <strong>4 all-reduces per transformer layer per training step</strong>. For our 32-layer Llama 3.1 8B model, a training step with tensor parallelism executes <tex>32 \times 4 = 128</tex> blocking all-reduce operations. For an 80-layer 70B model, it executes <tex>80 \times 4 = 320</tex> all-reduce operations per step!</p>
+
+<h2>Sequence Parallelism: Eliminating Activation Redundancy</h2>
+<h3>The activation memory bottleneck in standard TP</h3>
+<p>While standard tensor parallelism shards the weight matrices of attention projections and MLP layers by <tex>\text{TP}</text>, it leaves <strong>LayerNorm, RMSNorm, and Dropout</strong> unsharded [2]. In standard Megatron TP, every GPU in the TP group holds an identical copy of the full sequence activation tensor <tex>[s, b, h]</tex> across every LayerNorm and residual connection.</p>
+<p>As derived in Lesson 3, Training Memory, intermediate forward activations stored for the backward pass scale with sequence length <tex>s</tex>. For an 8,192-token sequence on Llama 3.1 8B, uncheckpointed linear activations consume approximately 36.5 GB per GPU [2]. In standard TP, the activations of LayerNorm and Dropout regions remain duplicated across all GPUs in the TP group, wasting immense High Bandwidth Memory.</p>
+
+<h3>The Megatron-LM Sequence Parallelism insight</h3>
+<p>In 2022, Korthikanti et al. introduced <strong>Sequence Parallelism (SP)</strong> to eliminate this duplication [2]. They observed that LayerNorm, RMSNorm, and Dropout are strictly <strong>element-wise or token-independent operations</strong>: normalizations compute statistics across the hidden dimension <tex>h</tex> independently for each token position, with zero cross-token interactions [2].</p>
+<fig src="012-sequence-parallelism-megatron.svg" caption="Megatron Sequence Parallelism replaces All-Reduce with Reduce-Scatter and All-Gather">Megatron Sequence Parallelism shards LayerNorm and Dropout along the sequence dimension ([s / TP, b, h]). The RowParallel All-Reduce is split into a Reduce-Scatter, feeding the sequence shard directly to LayerNorm. Before ColumnParallel projections, an All-Gather reconstructs the full sequence. Total communication volume is identical to All-Reduce, eliminating activation duplication with zero communication penalty.</fig>
+<p>Instead of replicating <tex>[s, b, h]</tex> across all workers, Sequence Parallelism partitions the sequence dimension <tex>s</tex> across the <tex>\text{TP}</text> GPUs in non-tensor-parallel regions. Each GPU processes only <tex>[s / \text{TP}, b, h]</tex> tokens through LayerNorm and Dropout [2]:</p>
+<ol>
+<li><strong>Replacing Forward All-Reduce with Reduce-Scatter</strong>: At the output of a RowParallel layer (<tex>W_{\text{down}}</tex> or <tex>W_{\text{out}}</tex>), each worker holds local partial sum <tex>Z_i \in \mathbb{R}^{s \times b \times h}</tex>. Instead of executing an all-reduce to produce the full <tex>[s, b, h]</tex> tensor on all ranks, workers execute a <strong>reduce-scatter</strong> collective along the sequence dimension. Each worker receives only its assigned sequence partition <tex>[s / \text{TP}, b, h]</tex> [2].</li>
+<li><strong>Local LayerNorm</strong>: Each worker evaluates RMSNorm and Dropout strictly on its local sequence shard of size <tex>[s / \text{TP}, b, h]</tex>. Activation memory saved for backpropagation is reduced by a factor of <tex>\text{TP}</text>!</li>
+<li><strong>Replacing Forward Input Replication with All-Gather</strong>: Before entering the next ColumnParallel layer (<tex>W_q, W_k, W_v</tex> or <tex>W_{\text{gate}}, W_{\text{up}}</tex>), workers must restore the full sequence <tex>[s, b, h]</tex>. They execute an <strong>all-gather</strong> collective along the sequence dimension [2].</li>
+</ol>
+
+<h3>Zero communication penalty</h3>
+<p>Does replacing all-reduces with reduce-scatter and all-gather increase network traffic? Recall the fundamental ring collective decomposition from Lesson 10:</p>
+<texblock>\text{Traffic}_{\text{all-reduce}} = \text{Traffic}_{\text{reduce-scatter}} + \text{Traffic}_{\text{all-gather}} = \frac{\text{TP} - 1}{\text{TP}} M + \frac{\text{TP} - 1}{\text{TP}} M = 2 \frac{\text{TP} - 1}{\text{TP}} M</texblock>
+<p>The communication volume of one reduce-scatter plus one all-gather is <strong>mathematically identical to the communication volume of a single all-reduce</strong> [2]. Sequence parallelism incurs <strong>zero extra communication volume</strong> while slashing LayerNorm and residual activation memory by a factor of <tex>\text{TP}</text>. Consequently, in modern training systems such as Megatron-LM and TorchTitan, Sequence Parallelism is always enabled whenever Tensor Parallelism is active [2, 5].</p>
+
+<h2>Context Parallelism for Ultra-Long Sequences</h2>
+<p>While Megatron Sequence Parallelism shards LayerNorm and Dropout within a tensor-parallel node, it still gathers the full sequence length <tex>[s, b, h]</tex> inside self-attention. When pretraining or fine-tuning models on ultra-long sequences—such as 32,768, 131,072, or 1 million tokens—the self-attention computation and KV activation footprint exceed single-GPU capacity [3, 4]. To shard the sequence dimension <em>across layers and across nodes</em>, modern systems employ <strong>Context Parallelism (CP)</strong> [3, 4].</p>
+
+<h3>1. Ring Attention</h3>
+<p>Developed by Liu et al., <strong>Ring Attention</strong> distributes long sequences across a logical ring of <tex>P</tex> GPUs, computing exact self-attention without ever materializing the full sequence on any single device [3]:</p>
+<fig src="012-ring-attention-flow.svg" caption="Ring Attention: Pipelined peer-to-peer transmission of KV blocks around a ring">Ring Attention partitions a sequence of length s into P blocks across a ring of GPUs. Each GPU holds its local Query block stationary while Key and Value blocks circulate peer-to-peer around the ring. Attention computation for block k is fully overlapped with the transmission of block k+1.</fig>
+<ul>
+<li><strong>Partitioning</strong>: The input sequence of length <tex>s</tex> is split into <tex>P</tex> blocks of length <tex>s / P</tex>. GPU <tex>i</tex> computes local query <tex>Q_i</tex>, key <tex>K_i</tex>, and value <tex>V_i</tex> tensors of shape <tex>[s / P, b, h]</tex> [3].</li>
+<li><strong>Stationary Queries, Circulating KV</strong>: Each GPU keeps its query block <tex>Q_i</tex> resident in local memory throughout the layer. In contrast, key and value blocks are circulated around the ring [3].</li>
+<li><strong>Pipelined Overlap</strong>: At step <tex>k = 0</tex>, GPU <tex>i</tex> computes attention between <tex>Q_i</tex> and its local <tex>K_i, V_i</tex> using FlashAttention. Concurrently, it sends <tex>K_i, V_i</tex> to rank <tex>i+1</tex> and receives from rank <tex>i-1</tex> over peer-to-peer CUDA streams [3]. At step <tex>k = 1</tex>, it evaluates attention against the newly arrived block while circulating the block to the next rank.</li>
+<li><strong>Online Softmax Rescaling</strong>: Ring Attention maintains running maximum and sum statistics (the online softmax algorithm of FlashAttention), rescaling partial attention accumulators as new blocks arrive [3].</li>
+</ul>
+<p>So long as the compute time for a block of size <tex>s / P</tex> exceeds the peer-to-peer network transfer time, <strong>Ring Attention completely hides communication latency</strong>, enabling context length to scale linearly with cluster size up to millions of tokens [3].</p>
+
+<h3>2. DeepSpeed-Ulysses</h3>
+<p>An alternative context-parallel architecture is <strong>DeepSpeed-Ulysses</strong>, introduced by Jacobs et al. [4]:</p>
+<fig src="012-deepspeed-ulysses-alltoall.svg" caption="DeepSpeed-Ulysses: All-to-all redistribution from sequence partition to head partition">DeepSpeed-Ulysses partitions input sequences along the sequence dimension ([s / P, H, d]). Before self-attention, an all-to-all collective transposes the tensor into head-parallel form ([s, H / P, d]). Local FlashAttention evaluates full-context attention for local heads, followed by an inverse all-to-all collective to restore sequence partitioning.</fig>
+<ol>
+<li><strong>Sequence Partition</strong>: Outside self-attention, activations are partitioned along the sequence dimension: each GPU holds <tex>[s / P, H, d]</tex>, where <tex>H</tex> is total attention heads and <tex>d</tex> is head dimension [4].</li>
+<li><strong>All-to-All Transpose</strong>: Before self-attention, workers execute an <code>all_to_all</code> collective communication. This transposes the tensor layout from sequence-sharded <tex>[s / P, H, d]</tex> to head-sharded <tex>[s, H / P, d]</tex> [4].</li>
+<li><strong>Local Full-Context Attention</strong>: Each GPU now possesses the complete sequence length <tex>s</tex>, but only for a subset of attention heads <tex>H / P</tex>. Each GPU evaluates standard FlashAttention over the full context length independently with zero communication [4].</li>
+<li><strong>Inverse All-to-All</strong>: After attention out-projection, a second <code>all_to_all</code> collective redistributes the tensor back from head-sharded <tex>[s, H / P, d]</tex> to sequence-sharded <tex>[s / P, H, d]</tex> [4].</li>
+</ol>
+
+<h4>The Grouped-Query Attention (GQA) constraint</h4>
+<p>DeepSpeed-Ulysses provides exceptional throughput on high-bandwidth networks because all-to-all collectives are highly optimized. However, Ulysses imposes a rigid architectural constraint: <strong>the number of attention heads <tex>H</tex> (and key-value heads <tex>H_{\text{kv}}</tex>) must be evenly divisible by the Ulysses parallelism degree <tex>P</tex></strong> [4].</p>
+<p>For modern models employing Grouped-Query Attention such as Llama 3.1 8B, the architecture provides 32 query heads but only <strong>8 KV heads</strong> (<tex>H_{\text{kv}} = 8</tex>). Consequently, the maximum Ulysses context-parallel degree is <tex>P = 8</tex>. Scaling beyond 8 GPUs for context parallelism requires Ring Attention or hybrid Ulysses-Ring combinations [4].</p>
+
+<h2>Network Physics: Why TP Stays Inside a Node</h2>
+<h3>The blocking nature of Tensor Parallelism</h3>
+<p>Unlike data parallelism (where gradient communication overlaps with the backward pass) or pipeline parallelism (which operates across layer boundaries), <strong>tensor parallelism is strictly synchronous and blocking</strong> [1]. When a RowParallel projection computes its local GEMM, the subsequent activation function, LayerNorm, or residual addition cannot execute until the all-reduce completes. There is zero computation available to hide the all-reduce latency [1].</p>
+<fig src="012-tp-nvlink-vs-infiniband.svg" caption="Tensor Parallelism latency: Intra-node NVLink versus Inter-node InfiniBand">Comparison of 128 blocking all-reduces per step for Llama 3.1 8B. On intra-node NVLink (900 GB/s), all-reduces require only 16.7 ms total (&lt; 0.7% of step time). Over inter-node InfiniBand (50 GB/s), network latency and bandwidth limits explode total stall time to 300.6 ms (and over 1.5 seconds for 70B), causing severe MFU degradation.</fig>
+
+<h3>Worked numbers: NVLink versus InfiniBand</h3>
+<p>Let us calculate the exact communication time for Tensor Parallelism on our Llama 3.1 8B model. Micro-batch size is <tex>b = 1</tex>, sequence length is <tex>s = 8,192</tex>, hidden dimension is <tex>h = 4,096</tex>. The activation tensor passed to each all-reduce has shape <tex>[8,192, 1, 4,096]</tex>, comprising <tex>33,554,432</tex> elements. In BF16 (2 bytes/element):</p>
+<texblock>M = 33,554,432 \times 2\text{ bytes} = 67,108,864\text{ bytes} \approx 67.11\text{ MB} \quad (64.0\text{ MiB})</texblock>
+<p>For <tex>\text{TP} = 8</tex>, the data transferred per rank during one all-reduce is:</p>
+<texblock>\text{Traffic per All-Reduce} = 2 \times \frac{8 - 1}{8} \times 67.11\text{ MB} = 1.75 \times 67.11\text{ MB} \approx 117.44\text{ MB}</texblock>
+<p>Across all 32 transformer layers, executing 4 all-reduces per layer yields <strong>128 all-reduce operations per training step</strong>. Total data transferred per GPU per step is:</p>
+<texblock>\text{Total TP Traffic} = 128 \times 117.44\text{ MB} \approx 15,032\text{ MB} \approx 15.03\text{ GB}</texblock>
+<p>Now compare execution over our two physical interconnects:</p>
+<ol>
+<li><strong>Over Intra-Node NVLink (900 GB/s bus bandwidth per GPU)</strong>:
+<texblock>T_{\text{all-reduce, NVLink}} = \frac{117.44\text{ MB}}{900\text{ GB/s}} \approx 0.130\text{ ms} = 130\ \mu\text{s}</texblock>
+Adding ~10 <tex>\mu\text{s}</tex> kernel launch and barrier latency, each all-reduce completes in ~140 <tex>\mu\text{s}</tex>. Across all 128 operations:
+<texblock>T_{\text{total, NVLink}} = 128 \times 0.140\text{ ms} \approx 17.9\text{ ms}</texblock>
+Against our total step compute time of ~2,660 ms (2.66 s), 17.9 ms represents <strong>less than 0.7% overhead</strong>. NVLink absorbs the communication seamlessly.</li>
+<li><strong>Over Inter-Node InfiniBand NDR (400 Gb/s = 50 GB/s line rate per GPU)</strong>:
+<texblock>T_{\text{all-reduce, IB}} = \frac{117.44\text{ MB}}{50\text{ GB/s}} \approx 2.349\text{ ms}</texblock>
+Adding inter-node switch traversals (~20 <tex>\mu\text{s}</tex>), each all-reduce takes ~2.37 ms. Across 128 operations:
+<texblock>T_{\text{total, IB}} = 128 \times 2.37\text{ ms} \approx 303.4\text{ ms}</texblock>
+Because each operation blocks GPU execution, the GPUs sit completely idle for <strong>over 300 ms per step</strong>!</li>
+</ol>
+<p>For a 70B model with 80 layers and hidden dimension 8,192, total TP traffic reaches 75.16 GB per step across 320 all-reduces. Over InfiniBand, this introduces <strong>1,503 ms (1.5 seconds) of pure, un-overlapped stall time per step</strong>. This proves the universal rule of distributed LLM systems: <strong>Tensor Parallelism must be strictly confined within a single node over NVLink</strong> [1, 2].</p>
+
+<h2>Memory and Communication Scaling: 8B versus 70B</h2>
+<p>Table 1 and Figure 6 evaluate memory and communication scaling per GPU across tensor parallel degrees (<tex>\text{TP} = 1, 2, 4, 8</tex>) for Llama 3.1 8B (<tex>N = 8.03\text{B}</tex>) and Llama 3.1 70B (<tex>N = 70.55\text{B}</tex>).</p>
+<fig src="012-tp-scaling-8b-vs-70b.svg" caption="Tensor Parallelism memory and communication scaling for 8B versus 70B models">Scaling characteristics across TP degrees. For Llama 3.1 8B, weights drop from 16.1 GB to 2.0 GB, but TP is unnecessary because FSDP fits 8B easily. For Llama 3.1 70B (141.1 GB weights), single-GPU execution is impossible; TP=8 across an 8-GPU NVLink node reduces weight footprint to 17.6 GB with 83.5 ms communication latency.</fig>
+
+<table>
+<thead><tr><th>Model</th><th>TP Degree</th><th>BF16 Weights / GPU</th><th>TP Traffic / Step</th><th>NVLink Latency (900 GB/s)</th><th>InfiniBand Latency (50 GB/s)</th></tr></thead>
+<tbody>
+<tr><td><strong>Llama 3.1 8B</strong> (32 layers, h=4096)</td><td>TP = 1</td><td>16.06 GB</td><td>0 GB</td><td>0 ms</td><td>0 ms</td></tr>
+<tr><td></td><td>TP = 2</td><td>8.03 GB</td><td>8.59 GB</td><td>9.5 ms</td><td>171.8 ms</td></tr>
+<tr><td></td><td>TP = 4</td><td>4.01 GB</td><td>12.88 GB</td><td>14.3 ms</td><td>257.7 ms</td></tr>
+<tr><td></td><td>TP = 8</td><td>2.01 GB</td><td>15.03 GB</td><td>16.7 ms</td><td>300.6 ms</td></tr>
+<tr><td><strong>Llama 3.1 70B</strong> (80 layers, h=8192)</td><td>TP = 1</td><td>141.10 GB (OOM)</td><td>0 GB</td><td>0 ms</td><td>0 ms</td></tr>
+<tr><td></td><td>TP = 2</td><td>70.55 GB</td><td>42.95 GB</td><td>47.7 ms</td><td>859.0 ms</td></tr>
+<tr><td></td><td>TP = 4</td><td>35.27 GB</td><td>64.42 GB</td><td>71.6 ms</td><td>1,288.5 ms</td></tr>
+<tr><td></td><td>TP = 8</td><td>17.64 GB</td><td>75.16 GB</td><td>83.5 ms</td><td>1,503.2 ms</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Weight footprint and tensor parallel communication latency per step (sequence length 8,192, micro-batch 1) across model architectures.</p>
+<p>Notice the structural difference: for Llama 3.1 8B, the weights take only 16.06 GB. Sharding across TP=8 reduces weights to 2.01 GB, but at the expense of partitioning matrix multiplications into smaller GEMMs, which severely hurts Tensor Core arithmetic intensity. In contrast, for Llama 3.1 70B, weights consume 141.10 GB—exceeding an 80 GB GPU entirely. TP=8 across the 8-GPU node reduces weights to 17.64 GB, allowing the model to fit and execute at high GEMM efficiency [1].</p>
+
+<h3>Do we need TP or CP for our pretraining run?</h3>
+<p>Figure 7 summarizes the architectural decision matrix for distributed training.</p>
+<fig src="012-parallelism-decision-map.svg" caption="Parallelism architecture decision matrix across model scale and sequence length">Decision matrix for distributed LLM training. Models below 13B parameters at context lengths up to 8,192 tokens achieve peak efficiency using FSDP / HSDP alone with TP=1 and CP=1. Tensor Parallelism (TP=8) is reserved for models exceeding 70B parameters. Context Parallelism (CP=4 to 8) is required when context lengths extend to 32K–128K+ tokens.</fig>
+<p>For our running pretraining scenario—<strong>Llama 3.1 8B at sequence length 8,192 on 256 H100 GPUs</strong>:</p>
+<ol>
+<li><strong>We do NOT need Tensor Parallelism (<tex>\text{TP} = 1</text>)</strong>: As established in Lesson 11, ZeRO and FSDP, Hybrid Sharded Data Parallelism (HSDP) partitions model and optimizer states across the 8 GPUs in each node, reducing static memory to 16.06 GB per GPU. Combined with FlashAttention and activation checkpointing, activations for an 8,192-token sequence require under 2.5 GB. Total memory per GPU is under 20 GB, fitting easily within our 80 GB budget. Enabling TP would fragment matrix multiplications into tiny GEMMs, add 128 blocking all-reduces, and degrade our target 40% MFU.</li>
+<li><strong>We do NOT need Context Parallelism (<tex>\text{CP} = 1</text>)</strong>: At 8,192 tokens, FlashAttention computes attention without materializing the quadratic <tex>s \times s</tex> attention matrix, keeping peak attention memory under 2 GB per GPU. Context parallelism introduces peer-to-peer or all-to-all communication overhead that is entirely unnecessary at 8K context.</li>
+</ol>
+<p>Our optimal configuration is pure <strong>HSDP (<tex>\text{shard} = 8, \text{replicate} = 32</text>) with TP=1 and CP=1</strong>. If the team subsequently scales to <strong>Llama 3.1 70B</strong>, we will configure <strong>TP=8 across NVLink and PP/FSDP across nodes</strong>. If we extend context length to <strong>128K tokens</strong>, we will activate <strong>CP=8</strong> via Ring Attention.</p>
+
+<h2>In Practice</h2>
+<p>The first tab demonstrates configuring Tensor Parallelism and Context Parallelism in <strong>TorchTitan</strong>, PyTorch's native multi-dimensional training framework [5]. The second tab demonstrates the equivalent command-line flags in <strong>Megatron-LM</strong> [6].</p>
+<codetabs>
+<tab label="torchtitan train.toml" lang="text">
+# TorchTitan configuration file (train_configs/llama3_8b.toml)
+# For our Llama 3.1 8B run at 8K context: TP=1, CP=1, pure HSDP
+
+[model]
+name = "llama3"
+flavor = "8B"
+norm_type = "rmsnorm"
+tokenizer_path = "./tokenizer.model"
+
+[parallelism]
+# Data parallel sharding degree (intra-node HSDP shard = 8)
+data_parallel_shard_degree = 8
+# Data parallel replication degree across 32 nodes (256 GPUs total)
+data_parallel_replicate_degree = 32
+# Intra-node Tensor Parallelism (1 for 8B model; set to 8 for 70B)
+tensor_parallel_degree = 1
+# Pipeline parallelism (1 for 8B; increase for 405B)
+pipeline_parallel_degree = 1
+
+[experimental]
+# Context parallelism degree (1 for 8K context; set to 4 or 8 for 128K context)
+context_parallel_degree = 1
+
+[training]
+batch_size = 2               # Micro-batch per GPU
+seq_len = 8192               # Sequence length
+warmup_steps = 2000
+max_norm = 1.0               # Gradient clipping
+mixed_precision_param = "bfloat16"
+mixed_precision_reduce = "float32"
+compile = true               # Seamlessly composes with FSDP2 and DTensor
+</tab>
+<tab label="Megatron-LM Launch" lang="bash">
+# Megatron-LM distributed training script
+# Demonstrates flags for TP, Sequence Parallelism (SP), and Context Parallelism (CP)
+
+# 1. For our Llama 3.1 8B pretraining run (TP=1, CP=1, FSDP/DP):
+torchrun --nproc_per_node=8 --nnodes=32 --node_rank=$RANK \
+  --master_addr=$MASTER_ADDR --master_port=29500 \
+  pretrain_gpt.py \
+  --num-layers 32 \
+  --hidden-size 4096 \
+  --num-attention-heads 32 \
+  --seq-length 8192 \
+  --max-position-embeddings 8192 \
+  --micro-batch-size 1 \
+  --global-batch-size 512 \
+  --tensor-model-parallel-size 1 \
+  --pipeline-model-parallel-size 1 \
+  --use-distributed-optimizer \
+  --bf16
+
+# 2. For Llama 3.1 70B with 128K context (TP=8 with SP + CP=4):
+# torchrun pretrain_gpt.py \
+#   --tensor-model-parallel-size 8 \
+#   --sequence-parallel \
+#   --context-parallel-size 4 \
+#   --context-parallel-algo ring
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Vocabulary Parallelism</strong>: How the output projection and cross-entropy loss are parallelized by sharding the 128,256-token vocabulary across TP ranks, computing local logits and cross-entropy loss with an all-reduce across scalar loss values [1].</li>
+<li><strong>Tensor Parallelism and GEMM Efficiency</strong>: Why small models suffer under high TP degrees: splitting a 4,096-wide matrix across TP=8 yields 512-wide GEMMs, dropping below the tile size needed to saturate H100 Tensor Cores.</li>
+<li><strong>Zigzag Ring Attention</strong>: Advanced Ring Attention schedules that alternate causal masking directions to achieve 2× higher computation efficiency on autoregressive causal attention [3].</li>
+<li><strong>DeepSpeed-Ulysses vs Ring Attention Hybrid</strong>: Using Ulysses inside the 8-GPU node (where all-to-all saturates 900 GB/s NVLink) and Ring Attention across nodes (where peer-to-peer rings saturate InfiniBand) to scale context to 1M+ tokens [4].</li>
+<li><strong>Asynchronous Tensor Parallelism</strong>: Research compilers (such as ByteCheckpoint and AsyncTP) that attempt to overlap tensor parallel all-reduces with independent layer GEMMs using custom CUDA graph slicing.</li>
+<li><strong>Pipeline Parallelism Interaction</strong>: How Tensor Parallelism inside nodes composes with Pipeline Parallelism across nodes in 3D parallelism for 405B-scale models (see Lesson 14, Combining Parallelism - 3D and 4D).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="012-summary.png" caption="Tensor, sequence and context parallelism summary" optional="1">Mind map summarizing Tensor Parallelism, backward pass collective multipliers, Sequence Parallelism, Ring Attention, DeepSpeed-Ulysses, and architecture sizing decisions.</fig>
+<ul>
+<li>Tensor Parallelism (TP) splits weight matrices within transformer layers (ColumnParallel QKV/Gate/Up and RowParallel Out/Down). In training, backpropagation requires two additional all-reduces per layer to assemble input gradients, totaling 4 all-reduces per layer per step (128 per step for Llama 3.1 8B).</li>
+<li>Sequence Parallelism (SP) shards LayerNorm, RMSNorm, and Dropout activations along the sequence dimension (<tex>s / \text{TP}</tex>). It replaces RowParallel all-reduces with reduce-scatter and all-gather, eliminating activation duplication with zero extra communication volume.</li>
+<li>Context Parallelism (CP) shards the sequence across GPUs for long-context training. Ring Attention pipelines blockwise attention computation with peer-to-peer KV block circulation. DeepSpeed-Ulysses transposes sequence-sharded tensors to head-sharded tensors via all-to-all collectives.</li>
+<li>Tensor Parallelism is strictly synchronous and blocking: each layer's GEMM stalls until the all-reduce concludes. On NVLink (900 GB/s), 128 all-reduces take 16.7 ms (&lt; 0.7% overhead). Over InfiniBand (50 GB/s), network latency explodes stall time to over 300 ms (and 1.5 s for 70B). TP must stay inside a node.</li>
+<li>For Llama 3.1 8B at 8,192 context on 256 H100s, TP=1 and CP=1. Hybrid Sharded Data Parallelism (HSDP) easily handles memory and activations with zero TP overhead. TP=8 is reserved for 70B+ models, and CP is activated for 32K–128K+ contexts.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Shoeybi et al. Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism. <a href="https://arxiv.org/abs/1909.08053" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1909.08053</a>.<br>
+[2] Korthikanti et al. Reducing Activation Recomputation in Large Transformer Models. <a href="https://arxiv.org/abs/2205.05198" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2205.05198</a>.<br>
+[3] Liu et al. Ring Attention with Blockwise Transformers for Near-Infinite Context. <a href="https://arxiv.org/abs/2310.01889" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2310.01889</a>.<br>
+[4] Jacobs et al. DeepSpeed Ulysses: System Optimizations for Enabling Training of Extreme Long Sequence Transformer Models. <a href="https://arxiv.org/abs/2309.14509" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.14509</a>.<br>
+[5] Meta AI. TorchTitan: A PyTorch Native Library for Large Model Training. <a href="https://github.com/pytorch/torchtitan" rel="noopener noreferrer" target="_blank">https://github.com/pytorch/torchtitan</a>.<br>
+[6] NVIDIA. Megatron-LM: Ongoing Research Training Transformer Models at Scale. <a href="https://github.com/NVIDIA/Megatron-LM" rel="noopener noreferrer" target="_blank">https://github.com/NVIDIA/Megatron-LM</a>.</p>

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Preemption and Graceful Checkpointing Workflow</text>
+  <text x="25" y="42" class="sm" fill="#555">Coordinating scheduler signals with Distributed Checkpointing allows low-priority jobs to yield zero lost work.</text>
+
+  <!-- Step 1: Normal Training -->
+  <rect x="25" y="60" width="180" height="205" rx="4" class="green"/>
+  <text x="35" y="82" class="b sm">1. Running Job</text>
+  <text x="35" y="100" class="sm">• Low-priority research run</text>
+  <text x="35" y="116" class="sm">• Training step 4,520</text>
+  <text x="35" y="132" class="sm">• Saving every 500 steps</text>
+  <text x="35" y="160" class="sm b">Trigger Event:</text>
+  <text x="35" y="178" class="sm">Production job submitted</text>
+  <text x="35" y="194" class="sm">Demands 256 GPUs now</text>
+
+  <path d="M205,162 L225,162" class="edge"/>
+
+  <!-- Step 2: Signal Handling -->
+  <rect x="225" y="60" width="180" height="205" rx="4" class="orange"/>
+  <text x="235" y="82" class="b sm">2. Scheduler Warning</text>
+  <text x="235" y="100" class="sm">• Sends <tspan class="b">SIGTERM</tspan> signal</text>
+  <text x="235" y="116" class="sm">• 10-minute grace window</text>
+  <text x="235" y="132" class="sm">(--signal=B:TERM@600)</text>
+  <text x="235" y="160" class="sm b">Python Handler:</text>
+  <text x="235" y="178" class="sm">Catches signal; sets</text>
+  <text x="235" y="194" class="sm">`stop_requested = True`</text>
+  <text x="235" y="210" class="sm">Completes active step</text>
+
+  <path d="M405,162 L425,162" class="edge"/>
+
+  <!-- Step 3: Emergency Checkpoint -->
+  <rect x="425" y="60" width="190" height="205" rx="4" class="purple"/>
+  <text x="435" y="82" class="b sm">3. Emergency Save</text>
+  <text x="435" y="100" class="sm">• Writes step 4,521</text>
+  <text x="435" y="116" class="sm">• Saves optimizer, RNG,</text>
+  <text x="435" y="132" class="sm">and dataloader offset</text>
+  <text x="435" y="160" class="sm b">Shared Storage:</text>
+  <text x="435" y="178" class="sm">Parallel flush takes 45s</text>
+  <text x="435" y="194" class="sm">to Lustre / CephFS</text>
+  <text x="435" y="220" class="sm b" fill="#274e13">Zero lost compute</text>
+
+  <path d="M615,162 L635,162" class="edge"/>
+
+  <!-- Step 4: Requeue and Yield -->
+  <rect x="635" y="60" width="180" height="205" rx="4" class="blue"/>
+  <text x="645" y="82" class="b sm">4. Requeue &amp; Yield</text>
+  <text x="645" y="100" class="sm">• Script exits with code 0</text>
+  <text x="645" y="116" class="sm">• Slurm <tspan class="b">--requeue</tspan> places</text>
+  <text x="645" y="132" class="sm">job back in pending queue</text>
+  <text x="645" y="160" class="sm b">Immediate Handover:</text>
+  <text x="645" y="178" class="sm">Nodes released cleanly</text>
+  <text x="645" y="194" class="sm">Prod job boots in 30s</text>
+  <text x="645" y="220" class="sm">Resumes step 4,521 later</text>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="280" width="790" height="55" rx="4" class="white"/>
+  <text x="38" y="300" class="b sm">The Economic Payoff:</text>
+  <text x="200" y="300" class="sm">Without SIGTERM checkpointing, preemption kills jobs abruptly (SIGKILL),</text>
+  <text x="38" y="318" class="sm">wasting all compute since the last periodic checkpoint (often 1–2 hours of 256 H100s = up to $1,500 wasted per preemption).</text>
+</svg>

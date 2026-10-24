@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="25" y="30" class="lg b">Data Loading Throughput and the Cost of I/O Stalls</text>
+  <text x="25" y="52" class="sm" fill="#555">How a 400 ms data stall on one worker cascades across all 256 GPUs via collective barriers</text>
+
+  <!-- Left: Throughput Math -->
+  <rect x="25" y="75" width="280" height="235" rx="5" class="blue"/>
+  <text x="165" y="100" class="b mid">Target Consumption Rates</text>
+  <text x="40" y="125" class="sm">• Llama 3.1 8B on 256 H100s</text>
+  <text x="40" y="145" class="sm">• Target MFU: 40% (395.6 TFLOPS/GPU)</text>
+  <text x="40" y="165" class="sm">• Flops/token: 6N ≈ 48.18 GFLOPs</text>
+  
+  <rect x="35" y="180" width="260" height="30" rx="3" class="white"/>
+  <text x="45" y="200" class="sm b">Per GPU:</text>
+  <text x="140" y="200" class="sm">8,211 tok/s (32.8 KB/s)</text>
+
+  <rect x="35" y="215" width="260" height="30" rx="3" class="white"/>
+  <text x="45" y="235" class="sm b">Per Node (8×):</text>
+  <text x="140" y="235" class="sm">65,688 tok/s (263 KB/s)</text>
+
+  <rect x="35" y="250" width="260" height="30" rx="3" class="white"/>
+  <text x="45" y="270" class="sm b">Cluster (256×):</text>
+  <text x="140" y="270" class="sm">2.10M tok/s (8.4 MB/s)</text>
+
+  <text x="40" y="300" class="sm" fill="#1b3e6b">Low bandwidth, but ultra-low latency required</text>
+
+  <!-- Right: Timeline comparison -->
+  <rect x="320" y="75" width="475" height="235" rx="5" class="gray"/>
+  <text x="557" y="100" class="b mid">Timeline: Prefetched vs Unbuffered Loader</text>
+
+  <!-- Scenario A: Prefetched -->
+  <text x="335" y="130" class="sm b" fill="#2d572c">Case A: Prefetched local NVMe cache (steady 40% MFU)</text>
+  <rect x="335" y="140" width="130" height="28" rx="3" class="green"/>
+  <text x="400" y="159" class="sm mid">Step 1 (1.0 s)</text>
+  <rect x="470" y="140" width="130" height="28" rx="3" class="green"/>
+  <text x="535" y="159" class="sm mid">Step 2 (1.0 s)</text>
+  <rect x="605" y="140" width="130" height="28" rx="3" class="green"/>
+  <text x="670" y="159" class="sm mid">Step 3 (1.0 s)</text>
+
+  <!-- Scenario B: Stalled -->
+  <text x="335" y="200" class="sm b" fill="#900">Case B: Remote unbuffered read stall on Rank 47</text>
+  <rect x="335" y="210" width="130" height="28" rx="3" class="green"/>
+  <text x="400" y="229" class="sm mid">Step 1 (1.0 s)</text>
+  
+  <rect x="470" y="210" width="60" height="28" rx="3" class="red"/>
+  <text x="500" y="229" class="sm b mid" fill="#900">Stall</text>
+  
+  <rect x="535" y="210" width="130" height="28" rx="3" class="green"/>
+  <text x="600" y="229" class="sm mid">Step 2 (1.0 s)</text>
+
+  <text x="335" y="260" class="sm" fill="#900">Rank 47 waits 400 ms on S3 read.</text>
+  <text x="335" y="278" class="sm" fill="#900">All 256 GPUs stall at All-Reduce synchronization barrier!</text>
+  <text x="335" y="296" class="sm b" fill="#900">Cluster MFU drops from 40.0% to 28.5% over that step window.</text>
+</svg>

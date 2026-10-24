@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="360" viewBox="0 0 820 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Which Modules to Target: Attention vs All Linear Projections</text>
+  <text x="25" y="48" class="sm" fill="#555">Parameter budget and expressivity comparison on Llama 3.1 8B (32 layers, rank r = 16)</text>
+
+  <!-- Left Column: Hu et al. (Q, V only) -->
+  <rect x="25" y="65" width="370" height="235" rx="6" class="gray"/>
+  <text x="210" y="90" text-anchor="middle" class="b">Hu et al. 2021 (Q, V Projections Only)</text>
+
+  <!-- Attn box -->
+  <rect x="45" y="105" width="330" height="75" rx="4" class="white"/>
+  <text x="55" y="125" class="b">Self-Attention Projections:</text>
+  <rect x="55" y="135" width="70" height="35" rx="3" class="orange"/>
+  <text x="90" y="157" text-anchor="middle" class="sm">q_proj (r=16)</text>
+  <rect x="135" y="135" width="70" height="35" rx="3" class="blue"/>
+  <text x="170" y="157" text-anchor="middle" class="sm">k_proj (frozen)</text>
+  <rect x="215" y="135" width="70" height="35" rx="3" class="orange"/>
+  <text x="250" y="157" text-anchor="middle" class="sm">v_proj (r=16)</text>
+  <rect x="295" y="135" width="70" height="35" rx="3" class="blue"/>
+  <text x="330" y="157" text-anchor="middle" class="sm">o_proj (frozen)</text>
+
+  <!-- MLP box (all frozen) -->
+  <rect x="45" y="190" width="330" height="50" rx="4" class="white"/>
+  <text x="55" y="208" class="b">SwiGLU MLP Projections:</text>
+  <text x="55" y="228" class="sm">gate_proj, up_proj, down_proj: <tspan class="b" fill="#b85450">Frozen (no adapters)</tspan></text>
+
+  <!-- Left stats -->
+  <text x="45" y="260" class="sm">• Trainable params: <tspan class="b">6.82M</tspan> (0.08% of 8.03B base)</text>
+  <text x="45" y="278" class="sm">• Adapter memory: <tspan class="b">13.0 MiB</tspan> in BF16</text>
+  <text x="45" y="294" class="sm">• Expressivity: lower on domain reasoning tasks</text>
+
+  <!-- Right Column: Modern / QLoRA (All Linear) -->
+  <rect x="425" y="65" width="370" height="235" rx="6" class="gray"/>
+  <text x="610" y="90" text-anchor="middle" class="b">Modern Standard: All Linear Modules</text>
+
+  <!-- Attn box -->
+  <rect x="445" y="105" width="330" height="75" rx="4" class="white"/>
+  <text x="455" y="125" class="b">Self-Attention Projections:</text>
+  <rect x="455" y="135" width="70" height="35" rx="3" class="orange"/>
+  <text x="490" y="157" text-anchor="middle" class="sm">q_proj (r=16)</text>
+  <rect x="535" y="135" width="70" height="35" rx="3" class="orange"/>
+  <text x="570" y="157" text-anchor="middle" class="sm">k_proj (r=16)</text>
+  <rect x="615" y="135" width="70" height="35" rx="3" class="orange"/>
+  <text x="650" y="157" text-anchor="middle" class="sm">v_proj (r=16)</text>
+  <rect x="695" y="135" width="70" height="35" rx="3" class="orange"/>
+  <text x="730" y="157" text-anchor="middle" class="sm">o_proj (r=16)</text>
+
+  <!-- MLP box (all adapted) -->
+  <rect x="445" y="190" width="330" height="50" rx="4" class="white"/>
+  <text x="455" y="208" class="b">SwiGLU MLP Projections:</text>
+  <text x="455" y="228" class="sm">gate_proj, up_proj, down_proj: <tspan class="b" fill="#82b366">Adapted (r=16)</tspan></text>
+
+  <!-- Right stats -->
+  <text x="445" y="260" class="sm">• Trainable params: <tspan class="b">41.94M</tspan> (0.52% of 8.03B base)</text>
+  <text x="445" y="278" class="sm">• Adapter memory: <tspan class="b">80.0 MiB</tspan> in BF16</text>
+  <text x="445" y="294" class="sm">• Expressivity: matches full fine-tuning on benchmarks</text>
+
+  <!-- Footer -->
+  <rect x="25" y="310" width="770" height="38" rx="4" class="green"/>
+  <text x="410" y="334" text-anchor="middle" class="b">Adapting MLP + Attention matches full fine-tuning at r = 16 while staying under 0.55% of parameters</text>
+</svg>

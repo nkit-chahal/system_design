@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .lg { font-size: 16px; }
+    .b { font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .yellow { fill: #fff2cc; stroke: #d6b656; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #000; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Top Title -->
+  <text x="410" y="24" text-anchor="middle" class="lg b">Communication vs Computation Timelines: Llama 3.1 8B (16 GB Gradients)</text>
+
+  <!-- Case 1: Intra-Node NVLink (8 GPUs) -->
+  <text x="30" y="55" class="b">Case 1: Intra-Node NVLink (8 GPUs, 900 GB/s bus bw)</text>
+  <!-- Compute bar -->
+  <rect x="30" y="65" width="600" height="24" rx="3" class="orange"/>
+  <text x="330" y="81" text-anchor="middle" class="sm b">Compute (Fwd + Bwd): ~2,660 ms</text>
+  <!-- Comm bar -->
+  <rect x="230" y="93" width="18" height="18" rx="2" class="purple"/>
+  <text x="255" y="106" class="sm">All-Reduce: 31.2 ms (1.2% of step, 100% hidden)</text>
+
+  <!-- Case 2: Inter-Node InfiniBand (256 GPUs, 2 seq/GPU, 512 total) -->
+  <text x="30" y="145" class="b">Case 2: Inter-Node NDR InfiniBand (256 GPUs, 2 seq/GPU, 400 Gb/s NIC)</text>
+  <!-- Forward compute -->
+  <rect x="30" y="155" width="150" height="24" rx="3" class="orange"/>
+  <text x="105" y="171" text-anchor="middle" class="sm">Forward: 665 ms</text>
+  <!-- Backward compute -->
+  <rect x="185" y="155" width="445" height="24" rx="3" class="orange"/>
+  <text x="407" y="171" text-anchor="middle" class="sm b">Backward Pass (with recomputation): 1,995 ms</text>
+  <!-- Comm bar overlapping backward -->
+  <rect x="230" y="183" width="150" height="20" rx="3" class="green"/>
+  <text x="390" y="197" class="sm b">All-Reduce: 640 ms (Overlapped within 1,995 ms backward)</text>
+
+  <!-- Case 3: Inter-Node InfiniBand (256 GPUs, 1 seq/GPU, 256 total) -->
+  <text x="30" y="235" class="b">Case 3: Inter-Node NDR InfiniBand (256 GPUs, 1 seq/GPU - Smaller Batch)</text>
+  <!-- Forward compute -->
+  <rect x="30" y="245" width="75" height="24" rx="3" class="orange"/>
+  <text x="67" y="261" text-anchor="middle" class="sm">333 ms</text>
+  <!-- Backward compute -->
+  <rect x="110" y="245" width="225" height="24" rx="3" class="orange"/>
+  <text x="222" y="261" text-anchor="middle" class="sm b">Backward: 998 ms</text>
+  <!-- Comm bar overlapping backward -->
+  <rect x="140" y="273" width="150" height="20" rx="3" class="yellow"/>
+  <text x="300" y="287" class="sm b">All-Reduce: 640 ms (64% of backward - tight overlap margin)</text>
+
+  <!-- Legend -->
+  <rect x="30" y="300" width="12" height="12" rx="2" class="orange"/>
+  <text x="48" y="311" class="sm">Compute</text>
+  <rect x="130" y="300" width="12" height="12" rx="2" class="purple"/>
+  <text x="148" y="311" class="sm">NVLink comm</text>
+  <rect x="260" y="300" width="12" height="12" rx="2" class="green"/>
+  <text x="278" y="311" class="sm">InfiniBand fully hidden</text>
+  <rect x="450" y="300" width="12" height="12" rx="2" class="yellow"/>
+  <text x="468" y="311" class="sm">InfiniBand narrow margin</text>
+</svg>

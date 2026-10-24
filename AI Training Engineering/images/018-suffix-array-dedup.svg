@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="25" y="30" class="lg b">Exact Substring Deduplication with Suffix Arrays</text>
+  <text x="25" y="52" class="sm" fill="#555">How suffix arrays identify and prune repeated substrings longer than 50 tokens (Lee et al., 2021)</text>
+
+  <!-- Step 1: Token Stream -->
+  <rect x="25" y="80" width="220" height="225" rx="5" class="blue"/>
+  <text x="135" y="105" class="b mid">1. Global Token Stream</text>
+  
+  <rect x="35" y="125" width="200" height="40" rx="3" class="white"/>
+  <text x="45" y="142" class="sm b">Doc 1:</text>
+  <text x="45" y="157" class="sm" fill="#b35900">"Copyright (c) Apache 2.0 ..."</text>
+
+  <rect x="35" y="175" width="200" height="40" rx="3" class="white"/>
+  <text x="45" y="192" class="sm b">Doc 2:</text>
+  <text x="45" y="207" class="sm" fill="#b35900">"Copyright (c) Apache 2.0 ..."</text>
+
+  <text x="35" y="245" class="sm">• Billions of tokens stored</text>
+  <text x="35" y="265" class="sm">  as flat integer sequence</text>
+  <text x="35" y="285" class="sm">• Substrings appear in many docs</text>
+
+  <line x1="245" y1="192" x2="280" y2="192" class="edge"/>
+
+  <!-- Step 2: Suffix Array Sorting -->
+  <rect x="285" y="80" width="250" height="225" rx="5" class="orange"/>
+  <text x="410" y="105" class="b mid">2. Suffix Array &amp; LCP</text>
+
+  <rect x="295" y="125" width="230" height="90" rx="3" class="white"/>
+  <text x="305" y="145" class="sm b">Lexicographically sorted suffixes:</text>
+  <text x="305" y="165" class="sm">• Suffix i : "Copyright (c) Apache..."</text>
+  <text x="305" y="183" class="sm">• Suffix j : "Copyright (c) Apache..."</text>
+  <text x="305" y="202" class="sm b" fill="#900">LCP(i, j) = 64 tokens (&gt; 50 threshold)</text>
+
+  <text x="295" y="245" class="sm">• Linear time build via SA-IS</text>
+  <text x="295" y="265" class="sm">• Longest Common Prefix (LCP)</text>
+  <text x="295" y="285" class="sm">  reveals all matching spans</text>
+
+  <line x1="535" y1="192" x2="570" y2="192" class="edge"/>
+
+  <!-- Step 3: Pruning Repeated Substrings -->
+  <rect x="575" y="80" width="220" height="225" rx="5" class="green"/>
+  <text x="685" y="105" class="b mid">3. Substring Pruning</text>
+
+  <rect x="585" y="125" width="200" height="40" rx="3" class="white"/>
+  <text x="595" y="142" class="sm b">Doc 1:</text>
+  <text x="595" y="157" class="sm" fill="#2d572c">Retained as original</text>
+
+  <rect x="585" y="175" width="200" height="40" rx="3" class="red"/>
+  <text x="595" y="192" class="sm b" fill="#900">Doc 2:</text>
+  <text x="595" y="207" class="sm" fill="#900">Duplicate span &gt; 50 purged</text>
+
+  <text x="585" y="245" class="sm">• Eliminates license headers</text>
+  <text x="585" y="265" class="sm">• Cuts memorization by 10×</text>
+  <text x="585" y="285" class="sm">• Removes leaked test sets</text>
+</svg>

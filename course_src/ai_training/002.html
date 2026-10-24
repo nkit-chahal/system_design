@@ -1,0 +1,320 @@
+<h2>Introduction</h2>
+<p>Every step of neural network training boils down to an orchestration of four sequential phases: evaluating a candidate prediction through a forward pass, measuring prediction discrepancy via a loss function, calculating exact parameter gradients by reversing the computation through backpropagation, and adjusting weights using an optimization rule [1]. While inference executes only the forward pass and discards intermediate results as soon as each layer finishes, training is bound by the mathematical demands of the backward pass. Backpropagation requires access to the intermediate activations generated during the forward pass to compute parameter gradients, forcing the system to store gigabytes of transient state across every layer of the model [2].</p>
+<p>Furthermore, training exhibits a fundamental computational asymmetry: <strong>the backward pass costs roughly twice the floating-point operations (FLOPs) of the forward pass</strong>. For a standard linear projection, the forward pass performs a single matrix multiplication to project input activations into output representations. The backward pass, however, must perform two distinct matrix multiplications: one to backpropagate the error gradient to preceding layers, and a second to compute the gradient with respect to the layer weights [3]. This reality establishes the canonical <strong>6ND rule</strong> of language model pretraining—each token requires approximately <tex>6N</tex> FLOPs per step (<tex>2ND</tex> forward and <tex>4ND</tex> backward for <tex>N</tex> parameters and <tex>D</tex> tokens), rising to <tex>8ND</tex> when activations are recomputed to save GPU memory [4].</p>
+<fig src="002-training-step-cycle.svg" caption="The four phases of a training step">The training loop cycle: forward evaluation transforms inputs and weights into activations (2ND FLOPs), loss evaluation computes scalar error against vocabulary targets, backward backpropagation evaluates input and weight gradients (4ND FLOPs), and the optimizer updates master weights before clearing temporary gradients.</fig>
+<p>In this lesson, we examine the mathematical foundations and systems engineering of the forward and backward passes. We walk through a hand-calculated numeric backpropagation example on a two-layer network, analyze how next-token cross-entropy loss behaves across high-dimensional vocabularies, prove why the backward pass requires twice the compute of the forward pass, and dissect PyTorch autograd mechanics and gradient accumulation during large-scale pretraining.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In infrastructure and machine learning systems interviews, questions regarding forward and backward passes evaluate whether a candidate understands how calculus translates into GPU memory buffers, matrix multiplication kernels, and distributed step latencies. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: What model architecture, batch size, and hardware configuration are we sizing for this pretraining run?<br>
+<strong>Interviewer</strong>: We are pretraining a model with the Llama 3.1 8B architecture—32 layers, hidden dimension 4,096, 32 query heads, 8 key-value heads, and a vocabulary size of 128,256, totaling 8.03 billion parameters. Our cluster has 256 NVIDIA H100 80 GB SXM GPUs arranged across 32 nodes connected by 400 Gb/s InfiniBand NDR interconnects.</p>
+<p><strong>Candidate</strong>: What is the sequence length and target global batch size per optimization step?<br>
+<strong>Interviewer</strong>: The sequence length is 8,192 tokens. The global batch size is 512 sequences, which amounts to approximately 4 million tokens (4,194,304 tokens) per optimizer update.</p>
+<p><strong>Candidate</strong>: Can a single GPU execute the forward and backward passes for multiple 8,192-token sequences simultaneously without running out of memory?<br>
+<strong>Interviewer</strong>: No. Storing the uncheckpointed activations of even two 8,192-token sequences exceeds the available memory on an 80 GB GPU. We must use a per-device micro-batch size of one sequence and accumulate gradients across micro-batches.</p>
+<p><strong>Candidate</strong>: Are we using full activation recomputation, or are we retaining intermediate tensors in memory?<br>
+<strong>Interviewer</strong>: We want you to analyze both cases. What are the exact FLOP counts and step times under standard training versus full activation checkpointing, assuming a realistic target of 40% Model FLOPs Utilization (MFU)?</p>
+<p><strong>Candidate</strong>: Does calculating the cross-entropy loss over a 128,256-token vocabulary create a memory or compute bottleneck on the GPU?<br>
+<strong>Interviewer</strong>: That is a critical point. Storing the unchunked logit tensor for 8,192 tokens consumes gigabytes of high-bandwidth memory. Explain how the loss and its gradient are computed efficiently.</p>
+<p>The question underneath is: <em>How do we map the mathematical chain rule onto modern GPU hardware, budget the computational FLOPs and transient memory buffers for an 8B model, and coordinate micro-batch execution to maintain 40% hardware efficiency?</em> To answer it, we begin with the core mechanics of backpropagation.</p>
+
+<h2>The Mechanics of Backpropagation</h2>
+<h3>The computation graph</h3>
+<p>Modern deep learning frameworks represent mathematical expressions as a directed acyclic graph (DAG) known as a <strong>computation graph</strong> [2]. In this graph, leaf nodes represent input data tensors or learnable model parameters (weights and biases). Internal nodes represent mathematical operations, such as matrix multiplications, bias additions, layer normalizations, or non-linear activation functions. Directed edges represent the flow of multi-dimensional arrays (tensors) between operations.</p>
+<fig src="002-computation-graph.svg" caption="Computation graph of a two-layer network">Forward operations (black solid arrows) construct an acyclic evaluation graph from inputs and weights to scalar loss. During the backward pass (red dashed arrows), gradients flow in reverse topological order, generating weight updates (orange) and propagating error signals back to prior layers.</fig>
+<p>During the <strong>forward pass</strong>, the framework traverses the graph in topological order, executing GPU kernels to compute intermediate tensors until it evaluates the scalar loss <tex>\mathcal{L}</tex>. When an operation executes, PyTorch records an internal backward node (a subclass of <code>torch.autograd.Function</code>) containing the recipe for computing vector-Jacobian products for that operation. During the <strong>backward pass</strong>, the framework traverses this graph in exact reverse topological order, seeding the root with <tex>\frac{\partial \mathcal{L}}{\partial \mathcal{L}} = 1.0</tex> and propagating gradients backward toward the parameters.</p>
+
+<h3>The chain rule in reverse</h3>
+<p>Consider a composite function where an input <tex>x</tex> undergoes a sequence of transformations <tex>z_1 = f(x)</tex>, <tex>z_2 = g(z_1)</tex>, producing output <tex>y = h(z_2)</tex> evaluated by scalar loss <tex>\mathcal{L}(y)</tex>. According to the multivariable <strong>chain rule</strong> of calculus, the sensitivity of the loss with respect to the input is the product of intermediate Jacobians:</p>
+<texblock>\frac{\partial \mathcal{L}}{\partial x} = \frac{\partial \mathcal{L}}{\partial y} \frac{\partial y}{\partial z_2} \frac{\partial z_2}{\partial z_1} \frac{\partial z_1}{\partial x}</texblock>
+<p>In forward-mode automatic differentiation, derivatives are evaluated from left to right (from inputs toward outputs). For a neural network with <tex>N</tex> parameters and a single scalar loss <tex>\mathcal{L}: \mathbb{R}^N \to \mathbb{R}</tex>, forward-mode differentiation would require <tex>N</tex> separate forward sweeps through the graph, scaling proportionally to parameter count. In <strong>reverse-mode automatic differentiation</strong> (backpropagation), derivatives are evaluated from right to left (from the scalar loss back toward the parameters). Because the output is a single scalar (<tex>\mathbb{R}^1</tex>), a single reverse sweep computes the exact gradient with respect to all <tex>N</tex> parameters simultaneously [1].</p>
+
+<h3>Worked numeric example: a two-layer network by hand</h3>
+<p>To demystify backpropagation, let us trace a complete numeric forward and backward pass on a concrete, two-layer bias-free network small enough to verify with paper and pencil. Let the input vector be <tex>x \in \mathbb{R}^2</tex>, the first weight matrix be <tex>W_1 \in \mathbb{R}^{2 \times 2}</tex>, the activation function be a rectified linear unit (<tex>\text{ReLU}</tex>), the second weight vector be <tex>W_2 \in \mathbb{R}^{1 \times 2}</tex>, and the target scalar be <tex>y</tex>:</p>
+<texblock>x = \begin{bmatrix} 2.0 \\ 1.0 \end{bmatrix}, \quad W_1 = \begin{bmatrix} 1.0 & 0.5 \\ -0.5 & 2.0 \end{bmatrix}, \quad W_2 = \begin{bmatrix} 0.8 & -1.2 \end{bmatrix}, \quad y = 1.8</texblock>
+
+<h4>1. Forward pass evaluation</h4>
+<p>First, compute the linear projection of Layer 1:</p>
+<texblock>z_1 = W_1 x = \begin{bmatrix} 1.0(2.0) + 0.5(1.0) \\ -0.5(2.0) + 2.0(1.0) \end{bmatrix} = \begin{bmatrix} 2.0 + 0.5 \\ -1.0 + 2.0 \end{bmatrix} = \begin{bmatrix} 2.5 \\ 1.0 \end{bmatrix}</texblock>
+<p>Next, apply the elementwise ReLU activation function <tex>a_1 = \max(0, z_1)</tex>. Because both components of <tex>z_1</tex> are positive:</p>
+<texblock>a_1 = \text{ReLU}\left(\begin{bmatrix} 2.5 \\ 1.0 \end{bmatrix}\right) = \begin{bmatrix} 2.5 \\ 1.0 \end{bmatrix}</texblock>
+<p>Next, compute the linear projection of Layer 2 to produce prediction <tex>\hat{y}</tex>:</p>
+<texblock>\hat{y} = W_2 a_1 = \begin{bmatrix} 0.8 & -1.2 \end{bmatrix} \begin{bmatrix} 2.5 \\ 1.0 \end{bmatrix} = 0.8(2.5) + (-1.2)(1.0) = 2.0 - 1.2 = 0.8</texblock>
+<p>Finally, evaluate the mean squared error loss <tex>\mathcal{L} = \frac{1}{2}(\hat{y} - y)^2</tex>:</p>
+<texblock>\mathcal{L} = \frac{1}{2}(0.8 - 1.8)^2 = \frac{1}{2}(-1.0)^2 = 0.50</texblock>
+
+<fig src="002-numeric-backprop-example.svg" caption="Worked numeric backpropagation on a two-layer network">Step-by-step arithmetic verification: forward evaluation generates intermediate activations z1 = [2.5, 1.0] and scalar prediction 0.8. Reverse backpropagation multiplies error signals by stored activations to calculate exact gradients dL/dW2 and dL/dW1.</fig>
+
+<h4>2. Backward pass backpropagation</h4>
+<p>Now we execute the chain rule in reverse, starting from the loss:</p>
+<p><strong>Step 1: Output error gradient.</strong> Differentiate the loss with respect to prediction <tex>\hat{y}</tex>:</p>
+<texblock>\delta_y = \frac{\partial \mathcal{L}}{\partial \hat{y}} = \hat{y} - y = 0.8 - 1.8 = -1.0</texblock>
+
+<p><strong>Step 2: Gradients at Layer 2.</strong> Differentiate with respect to weight vector <tex>W_2</tex> and hidden activation <tex>a_1</tex>:</p>
+<texblock>\frac{\partial \mathcal{L}}{\partial W_2} = \delta_y a_1^\top = -1.0 \begin{bmatrix} 2.5 & 1.0 \end{bmatrix} = \begin{bmatrix} -2.5 & -1.0 \end{bmatrix}</texblock>
+<texblock>\frac{\partial \mathcal{L}}{\partial a_1} = W_2^\top \delta_y = \begin{bmatrix} 0.8 \\ -1.2 \end{bmatrix} (-1.0) = \begin{bmatrix} -0.8 \\ 1.2 \end{bmatrix}</texblock>
+<p>Notice the critical systems insight: <strong>computing <tex>\frac{\partial \mathcal{L}}{\partial W_2}</tex> requires the forward activation <tex>a_1</tex></strong>. If the GPU had freed <tex>a_1</tex> after the forward pass, it could not calculate the weight gradient.</p>
+
+<p><strong>Step 3: Gradients through ReLU.</strong> The derivative of ReLU is the unit step function <tex>\mathbf{1}(z_1 > 0)</tex>. Multiplying elementwise:</p>
+<texblock>\delta_1 = \frac{\partial \mathcal{L}}{\partial z_1} = \frac{\partial \mathcal{L}}{\partial a_1} \odot \mathbf{1}(z_1 > 0) = \begin{bmatrix} -0.8 \\ 1.2 \end{bmatrix} \odot \begin{bmatrix} 1 \\ 1 \end{bmatrix} = \begin{bmatrix} -0.8 \\ 1.2 \end{bmatrix}</texblock>
+
+<p><strong>Step 4: Gradients at Layer 1.</strong> Differentiate with respect to weight matrix <tex>W_1</tex> and input vector <tex>x</tex>:</p>
+<texblock>\frac{\partial \mathcal{L}}{\partial W_1} = \delta_1 x^\top = \begin{bmatrix} -0.8 \\ 1.2 \end{bmatrix} \begin{bmatrix} 2.0 & 1.0 \end{bmatrix} = \begin{bmatrix} (-0.8)(2.0) & (-0.8)(1.0) \\ (1.2)(2.0) & (1.2)(1.0) \end{bmatrix} = \begin{bmatrix} -1.6 & -0.8 \\ 2.4 & 1.2 \end{bmatrix}</texblock>
+<texblock>\frac{\partial \mathcal{L}}{\partial x} = W_1^\top \delta_1 = \begin{bmatrix} 1.0 & -0.5 \\ 0.5 & 2.0 \end{bmatrix} \begin{bmatrix} -0.8 \\ 1.2 \end{bmatrix} = \begin{bmatrix} 1.0(-0.8) + (-0.5)(1.2) \\ 0.5(-0.8) + 2.0(1.2) \end{bmatrix} = \begin{bmatrix} -0.8 - 0.6 \\ -0.4 + 2.4 \end{bmatrix} = \begin{bmatrix} -1.4 \\ 2.0 \end{bmatrix}</texblock>
+<p>Every number aligns with machine precision. The outer product <tex>\delta_1 x^\top</tex> demonstrates why computing the parameter gradient <tex>\frac{\partial \mathcal{L}}{\partial W_1}</tex> strictly depends on retaining the input tensor <tex>x</tex> in memory.</p>
+
+<h2>Next-Token Prediction and Cross-Entropy Loss</h2>
+<h3>The language modeling objective</h3>
+<p>Modern autoregressive large language models are trained using self-supervised <strong>next-token prediction</strong>. Given an input sequence of discrete token indices <tex>(x_1, x_2, \dots, x_T)</tex>, the joint probability distribution decomposes via the probability chain rule:</p>
+<texblock>P(x_{1:T}) = \prod_{t=1}^T P(x_t \mid x_{<t})</texblock>
+<p>At each sequence position <tex>t</tex>, the transformer backbone outputs a normalized continuous representation <tex>h_t \in \mathbb{R}^{d_{\text{model}}}</tex>. The language model head projects this vector across the entire vocabulary of size <tex>V</tex> using embedding weight matrix <tex>W_{\text{vocab}} \in \mathbb{R}^{V \times d_{\text{model}}}</tex> to produce raw unnormalized <strong>logits</strong> <tex>z_t \in \mathbb{R}^V</tex>:</p>
+<texblock>z_t = W_{\text{vocab}} h_t</texblock>
+<p>The softmax function converts these logits into a valid categorical probability distribution over the vocabulary:</p>
+<texblock>p_{t, i} = \frac{\exp(z_{t, i})}{\sum_{j=1}^V \exp(z_{t, j})}</texblock>
+<p>Given ground-truth target token index <tex>y_t \in \{1, \dots, V\}</tex>, the training objective minimizes the <strong>cross-entropy loss</strong>, which corresponds to the negative log-likelihood of the correct token:</p>
+<texblock>\mathcal{L}_t = -\log p_{t, y_t} = -z_{t, y_t} + \log\left( \sum_{j=1}^V \exp(z_{t, j}) \right)</texblock>
+
+<fig src="002-cross-entropy-logits.svg" caption="Next-token prediction, cross-entropy, and logit gradients">The LM head projects hidden state h across vocabulary size V (128,256), softmax produces probability vector p, and cross-entropy evaluates error against target token y. Backpropagation yields the elegant gradient dL/dz = p - y, shifting probability mass directly toward the target.</fig>
+
+<h3>The gradient w.r.t. logits: <tex>p - y</tex></h3>
+<p>To backpropagate through the loss, we calculate the partial derivative of <tex>\mathcal{L}_t</tex> with respect to any arbitrary logit <tex>z_{t, i}</tex>. Using calculus on the expanded log-sum-exp expression:</p>
+<texblock>\frac{\partial \mathcal{L}_t}{\partial z_{t, i}} = -\frac{\partial z_{t, y_t}}{\partial z_{t, i}} + \frac{1}{\sum_{j=1}^V \exp(z_{t, j})} \frac{\partial}{\partial z_{t, i}} \left( \sum_{j=1}^V \exp(z_{t, j}) \right)</texblock>
+<p>The first term equals <tex>-1</tex> if <tex>i = y_t</tex> and <tex>0</tex> otherwise, written compactly using the indicator function <tex>-\mathbf{1}(i = y_t)</tex>. In the second term, only the <tex>j = i</tex> term has a non-zero derivative, yielding <tex>\exp(z_{t, i})</tex>:</p>
+<texblock>\frac{\partial \mathcal{L}_t}{\partial z_{t, i}} = -\mathbf{1}(i = y_t) + \frac{\exp(z_{t, i})}{\sum_{j=1}^V \exp(z_{t, j})} = p_{t, i} - \mathbf{1}(i = y_t)</texblock>
+<p>In vector notation, where <tex>y_t</tex> is represented as a one-hot vector with 1 at the target index, this gradient simplifies to:</p>
+<texblock>\nabla_{z_t} \mathcal{L}_t = p_t - y_t</texblock>
+<p>This result provides deep intuition: <strong>the error signal feeding into the backward pass is simply the difference between the model's predicted probability distribution and the true ground-truth distribution</strong>. For every incorrect token (<tex>i \neq y_t</tex>), the gradient is positive (<tex>+p_{t, i}</tex>), pushing its logit downward during gradient descent. For the target token (<tex>i = y_t</tex>), the gradient is negative (<tex>p_{t, y_t} - 1 < 0</tex>), driving its logit upward.</p>
+
+<h3>The memory bottleneck of large vocabularies</h3>
+<p>While the mathematical form <tex>p - y</tex> is simple, its physical materialization on GPUs represents a notorious memory bottleneck. In Llama 3.1 8B, the vocabulary size is <tex>V = 128,256</tex>. For a micro-batch of <tex>b = 1</tex> with sequence length <tex>s = 8,192</tex>, the logits tensor <tex>z</tex> contains:</p>
+<texblock>1 \times 8,192 \times 128,256 = 1,050,673,152\text{ elements}</texblock>
+<p>Because softmax and cross-entropy require full 32-bit floating-point precision to prevent numerical overflow in the exponent sum, storing this unchunked logit tensor requires <tex>1.05 \times 10^9 \times 4\text{ bytes} \approx 4.20\text{ GB}</tex> of memory for a single sequence. Storing the corresponding probability tensor and backward gradient adds another 8.4 GB, consuming over 12 GB of GPU High Bandwidth Memory (HBM) purely for the loss calculation.</p>
+<p>To eliminate this waste, modern pretraining stacks employ <strong>chunked cross-entropy</strong> (or fused loss kernels such as Liger-Kernel or FlashCrossEntropy). Instead of materializing the entire <tex>[b, s, V]</tex> logit tensor in HBM, the sequence dimension is divided into smaller chunks (for example, 512 tokens). For each chunk, the GPU projects hidden states to logits, computes the softmax reduction, evaluates the loss, immediately calculates the backward gradient <tex>p - y</tex>, backpropagates into the hidden state gradient <tex>\nabla_h \mathcal{L}</tex>, and discards the logit chunk. This reduces peak loss memory from 4.2 GB down to less than 270 MB without altering mathematical results.</p>
+
+<h2>Why the Backward Pass Costs Twice the Forward Pass (6ND Rule)</h2>
+<h3>The anatomy of a linear layer</h3>
+<p>The core computational primitive in transformers is the general matrix multiplication (GEMM). Consider a standard feed-forward or projection layer with weight matrix <tex>W \in \mathbb{R}^{D_{\text{in}} \times D_{\text{out}}}</tex> operating on an input activation tensor <tex>X \in \mathbb{R}^{B \times D_{\text{in}}}</tex>, where <tex>B = b \times s</tex> represents the total batch tokens:</p>
+<texblock>Y = X W</texblock>
+<p>Computing each scalar element of <tex>Y</tex> requires an inner product between a row of <tex>X</tex> (length <tex>D_{\text{in}}</tex>) and a column of <tex>W</tex> (length <tex>D_{\text{in}}</tex>), which entails <tex>D_{\text{in}}</tex> multiplications and <tex>D_{\text{in}}\) additions—totaling <tex>2 D_{\text{in}}</tex> floating-point operations. Because <tex>Y</tex> has <tex>B \times D_{\text{out}}</tex> elements, the forward pass compute is:</p>
+<texblock>\text{FLOPs}_{\text{forward}} = 2 B D_{\text{in}} D_{\text{out}} = 2 \times (\text{tokens}) \times (\text{parameters})</texblock>
+
+<fig src="002-forward-vs-backward-flops.svg" caption="The 6ND rule: forward vs backward GEMM breakdown">GEMM breakdown of a linear layer: forward evaluation executes 1 GEMM (2ND FLOPs). Backward evaluation executes 2 GEMMs: one multiplying incoming gradients by transposed weights to propagate to inputs (2ND FLOPs), and one multiplying transposed activations by incoming gradients to calculate parameter updates (2ND FLOPs). Total: 6ND FLOPs.</fig>
+
+<p>During the backward pass, backpropagation receives the upstream loss gradient <tex>G = \frac{\partial \mathcal{L}}{\partial Y} \in \mathbb{R}^{B \times D_{\text{out}}}</tex>. To complete the step, the layer must calculate two separate tensor derivatives:</p>
+<ol>
+<li><strong>Gradient with respect to input activations (<tex>\frac{\partial \mathcal{L}}{\partial X}</tex>)</strong>: To propagate error signals backward to earlier layers, the framework multiplies incoming gradients by the transposed weight matrix:
+<texblock>\frac{\partial \mathcal{L}}{\partial X} = G W^\top \quad \text{where } G \in \mathbb{R}^{B \times D_{\text{out}}}, \, W^\top \in \mathbb{R}^{D_{\text{out}} \times D_{\text{in}}}</texblock>
+This GEMM produces a <tex>[B \times D_{\text{in}}]</tex> tensor. Its computational cost is <tex>2 B D_{\text{out}} D_{\text{in}}</tex> FLOPs.</li>
+<li><strong>Gradient with respect to layer weights (<tex>\frac{\partial \mathcal{L}}{\partial W}</tex>)</strong>: To update the model's parameters, the framework multiplies the transposed input activations by the incoming gradients:
+<texblock>\frac{\partial \mathcal{L}}{\partial W} = X^\top G \quad \text{where } X^\top \in \mathbb{R}^{D_{\text{in}} \times B}, \, G \in \mathbb{R}^{B \times D_{\text{out}}}</texblock>
+This GEMM produces a <tex>[D_{\text{in}} \times D_{\text{out}}]</tex> parameter gradient tensor. Its computational cost is <tex>2 D_{\text{in}} B D_{\text{out}}</tex> FLOPs.</li>
+</ol>
+<p>Summing the two backward operations yields:</p>
+<texblock>\text{FLOPs}_{\text{backward}} = 2 B D_{\text{out}} D_{\text{in}} + 2 D_{\text{in}} B D_{\text{out}} = 4 B D_{\text{in}} D_{\text{out}} = 2 \times \text{FLOPs}_{\text{forward}}</texblock>
+<p>Because the backward pass must evaluate two full matrix multiplications for every forward matrix multiplication, <strong>the backward pass requires exactly twice the compute of the forward pass</strong>. Combining the forward and backward passes gives the fundamental 6ND scaling rule formulated by Kaplan et al. [3] and Hoffmann et al. [4]:</p>
+<texblock>\text{Total FLOPs per Step} = 2 N D + 4 N D = 6 N D</texblock>
+<p>where <tex>N</tex> is the non-embedding parameter count and <tex>D</tex> is the number of tokens processed in the batch (explored thoroughly in Lesson 7, Training FLOPs, Time and MFU).</p>
+
+<h3>Full activation recomputation (8ND)</h3>
+<p>In standard training, intermediate activations <tex>X</tex> are retained in GPU memory from the forward pass until their corresponding backward GEMM executes. However, as derived in Lesson 3 (Training Memory), for long sequences (such as 8,192 tokens), storing activations across all 32 layers requires hundreds of gigabytes of HBM, creating an immediate Out-Of-Memory (OOM) crash [5].</p>
+<p>To eliminate this activation memory, systems use <strong>activation checkpointing</strong> (also called gradient checkpointing). Instead of saving all intermediate tensors, the forward pass saves only the inputs at the boundaries of each transformer layer (or block). During the backward pass, when backpropagation reaches a layer, it re-executes the forward pass for that layer from its cached input, regenerating the intermediate activations immediately before computing <tex>\frac{\partial \mathcal{L}}{\partial W}</tex> and <tex>\frac{\partial \mathcal{L}}{\partial X}</tex> [5].</p>
+<p>Re-executing the forward pass adds an extra <tex>2ND</tex> FLOPs of compute to the training step:</p>
+<texblock>\text{FLOPs with Checkpointing} = 2ND \text{ (forward)} + 2ND \text{ (recompute)} + 4ND \text{ (backward)} = 8ND</texblock>
+<p>Activation recomputation incurs a <strong>33.3% computational overhead</strong> (<tex>8ND / 6ND = 1.333</tex>). In exchange, it slashes activation memory by over 90%, making it possible to train modern 8K-context models on standard hardware.</p>
+
+<h3>Saved activations: what the forward pass must keep</h3>
+<p>Figure 6 categorizes which tensors must be preserved in HBM when activation recomputation is not applied across every sub-operation.</p>
+<fig src="002-saved-activations.svg" caption="Saved activations: what the forward pass must retain in memory">Memory classification during training: tensors that must be retained in HBM for backward formulas (linear inputs, attention matrices, normalization inputs, activation masks) versus intermediate buffers that can be freed immediately (residual sums, SRAM workspaces, chunked logits).</fig>
+<p>Table 1 details the exact mathematical role and retention requirement for tensors across a transformer layer.</p>
+<table>
+<thead><tr><th>Operation</th><th>Saved Forward Tensor</th><th>Size per Layer (<tex>b=1, s=8192</tex>)</th><th>Role in Backward Pass</th></tr></thead>
+<tbody>
+<tr><td>Q, K, V Projections</td><td>Pre-norm input <tex>X</tex></td><td>67.1 MB (BF16)</td><td>Evaluates <tex>\frac{\partial \mathcal{L}}{\partial W} = X^\top G</tex> for Q, K, V weights</td></tr>
+<tr><td>Attention Scores</td><td><tex>Q, K, V</tex> (or <tex>S \times S</tex> matrix)</td><td>201.3 MB (BF16)</td><td>FlashAttention uses <tex>Q, K, V</tex> + softmax stats to recompute attention in SRAM [6]</td></tr>
+<tr><td>Out Projection</td><td>Attention context <tex>O</tex></td><td>67.1 MB (BF16)</td><td>Evaluates <tex>\frac{\partial \mathcal{L}}{\partial W_{\text{out}}} = O^\top G</tex></td></tr>
+<tr><td>RMSNorm / LayerNorm</td><td>Normalized input and RMS scale</td><td>67.1 MB (BF16)</td><td>Backpropagates through normalization Jacobian</td></tr>
+<tr><td>SwiGLU MLP</td><td>Gate and Up projection inputs</td><td>470.0 MB (BF16)</td><td>Evaluates weight gradients for <tex>W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}</tex></td></tr>
+<tr><td>Residual Addition</td><td>None (discarded)</td><td>0 MB</td><td>Residual derivative is an identity pass-through: <tex>\frac{\partial}{\partial X}(X + Y) = I</tex></td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Activation tensors retained during the forward pass for backpropagation</p>
+
+<h4>Which activation retention strategy fits our run?</h4>
+<p>For pretraining Llama 3.1 8B with sequence length 8,192 on our 256 H100 cluster, uncheckpointed activation storage requires approximately 380 GB per GPU—exceeding device memory by nearly 5×. Conversely, full activation checkpointing adds 33% compute overhead (<tex>8ND</tex>). The optimal strategy is <strong>selective activation checkpointing</strong> combined with <strong>FlashAttention-3</strong> [6]. FlashAttention never writes the <tex>s \times s</tex> attention score matrix to HBM, eliminating the quadratic memory term entirely. We checkpoint only the large MLP feed-forward blocks while retaining attention linear projections. This reduces activation memory to under 28 GB per GPU, fitting comfortably within the 80 GB budget while avoiding the full 33% FLOP penalty.</p>
+
+<h2>Autograd and Gradient Accumulation in PyTorch</h2>
+<h3>How PyTorch Autograd works</h3>
+<p>PyTorch features an tape-based automatic differentiation engine called <strong>autograd</strong> [2]. When a tensor with <code>requires_grad=True</code> participates in an operation, autograd dynamically allocates a node in the computation graph. Each tensor exposes a <code>.grad_fn</code> attribute referencing the backward operation that created it.</p>
+<p>When the user invokes <code>loss.backward()</code>, autograd performs the following steps:</p>
+<ol>
+<li>Executes a topological sort starting from the loss tensor's <code>.grad_fn</code> to establish backward evaluation order.</li>
+<li>Iteratively executes each node's vector-Jacobian product kernel, streaming intermediate gradients to predecessor nodes.</li>
+<li>Accumulates parameter gradients into the <code>.grad</code> attribute of leaf tensors using in-place addition:
+<texblock>\text{param.grad} \leftarrow \text{param.grad} + \nabla_{\text{param}} \mathcal{L}</textblock></li>
+</ol>
+<p>Because PyTorch accumulates gradients via addition by default, <strong>the training loop must explicitly call <code>optimizer.zero_grad(set_to_none=True)</code></strong> before the next step. Setting gradients to <code>None</code> rather than writing zeros avoids allocating memory buffers and skips memory-write operations across the entire parameter set.</p>
+<callout kind="tip" title="Interview tip">Always mention <code>set_to_none=True</code> when discussing <code>optimizer.zero_grad()</code>. It saves memory bandwidth by freeing the gradient buffers instead of writing millions of FP32 zeros to HBM.</callout>
+<p>When evaluating validation loss or executing inference, wrapping execution inside <code>with torch.inference_mode():</code> (or <code>torch.no_grad()</code>) completely disables graph recording. This stops autograd from saving forward activations or creating <code>.grad_fn</code> tracking references, reducing execution latency and memory usage.</p>
+
+<h3>Gradient accumulation across micro-batches</h3>
+<p>In our pretraining scenario, our target global batch size is 512 sequences (<tex>\approx 4.19\text{M tokens}</tex>). Across 256 GPUs, each GPU must process an effective batch of <tex>512 / 256 = 2\text{ sequences}</tex> per optimizer update. Because an 8,192-token sequence with backward state occupies substantial memory, the GPU cannot execute both sequences simultaneously in one forward-backward pass.</p>
+<p>We resolve this using <strong>gradient accumulation</strong>. The per-device micro-batch size is set to <tex>b = 1</tex>, and the optimizer step is deferred across <tex>K = 2</tex> accumulation steps. Figure 7 illustrates this execution timeline.</p>
+<fig src="002-gradient-accumulation.svg" caption="Gradient accumulation across micro-batches">Execution timeline of gradient accumulation: micro-batches 1 and 2 execute forward and backward passes independently. Each micro-batch loss is divided by accumulation factor K = 2, accumulating gradients into .grad without clearing. After K steps, an all-reduce synchronizes gradients across all 256 GPUs, and optimizer.step() updates the weights.</fig>
+<p>To compute the mathematically correct average gradient over the global batch, each micro-batch loss must be scaled by <tex>1 / K</tex> before calling <code>.backward()</code>:</p>
+<texblock>\mathcal{L}_{\text{global}} = \frac{1}{K} \sum_{k=1}^K \mathcal{L}_k \implies \nabla \mathcal{L}_{\text{global}} = \sum_{k=1}^K \nabla \left( \frac{\mathcal{L}_k}{K} \right)</texblock>
+<p>In distributed data parallel setups (Lesson 10, Data Parallelism and All-Reduce), calling <code>model.no_sync()</code> during the first <tex>K-1</tex> micro-batches prevents unnecessary gradient communication across the InfiniBand network, triggering the collective all-reduce only on the final micro-batch.</p>
+
+<h3>What does one step of our run cost?</h3>
+<p>Now we evaluate the exact computational budget for a single global step of our pretraining cluster. Table 2 summarizes the arithmetic for Llama 3.1 8B (<tex>N = 8.03 \times 10^9</tex>) on 256 H100 GPUs with a global batch of <tex>D = 4,194,304</tex> tokens (512 sequences of 8,192 tokens).</p>
+<table>
+<thead><tr><th>Metric</th><th>Standard Training (6ND)</th><th>Full Recomputation (8ND)</th><th>Derivation / Formula</th></tr></thead>
+<tbody>
+<tr><td>Global Batch FLOPs</td><td><tex>2.021 \times 10^{17}\text{ FLOPs}</tex> (202.1 PFLOPs)</td><td><tex>2.694 \times 10^{17}\text{ FLOPs}</tex> (269.4 PFLOPs)</td><td><tex>6 \times 8.03\text{e9} \times 4,194,304</tex> vs <tex>8 \times 8.03\text{e9} \times 4,194,304</tex></td></tr>
+<tr><td>Compute per GPU (256 GPUs)</td><td><tex>789.4\text{ TFLOPs}</tex></td><td><tex>1,052.5\text{ TFLOPs}</tex></td><td>Total FLOPs divided by 256 devices</td></tr>
+<tr><td>Tokens per GPU per Step</td><td>16,384 tokens (2 sequences)</td><td>16,384 tokens (2 sequences)</td><td><tex>4,194,304 / 256 = 2 \times 8,192</tex></td></tr>
+<tr><td>H100 Effective Throughput (40% MFU)</td><td><tex>395.6\text{ TFLOPS}</tex></td><td><tex>395.6\text{ TFLOPS}</tex></td><td><tex>989\text{ TFLOPS (peak dense BF16)} \times 0.40</tex></td></tr>
+<tr><td>Step Time (Wall-Clock)</td><td><tex>2.00\text{ seconds}</tex></td><td><tex>2.66\text{ seconds}</tex></td><td>Compute per GPU <tex>/\, 395.6\text{ TFLOPS}</tex></td></tr>
+<tr><td>Total Steps for 1T Tokens</td><td>238,419 steps</td><td>238,419 steps</td><td><tex>10^{12} / 4,194,304</tex></td></tr>
+<tr><td>Total Pretraining Time</td><td><tex>4.76 \times 10^5\text{ s} \approx 5.51\text{ days}</tex></td><td><tex>6.34 \times 10^5\text{ s} \approx 7.34\text{ days}</tex></td><td>Steps <tex>\times</tex> Step Time (approx 33,800 GPU-hours for 6ND)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Computational and wall-clock breakdown for one pretraining step</p>
+<p>At 40% MFU, each step takes <strong>exactly 2.00 seconds</strong> under the standard 6ND regime. Over a 1-trillion-token pretraining run (238,419 global steps), the cluster completes training in approximately 5.5 days (33,800 GPU-hours). At an assumed cloud cost of $3.00 per H100-hour, the run costs approximately $101,000 [7].</p>
+
+<h2>In Practice</h2>
+<p>The first tab demonstrates PyTorch autograd internals: inspecting gradient functions, tracking graph connections, verifying leaf node accumulations, and measuring the memory impact of disabling autograd. The second tab provides a complete, runnable training loop from scratch for a causal transformer, incorporating next-token cross-entropy, gradient accumulation, gradient norm clipping, and the optimizer step.</p>
+
+<codetabs>
+<tab label="Autograd mechanics" lang="python">
+import torch
+import torch.nn as nn
+
+# 1. Inspecting the dynamic computation graph
+x = torch.tensor([2.0, 1.0], requires_grad=True)
+W1 = torch.tensor([[1.0, 0.5], [-0.5, 2.0]], requires_grad=True)
+W2 = torch.tensor([0.8, -1.2], requires_grad=True)
+y_target = torch.tensor(1.8)
+
+# Forward pass
+z1 = W1 @ x
+a1 = torch.relu(z1)
+y_hat = W2 @ a1
+loss = 0.5 * (y_hat - y_target) ** 2
+
+print("Loss value:", loss.item())                 # 0.50
+print("Loss grad_fn:", loss.grad_fn)             # <MulBackward0>
+print("y_hat grad_fn:", y_hat.grad_fn)           # <DotBackward0>
+print("a1 grad_fn:", a1.grad_fn)                 # <ReluBackward0>
+
+# Backward pass
+loss.backward()
+
+# Verify exact hand-calculated gradients from text
+print("\n--- Verified Gradients ---")
+print("dL/dW2:", W2.grad.tolist())               # [-2.5, -1.0]
+print("dL/dW1:\n", W1.grad.tolist())             # [[-1.6, -0.8], [2.4, 1.2]]
+print("dL/dx:", x.grad.tolist())                 # [-1.4, 2.0]
+
+# 2. Demonstrating in-place gradient accumulation
+loss2 = 0.5 * (W2 @ torch.relu(W1 @ x) - y_target) ** 2
+loss2.backward()
+print("\nAccumulated dL/dW2 without zero_grad:", W2.grad.tolist())  # [-5.0, -2.0]
+
+# 3. Demonstrating set_to_none=True
+optimizer = torch.optim.SGD([W1, W2], lr=0.01)
+optimizer.zero_grad(set_to_none=True)
+print("W2.grad after zero_grad(set_to_none=True):", W2.grad)         # None
+</tab>
+<tab label="Training loop from scratch" lang="python">
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class TinyTransformer(nn.Module):
+    """Minimal causal transformer block for pretraining demonstration."""
+    def __init__(self, vocab_size: int = 1024, d_model: int = 128, n_heads: int = 4):
+        super().__init__()
+        self.tok_emb = nn.Embedding(vocab_size, d_model)
+        self.head = nn.Linear(d_model, vocab_size, bias=False)
+        self.attn = nn.MultiheadAttention(d_model, n_heads, batch_first=True)
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(self, idx: torch.Tensor) -> torch.Tensor:
+        b, s = idx.shape
+        x = self.tok_emb(idx)
+        mask = nn.Transformer.generate_square_subsequent_mask(s, device=idx.device)
+        attn_out, _ = self.attn(x, x, x, attn_mask=mask, is_causal=True)
+        h = self.norm(x + attn_out)
+        logits = self.head(h)  # shape: [b, s, vocab_size]
+        return logits
+
+# Setup execution
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = TinyTransformer().to(device)
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.1)
+
+# Synthetic batch: global batch 4 sequences split into micro-batches of 1
+vocab_size = 1024
+seq_len = 64
+accumulation_steps = 4
+data = torch.randint(0, vocab_size, (accumulation_steps, seq_len + 1), device=device)
+
+model.train()
+optimizer.zero_grad(set_to_none=True)
+
+# Training step with gradient accumulation
+for micro_step in range(accumulation_steps):
+    # Slice inputs and shifted targets for next-token prediction
+    inputs = data[micro_step, :-1].unsqueeze(0)   # [1, seq_len]
+    targets = data[micro_step, 1:].unsqueeze(0)   # [1, seq_len]
+
+    # 1. Forward pass
+    logits = model(inputs)
+
+    # 2. Loss computation (scaled by 1 / accumulation_steps)
+    loss = F.cross_entropy(logits.view(-1, vocab_size), targets.view(-1))
+    scaled_loss = loss / accumulation_steps
+
+    # 3. Backward pass (accumulates into .grad)
+    scaled_loss.backward()
+    print(f"  Micro-batch {micro_step + 1}/{accumulation_steps} loss: {loss.item():.4f}")
+
+# 4. Optimizer step
+# Clip gradient norm to prevent exploding gradients
+grad_norm = nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+optimizer.step()
+optimizer.zero_grad(set_to_none=True)
+print(f"Global step complete. Clipped gradient norm: {grad_norm:.4f}")
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Loss scaling in mixed precision</strong>: When executing backward passes in FP16, small gradient values underflow to zero. While BF16 has an 8-bit exponent matching FP32 and avoids scaling, FP16 requires dynamic loss scaling to shift gradients into representable range (detailed in Lesson 5, Mixed Precision Training - BF16 and FP8).</li>
+<li><strong>Gradient checkpointing re-entrant vs non-reentrant</strong>: Early PyTorch implementations used re-entrant autograd checkpointing, which had issues with hooks and early tensor deallocation. Modern PyTorch uses <code>torch.utils.checkpoint.checkpoint(use_reentrant=False)</code>, which integrates natively with autograd graph execution.</li>
+<li><strong>Fused cross-entropy and loss-head kernels</strong>: Chunking the cross-entropy projection across vocabulary dimensions avoids ever writing full <tex>[b, s, V]</tex> logit tensors to HBM, saving up to 4 GB of activation memory per stream in Llama 3 models.</li>
+<li><strong>Double backward and gradient penalties</strong>: Certain regularization methods (such as gradient penalty in WGANs or Hessian-vector products) require differentiating through the backward graph itself, requiring <code>create_graph=True</code> during the first backward call.</li>
+<li><strong>Overlap of backward compute and collective communication</strong>: In Distributed Data Parallel (DDP), gradient all-reduce communication overlaps asynchronously with the backward pass of earlier layers via backward hooks, hiding inter-node communication latency (Lesson 10, Data Parallelism and All-Reduce).</li>
+<li><strong>Memory profiling with PyTorch profiler</strong>: Using <code>torch.profiler.profile(with_stack=True, profile_memory=True)</code> lets engineers inspect exact allocation and deallocation events for intermediate activations throughout the forward-backward cycle.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="002-summary.png" caption="Forward and backward passes summary" optional="1">Mind map summarizing the forward and backward passes: step phases, backpropagation arithmetic, cross-entropy gradient, the 6ND FLOP rule, autograd graph recording, and distributed cluster budgeting.</fig>
+<ul>
+<li>A single training step consists of four sequential phases: forward activation evaluation (<tex>2ND</tex> FLOPs), loss evaluation against vocabulary targets, backward backpropagation (<tex>4ND</tex> FLOPs), and master weight optimization.</li>
+<li>The backward pass costs twice the forward pass because each linear layer requires two matrix multiplications: one to propagate gradients to inputs (<tex>G W^\top</tex>), and one to calculate parameter updates (<tex>X^\top G</tex>).</li>
+<li>Standard training requires approximately <tex>6ND</tex> FLOPs per token, which increases to <tex>8ND</tex> when full activation checkpointing re-evaluates the forward pass during backpropagation.</li>
+<li>Backpropagation through next-token cross-entropy yields the gradient <tex>p - y</tex>, pushing probability mass directly toward the target token. Large vocabularies (128,256) require chunked cross-entropy to avoid gigabytes of transient logit allocations.</li>
+<li>PyTorch autograd dynamically constructs an evaluation graph and accumulates gradients into <code>.grad</code> buffers via in-place addition, requiring <code>optimizer.zero_grad(set_to_none=True)</code> between global steps.</li>
+<li>On 256 NVIDIA H100 GPUs, pretraining Llama 3.1 8B with a 4M-token global batch takes 2.00 seconds per step at 40% MFU, completing a 1-trillion-token run in 5.5 days (33,800 GPU-hours).</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Rumelhart et al. Learning representations by back-propagating errors. <a href="https://doi.org/10.1038/323533a0" rel="noopener noreferrer" target="_blank">https://doi.org/10.1038/323533a0</a>.<br>
+[2] Paszke et al. PyTorch: An Imperative Style, High-Performance Deep Learning Library. <a href="https://arxiv.org/abs/1912.01703" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1912.01703</a>.<br>
+[3] Kaplan et al. Scaling Laws for Neural Language Models. <a href="https://arxiv.org/abs/2001.08361" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2001.08361</a>.<br>
+[4] Hoffmann et al. Training Compute-Optimal Large Language Models. <a href="https://arxiv.org/abs/2203.15556" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2203.15556</a>.<br>
+[5] Korthikanti et al. Reducing Activation Recomputation in Large Transformer Models. <a href="https://arxiv.org/abs/2205.05198" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2205.05198</a>.<br>
+[6] Dao et al. FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. <a href="https://arxiv.org/abs/2205.14135" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2205.14135</a>.<br>
+[7] Llama 3 Team, Meta. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.</p>

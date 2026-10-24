@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">The Empirical Recalibration Feedback Loop</text>
+  <text x="25" y="48" class="sm" fill="#555">Validating theoretical calculations with a short 100-step trial before committing cluster spend</text>
+
+  <!-- Box 1: Theoretical Plan -->
+  <rect x="25" y="75" width="220" height="150" rx="6" class="blue"/>
+  <text x="40" y="100" class="b">1. Theoretical Model</text>
+  <text x="40" y="122" class="sm">• 6ND FLOP calculation</text>
+  <text x="40" y="140" class="sm">• Assumed MFU: 40.0%</text>
+  <text x="40" y="158" class="sm">• Target: 8,211 tok/s/GPU</text>
+  <text x="40" y="176" class="sm">• Expected time: 5.51 days</text>
+  <text x="40" y="200" class="sm b" fill="#0b5394">Paper Estimate</text>
+
+  <!-- Arrow 1 to 2 -->
+  <line x1="245" y1="150" x2="280" y2="150" class="edge"/>
+
+  <!-- Box 2: 100-Step Validation Run -->
+  <rect x="285" y="75" width="230" height="150" rx="6" class="orange"/>
+  <text x="300" y="100" class="b">2. Live 100-Step Trial</text>
+  <text x="300" y="122" class="sm">• Small path: 1 GPU / 125M</text>
+  <text x="300" y="140" class="sm">• Full path: 1 node / 8 H100s</text>
+  <text x="300" y="158" class="sm">• Warmup 20 steps for CUDA</text>
+  <text x="300" y="176" class="sm">• Measure step duration (s)</text>
+  <text x="300" y="200" class="sm b" fill="#b45f06">Physical Telemetry</text>
+
+  <!-- Arrow 2 to 3 -->
+  <line x1="515" y1="150" x2="550" y2="150" class="edge"/>
+
+  <!-- Box 3: Recalibrated Plan -->
+  <rect x="555" y="75" width="240" height="150" rx="6" class="green"/>
+  <text x="570" y="100" class="b" fill="#274e13">3. Calibrated Execution</text>
+  <text x="570" y="122" class="sm">• Invert: MFU = tok/s × 6N / peak</text>
+  <text x="570" y="140" class="sm">• If 38.5% MFU: pad time to 5.7d</text>
+  <text x="570" y="158" class="sm">• If VRAM > 70 GB: tune FSDP</text>
+  <text x="570" y="176" class="sm">• If comm stalls: increase buckets</text>
+  <text x="570" y="200" class="sm b" fill="#274e13">Guaranteed Success</text>
+
+  <!-- Bottom Explanatory Banner -->
+  <rect x="25" y="245" width="770" height="75" rx="6" class="gray"/>
+  <text x="40" y="268" class="b">The Production Takeaway:</text>
+  <text x="40" y="288" class="sm">No production pretraining run should launch without a 100-step validation trial. Spending 15 minutes</text>
+  <text x="40" y="304" class="sm">verifying step time on a single node prevents discovering a 30% MFU bottleneck on day three of a 256-GPU run.</text>
+</svg>

@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Left Side: 256 Distributed GPUs -->
+  <rect x="25" y="25" width="220" height="270" rx="8" class="group"/>
+  <text x="40" y="52" class="lg b">256 Distributed GPUs</text>
+
+  <rect x="40" y="70" width="190" height="38" rx="4" class="orange"/>
+  <text x="55" y="94" class="b">GPU Rank 0 (Shard 0)</text>
+
+  <rect x="40" y="118" width="190" height="38" rx="4" class="orange"/>
+  <text x="55" y="142" class="b">GPU Rank 1 (Shard 1)</text>
+
+  <text x="125" y="180" class="lg b">...</text>
+
+  <rect x="40" y="200" width="190" height="38" rx="4" class="orange"/>
+  <text x="55" y="224" class="b">GPU Rank 255 (Shard 255)</text>
+
+  <rect x="40" y="250" width="190" height="32" rx="3" class="green"/>
+  <text x="52" y="271" class="sm b">Parallel Direct I/O</text>
+
+  <!-- Parallel Arrows -->
+  <path d="M230,89 L320,89" class="edge"/>
+  <path d="M230,137 L320,137" class="edge"/>
+  <path d="M230,219 L320,219" class="edge"/>
+
+  <!-- Right Side: Checkpoint Directory Structure -->
+  <rect x="325" y="25" width="465" height="270" rx="8" class="blue"/>
+  <text x="345" y="52" class="lg b">Shared Storage Directory: /checkpoints/step_1000/</text>
+
+  <!-- Metadata File -->
+  <rect x="345" y="68" width="425" height="45" rx="4" class="yellow"/>
+  <text x="360" y="90" class="b">.metadata (Global Coordinator)</text>
+  <text x="360" y="104" class="sm">Global tensor shapes, DTensor chunk mappings, dtypes, and step state</text>
+
+  <!-- Shard Files -->
+  <rect x="345" y="122" width="200" height="35" rx="4" class="white"/>
+  <text x="355" y="145" class="sm">__0_0.distcp (~500 MB)</text>
+
+  <rect x="570" y="122" width="200" height="35" rx="4" class="white"/>
+  <text x="580" y="145" class="sm">__1_0.distcp (~500 MB)</text>
+
+  <rect x="345" y="167" width="200" height="35" rx="4" class="white"/>
+  <text x="355" y="190" class="sm">__2_0.distcp (~500 MB)</text>
+
+  <rect x="570" y="167" width="200" height="35" rx="4" class="white"/>
+  <text x="580" y="190" class="sm">... (256 shard files)</text>
+
+  <!-- Explanatory Box -->
+  <rect x="345" y="215" width="425" height="65" rx="4" class="gray"/>
+  <text x="355" y="235" class="sm b">Why DCP Replaces torch.save():</text>
+  <text x="355" y="253" class="sm">• Zero rank-0 all-gather bottleneck: no 128 GB memory spike on master</text>
+  <text x="355" y="271" class="sm">• Independent rank writes maximize aggregate storage cluster bandwidth</text>
+</svg>

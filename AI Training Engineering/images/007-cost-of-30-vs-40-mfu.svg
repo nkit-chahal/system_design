@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">The Cost of Low MFU: 40% Target vs 30% Unoptimized Run</text>
+  <text x="25" y="48" class="sm" fill="#555">Pretraining Llama 3.1 8B on 1T tokens (4.82e22 FLOPs) on 256 H100 GPUs at $3.00/GPU-hour</text>
+
+  <!-- Left Card: 40% MFU (Optimized) -->
+  <rect x="25" y="70" width="370" height="185" rx="6" class="green"/>
+  <text x="40" y="96" class="title" fill="#274e13">Target: 40% MFU</text>
+  <text x="40" y="122" class="sm">• Per-GPU Throughput: <tspan class="b">8,211 tokens / sec</tspan></text>
+  <text x="40" y="142" class="sm">• Cluster Throughput: <tspan class="b">2,102,000 tokens / sec</tspan></text>
+  <text x="40" y="162" class="sm">• Total Wall Time: <tspan class="b">5.51 days</tspan> (132.2 hours)</text>
+  <text x="40" y="182" class="sm">• Hardware Usage: <tspan class="b">33,830 GPU-hours</tspan></text>
+  <rect x="40" y="196" width="340" height="46" rx="4" class="white"/>
+  <text x="50" y="216" class="sm" fill="#555">Cluster Rental Bill (at $3.00 / hr):</text>
+  <text x="50" y="234" class="title" fill="#274e13">$101,491</text>
+
+  <!-- Right Card: 30% MFU (Bottlenecked) -->
+  <rect x="425" y="70" width="370" height="185" rx="6" class="red"/>
+  <text x="440" y="96" class="title" fill="#900">Unoptimized: 30% MFU</text>
+  <text x="440" y="122" class="sm">• Per-GPU Throughput: <tspan class="b">6,158 tokens / sec</tspan></text>
+  <text x="440" y="142" class="sm">• Cluster Throughput: <tspan class="b">1,576,000 tokens / sec</tspan></text>
+  <text x="440" y="162" class="sm">• Total Wall Time: <tspan class="b">7.34 days</tspan> (176.2 hours)</text>
+  <text x="440" y="182" class="sm">• Hardware Usage: <tspan class="b">45,107 GPU-hours</tspan></text>
+  <rect x="440" y="196" width="340" height="46" rx="4" class="white"/>
+  <text x="450" y="216" class="sm" fill="#555">Cluster Rental Bill (at $3.00 / hr):</text>
+  <text x="450" y="234" class="title" fill="#900">$135,322</text>
+
+  <!-- Bottom Penalty Banner -->
+  <rect x="25" y="270" width="770" height="65" rx="6" class="yellow"/>
+  <text x="40" y="293" class="b" fill="#7f6000">The Real Penalty of a 10% MFU Deficit (30% vs 40%):</text>
+  <text x="40" y="312" class="sm">• Schedule delay: <tspan class="b">+1.84 days (+44 cluster hours)</tspan> of engineering dead-time</text>
+  <text x="40" y="328" class="sm">• Financial waste: <tspan class="b">+11,277 extra GPU-hours</tspan> costing an unnecessary <tspan class="b">+$33,830 in cash</tspan></text>
+</svg>

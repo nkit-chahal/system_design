@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="360" viewBox="0 0 820 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.xs{font-size:11px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Mapping 4D Parallelism to Cluster Hardware Hierarchy</text>
+  <text x="25" y="44" class="sm" fill="#555">Matching communication latency and bandwidth to hardware interconnect tiers across a cluster.</text>
+
+  <!-- Level 1: Intra-Node NVLink (TP) -->
+  <rect x="25" y="65" width="245" height="205" rx="6" class="orange"/>
+  <text x="147" y="88" text-anchor="middle" class="b">Level 1: Intra-Node</text>
+  <rect x="35" y="100" width="225" height="42" rx="4" class="white"/>
+  <text x="147" y="118" text-anchor="middle" class="b">Tensor Parallelism (TP)</text>
+  <text x="147" y="134" text-anchor="middle" class="xs" fill="#555">Degree: TP ≤ 8 (1 Node)</text>
+  <text x="40" y="162" class="sm"><tspan class="b">Fabric:</tspan> NVLink (900 GB/s)</text>
+  <text x="40" y="182" class="sm"><tspan class="b">Latency:</tspan> Sub-microsecond (&lt; 1 µs)</text>
+  <text x="40" y="202" class="sm"><tspan class="b">Pattern:</tspan> All-Reduce every layer</text>
+  <text x="40" y="222" class="sm"><tspan class="b">Why here:</tspan> High comm frequency</text>
+  <text x="40" y="240" class="sm">requires extreme NVLink speed.</text>
+
+  <!-- Level 2: Inter-Node Local Fabric (PP & CP) -->
+  <rect x="285" y="65" width="250" height="205" rx="6" class="purple"/>
+  <text x="410" y="88" text-anchor="middle" class="b">Level 2: Inter-Node / Rack</text>
+  <rect x="295" y="100" width="230" height="42" rx="4" class="white"/>
+  <text x="410" y="118" text-anchor="middle" class="b">Pipeline (PP) &amp; Context (CP)</text>
+  <text x="410" y="134" text-anchor="middle" class="xs" fill="#555">Degrees: PP = 4–16, CP = 2–16</text>
+  <text x="300" y="162" class="sm"><tspan class="b">Fabric:</tspan> InfiniBand NDR (400 Gb/s)</text>
+  <text x="300" y="182" class="sm"><tspan class="b">Latency:</tspan> 1.5–2.5 µs (leaf switches)</text>
+  <text x="300" y="202" class="sm"><tspan class="b">Pattern:</tspan> P2P &amp; Ring exchange</text>
+  <text x="300" y="222" class="sm"><tspan class="b">Why here:</tspan> Low frequency P2P (PP)</text>
+  <text x="300" y="240" class="sm">or ring attention easily overlaps.</text>
+
+  <!-- Level 3: Cluster Spine (FSDP / DP) -->
+  <rect x="550" y="65" width="245" height="205" rx="6" class="blue"/>
+  <text x="672" y="88" text-anchor="middle" class="b">Level 3: Outermost Spine</text>
+  <rect x="560" y="100" width="225" height="42" rx="4" class="white"/>
+  <text x="672" y="118" text-anchor="middle" class="b">Data Parallel / FSDP</text>
+  <text x="672" y="134" text-anchor="middle" class="xs" fill="#555">Degree: DP = 16–128+</text>
+  <text x="565" y="162" class="sm"><tspan class="b">Fabric:</tspan> Full Cluster Interconnect</text>
+  <text x="565" y="182" class="sm"><tspan class="b">Latency:</tspan> Multi-hop spine latency</text>
+  <text x="565" y="202" class="sm"><tspan class="b">Pattern:</tspan> All-Gather &amp; Reduce-Scatter</text>
+  <text x="565" y="222" class="sm"><tspan class="b">Why here:</tspan> Fully asynchronous;</text>
+  <text x="565" y="240" class="sm">overlaps with layer compute.</text>
+
+  <!-- Bottom Golden Rules Banner -->
+  <rect x="25" y="285" width="770" height="60" rx="4" class="green"/>
+  <text x="40" y="307" class="b">Golden Rules of Multi-Dimensional Parallelism:</text>
+  <text x="40" y="327" class="sm">1. Confine TP strictly to intra-node NVLink (≤ 8 GPUs). 2. Use PP across nodes to shard layer depth.</text>
+  <text x="40" y="343" class="sm">3. Use CP for long sequences (8K–128K). 4. Wrap remaining cluster scale in FSDP / DP as the outermost dimension.</text>
+</svg>

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Mixed-Precision Adam: 16 Bytes per Parameter</text>
+  <text x="25" y="48" class="sm" fill="#555">State accounting for every single model parameter during standard BF16 / FP32 training</text>
+
+  <!-- 1 Parameter bar split into 16 bytes: 2 bytes = 96px, 4 bytes = 192px (total 768px wide) -->
+  <!-- x=26 to 794 (768 px). 48 px per byte -->
+  <!-- BF16 weight: 2B (96px) -->
+  <rect x="26" y="65" width="96" height="52" class="orange"/>
+  <text x="74" y="87" text-anchor="middle" class="b">Weight</text>
+  <text x="74" y="105" text-anchor="middle" class="sm">2B (BF16)</text>
+
+  <!-- BF16 gradient: 2B (96px) -->
+  <rect x="122" y="65" width="96" height="52" class="yellow"/>
+  <text x="170" y="87" text-anchor="middle" class="b">Gradient</text>
+  <text x="170" y="105" text-anchor="middle" class="sm">2B (BF16)</text>
+
+  <!-- FP32 master weight: 4B (192px) -->
+  <rect x="218" y="65" width="192" height="52" class="blue"/>
+  <text x="314" y="87" text-anchor="middle" class="b">Master Weight</text>
+  <text x="314" y="105" text-anchor="middle" class="sm">4B (FP32 copy for updates)</text>
+
+  <!-- FP32 Adam momentum m: 4B (192px) -->
+  <rect x="410" y="65" width="192" height="52" class="purple"/>
+  <text x="506" y="87" text-anchor="middle" class="b">Adam Momentum (m)</text>
+  <text x="506" y="105" text-anchor="middle" class="sm">4B (FP32 1st moment)</text>
+
+  <!-- FP32 Adam variance v: 4B (192px) -->
+  <rect x="602" y="65" width="192" height="52" class="purple"/>
+  <text x="698" y="87" text-anchor="middle" class="b">Adam Variance (v)</text>
+  <text x="698" y="105" text-anchor="middle" class="sm">4B (FP32 2nd moment)</text>
+
+  <!-- Total banner -->
+  <text x="410" y="137" text-anchor="middle" class="sm">2 bytes + 2 bytes + 4 bytes + 4 bytes + 4 bytes = <tspan class="b">16 bytes per parameter</tspan> (75% optimizer states)</text>
+
+  <!-- Scaling to Llama 3.1 8B -->
+  <!-- Container with breakdown -->
+  <rect x="26" y="152" width="768" height="82" rx="6" class="gray"/>
+  <text x="40" y="174" class="b">Applied to Llama 3.1 8B (8,030,000,000 parameters):</text>
+  <text x="40" y="196" class="sm">• BF16 Weights: 8.03B × 2B = <tspan class="b">16.06 GB</tspan></text>
+  <text x="40" y="214" class="sm">• BF16 Gradients: 8.03B × 2B = <tspan class="b">16.06 GB</tspan></text>
+  <text x="290" y="196" class="sm">• FP32 Master Weights: 8.03B × 4B = <tspan class="b">32.12 GB</tspan></text>
+  <text x="290" y="214" class="sm">• FP32 Adam Moments (m + v): 8.03B × 8B = <tspan class="b">64.24 GB</tspan></text>
+  <text x="590" y="205" class="b" fill="#b45f06">Total Model States:</text>
+  <text x="590" y="225" class="title" fill="#b45f06">≈ 128.5 GB</text>
+
+  <!-- Red comparison box -->
+  <rect x="26" y="246" width="768" height="72" rx="6" class="red"/>
+  <text x="40" y="269" class="b" fill="#900">Why Llama 3.1 8B cannot train on a single 80 GB H100 GPU:</text>
+  <text x="40" y="289" class="sm">The model and optimizer states require <tspan class="b">128.5 GB</tspan> (119.7 GiB). Even before storing a single activation tensor</text>
+  <text x="40" y="306" class="sm">or communication buffer, it exceeds the H100's visible memory (79.6 GiB) by <tspan class="b">48.5 GB</tspan> (sharding is mandatory).</text>
+</svg>

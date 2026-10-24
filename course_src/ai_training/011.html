@@ -1,0 +1,299 @@
+<h2>Introduction</h2>
+<p>In standard data-parallel training, every GPU maintains a complete, independent replica of the neural network. As established in Lesson 10, Data Parallelism and All-Reduce, this redundancy creates an impenetrable memory barrier. For standard mixed-precision training with the AdamW optimizer, each parameter demands <strong>16 bytes of static memory</strong> [1]. For an 8-billion-parameter model such as Llama 3.1 8B, this baseline footprint reaches 128.5 GB per device, immediately exceeding the physical capacity of an 80 GB NVIDIA H100 GPU before allocating a single activation tensor [1], [4].</p>
+<p>To train modern language models without abandoning the operational simplicity of data parallelism, Rajbhandari et al. introduced the <strong>Zero Redundancy Optimizer (ZeRO)</strong> [1]. Rather than replicating identical parameters, gradients, and optimizer states across every worker, ZeRO partitions these memory states across data-parallel ranks while retaining the same mathematical update as data-parallel SGD. In PyTorch, this paradigm is natively implemented as <strong>Fully Sharded Data Parallel (FSDP)</strong> [4].</p>
+<fig src="011-zero-stages-memory.svg" caption="Static memory footprint across ZeRO stages for Llama 3.1 8B on 8 GPUs">Static memory consumption per GPU for Llama 3.1 8B across sharding stages on an 8-GPU node. Baseline DDP requires 128.5 GB per GPU, exceeding an 80 GB H100. ZeRO Stage 1 shards optimizer states (44.2 GB). ZeRO Stage 2 shards gradients as well (30.1 GB). ZeRO-3 / FSDP shards parameters, gradients, and optimizer states, slashing static memory to 16.1 GB.</fig>
+<p>State sharding introduces a fundamental systems trade-off: eliminating memory redundancy requires GPUs to dynamically communicate model parameters on the fly during forward and backward passes. In ZeRO Stage 3 and FSDP, workers must execute an <strong>all-gather</strong> collective before each layer's forward pass, repeat the all-gather before each layer's backward pass, and execute a <strong>reduce-scatter</strong> collective on gradients. This adds approximately <strong>50% more communication volume (1.5×)</strong> compared to baseline data parallelism [1]. Managing this communication through asynchronous prefetching, layer wrapping, and hybrid network sharding is what determines whether distributed training achieves peak compute efficiency.</p>
+<p>In this lesson, we examine the three stages of ZeRO, derive the exact 1.5× communication factor, analyze stream prefetching, study PyTorch's modern composable FSDP2 architecture, explore Hybrid Sharded Data Parallelism (HSDP) across our 32-node cluster, and configure production training with PyTorch and DeepSpeed.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In infrastructure interviews, candidate discussions regarding state sharding typically start from memory sizing and cluster interconnect topology. Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: What model architecture, parameter count, and precision are we targeting for this cluster run?<br>
+<strong>Interviewer</strong>: We are pretraining a model with the Llama 3.1 8B architecture—8.03 billion parameters across 32 transformer layers. We use BF16 mixed-precision training with AdamW.</p>
+<p><strong>Candidate</strong>: What hardware topology do we have available?<br>
+<strong>Interviewer</strong>: A cluster of 256 NVIDIA H100 80 GB SXM GPUs arranged across 32 nodes (8 GPUs per node). Within each node, the 8 GPUs communicate via NVLink at 900 GB/s per GPU. Across nodes, each node connects through 8 InfiniBand NDR NICs offering 400 Gb/s (50 GB/s) per GPU.</p>
+<p><strong>Candidate</strong>: What are the sequence length and global batch targets?<br>
+<strong>Interviewer</strong>: Sequence length is 8,192 tokens. Global batch size is 512 sequences (approximately 4 million tokens).</p>
+<p><strong>Candidate</strong>: Since plain DDP runs out of memory on 80 GB GPUs, should we deploy full ZeRO-3 / FSDP flat across all 256 GPUs?<br>
+<strong>Interviewer</strong>: That is the core architecture decision. If you run ZeRO-3 flat across 256 GPUs, what happens to your inter-node InfiniBand bandwidth, what is the communication volume compared to DDP, and would a hybrid topology perform better?</p>
+<p>The question underneath is: <em>How do we shard optimizer states and weights to eliminate out-of-memory errors while preventing the 1.5× communication penalty from saturating our 50 GB/s inter-node InfiniBand network?</em></p>
+
+<h2>The ZeRO Paradigm: Sharding States Step-by-Step</h2>
+<h3>The 16-byte memory breakdown</h3>
+<p>As derived in Lesson 3, Training Memory, mixed-precision training with the AdamW optimizer maintains five distinct representations for each parameter <tex>p</tex> [1]:</p>
+<ol>
+<li><strong>BF16 model weight (2 bytes)</strong>: Evaluated during forward matrix multiplications and backward activation gradient calculations.</li>
+<li><strong>BF16 gradient (2 bytes)</strong>: Computed during backpropagation and accumulated across micro-batches.</li>
+<li><strong>FP32 master weight (4 bytes)</strong>: High-precision weight copy updated by the optimizer step to avoid numerical underflow.</li>
+<li><strong>FP32 Adam momentum <tex>m</tex> (4 bytes)</strong>: Exponentially decaying moving average of past gradients.</li>
+<li><strong>FP32 Adam variance <tex>v</tex> (4 bytes)</strong>: Exponentially decaying moving average of squared gradients.</li>
+</ol>
+<p>Summing these gives 16 bytes per parameter. Notice that <strong>12 of the 16 bytes (75%) belong entirely to the optimizer states</strong>. Model weights and active gradients account for only 4 bytes (25%). The ZeRO family eliminates this redundancy progressively in three stages, denoted <tex>P_{os}</tex>, <tex>P_{os+g}</tex>, and <tex>P_{os+g+p}</tex> [1].</p>
+
+<h3>ZeRO Stage 1 (<tex>P_{os}</tex>): Sharding Optimizer States</h3>
+<p>In <strong>ZeRO Stage 1</strong>, the 12 bytes per parameter of FP32 optimizer states (master weights, momentum, and variance) are partitioned equally across the <tex>N_d</tex> data-parallel workers. Each GPU holds only a <tex>1/N_d</tex> slice of the optimizer states. However, all GPUs continue to store complete, replicated copies of the BF16 model parameters (2 bytes) and BF16 gradients (2 bytes) [1].</p>
+<p>The static memory footprint per GPU under ZeRO-1 is:</p>
+<texblock>\text{Memory}_{\text{ZeRO-1}} = 2\Psi + 2\Psi + \frac{12\Psi}{N_d} = 4\Psi + \frac{12\Psi}{N_d}\text{ bytes}</texblock>
+<p>where <tex>\Psi</tex> represents model parameter count. For our 8.03B model (<tex>\Psi = 8.03 \times 10^9</tex>):</p>
+<ul>
+<li>On <tex>N_d = 8</tex> GPUs: <tex>4(8.03\text{ GB}) + \frac{12(8.03\text{ GB})}{8} = 32.12\text{ GB} + 12.05\text{ GB} = 44.17\text{ GB}</tex> (41.13 GiB). This cuts static memory by 66% compared to plain DDP (128.5 GB), immediately fitting within an 80 GB GPU.</li>
+<li>On <tex>N_d = 256</tex> GPUs: <tex>32.12\text{ GB} + \frac{96.36\text{ GB}}{256} = 32.12\text{ GB} + 0.38\text{ GB} = 32.50\text{ GB}</tex> (30.26 GiB). As <tex>N_d \to \infty</tex>, memory asymptotes to <tex>4\Psi</tex> (32.12 GB).</li>
+</ul>
+<p>Communication under ZeRO-1 matches standard DDP in volume, but the collective is split in two. During the backward pass, workers <strong>reduce-scatter</strong> the gradients, so each worker receives only the summed gradient slice for its own <tex>1/N_d</tex> partition of the optimizer states (<tex>1\Psi</tex> bytes). Each worker then updates its slice of the master weights, casts the result to BF16, and the workers <strong>all-gather</strong> the updated parameters (<tex>1\Psi</tex> bytes). The total of <tex>2\Psi</tex> equals a ring all-reduce, which is itself a reduce-scatter followed by an all-gather [1].</p>
+
+<h3>ZeRO Stage 2 (<tex>P_{os+g}</tex>): Sharding Gradients</h3>
+<p>In <strong>ZeRO Stage 2</strong>, both optimizer states and gradients are partitioned across the <tex>N_d</tex> workers. As backpropagation evaluates gradients for each layer, worker GPUs do not maintain a full gradient tensor. Instead, they execute a <strong>reduce-scatter</strong> collective: gradients are summed across ranks and each rank receives only its assigned <tex>1/N_d</tex> gradient partition [1].</p>
+<p>The static memory footprint per GPU under ZeRO-2 is:</p>
+<texblock>\text{Memory}_{\text{ZeRO-2}} = 2\Psi + \frac{2\Psi}{N_d} + \frac{12\Psi}{N_d} = 2\Psi + \frac{14\Psi}{N_d}\text{ bytes}</texblock>
+<ul>
+<li>On <tex>N_d = 8</tex> GPUs: <tex>16.06\text{ GB} + \frac{112.42\text{ GB}}{8} = 16.06\text{ GB} + 14.05\text{ GB} = 30.11\text{ GB}</tex> (28.04 GiB).</li>
+<li>On <tex>N_d = 256</tex> GPUs: <tex>16.06\text{ GB} + \frac{112.42\text{ GB}}{256} = 16.06\text{ GB} + 0.44\text{ GB} = 16.50\text{ GB}</tex> (15.37 GiB). As <tex>N_d \to \infty</tex>, memory asymptotes to <tex>2\Psi</tex> (16.06 GB, the size of weights alone).</li>
+</ul>
+<p>Communication volume in ZeRO-2 is mathematically identical to baseline DDP: reduce-scattering gradients costs <tex>1\Psi</tex>, and all-gathering updated weights costs <tex>1\Psi</tex>, totaling <tex>2\Psi</tex> [1].</p>
+
+<h3>ZeRO Stage 3 / FSDP (<tex>P_{os+g+p}</tex>): Sharding Model Parameters</h3>
+<p>In <strong>ZeRO Stage 3</strong> (and PyTorch FSDP), all 16 bytes per parameter are partitioned across the <tex>N_d</tex> workers. No GPU maintains a persistent copy of any full tensor: model weights, gradients, master weights, and optimizer moments are all sharded [1], [4].</p>
+<p>The static persistent memory footprint per GPU is:</p>
+<texblock>\text{Memory}_{\text{ZeRO-3}} = \frac{2\Psi + 2\Psi + 4\Psi + 4\Psi + 4\Psi}{N_d} = \frac{16\Psi}{N_d}\text{ bytes}</texblock>
+<fig src="011-memory-scaling-table-visual.svg" caption="Static memory per GPU for Llama 3.1 8B across GPU cluster sizes">Comparison of static memory footprints for Llama 3.1 8B on 8 GPUs versus 256 GPUs across sharding stages. Baseline DDP crashes at 128.5 GB in both setups. ZeRO-1 holds 44.2 GB on 8 GPUs and 32.5 GB on 256 GPUs. ZeRO-2 holds 30.1 GB and 16.5 GB. ZeRO-3 reduces static memory to 16.1 GB on 8 GPUs and just 0.50 GB on 256 GPUs, scaling inversely with worker count.</fig>
+<p>Table 1 details the exact memory accounting for Llama 3.1 8B across sharding stages and cluster counts.</p>
+
+<table>
+<thead><tr><th>Sharding Strategy</th><th>Bytes / Param</th><th>Memory on 8 GPUs</th><th>Memory on 256 GPUs</th><th>Asymptotic Limit (<tex>N_d \to \infty</tex>)</th></tr></thead>
+<tbody>
+<tr><td><strong>Baseline DDP</strong></td><td>16 bytes</td><td>128.48 GB (OOM)</td><td>128.48 GB (OOM)</td><td><tex>16\Psi</tex> (128.48 GB)</td></tr>
+<tr><td><strong>ZeRO-1 (<tex>P_{os}</tex>)</strong></td><td><tex>4 + 12/N_d</tex> bytes</td><td>44.17 GB (41.1 GiB)</td><td>32.50 GB (30.3 GiB)</td><td><tex>4\Psi</tex> (32.12 GB)</td></tr>
+<tr><td><strong>ZeRO-2 (<tex>P_{os+g}</tex>)</strong></td><td><tex>2 + 14/N_d</tex> bytes</td><td>30.11 GB (28.0 GiB)</td><td>16.50 GB (15.4 GiB)</td><td><tex>2\Psi</tex> (16.06 GB)</td></tr>
+<tr><td><strong>ZeRO-3 / FSDP (<tex>P_{os+g+p}</tex>)</strong></td><td><tex>16/N_d</tex> bytes</td><td>16.06 GB (15.0 GiB)</td><td>0.50 GB (479 MiB)</td><td><tex>0\text{ bytes}</text></td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Static memory consumption per GPU for Llama 3.1 8B (<tex>8.03 \times 10^9</tex> parameters) across distributed cluster configurations.</p>
+<p>Under ZeRO-3 on 256 GPUs, the persistent static memory per GPU collapses to just <strong>501.9 MB</strong> (478.6 MiB), freeing virtually the entire 80 GB of High Bandwidth Memory for sequence activations and working memory!</p>
+
+<h2>Communication Dynamics: The 1.5× Factor and Stream Prefetching</h2>
+<h3>The layer-by-layer lifecycle of ZeRO-3 / FSDP</h3>
+<p>Because model parameters are persistently sharded, a GPU does not hold the weights required to compute a transformer layer. Instead, parameters must be dynamically reconstructed right before computation and discarded immediately afterward [1], [4]:</p>
+<fig src="011-zero3-comm-pattern.svg" caption="Communication lifecycle per layer in ZeRO-3 and FSDP">Step-by-step communication lifecycle for one transformer layer. In forward pass, an all-gather fetches weights (1.0 Psi), forward activations are evaluated, and full weights are discarded. In backward pass, an all-gather re-fetches weights (1.0 Psi) to compute input gradients, followed by a reduce-scatter on gradients (1.0 Psi). Total communication is 3.0 Psi, exactly 1.5x baseline DDP.</fig>
+
+<h4>1. Forward Pass</h4>
+<p>Before executing Layer <tex>L</tex>, all ranks participate in an <strong>all-gather</strong> collective to reconstruct the complete layer weight tensor from their local shards. The GPU executes the forward matrix multiplications. The instant computation completes, the reconstructed weights are freed from memory, retaining only the persistent local <tex>1/N_d</tex> shard [1]. The total data transmitted across all layers during the forward pass is:</p>
+<texblock>\text{Traffic}_{\text{fwd}} = \frac{N_d - 1}{N_d} \Psi \approx 1\Psi\text{ bytes}</texblock>
+
+<h4>2. Backward Pass</h4>
+<p>During backpropagation, computing input gradients <tex>\partial \mathcal{L} / \partial X = (\partial \mathcal{L} / \partial Y) W^\top</tex> requires the original layer weights <tex>W</tex>. Because the forward weights were discarded, the workers must execute a <strong>second all-gather</strong> to re-acquire <tex>W</tex> for Layer <tex>L</tex> [1]. The data transmitted is again:</p>
+<texblock>\text{Traffic}_{\text{bwd, gather}} = \frac{N_d - 1}{N_d} \Psi \approx 1\Psi\text{ bytes}</texblock>
+<p>Next, the GPU evaluates weight gradients <tex>\partial \mathcal{L} / \partial W</tex>. The workers execute a <strong>reduce-scatter</strong> collective across the cluster: gradients are summed across all ranks, and each rank receives only its assigned <tex>1/N_d</tex> partition [1]. The data transmitted is:</p>
+<texblock>\text{Traffic}_{\text{bwd, scatter}} = \frac{N_d - 1}{N_d} \Psi \approx 1\Psi\text{ bytes}</texblock>
+
+<h4>The exact 1.5× traffic ratio</h4>
+<p>Summing the three collective operations yields the total communication volume per step in ZeRO-3 / FSDP [1]:</p>
+<texblock>\text{Traffic}_{\text{ZeRO-3}} = 1\Psi\text{ (fwd gather)} + 1\Psi\text{ (bwd gather)} + 1\Psi\text{ (bwd scatter)} = 3 \frac{N_d - 1}{N_d} \Psi \approx 3\Psi\text{ bytes}</texblock>
+<p>Recall from Lesson 10, Data Parallelism and All-Reduce, that standard DDP executes a single gradient all-reduce during the backward pass, transferring <tex>2 \frac{N_d - 1}{N_d} \Psi \approx 2\Psi</tex> bytes. Comparing the two:</p>
+<texblock>\frac{\text{Traffic}_{\text{ZeRO-3}}}{\text{Traffic}_{\text{DDP}}} = \frac{3\Psi}{2\Psi} = 1.5\times</texblock>
+<p>ZeRO-3 and FSDP incur exactly <strong>50% more network communication volume</strong> than baseline data parallelism. For our Llama 3.1 8B model (<tex>\Psi = 16.06\text{ GB}</tex>), DDP transfers approximately 32.0 GB per GPU, while ZeRO-3 transfers <strong>48.1 GB per GPU per training step</strong>.</p>
+
+<h3>Prefetching and stream overlap</h3>
+<p>If each all-gather operation blocked GPU execution, training throughput would collapse under collective latency. Modern FSDP implementations hide communication through asynchronous <strong>prefetching</strong> across separate CUDA streams [4]:</p>
+<fig src="011-prefetch-overlap-timeline.svg" caption="Asynchronous prefetching and CUDA stream overlap in FSDP">FSDP overlaps computation and communication using dual CUDA streams. While the Compute stream evaluates matrix multiplications for Layer L, the NCCL Communication stream concurrently issues an asynchronous all-gather to prefetch parameters for Layer L+1. As a result, computation proceeds without bubbles.</fig>
+<ul>
+<li><strong>Forward Prefetch</strong>: While the GPU compute stream is evaluating matrix multiplications for Layer <tex>L</tex>, the NCCL communication stream concurrently issues a non-blocking all-gather for Layer <tex>L+1</tex>. When Layer <tex>L</tex> finishes, the weights for Layer <tex>L+1</tex> are already present in memory.</li>
+<li><strong>Backward Prefetch</strong>: While computing backward gradients for Layer <tex>L</tex>, FSDP simultaneously issues an all-gather for Layer <tex>L-1</tex> weights and launches a reduce-scatter for Layer <tex>L</tex> gradients.</li>
+</ul>
+<p>So long as the compute time of a transformer layer exceeds its all-gather transfer time, communication is completely concealed behind matrix multiplications [4].</p>
+
+<h2>FSDP in PyTorch: FSDP2 and Composable Fully Shard</h2>
+<h3>From FSDP1 to FSDP2: The DTensor transition</h3>
+<p>In PyTorch 1.x and early 2.x, FSDP1 operated as a monolithic module wrapper (<code>FullyShardedDataParallel</code>). Internally, FSDP1 flattened all parameters within a layer into a single 1D tensor buffer called a <code>FlatParameter</code> [4]. While effective, flat parameters caused severe friction: they obscured original tensor shapes, hindered module hook registration, created memory fragmentation, and proved fundamentally incompatible with graph capture in <code>torch.compile</code>.</p>
+<fig src="011-fsdp2-dtensor-architecture.svg" caption="PyTorch FSDP1 FlatParameter versus FSDP2 Composable DTensor architecture">FSDP1 flattened all layer parameters into a monolithic 1D FlatParameter buffer, creating friction with torch.compile and module hooks. Modern FSDP2 (fully_shard) retains original tensor structures and shards each parameter along dimension 0 using native DTensors, enabling seamless composition with PyTorch compilation and mixed-precision policies.</fig>
+<p>In modern PyTorch (2.4+), <strong>FSDP2</strong> replaces the monolithic wrapper with a functional, composable API: <code>torch.distributed.fsdp.fully_shard</code> [5]. Instead of flattening buffers, FSDP2 builds directly on <strong>DTensor (Distributed Tensor)</strong>. Each individual weight matrix (<tex>W_q, W_k, W_v, W_{\text{gate}}, W_{\text{up}}</tex>) retains its original shape and is sharded along dimension 0 across a logical <code>DeviceMesh</code> [5]. Calling <code>fully_shard(module)</code> modifies the module in-place, attaching pre-forward, post-forward, pre-backward, and post-backward hooks without restructuring the model hierarchy.</p>
+
+<h3>FSDP2 Policies and Wrapping</h3>
+<p>Production FSDP2 deployments configure three core primitives [5]:</p>
+<ol>
+<li><strong>Layer Wrapping Policy</strong>: Calling <code>fully_shard</code> on the root model would shard the entire network as one giant block, requiring an all-gather of all 16 GB of weights at once. To achieve granular overlap and low peak memory, <code>fully_shard</code> must be applied <strong>bottom-up to each transformer block individually</strong>, followed by the root model [4], [5]. Peak working memory is capped at the size of a single reconstructed transformer layer (~470 MB for Llama 3.1 8B).</li>
+<li><strong>Mixed Precision Policy</strong>: Configured via <code>MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32)</code>. Parameters and forward activations execute in BF16 for maximum tensor core throughput, while gradient reduction occurs in FP32 to preserve numerical stability during collective summation [5].</li>
+<li><strong>CPU Offload Policy</strong>: Configured via <code>CPUOffloadPolicy(pin_memory=True)</code>. Non-active parameter shards are offloaded to host DRAM, utilizing pinned memory for asynchronous PCIe DMA transfers [5].</li>
+</ol>
+
+<h2>Hybrid Sharded Data Parallelism (HSDP)</h2>
+<h3>The multi-node bandwidth mismatch</h3>
+<p>Now consider our 256-GPU cluster (32 nodes × 8 H100 GPUs). If we deploy flat ZeRO-3 / FSDP across all 256 GPUs, every single transformer layer must execute two all-gathers and one reduce-scatter across the <strong>inter-node InfiniBand fabric</strong>. Let us examine the bandwidth disparity:</p>
+<ul>
+<li><strong>Intra-node NVLink</strong>: 900 GB/s per GPU (bidirectional). An all-gather of 16 GB of weights within a node completes in approximately <strong>35 ms</strong>.</li>
+<li><strong>Inter-node InfiniBand NDR</strong>: 400 Gb/s = 50 GB/s per GPU. Across 32 nodes, transmitting 48.1 GB per GPU (the 1.5× ZeRO-3 traffic) over a 50 GB/s link requires:
+<texblock>T_{\text{IB, ZeRO-3}} = \frac{48.1\text{ GB}}{50\text{ GB/s}} \approx 0.962\text{ s} = 962\text{ ms}</texblock>
+</li>
+</ul>
+<p>NVLink is <strong>18× faster than InfiniBand</strong>. Forcing 64 all-gather collective rounds (32 layers × 2 passes) across the inter-node network introduces severe packet serialization, latency sensitivity, and switch contention. If any layer's compute finishes faster than its inter-node all-gather, the GPUs stall.</p>
+
+<h3>HSDP: Sharding locally, replicating globally</h3>
+<p>To resolve this mismatch, modern training architectures employ <strong>Hybrid Sharded Data Parallelism (HSDP)</strong> [4]. Instead of treating all 256 GPUs as a flat group, HSDP constructs a <strong>2D Device Mesh</strong> with two orthogonal dimensions:</p>
+<fig src="011-hybrid-sharding-mesh.svg" caption="Hybrid Sharded Data Parallel (HSDP) 2D Device Mesh topology across 32 nodes">HSDP organizes 256 GPUs into a 2D mesh: intra-node shard degree = 8 (over 900 GB/s NVLink) and inter-node replicate degree = 32 (over 400 Gb/s InfiniBand). High-frequency layer all-gathers occur strictly over NVLink, while InfiniBand synchronizes only sharded gradients once per step.</fig>
+<ol>
+<li><strong>Intra-node Sharding Dimension (<code>dp_shard = 8</code>)</strong>: Within each 8-GPU node, parameters, gradients, and optimizer states are fully sharded via ZeRO-3 across the 8 GPUs over 900 GB/s NVLink. Static memory per GPU drops to <tex>128.48\text{ GB} / 8 = 16.06\text{ GB}</tex>, fitting comfortably within the 80 GB H100 budget. <strong>All high-frequency layer-by-layer all-gathers stay strictly confined to intra-node NVLink</strong> [4].</li>
+<li><strong>Inter-node Replication Dimension (<code>dp_replicate = 32</code>)</strong>: Across the 32 nodes, the 8-GPU sharded unit is replicated. Inter-node InfiniBand connections execute only a single all-reduce on the local gradient shards (or an inter-node reduce-scatter) once per optimizer step [4].</li>
+</ol>
+<p>Under HSDP, <strong>zero parameter all-gathers cross the inter-node network</strong>. The 1.5× communication penalty is paid exclusively over the 900 GB/s NVLink fabric, where it requires only ~35 ms. The slower 50 GB/s InfiniBand fabric handles only the standard gradient synchronization, preserving peak cluster throughput.</p>
+
+<h3>ZeRO-Offload and ZeRO-Infinity</h3>
+<p>When training extremely large models on clusters with limited GPU counts, even ZeRO-3 may exceed device memory. DeepSpeed introduces memory hierarchy offloading [2], [3]:</p>
+<fig src="011-zero-offload-infinity.svg" caption="Memory hierarchy offloading in ZeRO-Offload and ZeRO-Infinity">ZeRO-Offload shifts FP32 master weights and Adam optimizer states to host CPU DRAM, updating them via CPU Adam over PCIe 5.0. ZeRO-Infinity extends offload to NVMe SSDs with asynchronous prefetching, trading PCIe/NVMe bandwidth for near-infinite parameter capacity.</fig>
+<ul>
+<li><strong>ZeRO-Offload</strong>: Offloads FP32 master weights, momentum, and variance states (12 bytes/param) to host CPU DRAM [2]. During backward propagation, gradients are transferred over PCIe 5.0 (64 GB/s) to the host. Host CPU cores evaluate a multi-threaded, AVX-512 optimized <code>CPUAdam</code> optimizer update. Updated weights are cast to BF16 and copied back to GPU HBM before the next step.</li>
+<li><strong>ZeRO-Infinity</strong>: Extends offloading beyond CPU memory to local high-speed NVMe SSDs [3]. By exploiting the high aggregate read bandwidth of multiple PCIe Gen5 NVMe drives and pipelining I/O transfers with computation, ZeRO-Infinity enables training trillion-parameter models on modest hardware clusters [3].</li>
+</ul>
+<p>Offloading is valuable for single-node fine-tuning (see Lesson 22, Supervised Fine-Tuning). However, for high-throughput pretraining clusters, host-to-device PCIe bandwidth (64 GB/s) is vastly slower than HBM3 (3.35 TB/s), making offload an unnecessary bottleneck when sufficient GPUs are available [2].</p>
+
+<h3>DeepSpeed ZeRO configuration</h3>
+<p>In DeepSpeed, ZeRO stages and communication optimizations are configured via JSON dictionaries [6]. Key parameters include:</p>
+<ul>
+<li><code>stage</code>: 1, 2, or 3.</li>
+<li><code>overlap_comm</code>: Enables asynchronous prefetching and gradient communication overlap.</li>
+<li><code>contiguous_gradients</code>: Groups gradients into contiguous memory buffers to avoid allocator fragmentation.</li>
+<li><code>reduce_bucket_size</code>: Maximum buffer size for gradient reduce operations (e.g., <tex>5 \times 10^8</tex> elements).</li>
+<li><code>stage3_prefetch_bucket_size</code>: Buffer capacity for parameter prefetching in ZeRO-3.</li>
+<li><code>stage3_param_persistence_threshold</code>: Parameters smaller than this threshold (e.g., LayerNorm weights) remain persistently gathered in GPU memory to avoid collective launch overhead.</li>
+</ul>
+
+<h4>Which sharding fits our run?</h4>
+<p>For our 256-GPU cluster pretraining Llama 3.1 8B, <strong>Hybrid Sharded Data Parallelism (HSDP)</strong> is the optimal architecture. Sharding across 8 GPUs within each node (<tex>\text{shard} = 8</tex>) cuts static memory from 128.5 GB to 16.06 GB, providing over 63 GB of headroom for activations and FlashAttention buffers on each H100. Confining all parameter all-gathers to NVLink isolates the 1.5× communication volume to 900 GB/s links, while replicating across the 32 nodes (<tex>\text{replicate} = 32</tex>) over 400 Gb/s InfiniBand protects inter-node network efficiency. Flat ZeRO-3 across all 256 GPUs would generate unnecessary inter-node traffic, while ZeRO-1 or ZeRO-2 would consume too much static memory per device.</p>
+
+<h2>In Practice</h2>
+<p>The first tab demonstrates modern PyTorch FSDP2 (<code>fully_shard</code>) applied to a transformer architecture using a 2D Device Mesh for Hybrid Sharded Data Parallelism [4], [5]. The second tab provides a production DeepSpeed ZeRO-3 configuration file with prefetching and communication overlap enabled [6].</p>
+<codetabs>
+<tab label="FSDP2 HSDP Script" lang="python">
+import os
+import torch
+import torch.nn as nn
+import torch.distributed as dist
+from torch.distributed.device_mesh import init_device_mesh
+from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
+
+class TransformerBlock(nn.Module):
+    def __init__(self, hidden_dim: int = 4096, ffn_dim: int = 14336):
+        super().__init__()
+        self.attn_norm = nn.RMSNorm(hidden_dim)
+        self.q_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.k_proj = nn.Linear(hidden_dim, hidden_dim // 4, bias=False)
+        self.v_proj = nn.Linear(hidden_dim, hidden_dim // 4, bias=False)
+        self.out_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.ffn_norm = nn.RMSNorm(hidden_dim)
+        self.gate_proj = nn.Linear(hidden_dim, ffn_dim, bias=False)
+        self.up_proj = nn.Linear(hidden_dim, ffn_dim, bias=False)
+        self.down_proj = nn.Linear(ffn_dim, hidden_dim, bias=False)
+
+    def forward(self, x):
+        h = self.attn_norm(x)
+        attn = self.out_proj(self.q_proj(h))
+        x = x + attn
+        h2 = self.ffn_norm(x)
+        ffn = self.down_proj(torch.nn.functional.silu(self.gate_proj(h2)) * self.up_proj(h2))
+        return x + ffn
+
+class LlamaModel(nn.Module):
+    def __init__(self, num_layers: int = 32, hidden_dim: int = 4096):
+        super().__init__()
+        self.layers = nn.ModuleList([TransformerBlock(hidden_dim) for _ in range(num_layers)])
+        self.norm = nn.RMSNorm(hidden_dim)
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return self.norm(x)
+
+def train_hsdp():
+    dist.init_process_group(backend="nccl")
+    local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f"cuda:{local_rank}")
+
+    # Initialize 2D Device Mesh: 32 nodes replicate, 8 GPUs shard (256 GPUs total)
+    # mesh_shape = (dp_replicate, dp_shard)
+    world_size = dist.get_world_size()
+    shard_size = 8
+    replicate_size = world_size // shard_size
+    mesh_2d = init_device_mesh("cuda", (replicate_size, shard_size), mesh_dim_names=("replicate", "shard"))
+
+    # Mixed precision policy: BF16 computation, FP32 gradient reduction
+    mp_policy = MixedPrecisionPolicy(
+        param_dtype=torch.bfloat16,
+        reduce_dtype=torch.float32
+    )
+
+    model = LlamaModel(num_layers=32).to(device)
+
+    # Apply FSDP2 bottom-up: shard each transformer block along the intra-node shard mesh
+    for block in model.layers:
+        fully_shard(block, mesh=mesh_2d["shard"], mp_policy=mp_policy)
+
+    # Shard root module to capture output norm
+    fully_shard(model, mesh=mesh_2d["shard"], mp_policy=mp_policy)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+    inputs = torch.randn(2, 8192, 4096, dtype=torch.bfloat16, device=device)
+
+    optimizer.zero_grad()
+    outputs = model(inputs)
+    loss = outputs.sum()
+    loss.backward()
+    optimizer.step()
+
+    dist.destroy_process_group()
+
+if __name__ == "__main__":
+    train_hsdp()
+</tab>
+<tab label="DeepSpeed ZeRO-3 Config" lang="json">
+{
+  "train_batch_size": 512,
+  "train_micro_batch_size_per_gpu": 2,
+  "gradient_accumulation_steps": 1,
+  "bf16": {
+    "enabled": true
+  },
+  "zero_optimization": {
+    "stage": 3,
+    "overlap_comm": true,
+    "contiguous_gradients": true,
+    "sub_group_size": 1e9,
+    "reduce_bucket_size": 5e7,
+    "stage3_prefetch_bucket_size": 5e7,
+    "stage3_param_persistence_threshold": 1e5,
+    "stage3_max_live_parameters": 1e9,
+    "stage3_max_reuse_distance": 1e9,
+    "stage3_gather_16bit_weights_on_model_save": true
+  },
+  "gradient_clipping": 1.0,
+  "wall_clock_breakdown": false
+}
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Activation Checkpointing Integration</strong>: Why FSDP must be applied outside activation checkpointing blocks, so that recomputed forward layers trigger proper all-gather parameter reconstructions [4].</li>
+<li><strong>Parameter Persistence Threshold</strong>: Small parameters (such as RMSNorm scale vectors and bias terms) generate tiny collective calls. Persisting them in HBM avoids collective launch overhead with negligible memory cost [1].</li>
+<li><strong>Distributed Checkpoint (DCP)</strong>: How modern PyTorch saves sharded state dicts concurrently from each rank using <code>torch.distributed.checkpoint</code>, avoiding the massive memory bottleneck of gathering full model checkpoints to rank 0 [5].</li>
+<li><strong>ZeRO++ Optimizations</strong>: DeepSpeed ZeRO++ techniques, including quantization of all-gather parameters to FP8 (block-based weight quantization) to halve all-gather network traffic on slower fabrics [3].</li>
+<li><strong>Memory Fragmentation</strong>: How PyTorch's native caching allocator can suffer from memory fragmentation during frequent layer all-gather allocations, and how setting <code>max_split_size_mb</code> mitigates out-of-memory spikes.</li>
+<li><strong>Gradient Norm Computation</strong>: In ZeRO-3, computing the global gradient norm for gradient clipping requires an all-reduce across local gradient norms before applying parameter updates [1].</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="011-summary.png" caption="ZeRO and FSDP summary" optional="1">Mind map summarizing the ZeRO stages, memory scaling, communication trade-offs, PyTorch FSDP2 composability, and hybrid sharding.</fig>
+<ul>
+<li>Standard DDP replicates 16 bytes per parameter (128.5 GB for Llama 3.1 8B), exceeding 80 GB GPUs. ZeRO eliminates redundancy by partitioning states across data-parallel ranks.</li>
+<li>ZeRO-1 shards optimizer states (44.2 GB on 8 GPUs). ZeRO-2 shards optimizer states and gradients (30.1 GB). ZeRO-3 / FSDP shards parameters, gradients, and optimizer states (16.1 GB on 8 GPUs, 0.50 GB on 256 GPUs).</li>
+<li>ZeRO-3 requires all-gathering weights before forward pass, all-gathering weights again before backward pass, and reduce-scattering gradients. Total communication is <tex>3\Psi</tex>, exactly 1.5× baseline DDP.</li>
+<li>Asynchronous prefetching on dedicated CUDA communication streams hides all-gather collective latency behind the matrix multiplications of adjacent transformer layers.</li>
+<li>PyTorch FSDP2 replaces monolithic FlatParameter buffers with composable <code>fully_shard</code>, sharding parameters along dimension 0 as native DTensors for seamless integration with <code>torch.compile</code>.</li>
+<li>Hybrid Sharded Data Parallelism (HSDP) shards parameters across 8 GPUs intra-node over 900 GB/s NVLink and replicates across 32 nodes over 400 Gb/s InfiniBand, confining the 1.5× traffic to NVLink and maximizing cluster efficiency.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Rajbhandari et al. ZeRO: Memory Optimizations Toward Training Trillion Parameter Models. <a href="https://arxiv.org/abs/1910.02054" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1910.02054</a>.<br>
+[2] Ren et al. ZeRO-Offload: Democratizing Billion-Scale Model Training. <a href="https://arxiv.org/abs/2101.06840" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2101.06840</a>.<br>
+[3] Rajbhandari et al. ZeRO-Infinity: Breaking the GPU Memory Wall for Extreme Scale Deep Learning. <a href="https://arxiv.org/abs/2104.07857" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2104.07857</a>.<br>
+[4] Zhao et al. PyTorch FSDP: Experiences on Scaling Fully Sharded Data Parallel. <a href="https://arxiv.org/abs/2304.11277" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2304.11277</a>.<br>
+[5] PyTorch Documentation: Getting Started with FSDP2. <a href="https://pytorch.org/tutorials/intermediate/FSDP_tutorial.html" rel="noopener noreferrer" target="_blank">https://pytorch.org/tutorials/intermediate/FSDP_tutorial.html</a>.<br>
+[6] DeepSpeed Documentation: Zero Redundancy Optimizer. <a href="https://www.deepspeed.ai/tutorials/zero/" rel="noopener noreferrer" target="_blank">https://www.deepspeed.ai/tutorials/zero/</a>.</p>

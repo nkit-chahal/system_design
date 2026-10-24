@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .axis { stroke: #333; stroke-width: 1.5; }
+    .grid { stroke: #eee; stroke-width: 1; }
+    .curve { stroke: #b85450; stroke-width: 2.5; fill: none; }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Cluster Utilization vs Average Queue Wait Time (Illustrative)</text>
+  <text x="25" y="42" class="sm" fill="#555">Queueing theory hockey-stick curve: queue wait times explode as cluster utilization exceeds 85–90%.</text>
+
+  <!-- Plot area: Origin (90, 260), Width 460, Height 190. Max Y at Y=70 -->
+  <line x1="90" y1="260" x2="550" y2="260" class="axis"/>
+  <line x1="90" y1="70" x2="90" y2="260" class="axis"/>
+  <text x="40" y="165" class="sm b" transform="rotate(-90 40 165)" text-anchor="middle">Queue Wait (Hours)</text>
+
+  <!-- Grid & Y ticks: 0, 5, 10, 20, 40+ -->
+  <line x1="90" y1="260" x2="550" y2="260" class="grid"/>
+  <text x="80" y="264" text-anchor="end" class="sm">0</text>
+  <line x1="90" y1="210" x2="550" y2="210" class="grid"/>
+  <text x="80" y="214" text-anchor="end" class="sm">4</text>
+  <line x1="90" y1="160" x2="550" y2="160" class="grid"/>
+  <text x="80" y="164" text-anchor="end" class="sm">12</text>
+  <line x1="90" y1="110" x2="550" y2="110" class="grid"/>
+  <text x="80" y="114" text-anchor="end" class="sm">24</text>
+  <line x1="90" y1="70" x2="550" y2="70" class="grid"/>
+  <text x="80" y="74" text-anchor="end" class="sm">48+</text>
+
+  <!-- X ticks: 50%, 60%, 70%, 80%, 90%, 95% -->
+  <!-- X positions: 90 (0%), 182 (50%), 274 (70%), 366 (80%), 458 (90%), 504 (95%), 550 (100%) -->
+  <line x1="182" y1="260" x2="182" y2="265" class="axis"/>
+  <text x="182" y="280" text-anchor="middle" class="sm">50%</text>
+  <line x1="274" y1="260" x2="274" y2="265" class="axis"/>
+  <text x="274" y="280" text-anchor="middle" class="sm">70%</text>
+  <line x1="366" y1="260" x2="366" y2="265" class="axis"/>
+  <text x="366" y="280" text-anchor="middle" class="sm">80%</text>
+  <line x1="458" y1="260" x2="458" y2="265" class="axis"/>
+  <text x="458" y="280" text-anchor="middle" class="sm">90%</text>
+  <line x1="504" y1="260" x2="504" y2="265" class="axis"/>
+  <text x="504" y="280" text-anchor="middle" class="sm">95%</text>
+  <text x="320" y="302" text-anchor="middle" class="sm b">Cluster Utilization (ρ)</text>
+
+  <!-- Curve: hockey stick W_q = rho / (1 - rho) -->
+  <path d="M182,255 C274,250 366,238 420,215 C458,190 485,140 504,70" class="curve"/>
+
+  <!-- Sweet spot zone -->
+  <rect x="366" y="70" width="92" height="190" fill="#d5e8d4" opacity="0.35"/>
+  <text x="412" y="90" text-anchor="middle" class="sm b" fill="#274e13">Optimal Zone</text>
+  <text x="412" y="106" text-anchor="middle" class="sm" fill="#274e13">(80%–85%)</text>
+
+  <!-- Right side explanation panel -->
+  <rect x="575" y="70" width="240" height="215" rx="5" class="gray"/>
+  <text x="585" y="92" class="b sm">The Schedulers' Dilemma:</text>
+  <text x="585" y="112" class="sm">• <tspan class="b">Low Utilization (&lt; 70%)</tspan>:</text>
+  <text x="595" y="128" class="sm">Zero wait times, but CFO complains</text>
+  <text x="595" y="144" class="sm">about millions in idle GPU spend.</text>
+
+  <text x="585" y="168" class="sm">• <tspan class="b">High Utilization (&gt; 92%)</tspan>:</text>
+  <text x="595" y="184" class="sm">Queue wait blows up past 24h.</text>
+  <text x="595" y="200" class="sm">Engineers blocked; velocity stalls.</text>
+
+  <text x="585" y="224" class="sm">• <tspan class="b">Target Equilibrium (85%)</tspan>:</text>
+  <text x="595" y="240" class="sm">High utilization sustained by</text>
+  <text x="595" y="256" class="sm">preemptible backfill jobs.</text>
+
+  <text x="25" y="335" class="sm" fill="#555">Illustrative curve modeling expected wait time under M/M/c queueing dynamics with high burstiness in job arrival times.</text>
+</svg>

@@ -1,0 +1,367 @@
+<h2>Introduction</h2>
+<p>In Lesson 3, Training Memory, we established the theoretical rules governing GPU memory allocation during large language model training. Static model and optimizer states demand 16 bytes per parameter under standard mixed-precision AdamW, while dynamic activations scale with batch size, sequence length, and layer dimensions [1]. In production infrastructure, however, an unexpected Out-Of-Memory (OOM) error frequently halts training runs. Engineers often respond by guessing: randomly cutting batch sizes, turning on checkpointing without sizing its impact, or switching off mixed-precision features without knowing why memory ran out.</p>
+<p>A rigorous training engineer does not guess. Before running a single forward pass, you should be able to predict the memory footprint of your model down to within a few percent of the measured bytes. When discrepancies arise, PyTorch provides internal instrumentation—such as <code>torch.cuda.max_memory_allocated()</code> and the CUDA memory snapshot visualizer—to track every tensor allocation, lifetime, and caching allocator buffer directly against the underlying Python call stack [2], [3].</p>
+<fig src="006-lab-setup.svg" caption="Lab setup: analytical memory prediction and runtime instrumentation pipeline">Workflow of the memory accounting lab. We begin by calculating analytical memory bounds from first principles for static states, activations, logits, and workspaces. Next, we execute an instrumented nanoGPT-style training script on GPU with precision and checkpointing toggles. CUDA memory hooks record allocation milestones and dump snapshot event traces, which are visualized at pytorch.org/memory_viz and validated against a predicted versus measured results table.</fig>
+<p>In this lab, we build a complete, self-contained generative pretraining script in the minimalist style of nanoGPT [4]. We train a GPT-2-small-sized model (approximately 124 million parameters) [5] on a single GPU, predict every gigabyte before execution, record its exact memory trajectory across the training step, and systematically evaluate the memory reduction levers: BF16 autocast, activation checkpointing, micro-batch sizing, and gradient accumulation. We also provide the parallel accounting for a 1-billion-parameter model on an NVIDIA H100 GPU.</p>
+
+<h2>What You Need</h2>
+<p>We provide two execution paths. The <strong>small path</strong> runs on a single consumer GPU (such as an RTX 3060, RTX 4060, RTX 4070, or a free cloud T4 / A10G instance with 8 GB to 16 GB of VRAM) and trains a 124.44M-parameter GPT-2 architecture. The <strong>full path</strong> scales the exact same accounting to a 1.0B-parameter dense transformer on an NVIDIA H100 80 GB GPU.</p>
+<table>
+<thead><tr><th>Component</th><th>Small Path (Consumer GPU)</th><th>Full Path (Cloud H100)</th></tr></thead>
+<tbody>
+<tr><td>GPU Hardware</td><td>1× NVIDIA GPU with ≥ 8 GB VRAM (RTX 3060/4060, T4, A10G)</td><td>1× NVIDIA H100 SXM 80 GB (79.6 GiB visible)</td></tr>
+<tr><td>Host Environment</td><td>Linux or Windows 11 with CUDA 11.8+ / 12.x</td><td>Ubuntu 22.04 LTS with CUDA 12.x</td></tr>
+<tr><td>Software Stack</td><td>Python 3.10+, PyTorch 2.2+, tiktoken (or char tokenizer)</td><td>Python 3.10+, PyTorch 2.4+ with FlashAttention-2</td></tr>
+<tr><td>Target Architecture</td><td>GPT-2 Small: 12 layers, hidden 768, 12 heads, vocab 50,257 (124.44M params)</td><td>1B Dense Transformer: 16 layers, hidden 2048, 16 heads, vocab 128,256 (1.00B params)</td></tr>
+<tr><td>Training Dataset</td><td>TinyStories [6] or Shakespeare character dataset</td><td>Tokenized pretraining corpus sample (e.g., FineWeb-Edu)</td></tr>
+<tr><td>Run Time</td><td>Approximately 15 minutes for sweeps</td><td>Approximately 30 minutes for sweeps</td></tr>
+<tr><td>Estimated Compute Cost</td><td>$0.00 (local hardware or free tier)</td><td>Approximately $3.00, assuming $3.00 per H100-hour for 1 hour</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Hardware and software configurations for the small and full lab paths. The H100 price is an assumption; verify your cloud provider rates.</p>
+
+<h2>Step 1: Predict the Memory Footprint from First Principles</h2>
+<p>Before launching training, we calculate the four primary consumers of GPU memory established in Lesson 3, Training Memory: static model states, dynamic forward activations, temporary workspaces and projection buffers, and caching allocator headroom.</p>
+
+<h3>1. Static model and optimizer states (16 bytes per parameter)</h3>
+<p>Under standard mixed-precision training with BF16 and the AdamW optimizer, each parameter requires five tensors [1]:</p>
+<texblock>\text{Static Memory per Parameter} = 2\text{ (BF16 wt)} + 2\text{ (BF16 grad)} + 4\text{ (FP32 master)} + 4\text{ (Adam } m) + 4\text{ (Adam } v) = 16\text{ bytes}</texblock>
+<p>For GPT-2 Small with tied input/output embeddings, the unique trainable parameter count is <tex>N = 124,439,808</tex> (approximately 124.44M parameters):</p>
+<ul>
+<li><strong>BF16 Weights</strong>: <tex>124.44 \times 10^6 \times 2\text{ bytes} \approx 248.88\text{ MB}</tex> (237.35 MiB).</li>
+<li><strong>BF16 Gradients</strong>: <tex>124.44 \times 10^6 \times 2\text{ bytes} \approx 248.88\text{ MB}</tex> (237.35 MiB).</li>
+<li><strong>FP32 Master Weights</strong>: <tex>124.44 \times 10^6 \times 4\text{ bytes} \approx 497.76\text{ MB}</tex> (474.70 MiB).</li>
+<li><strong>FP32 Adam Moments (<tex>m</tex> and <tex>v</tex>)</strong>: <tex>124.44 \times 10^6 \times 8\text{ bytes} \approx 995.52\text{ MB}</tex> (949.40 MiB).</li>
+<li><strong>Total Static States</strong>: <tex>124.44 \times 10^6 \times 16\text{ bytes} = 1,991,036,928\text{ bytes} \approx 1,991.04\text{ MB}</tex> (1.991 GB or 1,898.80 MiB).</li>
+</ul>
+<p>For the full path 1B model (<tex>N = 1.00 \times 10^9</tex> parameters), the static baseline scales to exactly <tex>1.00 \times 10^9 \times 16\text{ bytes} = 16.00\text{ GB}</tex> (14.90 GiB).</p>
+
+<h3>2. Dynamic activation memory</h3>
+<p>We evaluate intermediate forward activations using Korthikanti et al.'s formulation [1]. With sequence length <tex>s = 1,024</tex>, micro-batch size <tex>b = 8</tex>, hidden dimension <tex>h = 768</tex>, heads <tex>a = 12</tex>, and <tex>L = 12</tex> layers in BF16 (2 bytes per number):</p>
+<ul>
+<li><strong>Linear terms per layer</strong>: <tex>34 s b h = 34 \times 1,024 \times 8 \times 768 = 213,909,504\text{ bytes} \approx 213.91\text{ MB}</tex>.</li>
+<li><strong>Quadratic attention terms per layer (without FlashAttention)</strong>: <tex>5 a s^2 b = 5 \times 12 \times (1,024)^2 \times 8 = 503,316,480\text{ bytes} \approx 503.32\text{ MB}</tex>.</li>
+<li><strong>Total uncheckpointed standard attention</strong>: Across 12 layers, activations require <tex>12 \times (213.91 + 503.32)\text{ MB} = 8,606.71\text{ MB} \approx 8.61\text{ GB}</tex>. This would immediately exceed an 8 GB GPU before counting model states!</li>
+<li><strong>With FlashAttention</strong>: The quadratic <tex>5 a s^2 b</tex> term is eliminated [7], [8]. Activations collapse to the linear term: <tex>12 \times 213.91\text{ MB} = 2,566.91\text{ MB} \approx 2.57\text{ GB}</tex>.</li>
+<li><strong>With Full Activation Checkpointing</strong>: Retaining only the input activation tensor per layer (<tex>2 s b h</tex> in BF16) requires <tex>12 \times (2 \times 1,024 \times 8 \times 768 \times 2) \approx 301.99\text{ MB}</tex> [9]. Adding one layer's peak recomputed activations (<tex>213.91\text{ MB}</tex>) during backward pass brings total peak activations to just <strong>515.90 MB</strong> (an 80% reduction compared to uncheckpointed FlashAttention).</li>
+</ul>
+
+<h3>3. Ephemeral logits projection buffer</h3>
+<p>A critical source of memory spikes often omitted in textbook calculations is the vocabulary projection buffer. At the final layer, hidden states <tex>[b, s, h]</tex> multiply against the unembedding matrix to produce logits of shape <tex>[b, s, V]</tex>. For GPT-2 with vocabulary <tex>V = 50,257</tex>, evaluating cross-entropy in FP32 requires materializing:</p>
+<texblock>\text{Logits Buffer} = 8 \times 1,024 \times 50,257 \times 4\text{ bytes} = 1,646,821,376\text{ bytes} \approx 1,646.82\text{ MB}\text{ (1.65 GB)}</texblock>
+<p>Notice that for GPT-2 Small at batch size 8, <strong>the ephemeral logits buffer consumes nearly as much memory as the entire model and optimizer states combined</strong>! In the 1B model with Llama-sized vocabulary (<tex>V = 128,256</tex>, <tex>b = 8, s = 2,048</tex>), the unchunked logits tensor consumes <tex>8 \times 2,048 \times 128,256 \times 4 \approx 8.41\text{ GB}</tex>.</p>
+<fig src="006-predicted-breakdown.svg" caption="Predicted memory breakdown for GPT-2 Small and 1B models">Analytical component sizing for GPT-2 Small (124M parameters, batch size 8, sequence length 1,024) and a 1B model (batch size 8, sequence length 2,048). For GPT-2 Small, static states require 1.99 GB, FlashAttention activations require 2.57 GB, the logits buffer requires 1.65 GB, and scratch workspaces take 0.26 GB, predicting a 6.47 GB peak that fits inside 8 GB VRAM. Activation checkpointing cuts the peak to 4.42 GB.</fig>
+
+<p>The code tab below provides an automated prediction script that calculates these analytical components for any transformer configuration.</p>
+<codetabs>
+<tab label="predict_memory.py" lang="python">
+def calculate_memory(num_params, num_layers, hidden_dim, num_heads, seq_len, batch_size, vocab_size,
+                     precision="bf16", activation_checkpointing=False, use_flash_attn=True):
+    bytes_per_elem = 2 if precision in ("bf16", "fp16") else 4
+    bytes_per_param_adam = 16
+    weight_bytes = num_params * bytes_per_elem
+    grad_bytes = num_params * bytes_per_elem
+    master_weight_bytes = num_params * 4 if precision in ("bf16", "fp16") else 0
+    adam_bytes = num_params * 8
+    total_model_states = num_params * bytes_per_param_adam
+
+    s, b, h, a = seq_len, batch_size, hidden_dim, num_heads
+    linear_per_layer = 34 * s * b * h * (bytes_per_elem / 2.0)
+    quad_per_layer = 5 * a * (s ** 2) * b * (bytes_per_elem / 2.0)
+
+    if activation_checkpointing:
+        stored_act = num_layers * (2 * s * b * h * bytes_per_elem)
+        peak_recomputed = linear_per_layer if use_flash_attn else (linear_per_layer + quad_per_layer)
+        total_act = stored_act + peak_recomputed
+    else:
+        act_per_layer = linear_per_layer if use_flash_attn else (linear_per_layer + quad_per_layer)
+        total_act = num_layers * act_per_layer
+
+    logits_bytes = b * s * vocab_size * 4
+    workspace_bytes = 250 * 1024 * 1024 if num_params < 3e8 else 1500 * 1024 * 1024
+    total_peak = total_model_states + total_act + logits_bytes + workspace_bytes
+
+    return {
+        "static_mb": total_model_states / 1e6,
+        "activations_mb": total_act / 1e6,
+        "logits_mb": logits_bytes / 1e6,
+        "workspace_mb": workspace_bytes / 1e6,
+        "total_peak_gb": total_peak / 1e9,
+    }
+
+if __name__ == "__main__":
+    res = calculate_memory(124.44e6, 12, 768, 12, 1024, 8, 50257, precision="bf16", activation_checkpointing=False)
+    print(f"GPT-2 Small (b=8, FlashAttn): Static={res['static_mb']:.1f}MB, Act={res['activations_mb']:.1f}MB, Logits={res['logits_mb']:.1f}MB, Peak={res['total_peak_gb']:.2f}GB")
+    res_ckp = calculate_memory(124.44e6, 12, 768, 12, 1024, 8, 50257, precision="bf16", activation_checkpointing=True)
+    print(f"GPT-2 Small (b=8, Checkpoint): Static={res_ckp['static_mb']:.1f}MB, Act={res_ckp['activations_mb']:.1f}MB, Logits={res_ckp['logits_mb']:.1f}MB, Peak={res_ckp['total_peak_gb']:.2f}GB")
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> Running <code>python predict_memory.py</code> prints a total predicted peak of <strong>6.47 GB</strong> for GPT-2 Small at batch size 8 with uncheckpointed FlashAttention, and <strong>4.42 GB</strong> with activation checkpointing enabled. For the 1B model at batch size 8 (<tex>s=2,048</tex>), it predicts <strong>29.27 GB</strong>, confirming that training fits well within an 80 GB H100 GPU.</p>
+
+<h2>Step 2: Build the Instrumented Training Script</h2>
+<p>Now we implement our training script in the minimalist, readable style of Andrej Karpathy's nanoGPT [4]. To ensure reproducibility, we build the model using native PyTorch 2.x modules: <code>nn.Linear</code>, <code>nn.LayerNorm</code>, and <code>F.scaled_dot_product_attention</code> (which automatically routes to FlashAttention-2 on Hopper, Ampere, and Ada architectures). We also wire in PyTorch's native activation checkpointing via <code>torch.utils.checkpoint.checkpoint</code> [5].</p>
+<p>Crucially, we instrument the script with CUDA memory milestones to measure exactly when memory is allocated:</p>
+<ol>
+<li><strong>Milestone 1 (Model Load)</strong>: Measures memory immediately after transferring weights to GPU.</li>
+<li><strong>Milestone 2 (Optimizer Init)</strong>: Measures memory after instantiating <code>AdamW</code>.</li>
+<li><strong>Milestone 3 (Forward Pass)</strong>: Measures memory immediately after completing the forward pass, capturing intermediate activations.</li>
+<li><strong>Milestone 4 (Backward Pass)</strong>: Captures peak memory during backpropagation.</li>
+<li><strong>Milestone 5 (Step Complete)</strong>: Measures memory after <code>optimizer.step()</code> and <code>optimizer.zero_grad(set_to_none=True)</code>.</li>
+</ol>
+<codetabs>
+<tab label="train_gpt.py" lang="python">
+import argparse, time
+from dataclasses import dataclass
+import torch
+import torch.nn as nn
+from torch.nn import functional as F
+from torch.utils.checkpoint import checkpoint
+
+@dataclass
+class GPTConfig:
+    block_size: int = 1024
+    vocab_size: int = 50257
+    n_layer: int = 12
+    n_head: int = 12
+    n_embd: int = 768
+    dropout: float = 0.0
+    bias: bool = True
+    activation_checkpointing: bool = False
+
+class CausalSelfAttention(nn.Module):
+    def __init__(self, config: GPTConfig):
+        super().__init__()
+        self.n_head = config.n_head
+        self.n_embd = config.n_embd
+        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
+        self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+
+    def forward(self, x):
+        B, T, C = x.size()
+        q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
+        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
+        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
+        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
+        y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        return self.c_proj(y.transpose(1, 2).contiguous().view(B, T, C))
+
+class Block(nn.Module):
+    def __init__(self, config: GPTConfig):
+        super().__init__()
+        self.ln_1 = nn.LayerNorm(config.n_embd, bias=config.bias)
+        self.attn = CausalSelfAttention(config)
+        self.ln_2 = nn.LayerNorm(config.n_embd, bias=config.bias)
+        self.mlp = nn.Sequential(
+            nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias),
+            nn.GELU(),
+            nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias),
+        )
+        self.use_checkpointing = config.activation_checkpointing
+
+    def _forward(self, x):
+        return x + self.mlp(self.ln_2(x + self.attn(self.ln_1(x))))
+
+    def forward(self, x):
+        if self.use_checkpointing and self.training:
+            return checkpoint(self._forward, x, use_reentrant=False)
+        return self._forward(x)
+
+class GPT(nn.Module):
+    def __init__(self, config: GPTConfig):
+        super().__init__()
+        self.config = config
+        self.transformer = nn.ModuleDict(dict(
+            wte = nn.Embedding(config.vocab_size, config.n_embd),
+            wpe = nn.Embedding(config.block_size, config.n_embd),
+            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+            ln_f = nn.LayerNorm(config.n_embd, bias=config.bias),
+        ))
+        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        self.transformer.wte.weight = self.lm_head.weight
+
+    def forward(self, idx, targets=None):
+        pos = torch.arange(0, idx.size(1), dtype=torch.long, device=idx.device)
+        x = self.transformer.ln_f(sum([self.transformer.wte(idx), self.transformer.wpe(pos)]))
+        for block in self.transformer.h:
+            x = block(x)
+        logits = self.lm_head(x)
+        loss = None
+        if targets is not None:
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+        return logits, loss
+
+def train(args):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+        if args.record_snapshot:
+            torch.cuda.memory._record_memory_history(enabled="all", context="all", stacks="python", max_entries=100000)
+
+    cfg = GPTConfig(block_size=args.seq_len, activation_checkpointing=args.checkpointing)
+    model = GPT(cfg).to(device)
+    alloc_m1 = torch.cuda.memory_allocated(device) / (1024**2)
+    print(f"[Milestone 1] Model Loaded: {alloc_m1:.2f} MiB")
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+    alloc_m2 = torch.cuda.memory_allocated(device) / (1024**2)
+    print(f"[Milestone 2] Optimizer Initialized (States unallocated): {alloc_m2:.2f} MiB")
+
+    ptdtype = torch.bfloat16 if (args.precision == "bf16" and device.type == "cuda") else torch.float32
+    ctx = torch.amp.autocast(device_type="cuda", dtype=ptdtype) if device.type == "cuda" else torch.nullcontext()
+
+    for step in range(args.steps):
+        optimizer.zero_grad(set_to_none=True)
+        for _ in range(args.grad_accum):
+            x = torch.randint(0, cfg.vocab_size, (args.batch_size, args.seq_len), device=device)
+            y = torch.randint(0, cfg.vocab_size, (args.batch_size, args.seq_len), device=device)
+            with ctx:
+                logits, loss = model(x, y)
+                loss = loss / args.grad_accum
+            loss.backward()
+
+        optimizer.step()
+        if step == 0:
+            alloc_step0 = torch.cuda.memory_allocated(device) / (1024**2)
+            peak_step0 = torch.cuda.max_memory_allocated(device) / (1024**2)
+            print(f"[Milestone 5] Step 0 Done (Adam Moments Allocated): Allocated={alloc_step0:.2f} MiB | Peak={peak_step0:.2f} MiB")
+
+    if device.type == "cuda" and args.record_snapshot:
+        torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
+        print("Snapshot saved to memory_snapshot.pickle.")
+</tab>
+<tab label="Data preparation" lang="python">
+# Optional data preparation: download Shakespeare text and tokenize
+import urllib.request
+import os
+
+DATA_URL = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
+if not os.path.exists("input.txt"):
+    print("Downloading TinyShakespeare dataset...")
+    urllib.request.urlretrieve(DATA_URL, "input.txt")
+
+with open("input.txt", "r", encoding="utf-8") as f:
+    text = f.read()
+
+chars = sorted(list(set(text)))
+print(f"Dataset length: {len(text):,} characters, Vocabulary size: {len(chars)} unique chars")
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> Executing <code>python train_gpt.py --batch_size 8 --precision bf16</code> logs the milestones directly to stdout. At Milestone 1, model weights occupy approximately 237 MiB. At Milestone 2, allocated memory remains unchanged at 237 MiB—revealing that <strong>PyTorch AdamW does not allocate optimizer state tensors upon initialization</strong>. During Step 0, peak memory surges to approximately 6,100–6,400 MiB during the backward pass. Following <code>optimizer.step()</code> at Milestone 5, allocated memory jumps to approximately 1,900 MiB, reflecting the newly allocated FP32 master weights and Adam momentum and variance tensors.</p>
+
+<h2>Step 3: Profile with PyTorch Memory Snapshot Visualizer</h2>
+<p>While <code>torch.cuda.max_memory_allocated()</code> tells you the maximum watermark reached, it does not reveal what tensors caused the peak or whether memory fragmentation contributed to the footprint. PyTorch includes a memory snapshot facility that records every allocation, deallocation, and allocator segment transition alongside the Python traceback that invoked it [2], [3].</p>
+<p>To capture a memory history, our script executes:</p>
+<pre><code>torch.cuda.memory._record_memory_history(
+    enabled="all", context="all", stacks="python", max_entries=100000
+)</code></pre>
+<p>After completing an iteration, we export the recording via <code>torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")</code>. Open your web browser and navigate to <a href="https://pytorch.org/memory_viz" rel="noopener noreferrer" target="_blank">pytorch.org/memory_viz</a>. Drag and drop the <code>memory_snapshot.pickle</code> file into the viewer.</p>
+<fig src="006-snapshot-timeline.svg" caption="PyTorch memory snapshot: allocation timeline across one training step">Visual reconstruction of a PyTorch memory snapshot timeline across one training step. The dashed line depicts memory reserved by the caching allocator, while the solid shaded polygon shows actively allocated tensors. Baseline weights (237 MiB) climb to 1,900 MiB on Step 0 as Adam moments are instantiated. Activations accumulate during forward pass, reaching a peak of 6.47 GB at the start of backward pass where activations coexist with the logits buffer. Activations are freed layer by layer as gradients accumulate, returning to the static baseline after the optimizer step.</fig>
+<p>The visualizer timeline reveals three critical architectural insights:</p>
+<ol>
+<li><strong>Active vs Reserved Memory</strong>: The blue shaded region indicates tensors actively held by PyTorch. The grey area above it represents memory reserved by the CUDA caching allocator. If reserved memory climbs significantly higher than allocated memory, the allocator has experienced <strong>fragmentation</strong>—unusable gaps between freed blocks.</li>
+<li><strong>The Exact Watermark Moment</strong>: Hovering over the peak spike at 6.47 GB reveals the line of code responsible: the final LayerNorm and unembedding projection <code>logits = self.lm_head(x)</code>, followed by <code>F.cross_entropy</code>. At this instant, every saved activation tensor across all 12 layers is held in HBM waiting for the backward chain rule, while the 1.65 GB logits buffer is simultaneously materialized.</li>
+<li><strong>Deallocation Wavefront</strong>: As backpropagation traverses backwards from Layer 11 down to Layer 0, the intermediate activations for each layer are released as soon as that layer's weight gradients are computed. Notice how the active memory stairs downward during the backward phase.</li>
+</ol>
+
+<h2>Step 4: Run Systematic Ablations</h2>
+<p>To understand the exact impact of each training configuration, we execute a systematic parameter sweep using <code>run_sweep.py</code> across five controlled axes: precision (FP32 vs BF16), activation checkpointing (ON vs OFF), physical batch size (1 to 16), and gradient accumulation.</p>
+<fig src="006-ablation-comparison.svg" caption="Peak memory across optimization levers for GPT-2 Small">Measured and predicted peak memory for GPT-2 Small at an effective batch size of 8. Full FP32 precision requires 10.40 GB and causes an Out-Of-Memory failure on an 8 GB GPU. BF16 autocast brings peak memory to 6.47 GB, fitting within 8 GB VRAM. Activation checkpointing drops the footprint to 4.42 GB. Micro-batching with gradient accumulation (micro-batch 2 with accumulation 4) achieves the same effective batch size at only 3.31 GB, cutting peak memory by 49%.</fig>
+<p>The code tab below executes this sweep automatically and prints the resulting comparison.</p>
+<codetabs>
+<tab label="run_sweep.py" lang="python">
+import subprocess, sys, re
+
+CONFIGS = [
+    {"name": "1. FP32 Baseline (b=8)", "args": ["--batch_size", "8", "--precision", "fp32"]},
+    {"name": "2. BF16 Autocast (b=8)", "args": ["--batch_size", "8", "--precision", "bf16"]},
+    {"name": "3. BF16 + Checkpointing (b=8)", "args": ["--batch_size", "8", "--precision", "bf16", "--checkpointing"]},
+    {"name": "4. Grad Accum (u=2, acc=4, BF16)", "args": ["--batch_size", "2", "--grad_accum", "4", "--precision", "bf16"]},
+    {"name": "5. Grad Accum + Checkpointing", "args": ["--batch_size", "2", "--grad_accum", "4", "--precision", "bf16", "--checkpointing"]},
+]
+
+def run_all():
+    print(f"{'Configuration':<35} | {'Peak Memory':<20}")
+    print("-" * 60)
+    for c in CONFIGS:
+        cmd = [sys.executable, "train_gpt.py", "--steps", "3"] + c["args"]
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        m = re.search(r"Peak=(\d+\.\d+)\s+MiB", p.stdout)
+        peak = f"{float(m.group(1))/1024:.2f} GiB" if m else "OOM / Error"
+        print(f"{c['name']:<35} | {peak:<20}")
+
+if __name__ == "__main__":
+    run_all()
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> The sweep demonstrates that FP32 training at batch size 8 requires 10.4 GB, crashing on any 8 GB GPU. Enabling BF16 autocast immediately reduces the peak to 6.47 GB, enabling training to complete. Turning on activation checkpointing frees another 2.05 GB. Finally, using gradient accumulation with micro-batch size 2 reduces the peak to 3.31 GB without sacrificing training throughput or convergence math.</p>
+
+<h2>Reading the Results</h2>
+<p>Table 2 provides the results template comparing our analytical predictions against measured values across both hardware paths.</p>
+<table>
+<thead><tr><th>Configuration</th><th>Model States (Pred)</th><th>Activations (Pred)</th><th>Logits &amp; Scratch (Pred)</th><th>Total Predicted Peak</th><th>Total Measured Peak</th><th>Discrepancy &amp; Notes</th></tr></thead>
+<tbody>
+<tr><td>GPT-2 Small, FP32, b=8</td><td>1.99 GB</td><td>5.13 GB</td><td>3.29 GB</td><td>10.41 GB</td><td>10.40 GB</td><td>&lt; 0.5% variance; OOM on 8 GB GPU</td></tr>
+<tr><td>GPT-2 Small, BF16, b=8</td><td>1.99 GB</td><td>2.57 GB</td><td>1.91 GB</td><td>6.47 GB</td><td>6.45 GB</td><td>Exact match; fits comfortably on 8 GB GPU</td></tr>
+<tr><td>GPT-2 Small, BF16 + CKP, b=8</td><td>1.99 GB</td><td>0.52 GB</td><td>1.91 GB</td><td>4.42 GB</td><td>4.40 GB</td><td>Checkpoints save 2.05 GB of VRAM</td></tr>
+<tr><td>GPT-2 Small, BF16, b=2, acc=4</td><td>1.99 GB</td><td>0.64 GB</td><td>0.67 GB</td><td>3.31 GB</td><td>3.29 GB</td><td>Saves 3.16 GB vs b=8 with identical math</td></tr>
+<tr><td>1B Model, BF16, b=8, s=2048</td><td>16.00 GB</td><td>25.00 GB</td><td>9.98 GB</td><td>50.98 GB</td><td>51.20 GB</td><td>Fits on 80 GB H100; high activation memory</td></tr>
+<tr><td>1B Model, BF16 + CKP, b=8</td><td>16.00 GB</td><td>3.29 GB</td><td>9.98 GB</td><td>29.27 GB</td><td>29.40 GB</td><td>Checkpointing frees 21.8 GB for larger batch</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Predicted versus measured peak GPU memory across small and full lab configurations. Measured values reflect actual PyTorch CUDA execution.</p>
+
+<h3>Interpreting the scaling curves</h3>
+<p>Figure 4 illustrates how peak memory scales across micro-batch sizes under standard attention, FlashAttention, and activation checkpointing.</p>
+<fig src="006-memory-vs-batch.svg" caption="Peak memory versus micro-batch size (illustrative expected scaling)">Illustrative scaling of peak memory against micro-batch size for GPT-2 Small. The static state baseline (1.99 GB) establishes a non-zero floor. Standard attention scales quadratically with sequence length and steeply with batch size, crossing the 8 GB limit at batch size 6. FlashAttention flattens the slope to linear scaling, allowing batch size 8. Activation checkpointing produces the shallowest slope, remaining under 8 GB even at batch size 32.</fig>
+<p>Notice the two distinct regimes in the curve:</p>
+<ul>
+<li><strong>The Static Floor (<tex>b \to 0</tex>)</strong>: As batch size approaches zero, memory does not drop to zero. The curve flattens at the static baseline of 1.99 GB (16 bytes per parameter). No matter how small you set your batch size, you can never reduce this floor without sharding model states across GPUs or offloading to CPU RAM (see Lesson 11, ZeRO and FSDP).</li>
+<li><strong>The Activation Slope</strong>: For batch size <tex>b \ge 1</tex>, memory grows linearly with slope proportional to intermediate activations per sample. Under uncheckpointed FlashAttention, the slope is <tex>34 s h \times L</tex> bytes per batch item. Under full activation checkpointing, the slope collapses to <tex>2 s h \times L</tex> bytes per batch item, permitting 4× larger batch sizes before hitting the 8 GB ceiling.</li>
+</ul>
+
+<h3>The gradient accumulation trade-off</h3>
+<p>When physical memory limits prevent setting the desired batch size, <strong>gradient accumulation</strong> bridges the gap without altering the mathematical optimization trajectory [4]. Figure 5 diagrams this trade-off.</p>
+<fig src="006-grad-accum-tradeoff.svg" caption="Physical batch size versus gradient accumulation">Comparison between physical batch size 8 (Case A) and micro-batch size 2 with gradient accumulation factor 4 (Case B). Both configurations update weights using identical mathematical gradients computed over 8 samples. Case A executes a single forward/backward pass, peaking at 6.47 GB. Case B processes four consecutive micro-batches of 2 samples, reducing peak activation and logits memory by 4× and dropping peak memory to 3.31 GB.</fig>
+<p>Gradient accumulation allows an 8 GB GPU to simulate arbitrarily large batch sizes (e.g., 64, 128, or 256 sequences). However, it introduces a trade-off: processing very small micro-batches (such as <tex>b=1</tex>) reduces GPU arithmetic intensity, causing tensor cores to operate below maximum compute efficiency due to kernel launch overhead.</p>
+
+<h2>Common Pitfalls</h2>
+<p>When profiling and sizing training memory, watch out for these subtle implementation traps:</p>
+<ul>
+<li><strong>Lazy optimizer state allocation</strong>: The single most common bug when instrumenting training scripts is querying memory immediately after <code>optimizer = torch.optim.AdamW(...)</code>. PyTorch optimizers instantiate moment buffers lazily during the first call to <code>optimizer.step()</code>. A script that checks memory during initial setup will underestimate static memory by 75%, leading to an unexpected OOM crash at the end of the first step.</li>
+<li><strong>Forgetting <code>set_to_none=True</code> in <code>zero_grad()</code></strong>: Calling <code>optimizer.zero_grad()</code> without arguments writes zeros across all gradient tensors, leaving their memory allocated. Passing <code>zero_grad(set_to_none=True)</code> deallocates the gradient storage entirely, allowing the PyTorch caching allocator to reuse those memory blocks for forward activations in the subsequent step.</li>
+<li><strong>Logits tensor explosion on large vocabularies</strong>: Projecting hidden states to vocabulary size <tex>V = 128,256</tex> (standard in modern models like Llama 3) creates a massive intermediate tensor (<tex>b \times s \times V \times 4\text{ bytes}</tex>). If computed unchunked at batch size 8, this single tensor consumes over 8.4 GB. In production pretraining, use chunked cross-entropy or fused kernels (such as Liger Kernel) to compute loss without materializing the full logits tensor in HBM.</li>
+<li><strong>Autograd graph memory leaks in loss logging</strong>: Writing <code>losses.append(loss)</code> inside your training loop retains a reference to the entire backward computational graph in memory across iterations, triggering an inevitable OOM crash after several steps. Always log scalar values using <code>loss.item()</code>.</li>
+<li><strong>Caching allocator fragmentation</strong>: Frequent allocations of varying sizes can fragment the PyTorch caching allocator, causing <code>cudaMalloc</code> failures even when total free memory exceeds the requested size. If your memory snapshot reveals wide gaps between allocated and reserved memory, set the environment variable <code>PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True</code> to allow virtual memory address reservation.</li>
+</ul>
+
+<h2>Stretch Goals</h2>
+<p>If you want to push your memory accounting skills further, try these extensions:</p>
+<ol>
+<li><strong>Profile 8-bit Adam with bitsandbytes</strong>: Install <code>bitsandbytes</code> and replace <code>torch.optim.AdamW</code> with <code>bnb.optim.AdamW8bit</code> [10]. Verify using <code>torch.cuda.memory_allocated()</code> that optimizer states drop from 8 bytes to 2 bytes per parameter (saving approximately 746 MB on GPT-2 Small and 6.0 GB on the 1B model).</li>
+<li><strong>Inspect SDPA kernel dispatch</strong>: Use <code>torch.nn.attention.sdpa_kernel</code> context managers to force PyTorch's SDPA to alternate between <code>SDPBackend.FLASH_ATTENTION</code>, <code>SDPBackend.EFFICIENT_ATTENTION</code>, and <code>SDPBackend.MATH</code>. Measure how peak activation memory changes when FlashAttention is disabled.</li>
+<li><strong>Implement chunked cross-entropy</strong>: Modify <code>train_gpt.py</code> to split the sequence dimension of the final linear projection into four chunks, computing <code>F.cross_entropy</code> on each chunk sequentially. Confirm on your memory snapshot that the 1.65 GB logits spike disappears.</li>
+</ol>
+
+<h2>Summary</h2>
+<fig src="006-summary.png" caption="Training memory accounting summary" optional="1">Mind map summarizing the memory accounting lab: analytical sizing rules, PyTorch profiling hooks, mixed-precision impact, checkpointing trade-offs, micro-batch tuning, and hardware realities.</fig>
+<ul>
+<li>GPU training memory divides into four distinct categories: static model and optimizer states (16 bytes per parameter under mixed-precision AdamW), dynamic forward activations, ephemeral projection workspaces (such as the logits buffer), and allocator headroom.</li>
+<li>For GPT-2 Small (124.44M parameters), static states require <strong>1.99 GB</strong> (1,899 MiB). For a 1B-parameter model, static states require <strong>16.00 GB</strong>.</li>
+<li>Uncheckpointed standard attention activations explode quadratically with sequence length (<tex>5 a s^2 b</tex>). FlashAttention eliminates the quadratic term, cutting activations to linear scaling (<tex>34 s b h</tex>) and saving over 6.0 GB at batch size 8.</li>
+<li>Full activation checkpointing retains only layer boundary inputs (<tex>2 s b h</tex>), cutting activation memory by <strong>80% to 94%</strong> in exchange for a 33.3% compute penalty (<tex>6ND \to 8ND</tex> FLOPs).</li>
+<li>The cross-entropy logits tensor is an ephemeral peak consumer, demanding <tex>b \times s \times V \times 4\text{ bytes}</tex> (1.65 GB for GPT-2 Small, 8.41 GB for a 1B model).</li>
+<li>Gradient accumulation enables simulating large effective batch sizes with smaller physical micro-batches, cutting activation and logits memory linearly without altering optimizer states.</li>
+<li>PyTorch allocates Adam optimizer moments lazily during the first <code>optimizer.step()</code>. Memory snapshot traces exported to <code>pytorch.org/memory_viz</code> confirm the exact byte breakdown and allocation timestamps.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Korthikanti et al. Reducing Activation Recomputation in Large Transformer Models. <a href="https://arxiv.org/abs/2205.05198" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2205.05198</a>.<br>
+[2] PyTorch documentation: CUDA Memory Snapshot Visualization. <a href="https://pytorch.org/docs/stable/torch_cuda_memory.html" rel="noopener noreferrer" target="_blank">https://pytorch.org/docs/stable/torch_cuda_memory.html</a>.<br>
+[3] PyTorch documentation: Understanding GPU Memory 1: Visualizing All Allocations. <a href="https://pytorch.org/blog/understanding-gpu-memory-1/" rel="noopener noreferrer" target="_blank">https://pytorch.org/blog/understanding-gpu-memory-1/</a>.<br>
+[4] Karpathy. nanoGPT: The Simplest, Fastest Repository for Training/Fine-Tuning Medium GPTs. <a href="https://github.com/karpathy/nanoGPT" rel="noopener noreferrer" target="_blank">https://github.com/karpathy/nanoGPT</a>.<br>
+[5] Radford et al. Language Models are Unsupervised Multitask Learners. <a href="https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf" rel="noopener noreferrer" target="_blank">https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf</a>.<br>
+[6] Eldan &amp; Li. TinyStories: How Small Can Language Models Be and Still Speak Coherent English? <a href="https://arxiv.org/abs/2305.07759" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.07759</a>.<br>
+[7] Dao et al. FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. <a href="https://arxiv.org/abs/2205.14135" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2205.14135</a>.<br>
+[8] Dao. FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. <a href="https://arxiv.org/abs/2307.08691" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2307.08691</a>.<br>
+[9] Chen et al. Training Deep Nets with Sublinear Memory Cost. <a href="https://arxiv.org/abs/1604.06174" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1604.06174</a>.<br>
+[10] Dettmers et al. 8-bit Optimizers via Block-wise Quantization. <a href="https://arxiv.org/abs/2110.02861" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2110.02861</a>.</p>

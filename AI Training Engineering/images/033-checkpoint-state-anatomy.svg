@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .box { rx: 4px; stroke-width: 1.2; }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Anatomy of a Resumable Checkpoint: Five Mandatory State Components</text>
+  <text x="25" y="42" class="sm" fill="#555">Omitting any single component destroys reproducibility and causes loss trajectory divergence upon restart.</text>
+
+  <!-- 5 Component Cards -->
+  <!-- 1. Model Weights -->
+  <rect x="25" y="60" width="150" height="210" class="box green"/>
+  <text x="35" y="82" class="b sm">1. Model Weights</text>
+  <text x="35" y="100" class="sm">• `model.state_dict()`</text>
+  <text x="35" y="116" class="sm">• BF16 parameters</text>
+  <text x="35" y="132" class="sm">• 16 GB for 8B model</text>
+  <text x="35" y="158" class="sm b">If Missing:</text>
+  <text x="35" y="174" class="sm" fill="#990000">Fatal. Model resets</text>
+  <text x="35" y="190" class="sm" fill="#990000">to random weights.</text>
+
+  <!-- 2. Optimizer States -->
+  <rect x="185" y="60" width="150" height="210" class="box orange"/>
+  <text x="195" y="82" class="b sm">2. Optimizer State</text>
+  <text x="195" y="100" class="sm">• `opt.state_dict()`</text>
+  <text x="195" y="116" class="sm">• FP32 master weights</text>
+  <text x="195" y="132" class="sm">• Adam m &amp; v states</text>
+  <text x="195" y="158" class="sm b">If Missing:</text>
+  <text x="195" y="174" class="sm" fill="#990000">Momentum resets.</text>
+  <text x="195" y="190" class="sm" fill="#990000">Loss jumps 20–50%.</text>
+
+  <!-- 3. Scheduler -->
+  <rect x="345" y="60" width="150" height="210" class="box blue"/>
+  <text x="355" y="82" class="b sm">3. LR Scheduler</text>
+  <text x="355" y="100" class="sm">• `sched.state_dict()`</text>
+  <text x="355" y="116" class="sm">• Current step count</text>
+  <text x="355" y="132" class="sm">• Cosine decay stage</text>
+  <text x="355" y="158" class="sm b">If Missing:</text>
+  <text x="355" y="174" class="sm" fill="#990000">LR restarts at 0 or</text>
+  <text x="355" y="190" class="sm" fill="#990000">warmup peak.</text>
+
+  <!-- 4. Data Loader Offset -->
+  <rect x="505" y="60" width="150" height="210" class="box purple"/>
+  <text x="515" y="82" class="b sm">4. Dataloader State</text>
+  <text x="515" y="100" class="sm">• Batch token index</text>
+  <text x="515" y="116" class="sm">• Shuffled seed offset</text>
+  <text x="515" y="132" class="sm">• Epoch / file pointer</text>
+  <text x="515" y="158" class="sm b">If Missing:</text>
+  <text x="515" y="174" class="sm" fill="#990000">Retrains on seen</text>
+  <text x="515" y="190" class="sm" fill="#990000">tokens; leaks data.</text>
+
+  <!-- 5. RNG States -->
+  <rect x="665" y="60" width="150" height="210" class="box gray"/>
+  <text x="675" y="82" class="b sm">5. RNG States</text>
+  <text x="675" y="100" class="sm">• `torch.get_rng...`</text>
+  <text x="675" y="116" class="sm">• `cuda.get_rng...`</text>
+  <text x="675" y="132" class="sm">• Python / NumPy seeds</text>
+  <text x="675" y="158" class="sm b">If Missing:</text>
+  <text x="675" y="174" class="sm" fill="#990000">Dropout masks alter;</text>
+  <text x="675" y="190" class="sm" fill="#990000">loss diverges slightly.</text>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="284" width="790" height="52" rx="4" class="white"/>
+  <text x="38" y="304" class="b sm">Bitwise vs Numerical Continuity:</text>
+  <text x="280" y="304" class="sm">Saving all 5 components guarantees exact numerical continuity.</text>
+  <text x="38" y="322" class="sm">Loss will match within 1e-4 tolerance (or exact bitwise match if CUDA deterministic algorithms are enabled).</text>
+</svg>

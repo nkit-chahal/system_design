@@ -1,0 +1,7 @@
+center: Expert Parallelism
+branch: Training Specifics | router backpropagation gradients | four all to all collectives | optimizer memory for idle experts
+branch: Load Balancing Levers | switch transformer auxiliary loss | st moe router z loss | megablocks dropless execution
+branch: Auxiliary Loss Free Balancing | deepseek v3 dynamic biases | biased routing top k selection | unbiased gating output weights
+branch: Fundamental Asymmetry | flops scale with active weights | memory scales with total weights | compute efficient but memory hungry
+branch: Combining Parallelism | data parallel dense attention | expert parallel sparse mlp | intra node nvlink dispatch
+branch: Layout Decision | eight experts top two active | ep equals eight within node | dp equals thirty two inter node

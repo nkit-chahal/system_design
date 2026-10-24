@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="25" class="title">Per-Parameter Memory Footprint Across Optimizers</text>
+  <text x="25" y="45" class="sm" fill="#555">Byte allocation per model parameter during mixed-precision training (weights, gradients, and optimizer states)</text>
+
+  <!-- Bar 1: AdamW (16 Bytes) -->
+  <text x="25" y="75" class="sm b">Standard AdamW: 16 Bytes / param (128.5 GB for 8B model)</text>
+  <!-- Total width 750px: 16 bytes -> 46.8px per byte -->
+  <!-- W (2B = 94px), G (2B = 94px), Master (4B = 187px), m (4B = 187px), v (4B = 188px) -->
+  <rect x="25" y="82" width="94" height="34" class="orange"/>
+  <text x="72" y="103" text-anchor="middle" class="sm b">W: 2B</text>
+
+  <rect x="119" y="82" width="94" height="34" class="yellow"/>
+  <text x="166" y="103" text-anchor="middle" class="sm b">G: 2B</text>
+
+  <rect x="213" y="82" width="187" height="34" class="blue"/>
+  <text x="306" y="103" text-anchor="middle" class="sm b">Master W: 4B</text>
+
+  <rect x="400" y="82" width="187" height="34" class="purple"/>
+  <text x="493" y="103" text-anchor="middle" class="sm b">Adam m: 4B</text>
+
+  <rect x="587" y="82" width="188" height="34" class="purple"/>
+  <text x="681" y="103" text-anchor="middle" class="sm b">Adam v: 4B</text>
+
+  <!-- Bar 2: Lion (12 Bytes) -->
+  <text x="25" y="137" class="sm b">Lion: 12 Bytes / param (96.4 GB for 8B model) - Single Momentum</text>
+  <rect x="25" y="144" width="94" height="34" class="orange"/>
+  <text x="72" y="165" text-anchor="middle" class="sm b">W: 2B</text>
+
+  <rect x="119" y="144" width="94" height="34" class="yellow"/>
+  <text x="166" y="165" text-anchor="middle" class="sm b">G: 2B</text>
+
+  <rect x="213" y="144" width="187" height="34" class="blue"/>
+  <text x="306" y="165" text-anchor="middle" class="sm b">Master W: 4B</text>
+
+  <rect x="400" y="144" width="187" height="34" class="purple"/>
+  <text x="493" y="165" text-anchor="middle" class="sm b">Momentum m: 4B</text>
+
+  <rect x="587" y="144" width="188" height="34" class="gray"/>
+  <text x="681" y="165" text-anchor="middle" class="sm" fill="#888">No second moment (0B)</text>
+
+  <!-- Bar 3: SGD with Momentum (12 Bytes) -->
+  <text x="25" y="199" class="sm b">SGD + Momentum: 12 Bytes / param (96.4 GB for 8B model)</text>
+  <rect x="25" y="206" width="94" height="34" class="orange"/>
+  <text x="72" y="227" text-anchor="middle" class="sm b">W: 2B</text>
+
+  <rect x="119" y="206" width="94" height="34" class="yellow"/>
+  <text x="166" y="227" text-anchor="middle" class="sm b">G: 2B</text>
+
+  <rect x="213" y="206" width="187" height="34" class="blue"/>
+  <text x="306" y="227" text-anchor="middle" class="sm b">Master W: 4B</text>
+
+  <rect x="400" y="206" width="187" height="34" class="purple"/>
+  <text x="493" y="227" text-anchor="middle" class="sm b">Velocity v: 4B</text>
+
+  <rect x="587" y="206" width="188" height="34" class="gray"/>
+  <text x="681" y="227" text-anchor="middle" class="sm" fill="#888">No second moment (0B)</text>
+
+  <!-- Bar 4: 8-bit Adam (10 Bytes) -->
+  <text x="25" y="261" class="sm b">8-bit Adam (bitsandbytes): 10 Bytes / param (80.3 GB for 8B model)</text>
+  <rect x="25" y="268" width="94" height="34" class="orange"/>
+  <text x="72" y="289" text-anchor="middle" class="sm b">W: 2B</text>
+
+  <rect x="119" y="268" width="94" height="34" class="yellow"/>
+  <text x="166" y="289" text-anchor="middle" class="sm b">G: 2B</text>
+
+  <rect x="213" y="268" width="187" height="34" class="blue"/>
+  <text x="306" y="289" text-anchor="middle" class="sm b">Master W: 4B</text>
+
+  <rect x="400" y="268" width="47" height="34" class="green"/>
+  <text x="423" y="289" text-anchor="middle" class="sm b">m: 1B</text>
+
+  <rect x="447" y="268" width="47" height="34" class="green"/>
+  <text x="470" y="289" text-anchor="middle" class="sm b">v: 1B</text>
+
+  <rect x="494" y="268" width="281" height="34" class="gray"/>
+  <text x="634" y="289" text-anchor="middle" class="sm" fill="#888">6 Bytes Saved per Parameter</text>
+</svg>

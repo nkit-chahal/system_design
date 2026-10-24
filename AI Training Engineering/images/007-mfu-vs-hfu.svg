@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">MFU vs HFU: Why Model FLOPs Utilization is the Honest Metric</text>
+  <text x="25" y="48" class="sm" fill="#555">How activation checkpointing distorts hardware reporting (formalized in the PaLM paper, Chowdhery et al.)</text>
+
+  <!-- Left Box: MFU (The Honest Metric) -->
+  <rect x="25" y="70" width="370" height="175" rx="6" class="green"/>
+  <text x="40" y="96" class="b" fill="#274e13">Model FLOPs Utilization (MFU)</text>
+  <text x="40" y="118" class="sm">• Numerator: Only theoretical minimal FLOPs (6N × tokens)</text>
+  <text x="40" y="136" class="sm">• Ignores activation recomputation or system-specific overhead</text>
+  <text x="40" y="154" class="sm">• Invariant across implementation choices and sharding</text>
+  <text x="40" y="172" class="sm">• Directly proportional to training throughput (tokens/sec)</text>
+  <rect x="40" y="186" width="340" height="44" rx="4" class="white"/>
+  <text x="50" y="205" class="sm b">MFU = (Tokens/sec × 6N) / (GPUs × Peak FLOPS)</text>
+  <text x="50" y="222" class="sm" fill="#274e13">Result: 40.0% MFU (Honest measure of algorithmic progress)</text>
+
+  <!-- Right Box: HFU (The Flawed Vanity Metric) -->
+  <rect x="425" y="70" width="370" height="175" rx="6" class="orange"/>
+  <text x="440" y="96" class="b" fill="#b45f06">Hardware FLOPs Utilization (HFU)</text>
+  <text x="440" y="118" class="sm">• Numerator: All executed operations, including rematerialization</text>
+  <text x="440" y="136" class="sm">• Full recomputation inflates numerator from 6N to 8N (+33%)</text>
+  <text x="440" y="154" class="sm">• Implementation-dependent: rewards wasted operations</text>
+  <text x="440" y="172" class="sm">• An inefficient setup can show high HFU but slow token delivery</text>
+  <rect x="440" y="186" width="340" height="44" rx="4" class="white"/>
+  <text x="450" y="205" class="sm b">HFU = (Tokens/sec × 8N) / (GPUs × Peak FLOPS)</text>
+  <text x="450" y="222" class="sm" fill="#b45f06">Result: 53.3% HFU (Appears higher, but identical wall time!)</text>
+
+  <!-- Bottom Explanatory Banner -->
+  <rect x="25" y="260" width="770" height="62" rx="6" class="gray"/>
+  <text x="40" y="283" class="b">The "Recomputation Illusion":</text>
+  <text x="40" y="302" class="sm">Recomputing activations burns extra arithmetic to save GPU memory. While the physical silicon executes</text>
+  <text x="40" y="318" class="sm">33% more operations (HFU = 1.33 × MFU), the run trains 0 additional tokens. Always plan and report MFU.</text>
+</svg>

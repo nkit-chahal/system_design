@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="390" viewBox="0 0 820 390" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.xs{font-size:11px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .fwd{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .bwd{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .bubble{fill:#fafafa;stroke:#ddd;stroke-width:1;stroke-dasharray:3 3}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">1F1B Schedule (PipeDream-Flush): Capping Peak Activations at O(p)</text>
+  <text x="25" y="44" class="sm" fill="#555">p = 4 stages, m = 8 micro-batches. Warmup fills pipeline; steady state alternates 1 Forward and 1 Backward. Peak memory = 4.</text>
+
+  <!-- Left stage labels -->
+  <text x="25" y="100" class="b">Stage 0</text>
+  <text x="25" y="140" class="b">Stage 1</text>
+  <text x="25" y="180" class="b">Stage 2</text>
+  <text x="25" y="220" class="b">Stage 3</text>
+
+  <!-- Highlight bracket for memory cap: at Stage 0, from F1 to B1 is 4 forwards, then B1 releases F1 -->
+  <path d="M 110 78 L 110 70 L 294 70 L 294 78" fill="none" stroke="#82b366" stroke-width="1.5"/>
+  <text x="202" y="65" text-anchor="middle" class="xs" fill="#2d7600"><tspan class="b">Capped Memory Window:</tspan> Max p = 4 micro-batches in flight</text>
+
+  <!-- Stage 0:
+       Slot 0: F1
+       Slot 1: F2
+       Slot 2: F3
+       Slot 3: F4 (at this moment, F1 reaches Stage 3 and B1 is sent back!)
+       Slot 4: B1 (releases F1)
+       Slot 5: F5
+       Slot 6: B2 (releases F2)
+       Slot 7: F6
+       Slot 8: B3 (releases F3)
+       Slot 9: F7
+       Slot 10: B4 (releases F4)
+       Slot 11: F8
+       Slot 12: B5
+       Slot 13: B6
+       Slot 14: B7
+       Slot 15: B8
+  -->
+
+  <!-- Stage 0 slots: slot width = 42px, start x = 110 -->
+  <rect x="110" y="82" width="40" height="28" rx="3" class="fwd"/><text x="130" y="101" text-anchor="middle" class="xs">F1</text>
+  <rect x="154" y="82" width="40" height="28" rx="3" class="fwd"/><text x="174" y="101" text-anchor="middle" class="xs">F2</text>
+  <rect x="198" y="82" width="40" height="28" rx="3" class="fwd"/><text x="218" y="101" text-anchor="middle" class="xs">F3</text>
+  <rect x="242" y="82" width="40" height="28" rx="3" class="fwd"/><text x="262" y="101" text-anchor="middle" class="xs">F4</text>
+  <rect x="286" y="82" width="40" height="28" rx="3" class="bwd"/><text x="306" y="101" text-anchor="middle" class="xs">B1</text>
+  <rect x="330" y="82" width="40" height="28" rx="3" class="fwd"/><text x="350" y="101" text-anchor="middle" class="xs">F5</text>
+  <rect x="374" y="82" width="40" height="28" rx="3" class="bwd"/><text x="394" y="101" text-anchor="middle" class="xs">B2</text>
+  <rect x="418" y="82" width="40" height="28" rx="3" class="fwd"/><text x="438" y="101" text-anchor="middle" class="xs">F6</text>
+  <rect x="462" y="82" width="40" height="28" rx="3" class="bwd"/><text x="482" y="101" text-anchor="middle" class="xs">B3</text>
+  <rect x="506" y="82" width="40" height="28" rx="3" class="fwd"/><text x="526" y="101" text-anchor="middle" class="xs">F7</text>
+  <rect x="550" y="82" width="40" height="28" rx="3" class="bwd"/><text x="570" y="101" text-anchor="middle" class="xs">B4</text>
+  <rect x="594" y="82" width="40" height="28" rx="3" class="fwd"/><text x="614" y="101" text-anchor="middle" class="xs">F8</text>
+  <rect x="638" y="82" width="40" height="28" rx="3" class="bwd"/><text x="658" y="101" text-anchor="middle" class="xs">B5</text>
+  <rect x="682" y="82" width="40" height="28" rx="3" class="bwd"/><text x="702" y="101" text-anchor="middle" class="xs">B6</text>
+  <rect x="726" y="82" width="40" height="28" rx="3" class="bwd"/><text x="746" y="101" text-anchor="middle" class="xs">B7</text>
+  <rect x="770" y="82" width="40" height="28" rx="3" class="bwd"/><text x="790" y="101" text-anchor="middle" class="xs">B8</text>
+
+  <!-- Stage 1 -->
+  <rect x="110" y="122" width="40" height="28" rx="3" class="bubble"/><text x="130" y="140" text-anchor="middle" class="xs" fill="#888">Idle</text>
+  <rect x="154" y="122" width="40" height="28" rx="3" class="fwd"/><text x="174" y="141" text-anchor="middle" class="xs">F1</text>
+  <rect x="198" y="122" width="40" height="28" rx="3" class="fwd"/><text x="218" y="141" text-anchor="middle" class="xs">F2</text>
+  <rect x="242" y="122" width="40" height="28" rx="3" class="fwd"/><text x="262" y="141" text-anchor="middle" class="xs">F3</text>
+  <rect x="286" y="122" width="40" height="28" rx="3" class="bwd"/><text x="306" y="141" text-anchor="middle" class="xs">B1</text>
+  <rect x="330" y="122" width="40" height="28" rx="3" class="fwd"/><text x="350" y="141" text-anchor="middle" class="xs">F4</text>
+  <rect x="374" y="122" width="40" height="28" rx="3" class="bwd"/><text x="394" y="141" text-anchor="middle" class="xs">B2</text>
+  <rect x="418" y="122" width="40" height="28" rx="3" class="fwd"/><text x="438" y="141" text-anchor="middle" class="xs">F5</text>
+  <rect x="462" y="122" width="40" height="28" rx="3" class="bwd"/><text x="482" y="141" text-anchor="middle" class="xs">B3</text>
+  <rect x="506" y="122" width="40" height="28" rx="3" class="fwd"/><text x="526" y="141" text-anchor="middle" class="xs">F6</text>
+  <rect x="550" y="122" width="40" height="28" rx="3" class="bwd"/><text x="570" y="141" text-anchor="middle" class="xs">B4</text>
+  <rect x="594" y="122" width="40" height="28" rx="3" class="fwd"/><text x="614" y="141" text-anchor="middle" class="xs">F7</text>
+  <rect x="638" y="122" width="40" height="28" rx="3" class="bwd"/><text x="658" y="141" text-anchor="middle" class="xs">B5</text>
+  <rect x="682" y="122" width="40" height="28" rx="3" class="fwd"/><text x="702" y="141" text-anchor="middle" class="xs">F8</text>
+  <rect x="726" y="122" width="40" height="28" rx="3" class="bwd"/><text x="746" y="141" text-anchor="middle" class="xs">B6</text>
+  <rect x="770" y="122" width="40" height="28" rx="3" class="bwd"/><text x="790" y="141" text-anchor="middle" class="xs">B7</text>
+
+  <!-- Stage 2 -->
+  <rect x="110" y="162" width="84" height="28" rx="3" class="bubble"/><text x="152" y="180" text-anchor="middle" class="xs" fill="#888">Idle</text>
+  <rect x="198" y="162" width="40" height="28" rx="3" class="fwd"/><text x="218" y="181" text-anchor="middle" class="xs">F1</text>
+  <rect x="242" y="162" width="40" height="28" rx="3" class="fwd"/><text x="262" y="181" text-anchor="middle" class="xs">F2</text>
+  <rect x="286" y="162" width="40" height="28" rx="3" class="bwd"/><text x="306" y="181" text-anchor="middle" class="xs">B1</text>
+  <rect x="330" y="162" width="40" height="28" rx="3" class="fwd"/><text x="350" y="181" text-anchor="middle" class="xs">F3</text>
+  <rect x="374" y="162" width="40" height="28" rx="3" class="bwd"/><text x="394" y="181" text-anchor="middle" class="xs">B2</text>
+  <rect x="418" y="162" width="40" height="28" rx="3" class="fwd"/><text x="438" y="181" text-anchor="middle" class="xs">F4</text>
+  <rect x="462" y="162" width="40" height="28" rx="3" class="bwd"/><text x="482" y="181" text-anchor="middle" class="xs">B3</text>
+  <rect x="506" y="162" width="40" height="28" rx="3" class="fwd"/><text x="526" y="181" text-anchor="middle" class="xs">F5</text>
+  <rect x="550" y="162" width="40" height="28" rx="3" class="bwd"/><text x="570" y="181" text-anchor="middle" class="xs">B4</text>
+  <rect x="594" y="162" width="40" height="28" rx="3" class="fwd"/><text x="614" y="181" text-anchor="middle" class="xs">F6</text>
+  <rect x="638" y="162" width="40" height="28" rx="3" class="bwd"/><text x="658" y="181" text-anchor="middle" class="xs">B5</text>
+  <rect x="682" y="162" width="40" height="28" rx="3" class="fwd"/><text x="702" y="181" text-anchor="middle" class="xs">F7</text>
+  <rect x="726" y="162" width="40" height="28" rx="3" class="bwd"/><text x="746" y="181" text-anchor="middle" class="xs">B6</text>
+  <rect x="770" y="162" width="40" height="28" rx="3" class="fwd"/><text x="790" y="181" text-anchor="middle" class="xs">F8</text>
+
+  <!-- Stage 3 -->
+  <rect x="110" y="202" width="128" height="28" rx="3" class="bubble"/><text x="174" y="220" text-anchor="middle" class="xs" fill="#888">Idle (Bubble)</text>
+  <rect x="242" y="202" width="40" height="28" rx="3" class="fwd"/><text x="262" y="221" text-anchor="middle" class="xs">F1</text>
+  <rect x="286" y="202" width="40" height="28" rx="3" class="bwd"/><text x="306" y="221" text-anchor="middle" class="xs">B1</text>
+  <rect x="330" y="202" width="40" height="28" rx="3" class="fwd"/><text x="350" y="221" text-anchor="middle" class="xs">F2</text>
+  <rect x="374" y="202" width="40" height="28" rx="3" class="bwd"/><text x="394" y="221" text-anchor="middle" class="xs">B2</text>
+  <rect x="418" y="202" width="40" height="28" rx="3" class="fwd"/><text x="438" y="221" text-anchor="middle" class="xs">F3</text>
+  <rect x="462" y="202" width="40" height="28" rx="3" class="bwd"/><text x="482" y="221" text-anchor="middle" class="xs">B3</text>
+  <rect x="506" y="202" width="40" height="28" rx="3" class="fwd"/><text x="526" y="221" text-anchor="middle" class="xs">F4</text>
+  <rect x="550" y="202" width="40" height="28" rx="3" class="bwd"/><text x="570" y="221" text-anchor="middle" class="xs">B4</text>
+  <rect x="594" y="202" width="40" height="28" rx="3" class="fwd"/><text x="614" y="221" text-anchor="middle" class="xs">F5</text>
+  <rect x="638" y="202" width="40" height="28" rx="3" class="bwd"/><text x="658" y="221" text-anchor="middle" class="xs">B5</text>
+  <rect x="682" y="202" width="40" height="28" rx="3" class="fwd"/><text x="702" y="221" text-anchor="middle" class="xs">F6</text>
+  <rect x="726" y="202" width="40" height="28" rx="3" class="bwd"/><text x="746" y="221" text-anchor="middle" class="xs">B6</text>
+  <rect x="770" y="202" width="40" height="28" rx="3" class="fwd"/><text x="790" y="221" text-anchor="middle" class="xs">F7</text>
+
+  <!-- Bottom Explanatory Boxes -->
+  <rect x="25" y="248" width="375" height="125" rx="4" class="gray"/>
+  <text x="35" y="270" class="b">Three Execution Phases:</text>
+  <text x="35" y="292" class="sm">1. <tspan class="b">Warmup:</tspan> Stage k executes (p − k) forward chunks.</text>
+  <text x="35" y="312" class="sm">2. <tspan class="b">Steady State:</tspan> Alternates 1 Forward and 1 Backward.</text>
+  <text x="35" y="332" class="sm">3. <tspan class="b">Cooldown:</tspan> Finishes remaining backward chunks.</text>
+  <text x="35" y="352" class="sm">• Bubble fraction remains <tspan class="b">(p − 1) / (m + p − 1)</tspan>.</text>
+
+  <rect x="420" y="248" width="380" height="125" rx="4" class="green"/>
+  <text x="430" y="270" class="b">Activation Memory Advantage:</text>
+  <text x="430" y="292" class="sm">• In steady state, every forward is paired with a backward</text>
+  <text x="430" y="310" class="sm">  that frees an older micro-batch's activations.</text>
+  <text x="430" y="332" class="sm">• Memory footprint capped at <tspan class="b">O(p)</tspan> rather than O(m).</text>
+  <text x="430" y="352" class="sm">• Enables scaling to m = 32 or 64 without running OOM.</text>
+</svg>

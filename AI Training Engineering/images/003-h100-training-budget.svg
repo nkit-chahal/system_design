@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .free{fill:url(#hatch);stroke:#999;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Per-GPU Training Memory Budget (One H100 80 GB, Intra-Node FSDP)</text>
+  <text x="25" y="44" class="sm" fill="#555">Pretraining Llama 3.1 8B at s = 8,192, micro-batch b = 1, FlashAttention + Activation Checkpointing</text>
+
+  <!-- Horizontal Stacked Bar representing 80 GB -->
+  <!-- Total width 768 px (x=26 to 794). Scale: 768 px / 80 GB = 9.6 px per GB -->
+  <!-- Sharded states: 16.1 GB * 9.6 = 154 px -->
+  <!-- Layer buffer: 0.5 GB * 9.6 = 5 px (expanded to 10px for visibility) -->
+  <!-- Activations: 3.3 GB * 9.6 = 32 px -->
+  <!-- Buffers & Scratch: 5.0 GB * 9.6 = 48 px -->
+  <!-- Allocator Headroom: 8.0 GB * 9.6 = 77 px -->
+  <!-- Free VRAM: 47.1 GB * 9.6 = 447 px -->
+  <!-- Total = 154 + 10 + 32 + 48 + 77 + 447 = 768 px -->
+
+  <!-- Sharded Model States -->
+  <rect x="26" y="65" width="154" height="60" class="orange"/>
+  <text x="103" y="93" text-anchor="middle" class="b">Sharded States</text>
+  <text x="103" y="111" text-anchor="middle" class="sm">16.1 GB</text>
+
+  <!-- Active Layer All-Gather Buffer -->
+  <rect x="180" y="65" width="16" height="60" class="yellow"/>
+
+  <!-- Activations -->
+  <rect x="196" y="65" width="36" height="60" class="blue"/>
+
+  <!-- Buffers & Workspaces -->
+  <rect x="232" y="65" width="52" height="60" class="purple"/>
+
+  <!-- Allocator Headroom -->
+  <rect x="284" y="65" width="77" height="60" class="gray"/>
+  <text x="322" y="93" text-anchor="middle" class="b">Allocator</text>
+  <text x="322" y="111" text-anchor="middle" class="sm">8.0 GB</text>
+
+  <!-- Free Headroom -->
+  <rect x="361" y="65" width="433" height="60" class="free"/>
+  <text x="577" y="93" text-anchor="middle" class="b">Available VRAM Headroom</text>
+  <text x="577" y="111" text-anchor="middle" class="sm">≈ 47.1 GB (59% of GPU memory)</text>
+
+  <!-- Annotations / Callout pointers below bar -->
+  <!-- Pointer for Layer buffer -->
+  <path d="M188,125 L188,138 L115,150" stroke="#000" stroke-width="1" fill="none"/>
+  <text x="115" y="166" text-anchor="middle" class="sm b">Active Layer</text>
+  <text x="115" y="182" text-anchor="middle" class="sm">0.5 GB (all-gather)</text>
+
+  <!-- Pointer for Activations -->
+  <path d="M214,125 L214,215" stroke="#000" stroke-width="1" fill="none"/>
+  <text x="214" y="230" text-anchor="middle" class="sm b">Activations</text>
+  <text x="214" y="246" text-anchor="middle" class="sm">3.3 GB (recompute)</text>
+
+  <!-- Pointer for Buffers -->
+  <path d="M258,125 L258,138 L300,150" stroke="#000" stroke-width="1" fill="none"/>
+  <text x="300" y="166" text-anchor="middle" class="sm b">Temp Buffers</text>
+  <text x="300" y="182" text-anchor="middle" class="sm">5.0 GB (scratch+CE)</text>
+
+  <!-- Detail Box on Right -->
+  <rect x="380" y="150" width="414" height="115" rx="6" class="white"/>
+  <text x="395" y="172" class="b">Why Intra-Node Sharding is the Sweet Spot:</text>
+  <text x="395" y="192" class="sm">• Total committed VRAM is <tspan class="b">≈ 32.9 GB</tspan>, well within the 80 GB limit.</text>
+  <text x="395" y="210" class="sm">• 47.1 GB headroom allows raising micro-batch to <tspan class="b">b = 2</tspan> without OOM.</text>
+  <text x="395" y="228" class="sm">• Zero host RAM swapping or slow disk offloading required.</text>
+  <text x="395" y="246" class="sm">• Protects training stability against dynamic memory spikes.</text>
+
+  <!-- Bottom summary line -->
+  <rect x="26" y="280" width="768" height="38" rx="4" class="gray"/>
+  <text x="410" y="304" text-anchor="middle" class="sm">Total GPU Capacity: <tspan class="b">80 GB HBM3</tspan> (79.6 GiB visible) | Total Used: <tspan class="b">32.9 GB</tspan> | Free Headroom: <tspan class="b">47.1 GB</tspan></text>
+</svg>

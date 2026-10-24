@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.xs{font-size:11px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">The Fundamental MoE Asymmetry: Active FLOPs vs Total Memory</text>
+  <text x="25" y="44" class="sm" fill="#555">Training FLOPs scale as 6 × N_active × D; GPU Adam memory scales as 16 × N_total bytes.</text>
+
+  <!-- Model 1: Dense Llama 3.1 8B -->
+  <rect x="25" y="65" width="245" height="205" rx="6" class="gray"/>
+  <text x="147" y="88" text-anchor="middle" class="b">Dense Llama 3.1 8B</text>
+  <rect x="35" y="98" width="225" height="26" rx="3" class="white"/>
+  <text x="147" y="115" text-anchor="middle" class="xs b">8.03B Total / 8.03B Active</text>
+  <text x="40" y="142" class="xs"><tspan class="b">Adam Memory (16 B/p):</tspan></text>
+  <text x="40" y="158" class="sm b" fill="#b45f06">128.5 GB</text>
+  <text x="40" y="180" class="xs"><tspan class="b">Training FLOPs / 1T tokens:</tspan></text>
+  <text x="40" y="196" class="sm b">4.8 × 10^22 FLOPs</text>
+  <text x="40" y="222" class="xs"><tspan class="b">Ratio:</tspan> 100% active parameters.</text>
+  <text x="40" y="238" class="xs">Compute and memory scale 1:1.</text>
+  <text x="40" y="258" class="xs" fill="#555">Shards over 8 GPUs (HSDP).</text>
+
+  <!-- Model 2: Mixtral 8x7B -->
+  <rect x="285" y="65" width="250" height="205" rx="6" class="blue"/>
+  <text x="410" y="88" text-anchor="middle" class="b">Sparse Mixtral 8x7B</text>
+  <rect x="295" y="98" width="230" height="26" rx="3" class="white"/>
+  <text x="410" y="115" text-anchor="middle" class="xs b">46.7B Total / 12.9B Active</text>
+  <text x="300" y="142" class="xs"><tspan class="b">Adam Memory (16 B/p):</tspan></text>
+  <text x="300" y="158" class="sm b" fill="#900">747 GB (5.8× of 8B)</text>
+  <text x="300" y="180" class="xs"><tspan class="b">Training FLOPs / 1T tokens:</tspan></text>
+  <text x="300" y="196" class="sm b" fill="#2d7600">7.7 × 10^22 FLOPs (1.6× of 8B)</text>
+  <text x="300" y="222" class="xs"><tspan class="b">Asymmetry:</tspan> Computes like a</text>
+  <text x="300" y="238" class="xs">13B model; stores like a 47B model.</text>
+  <text x="300" y="258" class="xs" fill="#555">Requires EP=8 to shard memory.</text>
+
+  <!-- Model 3: DeepSeek-V3 -->
+  <rect x="550" y="65" width="245" height="205" rx="6" class="purple"/>
+  <text x="672" y="88" text-anchor="middle" class="b">Sparse DeepSeek-V3</text>
+  <rect x="560" y="98" width="225" height="26" rx="3" class="white"/>
+  <text x="672" y="115" text-anchor="middle" class="xs b">671B Total / 37B Active</text>
+  <text x="565" y="142" class="xs"><tspan class="b">Adam Memory (16 B/p):</tspan></text>
+  <text x="565" y="158" class="sm b" fill="#900">10,736 GB (10.7 TB!)</text>
+  <text x="565" y="180" class="xs"><tspan class="b">Training FLOPs / 1T tokens:</tspan></text>
+  <text x="565" y="196" class="sm b" fill="#2d7600">2.2 × 10^23 FLOPs</text>
+  <text x="565" y="222" class="xs"><tspan class="b">Asymmetry:</tspan> Computes like a</text>
+  <text x="565" y="238" class="xs">37B model; stores like a 671B model.</text>
+  <text x="565" y="258" class="xs" fill="#555">Demands multi-node EP + DualPipe.</text>
+
+  <!-- Bottom Explanatory Banner -->
+  <rect x="25" y="285" width="770" height="50" rx="4" class="gray"/>
+  <text x="40" y="306" class="sm"><tspan class="b">Engineering Consequence:</tspan> MoE models allow pretraining at high token throughput with modest compute budgets,</text>
+  <text x="40" y="324" class="sm">but they require massive distributed clusters purely to house the static optimizer states of idle experts.</text>
+</svg>

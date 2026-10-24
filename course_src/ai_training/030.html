@@ -1,0 +1,285 @@
+<h2>Introduction</h2>
+<p>Training a large language model across hundreds or thousands of GPUs is fundamentally a distributed systems challenge. While raw compute throughput is determined by GPU tensor cores, <strong>the speed of the entire cluster is dictated by how fast GPUs can exchange weights, gradients, and activations</strong>. A cluster of 256 state-of-the-art GPUs can spend more than half its time idling if the underlying network cannot feed its collective communication loops.</p>
+<p>Modern AI training infrastructure exhibits an extreme <strong>bandwidth hierarchy</strong>. Inside an 8-GPU server node, NVIDIA H100 SXM GPUs communicate over an <strong>NVLink 4</strong> crossbar delivering <strong>900 GB/s bidirectional bandwidth per GPU</strong>. Across nodes, communication leaves the server chassis to traverse an <strong>InfiniBand NDR or RoCEv2</strong> network, where eight 400 Gb/s network interface cards (NICs) yield 50 GB/s per GPU [1]. <strong>Intra-node communication is 18 times faster than inter-node communication</strong>. If distributed training algorithms treat every GPU link equally, inter-node network bottlenecks will quickly collapse cluster compute utilization.</p>
+<fig src="030-node-nvlink-vs-network.svg" caption="Intra-node NVLink versus inter-node InfiniBand NDR">An architectural diagram contrasting communication inside an 8-GPU H100 node with communication across nodes. Inside the chassis, 8 GPUs connect to four NVSwitch chips providing 900 GB/s bidirectional NVLink bandwidth per GPU. Across nodes, 8 ConnectX-7 NICs connect via PCIe Gen 5 to an external Quantum-2 InfiniBand fabric providing 50 GB/s (400 Gb/s) per GPU, with GPUDirect RDMA bypassing host CPU memory.</fig>
+<p>To orchestrate data exchange at hardware limits, deep learning frameworks rely on the <strong>NVIDIA Collective Communications Library (NCCL)</strong>. Understanding how NCCL maps collective operations—All-Reduce, All-Gather, Reduce-Scatter, and All-to-All—onto physical cluster topologies is essential for designing high-throughput training runs. In this lesson, we analyze the cluster networking hierarchy, derive NCCL bandwidth metrics from first principles, evaluate ring versus tree collective algorithms, calculate exact communication overheads for our running 256-GPU pretraining cluster, and determine the optimal parallelism layout to avoid network starvation.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In a systems design interview for an AI infrastructure or training platform role, cluster networking questions typically begin with a collective communication bottleneck or cluster sizing scenario. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: What model architecture, precision, and cluster scale are we sizing the network for?<br>
+<strong>Interviewer</strong>: We are pretraining a model with the Llama 3.1 8B architecture—8.03 billion parameters across 32 transformer layers. We use BF16 mixed-precision training across 256 NVIDIA H100 80 GB SXM GPUs housed in 32 nodes.</p>
+<p><strong>Candidate</strong>: What interconnects are deployed inside and between the server nodes?<br>
+<strong>Interviewer</strong>: Each node contains 8 H100 SXM GPUs interconnected via NVSwitch with 900 GB/s bidirectional NVLink. Each node is equipped with 8 ConnectX-7 NICs running 400 Gb/s InfiniBand NDR (50 GB/s raw bandwidth per NIC), configured in a non-blocking rail-optimized fat-tree network with GPUDirect RDMA enabled.</p>
+<p><strong>Candidate</strong>: What parallelism strategy are we using, and what is our target efficiency?<br>
+<strong>Interviewer</strong>: Our baseline proposal is Fully Sharded Data Parallelism (FSDP / ZeRO-3) across all 256 GPUs. Our target is at least 40% Model FLOPs Utilization (MFU), which corresponds to a step time of roughly 470 milliseconds. Can flat FSDP across all 256 GPUs hit that target, or will the network starve the run?</p>
+<p><strong>Candidate</strong>: Are we allowed to adapt the parallelism topology, for example by using Hybrid Sharding or Tensor Parallelism, if inter-node communication is the bottleneck?<br>
+<strong>Interviewer</strong>: Yes. Your task is to analyze whether the physical network can sustain flat FSDP, calculate the exact collective transfer times, and pick the layout that achieves our 40% MFU target.</p>
+<p>The question underneath is: <em>How do we match the communication patterns of distributed training to the physical bandwidth boundaries of our cluster, and how do we measure whether our network is operating at peak physical capacity?</em> To answer it, we begin by examining the physical network fabric.</p>
+
+<h2>Cluster Interconnects: NVLink vs InfiniBand</h2>
+<h3>Intra-node fabric: NVSwitch and NVLink</h3>
+<p>Within a modern 8-GPU server chassis (such as an NVIDIA HGX H100), GPUs do not communicate across the PCIe bus. Instead, each H100 SXM GPU exposes 18 fourth-generation NVLink connections [1]. Each connection provides 50 GB/s of bidirectional bandwidth (25 GB/s in each direction), totaling <strong>900 GB/s bidirectional bandwidth per GPU</strong> (450 GB/s unidirectional). Four on-board <strong>NVSwitch 3</strong> chips interconnect the 8 GPUs into a non-blocking, full-bisection crossbar. Any GPU can access the High Bandwidth Memory (HBM3) of any other GPU in the node with sub-microsecond latency.</p>
+<p>This massive intra-node bandwidth enables fine-grained parallelism such as <strong>Tensor Parallelism</strong> (Lesson 12, Tensor, Sequence and Context Parallelism), which requires multiple All-Reduce collectives at every transformer layer. Attempting Tensor Parallelism across slower links immediately stalls compute engines.</p>
+
+<h3>Inter-node fabric: InfiniBand, RoCEv2, and GPUDirect RDMA</h3>
+<p>When communication spans multiple nodes, data must pass through Network Interface Cards (NICs) connected to the host PCIe complex. In modern AI clusters, each server node contains eight NICs—one dedicated NIC per GPU. In our cluster, these are <strong>ConnectX-7 400 Gb/s (NDR) InfiniBand</strong> adapters.</p>
+<p>A single 400 Gb/s NIC provides a theoretical maximum unidirectional bandwidth of 50 GB/s:</p>
+<texblock>\text{Bandwidth per NIC} = \frac{400 \times 10^9\text{ bits/s}}{8\text{ bits/byte}} = 50 \times 10^9\text{ bytes/s} = 50\text{ GB/s}</texblock>
+<p>With 8 NICs per node, the entire chassis provides 400 GB/s (3.2 Tb/s) of bi-directional network injection bandwidth. However, compared to NVLink's 450 GB/s unidirectional bandwidth per GPU, the network link provides only 50 GB/s—an <strong>9× bandwidth gap in each direction</strong> (and an 18× gap when comparing 900 GB/s bidirectional NVLink to single-direction 50 GB/s NIC injection).</p>
+<p>To maximize efficiency, distributed training requires <strong>GPUDirect RDMA (Remote Direct Memory Access)</strong> [2]. Without GPUDirect RDMA, an inter-node transfer requires copying data through host CPU memory via PCIe and passing through the host OS network stack. GPUDirect RDMA bypasses host CPUs and system memory completely: the ConnectX-7 NIC reads directly from source GPU HBM across the PCIe switch and writes directly into target GPU HBM across the network, cutting latency from over 30 microseconds to roughly 2 to 5 microseconds.</p>
+
+<h3>Rail-optimized fat-tree topology</h3>
+<p>Connecting 256 GPUs across 32 nodes requires a multi-tier network fabric. In a standard non-blocking two-tier fat-tree network, leaf switches connect to server NICs, and spine switches interconnect the leaf switches. However, because each server houses 8 independent NICs, naive cabling can lead to severe switch port contention and non-uniform latency.</p>
+<p>Modern AI supercomputers deploy a <strong>rail-optimized fat-tree topology</strong> [3, 4]. In an 8-GPU node, GPU <tex>k</tex> (where <tex>k \in [0, 7]</tex>) is paired via its local PCIe switch directly with NIC <tex>k</tex>. In a rail-optimized network, all NIC 0s across all 32 nodes connect to a dedicated set of leaf switches designated as <strong>Rail 0</strong>. All NIC 1s connect to <strong>Rail 1</strong> leaf switches, through to NIC 7 connecting to <strong>Rail 7</strong>. Figure 2 illustrates this architecture.</p>
+<fig src="030-rail-optimized-fat-tree.svg" caption="Rail-optimized fat-tree network architecture">Rail-optimized cabling across 32 nodes. GPU k on each node pairs with NIC k. NIC k from every node connects to an independent leaf switch fabric (Rail k). In distributed data parallelism, communication between homologous ranks stays entirely within a single rail leaf switch, avoiding spine crossings and eliminating inter-rail network congestion.</fig>
+<p>Rail optimization is designed specifically for deep learning communication patterns. When training with pure Data Parallelism or Megatron-style parallel groups, rank <tex>k</tex> on Node <tex>A</tex> primarily exchanges gradients with rank <tex>k</tex> on Node <tex>B</tex>. Because both ranks communicate through their local NIC <tex>k</tex>, all traffic remains strictly contained inside the Rail <tex>k</tex> leaf switch domain. <strong>The traffic never traverses the spine switch layer</strong>. Spine switches are utilized only when cross-rail traffic is needed, such as in all-to-all shuffles across differing rank offsets.</p>
+
+<h2>NCCL Collectives and Parallelism Mappings</h2>
+<h3>The primitives</h3>
+<p>NCCL provides five fundamental collective communication primitives that form the backbone of all distributed training frameworks [2]:</p>
+<ul>
+<li><strong>All-Reduce</strong>: Takes an input tensor of size <tex>S</tex> on each of <tex>N</tex> ranks, applies an associative reduction operator (typically summation), and delivers the identical reduced result tensor of size <tex>S</tex> to all <tex>N</tex> ranks.</li>
+<li><strong>All-Gather</strong>: Takes a chunk of size <tex>S/N</tex> (or size <tex>S</tex>) from each rank and concatenates them in rank order, so that all <tex>N</tex> ranks receive the full tensor of size <tex>S</</tex> (or <tex>N \times S</tex>).</li>
+<li><strong>Reduce-Scatter</strong>: Takes an input tensor of size <tex>S</tex> on each rank, performs an element-wise reduction across all ranks, and splits the reduced result into <tex>N</tex> equal chunks, delivering chunk <tex>i</tex> of size <tex>S/N</tex> to rank <tex>i</tex>.</li>
+<li><strong>All-to-All</strong>: An <tex>N \times N</tex> personalized transpose. Each rank starts with <tex>N</tex> distinct buffers of size <tex>S/N</tex> and sends buffer <tex>j</tex> to rank <tex>j</tex>. Each rank receives buffer <tex>i</tex> from rank <tex>j</tex>.</li>
+<li><strong>Broadcast</strong>: Copies a tensor of size <tex>S</tex> from a single designated root rank to all other <tex>N - 1</tex> ranks.</li>
+</ul>
+<p>Figure 3 illustrates the tensor transformations performed by these five primitives.</p>
+<fig src="030-nccl-collectives.svg" caption="The five core NCCL collective communication primitives">Input and output buffer layouts across four ranks for All-Reduce, All-Gather, Reduce-Scatter, All-to-All, and Broadcast. Mathematical equivalence shows that All-Reduce is identical to a Reduce-Scatter followed by an All-Gather, moving twice the network volume of either individual collective.</fig>
+
+<h3>Mapping parallelism strategies to collectives</h3>
+<p>Every distributed training technique introduced in Stage 3 relies on specific NCCL collectives. Table 1 maps each parallelism strategy to its required collective, communication frequency, message payload size, and sensitivity to network bandwidth.</p>
+<table>
+<thead><tr><th>Parallelism Strategy</th><th>NCCL Collective</th><th>Placement Domain</th><th>Message Size (<tex>S</tex>)</th><th>Network Sensitivity</th><th>Reference</th></tr></thead>
+<tbody>
+<tr><td>Data Parallelism (DDP)</td><td>All-Reduce</td><td>Inter-Node or Intra-Node</td><td>Full model gradients (~16 GB)</td><td>Low to Medium (overlapped with bwd)</td><td>Lesson 10, Data Parallelism and All-Reduce</td></tr>
+<tr><td>FSDP / ZeRO-3 (Forward)</td><td>All-Gather</td><td>Inter-Node or Intra-Node</td><td>Layer weights (~436 MB per layer)</td><td>Extremely High (blocks next layer compute)</td><td>Lesson 11, ZeRO and FSDP</td></tr>
+<tr><td>FSDP / ZeRO-3 (Backward)</td><td>All-Gather + Reduce-Scatter</td><td>Inter-Node or Intra-Node</td><td>Layer weights + layer gradients</td><td>Extremely High (2× layer volume per layer)</td><td>Lesson 11, ZeRO and FSDP</td></tr>
+<tr><td>Tensor Parallelism (TP)</td><td>All-Reduce</td><td>Intra-Node (NVLink only)</td><td>Activations (<tex>2 s b h</tex> ≈ 67 MB)</td><td>Extremely High (2 ops per layer, serial)</td><td>Lesson 12, Tensor, Sequence and Context Parallelism</td></tr>
+<tr><td>Sequence Parallelism (SP)</td><td>All-Gather + Reduce-Scatter</td><td>Intra-Node (NVLink only)</td><td>LayerNorm inputs &amp; gradients</td><td>Extremely High (runs at layer boundary)</td><td>Lesson 12, Tensor, Sequence and Context Parallelism</td></tr>
+<tr><td>Pipeline Parallelism (PP)</td><td>Point-to-Point (Send/Recv)</td><td>Inter-Node</td><td>Boundary activations (<tex>s b h</tex> ≈ 33 MB)</td><td>Low (point-to-point, 1F1B schedule)</td><td>Lesson 13, Pipeline Parallelism</td></tr>
+<tr><td>Expert Parallelism (MoE)</td><td>All-to-All</td><td>Inter-Node or Intra-Node</td><td>Routed tokens (<tex>k \times s b h / E</tex>)</td><td>High (all-to-all cross-rail traffic)</td><td>Lesson 15, Expert Parallelism for MoE Training</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Mapping distributed training parallelism strategies to NCCL communication collectives</p>
+
+<h3>Ring vs tree collective algorithms</h3>
+<p>NCCL implements collectives using two primary algorithmic topologies: <strong>Ring</strong> and <strong>Tree</strong> [2, 5].</p>
+<p>In a <strong>Ring All-Reduce</strong>, the <tex>N</tex> participating ranks form a logical circular ring. The input buffer of size <tex>S</tex> is partitioned into <tex>N</tex> equal chunks of size <tex>S/N</tex>. The algorithm proceeds in two sequential phases of <tex>N - 1</tex> steps each, as shown in Figure 4:</p>
+<ol>
+<li><strong>Scatter-Reduce phase (<tex>N - 1</tex> steps)</strong>: In step <tex>k</tex>, each rank sends one chunk to its right neighbor and receives a chunk from its left neighbor, summing the received chunk into its local buffer. After <tex>N - 1</tex> steps, each rank holds the complete, fully reduced sum for one chunk of size <tex>S/N</tex>. This phase is functionally identical to a Reduce-Scatter.</li>
+<li><strong>All-Gather phase (<tex>N - 1</tex> steps)</strong>: Each rank sends its fully reduced chunk around the ring. After <tex>N - 1</tex> steps, all ranks hold all <tex>N</tex> reduced chunks.</li>
+</ol>
+<fig src="030-ring-all-reduce-steps.svg" caption="Ring All-Reduce mechanics: Scatter-Reduce and All-Gather phases">Execution flow of a ring All-Reduce across four ranks. In the first three steps (Scatter-Reduce), chunks rotate and accumulate until each rank holds a reduced 1/4th slice. In the final three steps (All-Gather), the reduced slices circulate until every rank has the entire reduced tensor. Total data sent per rank is 2(N-1)/N times S.</fig>
+<p>In each step, each GPU sends exactly <tex>S/N</tex> bytes. Across all <tex>2(N - 1)</tex> steps, the total volume of data transmitted by each GPU is:</p>
+<texblock>\text{Data Transmitted per GPU} = 2(N - 1) \times \frac{S}{N} = \frac{2(N - 1)}{N} S</texblock>
+<p>Notice the critical property of the ring algorithm: <strong>as the number of GPUs <tex>N</tex> grows large, the communication volume per GPU approaches <tex>2S</tex>, independent of <tex>N</tex></strong> [3]. However, the <em>latency</em> of a ring scales linearly with <tex>2(N - 1)</tex> communication hops. For small tensors, ring latency dominates.</p>
+<p>To eliminate linear latency scaling for small buffers, NCCL uses a <strong>Double Binary Tree</strong> algorithm [2]. In a tree collective, data is aggregated up a binomial or binary tree to a root and broadcast back down. Tree collectives reduce the step latency to <tex>\mathcal{O}(\log N)</tex> hops, making them significantly faster for small buffers (under 1 to 4 MB). However, tree algorithms cannot fully saturate all bi-directional physical links simultaneously. NCCL automatically chooses between Ring and Tree implementations at runtime based on the buffer size, rank count, and detected interconnect topology.</p>
+
+<h2>Measuring Network Performance: nccl-tests and Bandwidth Formulas</h2>
+<h3>Algorithm bandwidth vs bus bandwidth</h3>
+<p>When benchmarking distributed networks using the official <strong>nccl-tests</strong> suite (such as <code>all_reduce_perf</code> or <code>all_gather_perf</code>) [4], output tables report two distinct bandwidth figures: <strong>Algorithm Bandwidth (algbw)</strong> and <strong>Bus Bandwidth (busbw)</strong>. Understanding the mathematical relationship between them is essential to avoid misinterpreting cluster health.</p>
+<p><strong>Algorithm Bandwidth</strong> is the raw user-perceived data throughput. It measures how fast the input payload <tex>S</tex> is processed relative to the wall-clock time <tex>t</tex>:</p>
+<texblock>\text{algbw} = \frac{S}{t}</texblock>
+<p>Because collective algorithms divide data into chunks and circulate them over multiple hops, <tex>\text{algbw}</tex> changes with rank count <tex>N</tex>. It does not reflect whether the physical network links are saturated.</p>
+<p><strong>Bus Bandwidth</strong> normalizes the algorithm bandwidth by the theoretical minimum traffic factor of the collective algorithm, representing the effective throughput sustained across each GPU's physical network bus [4]:</p>
+<texblock>\text{busbw} = \text{algbw} \times \text{Factor}</texblock>
+<p>The scaling factor depends on the collective operation and the number of participating ranks <tex>N</tex>:</p>
+<ul>
+<li><strong>All-Reduce</strong>: In a ring All-Reduce, each rank transmits <tex>2(N - 1)/N \times S</tex> bytes. Therefore:
+<texblock>\text{busbw}_{\text{All-Reduce}} = \text{algbw} \times \frac{2(N - 1)}{N}</texblock>
+For an 8-GPU node (<tex>N = 8</tex>), the factor is <tex>2(7)/8 = 1.75</tex>. For our 256-GPU cluster (<tex>N = 256</tex>), the factor is <tex>2(255)/256 \approx 1.992</tex>.</li>
+<li><strong>All-Gather and Reduce-Scatter</strong>: Each rank transmits <tex>(N - 1)/N \times S</tex> bytes. Therefore:
+<texblock>\text{busbw}_{\text{All-Gather}} = \text{algbw} \times \frac{N - 1}{N}</texblock>
+For <tex>N = 8</tex>, the factor is <tex>7/8 = 0.875</tex>. For <tex>N = 256</tex>, the factor is <tex>255/256 \approx 0.996</tex>.</li>
+<li><strong>All-to-All</strong>: Each rank transfers personalized slices to <tex>N - 1</tex> peers:
+<texblock>\text{busbw}_{\text{All-to-All}} = \text{algbw} \times \frac{N - 1}{N}</texblock></li>
+<li><strong>Broadcast</strong>: The root transmits <tex>S</tex> bytes: <tex>\text{Factor} = 1.0</tex>.</li>
+</ul>
+
+<h3>Reading nccl-tests output</h3>
+<p>Figure 5 plots the transition between latency-dominated communication and bandwidth-saturated communication as measured by <code>all_reduce_perf</code> across message sizes from 64 KB to 1 GB.</p>
+<fig src="030-busbw-vs-algbw.svg" caption="Algorithm Bandwidth versus Bus Bandwidth in nccl-tests (Illustrative)">Illustrative benchmark curves showing algorithm bandwidth and bus bandwidth across message sizes from 64 KB to 1 GB on an 8-GPU H100 node. Small messages under 1 MB are latency-bound (dominated by kernel launch and synchronization overhead). Messages above 64 MB saturate physical NVLink links at roughly 380 GB/s bus bandwidth.</fig>
+<p>Below 1 MB, bus bandwidth is negligible (under 20 GB/s) because the fixed latency of kernel launches, CUDA stream synchronization, and network handshakes (~10–15 µs) dominates the transfer. As message size exceeds 32 MB, the pipeline fills and bus bandwidth approaches physical link limits. On an 8-GPU H100 SXM node, healthy NVLink bus bandwidth reaches <strong>380 to 400 GB/s</strong> (roughly 85–89% of theoretical 450 GB/s unidir bandwidth). Across 32 nodes on 400 Gb/s InfiniBand NDR, healthy inter-node bus bandwidth reaches <strong>42 to 45 GB/s</strong> per GPU (roughly 84–90% of the 50 GB/s line rate).</p>
+<callout kind="tip" title="Interview tip">Always cite bus bandwidth when evaluating whether your network is healthy. If someone tells you their 8-GPU all-reduce achieved 217 GB/s algbw, multiply by 1.75 to get 380 GB/s busbw—this proves their NVLink links are running at 85% of peak line rate.</callout>
+
+<h2>Latency and Sizing for the Pretraining Run</h2>
+<h3>Worked calculations: FSDP layer collectives on NVLink vs InfiniBand</h3>
+<p>Now let us evaluate the interviewer's question: <em>Can flat FSDP across all 256 GPUs sustain our 40% MFU target?</em></p>
+<p>In Llama 3.1 8B, each transformer layer contains attention weights (<tex>W_q, W_k, W_v, W_o</tex>), MLP weights (gate, up, down projections in SwiGLU), and RMSNorm parameters:</p>
+<ul>
+<li><strong>Attention parameters</strong>: <tex>4096 \times (4096 + 1024 + 1024 + 4096) = 4,096 \times 10,240 = 41,943,040\text{ parameters}</tex>.</li>
+<li><strong>MLP parameters</strong>: <tex>3 \times 4096 \times 14,336 = 176,160,768\text{ parameters}</tex>.</li>
+<li><strong>RMSNorm parameters</strong>: <tex>2 \times 4,096 = 8,192\text{ parameters}</tex>.</li>
+<li><strong>Total per layer</strong>: <tex>41,943,040 + 176,160,768 + 8,192 = 218,112,000\text{ parameters} \approx 218.1\text{M parameters}</tex>.</li>
+<li><strong>BF16 layer payload</strong>: <tex>218,112,000 \times 2\text{ bytes} = 436,224,000\text{ bytes} \approx 436.2\text{ MB}</tex>.</li>
+</ul>
+<p>In standard FSDP (ZeRO-3), every layer requires three collective transfers during each training step:</p>
+<ol>
+<li><strong>Forward pass</strong>: All-Gather the 436.2 MB layer weights before forward computation.</li>
+<li><strong>Backward pass</strong>: All-Gather the 436.2 MB layer weights before backward computation.</li>
+<li><strong>Backward pass</strong>: Reduce-Scatter the 436.2 MB gradients after computing weight gradients.</li>
+</ol>
+<p>Now let us calculate the transfer time for a single 436.2 MB All-Gather in two scenarios: intra-node NVLink versus cross-node InfiniBand NDR.</p>
+
+<h4>Scenario 1: Intra-node 8-GPU NVLink domain</h4>
+<p>Inside an 8-GPU node, healthy achieved bus bandwidth is <tex>\text{busbw} \approx 380\text{ GB/s}</tex>. For an All-Gather across 8 GPUs, the bus factor is <tex>(8 - 1)/8 = 0.875</tex>:</p>
+<texblock>\text{algbw} = \frac{\text{busbw}}{\text{Factor}} = \frac{380\text{ GB/s}}{0.875} \approx 434.3\text{ GB/s}</texblock>
+<p>Dividing the 436.2 MB layer payload by algorithm bandwidth yields the transfer time:</p>
+<texblock>t_{\text{All-Gather, NVLink}} = \frac{436.224 \times 10^6\text{ bytes}}{434.3 \times 10^9\text{ bytes/s}} \approx 1.00\text{ ms}</texblock>
+<p>At 40% MFU on an H100 SXM, the forward compute of one transformer layer for our pretraining batch takes approximately <strong>7.5 milliseconds</strong>. Because the 1.00 ms All-Gather is prefetched in the background while the previous layer executes, <strong>1.00 ms of communication is completely hidden behind 7.5 ms of compute</strong> (Figure 6, Case A). Communication stall time is zero.</p>
+
+<h4>Scenario 2: Flat 256-GPU InfiniBand NDR domain</h4>
+<p>Now consider executing the same layer All-Gather across all 256 GPUs over 400 Gb/s InfiniBand NDR. Achieved bus bandwidth is <tex>\text{busbw} \approx 43\text{ GB/s}</tex>. For <tex>N = 256</tex>, the bus factor is <tex>255/256 \approx 0.996</tex>:</p>
+<texblock>\text{algbw} = \frac{43\text{ GB/s}}{0.996} \approx 43.17\text{ GB/s}</texblock>
+<p>Calculating the All-Gather transfer time:</p>
+<texblock>t_{\text{All-Gather, InfiniBand}} = \frac{436.224 \times 10^6\text{ bytes}}{43.17 \times 10^9\text{ bytes/s}} \approx 10.11\text{ ms}</texblock>
+<p>Here, the communication time of <strong>10.11 ms exceeds the 7.5 ms forward compute time by 2.6 ms</strong>. The GPU finishes its compute and stalls, waiting for weights to arrive over the network. In the backward pass, each layer requires both an All-Gather (10.11 ms) and a Reduce-Scatter (10.11 ms), totaling 20.22 ms of communication against only ~15 ms of backward compute.</p>
+<p>Across all 32 layers, communication adds <tex>32 \times 30.33\text{ ms} \approx 970\text{ ms}</tex> of transfer time per step. Flat FSDP across 256 GPUs turns a compute-bound run into a severely network-bound run, collapsing MFU from 40% to below 22%.</p>
+<fig src="030-layer-communication-timeline.svg" caption="Layer execution timeline: Intra-Node NVLink versus Cross-Node InfiniBand">Timeline comparison of a single layer's 436 MB All-Gather against forward compute time. On NVLink (1.00 ms), communication is completely hidden behind 7.5 ms of compute. On InfiniBand NDR (10.11 ms), communication exceeds compute by 2.6 ms, causing severe GPU idle stalls and destroying MFU.</fig>
+
+<h3>Network congestion, adaptive routing, and stragglers</h3>
+<p>In distributed training, all 256 GPUs operate in lockstep. Before an optimizer step can occur, all ranks must complete their collective reductions. This synchronous barrier behavior gives rise to the <strong>straggler problem</strong> [4, 7]:</p>
+<p>If 255 GPUs complete their backward pass in 400 milliseconds, but a single GPU experiences network packet drops or thermal throttling and requires 520 milliseconds, <strong>all 255 healthy GPUs sit 100% idle at the collective barrier for 120 milliseconds</strong> (Figure 7). A single slow link wastes <tex>255 \times 0.120\text{ s} = 30.6\text{ GPU-seconds}</tex> every single step.</p>
+<fig src="030-straggler-tail-latency.svg" caption="The Straggler Problem: Synchronous collectives magnify tail latency">Illustration of 255 healthy GPUs stalling at the collective barrier while waiting for one straggler GPU delayed by network packet drops. The collective barrier forces the entire cluster to match the speed of the slowest link.</fig>
+<p>Common causes of network stragglers in large GPU clusters include:</p>
+<ul>
+<li><strong>Routing hash collisions</strong>: In standard Equal-Cost Multi-Path (ECMP) routing, traffic flows are hashed onto paths based on packet headers. When multiple high-bandwidth collective rings hash onto the same physical spine link, that link saturates while parallel links sit idle. AI clusters resolve this using <strong>Adaptive Routing (AR)</strong> on InfiniBand switches or RoCEv2 switches, dynamically steering packets away from congested links on a per-packet basis [3, 4].</li>
+<li><strong>Priority Flow Control (PFC) storms</strong>: RoCEv2 networks rely on PFC to provide lossless Ethernet. If a receiver buffer fills, it emits PFC PAUSE frames upstream. In misconfigured topologies, pause frames can cascade backward through the entire fabric, causing a <strong>PFC deadlock</strong> that halts all traffic.</li>
+<li><strong>Degraded PCIe or optical links</strong>: A faulty optical transceiver may experience high Bit Error Rates (BER), triggering silent packet retransmissions at the link layer. While the link does not drop, its effective bandwidth plummets from 50 GB/s to 5 GB/s, turning that node into a cluster-wide straggler.</li>
+</ul>
+
+<h3>Debugging NCCL: environment variables</h3>
+<p>NCCL's internal state can be inspected and debugged using environment variables. When troubleshooting cluster hangs or degraded throughput, engineers configure these variables to isolate faults [2]:</p>
+<ul>
+<li><code>NCCL_DEBUG=INFO</code>: Enables verbose logging from NCCL. When ranks initialize, NCCL prints the detected hardware topology, rank-to-GPU mappings, and the selected collective algorithms (Ring vs Tree).</li>
+<li><code>NCCL_DEBUG_SUBSYS=INIT,COLL,ENV,NET</code>: Restricts logging to specific subsystems. <code>NET</code> logs InfiniBand device detection and connection state; <code>COLL</code> logs every collective call and buffer size.</li>
+<li><code>NCCL_IB_DISABLE=0</code>: Ensures InfiniBand is enabled. Setting <code>NCCL_IB_DISABLE=1</code> forces NCCL to fall back to Linux TCP sockets, useful for verifying whether an issue is specific to the RDMA driver.</li>
+<li><code>NCCL_NET_GDR_LEVEL=5</code>: Configures the GPUDirect RDMA path level. Level 5 (or <code>SYS</code>/<code>NVL</code>) instructs NCCL to use direct NVLink-to-NIC routing without host memory staging.</li>
+<li><code>NCCL_CROSS_NIC=1</code>: Allows GPUs to communicate through NICs associated with other GPUs in the node if the local NIC is congested or down.</li>
+<li><code>NCCL_BUFFSIZE=4194304</code>: Sets the internal ring buffer size (default is 4 MB). Increasing to 8 MB can improve throughput for large message sizes on high-latency networks, but increases GPU memory overhead.</li>
+<li><code>NCCL_TOPO_DUMP_FILE=topo.xml</code>: Dumps the XML graph of detected GPUs, PCIe switches, NVLinks, and NICs. This XML can be inspected to confirm whether all 18 NVLinks per GPU are active.</li>
+</ul>
+<callout kind="warn" title="Operational warning">Do not blindly copy NCCL tuning scripts from online blogs. Variables like <code>NCCL_BUFFSIZE</code> or <code>NCCL_ALGO</code> force NCCL to bypass its internal cost model. In 95% of cases, poor collective throughput is caused by bad physical cables, failed GPUDirect drivers, or ECMP hash collisions, not NCCL configuration parameters.</callout>
+
+<h4>Is our network fast enough for our layout?</h4>
+<p>We can now answer the interviewer's question decisively. <strong>Flat FSDP across all 256 GPUs is not fast enough for our cluster</strong>. Because our inter-node InfiniBand bandwidth (50 GB/s per GPU) is 9× slower than NVLink, an All-Gather of a 436.2 MB layer takes 10.11 ms, exceeding the 7.5 ms forward compute time. Across 32 layers, communication stalls add over 970 ms per step, degrading MFU from 40% to ~22%.</p>
+<p>The correct architecture is <strong>Hybrid Sharded Data Parallelism (HSDP)</strong> [5] (or 3D Parallelism with intra-node TP):</p>
+<ul>
+<li><strong>Intra-node domain (size 8)</strong>: Run FSDP across the 8 GPUs within each node over the 900 GB/s NVLink crossbar. Slicing model and optimizer states across 8 GPUs reduces memory by 8×—from 128.5 GB down to 16.1 GB per GPU—fitting comfortably within each 80 GB H100 with ample headroom for activations. Intra-node All-Gather takes only 1.00 ms, completely hidden behind compute.</li>
+<li><strong>Inter-node domain (size 32)</strong>: Replicate the 8-GPU sharded model across the 32 nodes using standard Data Parallelism (DDP). Across nodes, only a single gradient All-Reduce is required at the end of the backward pass. With gradient bucketing (bucket size 64 MB), this All-Reduce overlaps seamlessly with the backward pass over the rail-optimized InfiniBand network.</li>
+</ul>
+<p>HSDP confines fine-grained weight all-gathers to the 900 GB/s NVLink fabric, while limiting inter-node InfiniBand traffic to coarse-grained gradient synchronization, easily sustaining our target 40% MFU.</p>
+
+<h2>In Practice</h2>
+<p>The first tab shows how to build and execute <code>all_reduce_perf</code> from the official <code>nccl-tests</code> repository across an 8-GPU node and multi-node cluster. The second tab provides a self-contained PyTorch benchmarking script that measures collective latency, algorithm bandwidth, and normalized bus bandwidth directly inside a training environment.</p>
+<codetabs>
+<tab label="nccl-tests CLI" lang="bash">
+# Clone and compile nccl-tests with CUDA support
+git clone https://github.com/NVIDIA/nccl-tests.git
+cd nccl-tests
+make CUDA_HOME=/usr/local/cuda MPI=1
+
+# 1. Run local single-node 8-GPU benchmark (NVLink validation)
+# Tests buffers from 8MB to 1GB, doubling each step (-f 2)
+./build/all_reduce_perf -b 8M -e 1G -f 2 -g 8
+
+# Expected healthy output for 8x H100 SXM:
+# #                                           out-of-place                       in-place          
+# #       size         count      type   op    time algbw busbw #wrong   time algbw busbw #wrong
+# #        (B)    (elements)                  (us) (GB/s) (GB/s)         (us) (GB/s) (GB/s)       
+#    268435456      67108864     float  sum   1231 218.0 381.5      0   1230 218.2 381.8      0
+#    536870912     134217728     float  sum   2450 219.1 383.4      0   2448 219.3 383.8      0
+# Note: busbw reaches ~382 GB/s, confirming NVLink health (1.75x algbw).
+
+# 2. Run multi-node cluster benchmark (across 32 nodes via Slurm / MPI)
+srun --nodes=32 --ntasks-per-node=8 \
+  --network=nvn \
+  ./build/all_reduce_perf -b 32M -e 1G -f 2 -g 1
+</tab>
+<tab label="PyTorch benchmark" lang="python">
+import os
+import time
+import torch
+import torch.distributed as dist
+
+def benchmark_collective():
+    """Measures PyTorch NCCL All-Reduce latency and bus bandwidth."""
+    if not dist.is_initialized():
+        dist.init_process_group(backend="nccl")
+    
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    torch.cuda.set_device(local_rank)
+    world_size = dist.get_world_size()
+    rank = dist.get_rank()
+
+    # Test buffer sizes: 4 MB, 16 MB, 64 MB, 256 MB
+    buffer_sizes_mb = [4, 16, 64, 256]
+    bus_factor = 2 * (world_size - 1) / world_size
+
+    if rank == 0:
+        print(f"=== NCCL All-Reduce Benchmark (World Size: {world_size}) ===")
+        print(f"{'Size (MB)':>10} | {'Latency (ms)':>12} | {'Alg BW (GB/s)':>14} | {'Bus BW (GB/s)':>14}")
+        print("-" * 60)
+
+    for size_mb in buffer_sizes_mb:
+        # BF16 has 2 bytes per element
+        num_elements = (size_mb * 1024 * 1024) // 2
+        tensor = torch.ones(num_elements, dtype=torch.bfloat16, device=f"cuda:{local_rank}")
+
+        # Warmup iterations to trigger CUDA graph initialization & ring setup
+        for _ in range(5):
+            dist.all_reduce(tensor)
+        torch.cuda.synchronize()
+
+        # Timed benchmark iterations
+        iterations = 20
+        start_time = time.perf_counter()
+        for _ in range(iterations):
+            dist.all_reduce(tensor)
+        torch.cuda.synchronize()
+        elapsed_sec = (time.perf_counter() - start_time) / iterations
+
+        payload_bytes = size_mb * 1024 * 1024
+        alg_bw = (payload_bytes / elapsed_sec) / 1e9
+        bus_bw = alg_bw * bus_factor
+
+        if rank == 0:
+            print(f"{size_mb:10d} | {elapsed_sec * 1e3:12.2f} | {alg_bw:14.2f} | {bus_bw:14.2f}")
+
+    dist.destroy_process_group()
+
+if __name__ == "__main__":
+    benchmark_collective()
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>NVLink Network (NVLink-SHARP)</strong>: Newer NVIDIA platforms (such as GB200 NVL72) extend NVLink switching beyond single server nodes across entire racks, performing in-network collective reductions directly inside NVSwitch hardware.</li>
+<li><strong>RoCEv2 vs InfiniBand in hyperscalers</strong>: While InfiniBand provides native credit-based flow control, large cloud providers (Meta, Microsoft Azure) frequently deploy RoCEv2 (RDMA over Converged Ethernet) to standardize on commodity Ethernet infrastructure, requiring careful tuning of DCQCN (Data Center Quantized Congestion Notification) and ECN markings.</li>
+<li><strong>Communication bucketing</strong>: PyTorch DDP groups small parameter gradients into 25 MB contiguous memory buffers (<code>bucket_cap_mb</code>) before issuing All-Reduce. Bucketing ensures communication stays in the bandwidth-saturated regime rather than paying per-parameter latency penalties.</li>
+<li><strong>CUDA stream concurrency</strong>: Modern training engines issue collective communication on dedicated non-default CUDA streams (the communication stream) while GEMM kernels execute on the default compute stream, using CUDA events to synchronize without CPU intervention.</li>
+<li><strong>Packet trimming and spray routing</strong>: Advanced data center fabrics use packet spraying (distributing individual packets of a single flow across multiple network links) to prevent hash collisions, utilizing out-of-order reassembly buffers on receiving NICs.</li>
+<li><strong>DCGM network metrics</strong>: Monitoring cluster network health requires scraping InfiniBand port counters such as <code>port_xmit_wait</code> (indicating switch buffer congestion) and <code>symbol_error</code> counters (indicating damaged optical fibers).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="030-summary.png" caption="Cluster networking summary" optional="1">Mind map summarizing cluster networking and collectives: physical interconnects, core NCCL primitives, bandwidth equations, latency sizing, straggler impacts, and hybrid sharding decisions.</fig>
+<ul>
+<li>AI clusters feature a steep bandwidth disparity: 8-GPU H100 nodes provide 900 GB/s bidirectional NVLink per GPU, whereas inter-node 400 Gb/s InfiniBand provides 50 GB/s per GPU—an 18× difference.</li>
+<li>Rail-optimized fat-tree networks map GPU <tex>k</tex> on every node to an independent Rail <tex>k</tex> leaf switch, allowing data parallel traffic to avoid crossing spine switches.</li>
+<li>The five NCCL primitives are All-Reduce, All-Gather, Reduce-Scatter, All-to-All, and Broadcast. All-Reduce is equivalent to Reduce-Scatter followed by All-Gather, transferring <tex>2(N - 1)/N \times S</tex> bytes per GPU.</li>
+<li>Bus bandwidth normalizes algorithm bandwidth (<tex>\text{busbw} = \text{algbw} \times 2(N - 1)/N</tex> for All-Reduce) to reflect physical hardware saturation. Healthy H100 SXM nodes reach ~380 GB/s bus bandwidth on NVLink and ~43 GB/s on InfiniBand NDR.</li>
+<li>For Llama 3.1 8B, a 436 MB layer All-Gather takes 1.00 ms on NVLink (easily hidden behind 7.5 ms compute) but 10.11 ms on InfiniBand (stalling compute and collapsing MFU).</li>
+<li>Synchronous collective barriers turn tail network latency into cluster-wide idle time: a single degraded link stalls all 256 GPUs.</li>
+<li>To sustain 40% MFU, use Hybrid Sharded Data Parallelism (HSDP): shard states across 8 GPUs via NVLink, and replicate across nodes via rail-optimized InfiniBand.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] NVIDIA Corporation. NVIDIA H100 Tensor Core GPU Architecture. <a href="https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/h100/nvidia-h100-core-architecture-whitepaper.pdf" rel="noopener noreferrer" target="_blank">https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/h100/nvidia-h100-core-architecture-whitepaper.pdf</a>.<br>
+[2] NVIDIA Corporation. NVIDIA Collective Communications Library (NCCL) Documentation. <a href="https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/</a>.<br>
+[3] Patarasuk &amp; Yuan. Bandwidth Optimal All-reduce on Tree and Ring Topologies. <a href="https://doi.org/10.1016/j.jpdc.2008.11.002" rel="noopener noreferrer" target="_blank">https://doi.org/10.1016/j.jpdc.2008.11.002</a>.<br>
+[4] NVIDIA Corporation. NCCL Tests Repository. <a href="https://github.com/NVIDIA/nccl-tests" rel="noopener noreferrer" target="_blank">https://github.com/NVIDIA/nccl-tests</a>.<br>
+[5] Zhao et al. PyTorch FSDP: Experiences on Scaling Fully Sharded Data Parallel. <a href="https://arxiv.org/abs/2304.11277" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2304.11277</a>.</p>

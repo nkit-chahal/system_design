@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="360" viewBox="0 0 820 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">The Architectural Evolution: PPO to DPO and Verifiable RL</text>
+  <text x="25" y="48" class="sm" fill="#555">How the systems complexity and memory burden of holding four models drove modern algorithmic shifts</text>
+
+  <!-- 3 Stages side by side -->
+  <!-- Stage 1: PPO (4 Models) -->
+  <rect x="25" y="70" width="245" height="225" rx="6" class="gray"/>
+  <rect x="35" y="80" width="225" height="32" rx="4" class="red"/>
+  <text x="147" y="101" text-anchor="middle" class="b">RLHF with PPO (2022)</text>
+
+  <text x="35" y="130" class="sm b">Holding Four Models:</text>
+  <text x="35" y="148" class="sm">• Policy (trainable, 128.5 GB)</text>
+  <text x="35" y="166" class="sm">• Critic / Value (trainable, 128.5 GB)</text>
+  <text x="35" y="184" class="sm">• Reference (frozen, 16.1 GB)</text>
+  <text x="35" y="202" class="sm">• Reward Model (frozen, 16.1 GB)</text>
+
+  <rect x="35" y="220" width="225" height="65" rx="4" class="white"/>
+  <text x="147" y="240" text-anchor="middle" class="sm b" fill="#b85450">Static: 289.1 GB (8B)</text>
+  <text x="147" y="258" text-anchor="middle" class="sm">Requires multi-GPU FSDP clusters</text>
+  <text x="147" y="274" text-anchor="middle" class="sm">Slow autoregressive rollouts</text>
+
+  <!-- Arrow 1 -> 2 -->
+  <path d="M270 182 L290 182" class="edge"/>
+
+  <!-- Stage 2: DPO (2 Models / Lesson 25) -->
+  <rect x="290" y="70" width="240" height="225" rx="6" class="gray"/>
+  <rect x="300" y="80" width="220" height="32" rx="4" class="yellow"/>
+  <text x="410" y="101" text-anchor="middle" class="b">DPO Alignment (2023)</text>
+
+  <text x="300" y="130" class="sm b">Bypassing RL &amp; Critic:</text>
+  <text x="300" y="148" class="sm">• Policy (trainable, 128.5 GB)</text>
+  <text x="300" y="166" class="sm">• Reference (frozen, 16.1 GB)</text>
+  <text x="300" y="184" class="sm">• NO separate reward model</text>
+  <text x="300" y="202" class="sm">• NO value critic or rollouts</text>
+
+  <rect x="300" y="220" width="220" height="65" rx="4" class="white"/>
+  <text x="410" y="240" text-anchor="middle" class="sm b" fill="#6a3d9a">Static: 144.6 GB (8B)</text>
+  <text x="410" y="258" text-anchor="middle" class="sm">Offline classification loss</text>
+  <text x="410" y="274" text-anchor="middle" class="sm">Precomputed reference log-probs</text>
+
+  <!-- Arrow 2 -> 3 -->
+  <path d="M530 182 L550 182" class="edge"/>
+
+  <!-- Stage 3: GRPO / Verifiable RL (Lesson 26) -->
+  <rect x="550" y="70" width="245" height="225" rx="6" class="gray"/>
+  <rect x="560" y="80" width="225" height="32" rx="4" class="green"/>
+  <text x="672" y="101" text-anchor="middle" class="b">GRPO &amp; Verifiable RL (2024)</text>
+
+  <text x="560" y="130" class="sm b">Group Relative Verifiers:</text>
+  <text x="560" y="148" class="sm">• Policy (trainable, 128.5 GB)</text>
+  <text x="560" y="166" class="sm">• NO neural critic (group baselines)</text>
+  <text x="560" y="184" class="sm">• Deterministic rules &amp; compilers</text>
+  <text x="560" y="202" class="sm">• Zero reward hacking on math/code</text>
+
+  <rect x="560" y="220" width="225" height="65" rx="4" class="white"/>
+  <text x="672" y="240" text-anchor="middle" class="sm b" fill="#2d662d">Static: 128.5 GB (8B)</text>
+  <text x="672" y="258" text-anchor="middle" class="sm">Unlocks reasoning breakthroughs</text>
+  <text x="672" y="274" text-anchor="middle" class="sm">DeepSeekMath &amp; DeepSeek-R1</text>
+
+  <!-- Bottom Banner -->
+  <rect x="25" y="305" width="770" height="42" rx="4" class="purple"/>
+  <text x="410" y="331" text-anchor="middle" class="b">Lessons 24, 25, and 26 trace the evolution from 4-model PPO to DPO and verifiable RL</text>
+</svg>

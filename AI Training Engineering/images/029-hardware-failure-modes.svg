@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Column 1: GPU & HBM Failures -->
+  <rect x="25" y="30" width="235" height="260" rx="8" class="red"/>
+  <text x="40" y="58" class="b">GPU &amp; Memory (XID)</text>
+  <rect x="40" y="75" width="205" height="85" rx="4" class="white"/>
+  <text x="48" y="96" class="sm b">XID 79: Fallen off Bus</text>
+  <text x="48" y="114" class="sm">GPU stops responding to PCIe;</text>
+  <text x="48" y="132" class="sm">fatal hardware lockup</text>
+  <text x="48" y="150" class="sm">Requires host power cycle</text>
+  <rect x="40" y="170" width="205" height="105" rx="4" class="white"/>
+  <text x="48" y="191" class="sm b">XID 48 / 62: HBM3 ECC</text>
+  <text x="48" y="209" class="sm">Double-bit uncorrectable error</text>
+  <text x="48" y="227" class="sm">triggers page retirement;</text>
+  <text x="48" y="245" class="sm">corrupts tensor in memory</text>
+  <text x="48" y="263" class="sm">(Link Inference Lesson 40)</text>
+
+  <!-- Column 2: Interconnect & Fabric -->
+  <rect x="290" y="30" width="240" height="260" rx="8" class="orange"/>
+  <text x="305" y="58" class="b">Interconnect Fabric</text>
+  <rect x="305" y="75" width="210" height="85" rx="4" class="white"/>
+  <text x="313" y="96" class="sm b">NVLink Flaps &amp; CRC Errors</text>
+  <text x="313" y="114" class="sm">Thermal stress degrades 900 GB/s</text>
+  <text x="313" y="132" class="sm">NVLink bandwidth;</text>
+  <text x="313" y="150" class="sm">causes intra-node all-reduce stall</text>
+  <rect x="305" y="170" width="210" height="105" rx="4" class="white"/>
+  <text x="313" y="191" class="sm b">InfiniBand Link Downgrades</text>
+  <text x="313" y="209" class="sm">Optics / cable issues drop 400 Gb/s</text>
+  <text x="313" y="227" class="sm">NDR link to 200 Gb/s HDR or 50 Gb/s;</text>
+  <text x="313" y="245" class="sm">creates straggler node stalling</text>
+  <text x="313" y="263" class="sm">entire cluster all-reduce</text>
+
+  <!-- Column 3: Silent Data Corruption -->
+  <rect x="560" y="30" width="235" height="260" rx="8" class="yellow"/>
+  <text x="575" y="58" class="b">Silent Data Corruption (SDC)</text>
+  <rect x="575" y="75" width="205" height="95" rx="4" class="white"/>
+  <text x="583" y="96" class="sm b">ALU / Tensor Core Bit Flips</text>
+  <text x="583" y="114" class="sm">Arithmetic calculation produces</text>
+  <text x="583" y="132" class="sm">wrong mathematical result</text>
+  <text x="583" y="150" class="sm">without triggering XID or ECC trap;</text>
+  <text x="583" y="165" class="sm">undetected by OS kernel</text>
+  <rect x="575" y="180" width="205" height="95" rx="4" class="white"/>
+  <text x="583" y="201" class="sm b">Loss Anomaly Impact</text>
+  <text x="583" y="219" class="sm">Produces sudden loss spikes,</text>
+  <text x="583" y="237" class="sm">gradient NaN/Inf values,</text>
+  <text x="583" y="255" class="sm">or weight divergence</text>
+</svg>

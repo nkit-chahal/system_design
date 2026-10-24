@@ -1,0 +1,7 @@
+center: Pretraining Data Pipelines
+branch: Pretraining Text Sources | common crawl web dumps | open corpora dolma fineweb | code books and papers
+branch: Pipeline Stages | trafilatura html extraction | fasttext language identification | heuristic and pii filters
+branch: Sequence Packing | packing documents to context | eliminates padding compute waste | document boundary masks
+branch: Sharding And Storage | binary uint32 token arrays | streaming shards to nodes | megatron bin and mds
+branch: Data Loading At Scale | eight thousand tokens per gpu | local nvme shard cache | avoids collective barrier stalls
+branch: Deterministic Resumption | exact shard and offset | deterministic pseudorandom seeds | seamless recovery on restart

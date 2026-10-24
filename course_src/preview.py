@@ -2,10 +2,10 @@
 preview.py — Renders course figures or built lesson pages to PNG with headless Chrome,
 so authors can look at what they drew before shipping it.
 
-Usage (from the repo root):
-  python course_src/ai_inference/preview.py figs <out_dir> <image> [<image> ...]
+Usage (from the repo root; --course defaults to ai_inference):
+  python course_src/preview.py [--course ai_training] figs <out_dir> <image> [<image> ...]
       One PNG sheet with the figures stacked at natural size.
-  python course_src/ai_inference/preview.py page <out_dir> <lesson_number>
+  python course_src/preview.py [--course ai_training] page <out_dir> <lesson_number>
       Full-page screenshot of the built lesson, cut into 2000px-tall segments.
 """
 import glob
@@ -19,7 +19,14 @@ import tempfile
 from PIL import Image
 
 CHROME = r'C:\Program Files\Google\Chrome\Application\chrome.exe'
-COURSE_DIR = 'AI Inference Engineering'
+COURSES = {'ai_inference': 'AI Inference Engineering', 'ai_training': 'AI Training Engineering'}
+
+
+def pop_course(argv):
+    """Strip an optional leading `--course <key>` from argv; default is ai_inference."""
+    if len(argv) > 1 and argv[1] == '--course':
+        return argv[2], [argv[0]] + argv[3:]
+    return 'ai_inference', argv
 
 
 def screenshot(url, out_png, width, height):
@@ -54,10 +61,10 @@ def render_figs(out_dir, images):
     print(out_png)
 
 
-def render_page(out_dir, num):
-    matches = glob.glob(os.path.join(COURSE_DIR, f'{int(num):03d} *.html'))
+def render_page(out_dir, num, course_dir):
+    matches = glob.glob(os.path.join(course_dir, f'{int(num):03d} *.html'))
     if not matches:
-        sys.exit(f'lesson {num} is not built yet; run generate_inference_course.py {num}')
+        sys.exit(f'lesson {num} is not built yet in {course_dir}')
     full = str(pathlib.Path(out_dir) / f'page_{int(num):03d}.png')
     screenshot(pathlib.Path(matches[0]).resolve().as_uri(), full, 1440, 16000)
     # Keep the article column only (this also drops fixed widgets pinned to the
@@ -75,11 +82,12 @@ def render_page(out_dir, num):
 
 
 if __name__ == '__main__':
-    mode, out = sys.argv[1], sys.argv[2]
+    course, argv = pop_course(sys.argv)
+    mode, out = argv[1], argv[2]
     os.makedirs(out, exist_ok=True)
     if mode == 'figs':
-        render_figs(out, sys.argv[3:])
+        render_figs(out, argv[3:])
     elif mode == 'page':
-        render_page(out, sys.argv[3])
+        render_page(out, argv[3], COURSES[course])
     else:
         sys.exit(__doc__)

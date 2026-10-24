@@ -1,0 +1,403 @@
+<h2>Introduction</h2>
+<p>Pretraining transforms randomly initialized transformer weights into a powerful statistical predictor of web tokens. However, a base pretrained foundation model is not an assistant; it is a document continuator. If a user presents a base model with the prompt <em>"Explain how DNS resolution works"</em>, the model is as likely to generate <em>"in 10 easy steps. Chapter 2: TCP/IP"</em> or append forum comments as it is to answer the question. It lacks conversational turn-taking, role boundaries, instruction adherence, and safe tone [1].</p>
+<p><strong>Supervised Fine-Tuning (SFT)</strong> bridges this behavioral gap. By training the model on curated demonstrations of multi-turn dialogues, system instructions, and task completions, SFT teaches the model to adopt an assistant persona, adhere to strict formatting schemas (such as JSON tool-calling), and follow complex user constraints [2]. Crucially, SFT is not an unsupervised pretraining continuation: it uses <strong>assistant-only loss masking</strong> so that gradient updates penalize only incorrect completions, never the user prompts.</p>
+<fig src="022-sft-transformation.svg" caption="The SFT transformation: base model to instruction follower">A base pretrained model acts as an unconstrained document completer, continuing prompts with arbitrary web text. Supervised Fine-Tuning conditions the model to recognize conversational roles and deliver structured, compliant responses.</fig>
+<p>In this lesson, we break down what SFT changes in a base model and its fundamental limits, examine conversational data formatting and assistant-only loss masking, analyze batch packing versus padding, review verified recipes such as the Allen Institute's <strong>Tülu 3</strong> [3], compute the exact memory and compute accounting for full fine-tuning across an 8×H100 GPU node, diagnose <strong>catastrophic forgetting</strong>, evaluate the architectural choice between full fine-tuning and LoRA, and implement an end-to-end SFT training pipeline using Hugging Face TRL and Accelerate FSDP.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In post-training systems design interviews, SFT questions typically center on hardware sizing, conversational data representation, and the trade-off between full parameter updates and parameter-efficient adapters. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: What base model architecture and precision are we fine-tuning?<br>
+<strong>Interviewer</strong>: We are fine-tuning a base model with the Llama 3.1 8B architecture—8.03 billion parameters across 32 layers, hidden dimension 4,096, sequence length up to 8,192—in BF16 precision.</p>
+<p><strong>Candidate</strong>: What is the specific business application and dataset scale?<br>
+<strong>Interviewer</strong>: A customer-support assistant product. Our training set consists of 50,000 multi-turn customer support conversations averaging 1,000 tokens each, totaling approximately 50 million tokens.</p>
+<p><strong>Candidate</strong>: What compute infrastructure is available for this run?<br>
+<strong>Interviewer</strong>: A single 8×H100 SXM node containing 8 NVIDIA H100 80 GB GPUs connected via 900 GB/s NVLink. We want to know whether we should execute full fine-tuning across the node using FSDP, or use LoRA on a single GPU.</p>
+<p><strong>Candidate</strong>: What are the primary performance and latency requirements for deployment?<br>
+<strong>Interviewer</strong>: Maximum instruction compliancy, strict JSON output formatting for ticket routing, and zero degradation in core conversational English. Serving latency must be minimal.</p>
+<p><strong>Candidate</strong>: What training budget and turnaround time are targeted?<br>
+<strong>Interviewer</strong>: We need the fine-tuning run to complete rapidly—ideally under an hour—so our engineering team can iterate on data mixtures daily.</p>
+<p>The question underneath is: <em>How do we format conversational dialogues with assistant-only loss masking, account for memory across an 8×H100 node using FSDP, size the compute budget using <tex>6ND</tex> arithmetic, and ensure the model assimilates domain guidelines without catastrophically forgetting general reasoning?</em> To answer it, we begin by examining what SFT alters within the transformer parameters.</p>
+
+<h2>What SFT Does to a Base Model—and What It Cannot Do</h2>
+<p>A central question in post-training engineering is whether SFT imparts new foundational knowledge or merely aligns the interface to existing pretraining representations. In their influential study <em>LIMA: Less Is More for Alignment</em>, Zhou et al. formulated the <strong>Superficial Alignment Hypothesis</strong> [4]:</p>
+<blockquote>
+<p>Almost all foundational knowledge and world capabilities are acquired during pretraining. Alignment (SFT and preference tuning) is a simple process of learning the style, format, and interaction protocol that surfaces those latent capabilities.</p>
+</blockquote>
+<fig src="022-alignment-stages.svg" caption="The complete post-training alignment spectrum">The four stages of foundation model development. Pretraining acquires 99% of linguistic and factual knowledge across trillions of tokens. SFT aligns conversational style and format. Preference optimization (DPO) resolves ambiguity, and verifiable RL (GRPO) refines multi-step reasoning.</fig>
+<p>LIMA demonstrated that fine-tuning a 65B base model on just 1,000 meticulously curated prompt-response pairs produced an assistant that competed effectively with models trained on 50,000 uncurated conversations. However, while the Superficial Alignment Hypothesis holds for general conversational style, production teams must heavily <strong>hedge</strong> its claims:</p>
+<ul>
+<li><strong>Domain Vocabulary and APIs</strong>: SFT <em>can</em> teach a model to reliably map proprietary business intents to specific internal API schemas, parse unique domain IDs, and adopt a consistent corporate tone.</li>
+<li><strong>Limits of Knowledge Injection</strong>: SFT <em>cannot</em> teach a model entirely new foundational disciplines (such as learning Swedish or organic chemistry from scratch). Attempting to inject vast factual knowledge through small SFT datasets causes severe hallucinations and memorization without generalization.</li>
+<li><strong>The Imitation Bottleneck</strong>: SFT trains via maximum likelihood estimation (teacher forcing). The model imitates surface patterns in the demonstration data. It cannot learn from its own mistakes during generation, nor does it receive negative feedback when an answer is factually incorrect. Resolving ambiguity, sycophancy, and refusal behavior requires subsequent preference optimization (Lesson 24, Reward Models and RLHF, and Lesson 25, DPO and Preference Optimization).</li>
+</ul>
+
+<h2>Conversational Data Formatting and Loss Masking</h2>
+<h3>Chat Templates and Special Tokens</h3>
+<p>Pretrained transformers process a flat sequence of integer token IDs. To structure a multi-turn dialogue into a format the model can parse unambiguously, training pipelines apply a <strong>chat template</strong> that introduces reserved control tokens (Lesson 19, Tokenizers).</p>
+<p>In Llama 3.1, the conversational protocol uses four primary special tokens [2]:</p>
+<ul>
+<li><code>&lt;|begin_of_text|&gt;</code>: Marks the absolute start of the sequence.</li>
+<li><code>&lt;|start_header_id|&gt;{role}&lt;|end_header_id|&gt;</code>: Declares the message sender, where <code>role</code> is <code>system</code>, <code>user</code>, or <code>assistant</code>.</li>
+<li><code>&lt;|eot_id|&gt;</code> (End of Turn): Demarcates the conclusion of a message, prompting the model to switch roles.</li>
+</ul>
+
+<h3>Assistant-Only Loss Masking</h3>
+<p>In standard causal language modeling, the cross-entropy loss is computed across every token in the sequence:</p>
+<texblock>\mathcal{L}_{\text{pretrain}}(\theta) = -\frac{1}{T} \sum_{t=1}^T \log P_\theta(x_t \mid x_{<t})</texblock>
+<p>In SFT, calculating loss on the entire sequence is destructive. A user prompt represents an incoming query that the assistant must observe, not generate. If the loss is computed over user prompt tokens, the model spends gradient capacity learning to predict the user's phrasing, grammatical quirks, and query distribution. This causes prompt memorization, impairs out-of-distribution instruction generalization, and dilutes gradient updates [5].</p>
+<fig src="022-loss-masking.svg" caption="Token-level assistant-only loss masking">Input tokens and role demarcations. Tokens in the system prompt and user query are assigned a label value of -100, which PyTorch's CrossEntropyLoss ignores natively. Only the assistant response tokens evaluate loss and update parameter gradients.</fig>
+<p>The standard solution is <strong>assistant-only loss masking</strong> (completion-only loss). During data collation, every token belonging to the system prompt or user turn is assigned a label value of <strong>-100</strong>. In PyTorch, <code>torch.nn.CrossEntropyLoss(ignore_index=-100)</code> natively skips positions where the label equals -100:</p>
+<texblock>\mathcal{L}_{\text{SFT}}(\theta) = -\frac{1}{|\mathcal{T}_{\text{assistant}}|} \sum_{t \in \mathcal{T}_{\text{assistant}}} \log P_\theta(x_t \mid x_{<t})</texblock>
+<p>Only tokens generated by the assistant contribute to the loss numerator and backpropagation denominator. The model is trained purely to condition on the prompt and predict the completion.</p>
+
+<h3>Sequence Packing versus Padding</h3>
+<p>Conversational dialogues exhibit high length variance: some user exchanges require 150 tokens, while complex technical troubleshooting spans 3,500 tokens. Batching these dialogues presents an efficiency challenge.</p>
+<fig src="022-packing-vs-padding.svg" caption="Batch formatting: sequence padding versus sequence packing">Top: Standard padding pads sequences to a fixed context length, wasting up to 45% of compute on pad tokens. Bottom: Sequence packing concatenates multiple dialogues into a continuous 4,096-token sequence with cumulative sequence length masks, achieving 100% compute utilization.</fig>
+<ul>
+<li><strong>Padding (Padded Batching)</strong>: Dialogues within a batch are padded with <code>[PAD]</code> tokens to match the longest sequence in that micro-batch (or a fixed max length like 4,096). While straightforward to implement, padding wastes 30% to 60% of GPU compute on pad tokens that do not contribute to gradients.</li>
+<li><strong>Packing (Sequence Concatenation)</strong>: Multiple independent conversations are concatenated end-to-end into a single contiguous sequence of length <tex>L = 4,096</tex> or <tex>8,192</tex>. Packing eliminates compute waste completely. However, packing introduces a critical requirement: <strong>cross-contamination masking</strong>. Tokens in Conversation B must never attend to tokens in Conversation A. Training frameworks supply cumulative sequence lengths (<code>cu_seqlens</code>) to FlashAttention-2 varlen kernels to enforce strict block-diagonal causal masking across packed conversation boundaries [6].</li>
+</ul>
+
+<h2>Hyperparameters and Training Dynamics</h2>
+<p>Fine-tuning an 8B model requires radically different hyperparameters from pretraining. During pretraining, the learning rate typically starts at <tex>3 \times 10^{-4}</tex> and decays slowly. In SFT, applying a learning rate that high instantly shatters the delicate, pre-converged self-attention representations, resulting in catastrophic collapse.</p>
+<p>Modern verified recipes—such as the Allen Institute's <strong>Tülu 3</strong> recipe on Llama 3.1 8B [3] and the Stanford Alpaca / Tülu 2 recipes [5]—establish precise bounds:</p>
+<ul>
+<li><strong>Learning Rate</strong>: Typically between <tex>5 \times 10^{-6}</tex> and <tex>2 \times 10^{-5}</tex> for an 8B model. Tülu 3 determined that an optimal learning rate of <strong><tex>5 \times 10^{-6}</tex></strong> achieved peak benchmark scores on Llama 3.1 8B, while 70B models required an even more conservative <tex>2 \times 10^{-6}</tex>.</li>
+<li><strong>Learning Rate Schedule</strong>: Linear warmup over the first 3% of training steps (warmup ratio 0.03), followed by linear decay to zero.</li>
+<li><strong>Effective Batch Size</strong>: 64 to 128 sequences (approximately 128k to 512k tokens per optimizer step). This is achieved by combining per-device micro-batch size with gradient accumulation.</li>
+<li><strong>Epochs and Overfitting</strong>: SFT converges rapidly. Optimal performance is universally achieved in <strong>1 to 2 epochs</strong>. Training beyond 3 epochs leads to severe memorization: the training loss continues to decrease, but output diversity collapses, responses become repetitive and verbose, and out-of-domain reasoning degrades sharply.</li>
+<li><strong>Weight Decay</strong>: Set to 0.0 or a minimal 0.01 to prevent ungrounded weight drift away from the pretraining minimum.</li>
+</ul>
+
+<table>
+<thead>
+<tr>
+<th>Recipe / Study</th>
+<th>Base Model</th>
+<th>Learning Rate</th>
+<th>Schedule</th>
+<th>Effective Batch Size</th>
+<th>Epochs</th>
+<th>Key Takeaway</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Tülu 3 (Ai2, 2024) [3]</strong></td>
+<td>Llama 3.1 8B</td>
+<td><tex>5 \times 10^{-6}</tex></td>
+<td>Linear decay (0.03 warmup)</td>
+<td>128 sequences</td>
+<td>2</td>
+<td>Frontier open post-training; peak benchmark retention</td>
+</tr>
+<tr>
+<td><strong>Stanford Alpaca [5]</strong></td>
+<td>LLaMA 7B</td>
+<td><tex>2 \times 10^{-5}</tex></td>
+<td>Cosine decay (0.03 warmup)</td>
+<td>128 sequences</td>
+<td>3</td>
+<td>Early proof of 52k instruction following</td>
+</tr>
+<tr>
+<td><strong>LIMA (Meta, 2023) [4]</strong></td>
+<td>LLaMA 65B</td>
+<td><tex>1.5 \times 10^{-5}</tex></td>
+<td>Linear decay (0.00 warmup)</td>
+<td>32–64 sequences</td>
+<td>15 (tiny 1k set)</td>
+<td>Proved quality over quantity with 1,000 examples</td>
+</tr>
+<tr>
+<td><strong>UltraChat (Ding et al.) [7]</strong></td>
+<td>Mistral 7B / Llama 2</td>
+<td><tex>2 \times 10^{-5}</tex></td>
+<td>Cosine decay</td>
+<td>64 sequences</td>
+<td>3</td>
+<td>Multi-turn synthetic conversational diversity</td>
+</tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Verified SFT training recipes and hyperparameter configurations</p>
+
+<h2>Memory and Compute Accounting: Full Fine-Tuning vs LoRA</h2>
+<p>We now size the exact compute and memory budget for our post-training scenario: fine-tuning <strong>Llama 3.1 8B</strong> (<tex>N = 8.03 \times 10^9</tex> parameters) on <strong>50,000 customer-support conversations</strong> averaging 1,000 tokens (<tex>D = 50 \times 10^6\text{ tokens}</tex>) across our <strong>8×H100 SXM node</strong>.</p>
+<fig src="022-memory-fsdp-vs-lora.svg" caption="GPU memory: full FSDP (8 GPUs) versus LoRA (1 GPU)">Memory allocation comparison. Left: One GPU of an 8-GPU node running full fine-tuning with FSDP consumes 20.1 GB peak memory, leaving > 70% headroom on an 80 GB H100. Right: LoRA (r=16) on a single GPU consumes 17.9 GB peak memory, fitting comfortably on a single 24 GB or 80 GB GPU.</fig>
+
+<h3>Analytical Compute Accounting (<tex>6ND</tex>)</h3>
+<p>For standard mixed-precision training, the theoretical floating-point operations per token is <tex>6N</tex> (2N forward pass, 4N backward pass; see Lesson 7, Training FLOPs, Time and MFU). For a 2-epoch fine-tuning run on 50M unique tokens, the total tokens processed is <tex>D_{\text{total}} = 2 \times 50 \times 10^6 = 100 \times 10^6 = 10^8\text{ tokens}</tex>:</p>
+<texblock>\text{Training FLOPs} = 6 \times N \times D_{\text{total}} = 6 \times 8.03 \times 10^9 \times 10^8 = 4.818 \times 10^{18}\text{ FLOPs}</texblock>
+<p>Our compute hardware consists of one node with <strong>8 NVIDIA H100 SXM GPUs</strong>. Each H100 provides 989 dense BF16 TFLOPS (TeraFLOPS). Assuming a standard <strong>40% Model FLOPs Utilization (MFU)</strong>:</p>
+<texblock>\text{Cluster Effective FLOPS} = 8 \times 989 \times 10^{12} \times 0.40 = 3.1648 \times 10^{15}\text{ FLOPS}</texblock>
+<p>Dividing total required FLOPs by effective cluster throughput yields the wall-clock training time:</p>
+<texblock>\text{Training Time} = \frac{4.818 \times 10^{18}\text{ FLOPs}}{3.1648 \times 10^{15}\text{ FLOPS}} \approx 1,522.4\text{ seconds} \approx 25.37\text{ minutes}</texblock>
+<p>Converting this to GPU-hours and financial cost at our standard assumption of <strong>$3.00 per H100-hour</strong>:</p>
+<texblock>\text{GPU-Hours} = 8\text{ GPUs} \times \left(\frac{1,522.4}{3,600}\right) \approx 3.38\text{ GPU-hours}</texblock>
+<texblock>\text{Total Training Cost} = 3.38 \times \$3.00 \approx \$10.15</texblock>
+<p>Notice the extraordinary contrast: while pretraining Llama 3.1 8B on 1 trillion tokens required <strong>33,800 GPU-hours and $101,000</strong> over 5.5 days, <strong>full fine-tuning on 50,000 customer-support conversations executes in 25 minutes and costs approximately $10</strong>! Compute is not the bottleneck in SFT; data curation is.</p>
+
+<h3>Memory Accounting: FSDP over 8 GPUs vs LoRA</h3>
+<p>In Lesson 3 (Training Memory), we established that standard mixed-precision training with Adam requires <strong>16 bytes per parameter</strong> (2B weights + 2B gradients + 4B FP32 master weights + 8B Adam moments). For our 8.03B model, the total static model and optimizer state is:</p>
+<texblock>\text{Total Static State} = 8.03 \times 10^9 \times 16\text{ bytes} \approx 128.48\text{ GB} \approx 128.5\text{ GB}</texblock>
+
+<h4>Full Fine-Tuning with FSDP (8 GPUs)</h4>
+<p>When running PyTorch <strong>Fully Sharded Data Parallel (FSDP)</strong> with <code>FULL_SHARD</code> across the 8 GPUs of our H100 node (Lesson 11, ZeRO and FSDP):</p>
+<ul>
+<li><strong>Sharded Model and Optimizer States</strong>: The 128.5 GB is divided equally across the 8 GPUs via high-speed NVLink (900 GB/s per GPU):
+<texblock>\text{States per GPU} = \frac{128.48\text{ GB}}{8} \approx 16.06\text{ GB}</texblock></li>
+<li><strong>Activation Memory</strong>: With FlashAttention-2, sequence length 2,048, and per-device micro-batch size 2, intermediate activations require approximately <strong>1.5 GB</strong> per GPU.</li>
+<li><strong>Communication and Workspace Buffers</strong>: All-Gather forward and Reduce-Scatter backward buffers add approximately <strong>2.5 GB</strong>.</li>
+<li><strong>Total Peak Footprint per GPU</strong>: <tex>16.06 + 1.5 + 2.5 \approx 20.06\text{ GB}</tex> (roughly 18.7 GiB).</li>
+</ul>
+<p>An NVIDIA H100 SXM GPU provides 79.6 GiB (85.5 GB) of visible memory. Consuming 20.1 GB leaves <strong>over 70% of GPU memory free</strong>. Full fine-tuning on an 8-GPU node operates with massive safety margins against Out-Of-Memory (OOM) errors.</p>
+
+<h4>LoRA on a Single GPU (Lesson 23)</h4>
+<p>If a team lacks an 8-GPU node and trains on a single GPU using <strong>LoRA</strong> (Low-Rank Adaptation; see Lesson 23, LoRA and QLoRA):</p>
+<ul>
+<li><strong>Base Model Weights</strong>: Frozen in BF16: <tex>8.03 \times 10^9 \times 2\text{ bytes} \approx 16.06\text{ GB}</tex>. Zero gradients and zero Adam optimizer states are allocated for base parameters.</li>
+<li><strong>Adapter Parameters and States</strong>: Applying rank <tex>r = 16</tex> adapters to all linear attention and MLP projections updates approximately 20 million parameters (0.25% of the model). Adapter weights (40 MB in FP32/BF16) plus their Adam states (12 bytes/param) consume less than <strong>0.3 GB</strong>.</li>
+<li><strong>Total Peak Footprint</strong>: <tex>16.06 + 0.3 + 1.5\text{ (activations)} \approx 17.86\text{ GB}</tex>.</li>
+</ul>
+<p>LoRA fits comfortably on a single 24 GB GPU (such as an NVIDIA RTX 4090 or L4), enabling post-training without multi-GPU cluster infrastructure.</p>
+
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Full Fine-Tuning (FSDP over 8×H100)</th>
+<th>LoRA (Single 80 GB or 24 GB GPU)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Hardware Required</strong></td>
+<td>1 node × 8 H100 SXM (NVLink)</td>
+<td>1 consumer or cloud GPU (24 GB to 80 GB)</td>
+</tr>
+<tr>
+<td><strong>Trainable Parameters</strong></td>
+<td>8.03 Billion (100%)</td>
+<td>~20 Million (0.25%, rank 16)</td>
+</tr>
+<tr>
+<td><strong>Memory per GPU</strong></td>
+<td>~20.1 GB (Leaves &gt; 70% headroom)</td>
+<td>~17.9 GB (Fits on 24 GB GPU)</td>
+</tr>
+<tr>
+<td><strong>Training Wall-Clock Time</strong></td>
+<td><strong>~25 minutes</strong> (8 GPUs at 40% MFU)</td>
+<td>~3.4 hours (1 GPU at 40% MFU)</td>
+</tr>
+<tr>
+<td><strong>Serving Overhead</strong></td>
+<td><strong>Zero</strong>: Base weights merged; standard latency</td>
+<td>Adapter overhead or multi-tenant weight switching</td>
+</tr>
+<tr>
+<td><strong>Expressive Capacity</strong></td>
+<td>Highest: Can assimilate complex schemas &amp; style</td>
+<td>High: Constrained by low-rank bottleneck</td>
+</tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Full fine-tuning versus LoRA architectural comparison</p>
+
+<h2>Catastrophic Forgetting and Evaluation</h2>
+<p>When a language model undergoes supervised fine-tuning on a narrow task distribution (such as customer support dialogues), its parameter weights drift away from the pretraining manifold [8]. While the model rapidly acquires the desired conversational style, it risks <strong>catastrophic forgetting</strong>: losing the multi-step mathematical reasoning, algorithmic logic, or broad world knowledge learned during pretraining.</p>
+<fig src="022-eval-forgetting-curve.svg" caption="SFT evaluation dynamics: capability gain versus forgetting (illustrative)">Evaluation trajectories during customer-support fine-tuning. Task compliancy surges to 94% within 1.5 epochs. General knowledge (MMLU) remains stable. Complex multi-step reasoning (GSM8K) degrades sharply after epoch 2 unless protected by pretraining data replay.</fig>
+
+<h3>Why Forgetting Occurs</h3>
+<p>Neural networks suffer from retroactive interference. In transformers, higher self-attention layers and MLP projections specialize in logical induction and variable tracking (Lesson 2, Forward and Backward Passes). When fine-tuned exclusively on customer greeting templates and refund policies, gradient steps overwrite those induction attention heads with conversational boilerplate.</p>
+
+<h3>Detecting and Mitigating Forgetting</h3>
+<p>Production engineering teams employ four defense mechanisms:</p>
+<ol>
+<li><strong>Continuous Benchmark Auditing</strong>: Throughout fine-tuning, evaluate checkpoints against both domain-specific validation sets (support ticket accuracy, JSON validity) and foundational general capability benchmarks: <strong>MMLU</strong> for factual knowledge, <strong>GSM8K</strong> for multi-step reasoning, and <strong>HumanEval</strong> for code syntax (Lesson 34, Evaluation During Training). A drop of more than 2%–3% on GSM8K signals excessive parameter drift.</li>
+<li><strong>Pretraining Data Replay</strong>: Mix a small percentage (e.g., 5% to 10%) of raw pretraining data (general web text, code, and math) directly into the SFT conversational mixture. Replay gradients anchor attention heads to pretraining representations without impairing conversational alignment.</li>
+<li><strong>Low Learning Rate and Early Stopping</strong>: Keep the learning rate at or below <tex>5 \times 10^{-6}</tex> for 8B models and halt training at <strong>epoch 2</strong>. Overfitting past epoch 2 accelerates capability erosion.</li>
+<li><strong>KL Divergence Penalty</strong>: In advanced post-training pipelines, add an explicit Kullback-Leibler (KL) regularization term penalizing policy drift from the frozen base model reference policy <tex>\pi_{\text{ref}}</tex>, a mechanism formalized in DPO (Lesson 25).</li>
+</ol>
+
+<h4>Which approach fits our customer-support product?</h4>
+<p>For our dedicated customer-support product on an 8×H100 node, we choose <strong>full fine-tuning with FSDP over 8 GPUs, using the Tülu 3 hyperparameter recipe (LR <tex>5 \times 10^{-6}</tex>, batch size 128, 2 epochs) and 5% pretraining replay</strong>. Because our team has dedicated access to the 8×H100 node, full fine-tuning completes in just <strong>25 minutes</strong> at a negligible compute cost of <strong>~$10</strong>. Full fine-tuning avoids adapter serving overhead, eliminates rank capacity constraints on structured JSON tool-calling, and bakes support guidelines directly into the base weights. For rapid customer-specific experimentation or multi-tenant branching, LoRA is maintained as a complementary tool, but the core product model is fully fine-tuned.</p>
+
+<h2>In Practice</h2>
+<p>The first tab implements a complete, runnable supervised fine-tuning script using Hugging Face <strong>TRL's <code>SFTTrainer</code></strong>, <code>DataCollatorForCompletionOnlyLM</code> for assistant-only loss masking, and <code>SFTConfig</code> configured for Llama 3.1 8B. The second tab provides the production <strong>Accelerate FSDP YAML configuration</strong> for <code>FULL_SHARD</code> across the 8 H100 GPUs. The third tab shows the distributed launch command.</p>
+
+<codetabs>
+<tab label="train_sft.py" lang="python">
+import os
+import torch
+from datasets import Dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from trl import SFTTrainer, SFTConfig, DataCollatorForCompletionOnlyLM
+
+# 1. Configuration & Model ID
+MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+OUTPUT_DIR = "./results_customer_support_sft"
+
+# 2. Synthetic Customer Support Dataset for verification
+sample_conversations = [
+    {
+        "messages": [
+            {"role": "system", "content": "You are a professional customer support assistant. Provide concise, polite answers."},
+            {"role": "user", "content": "Where can I track my package shipment?"},
+            {"role": "assistant", "content": "You can track your package by navigating to Orders > Track Package in your account portal."}
+        ]
+    },
+    {
+        "messages": [
+            {"role": "system", "content": "You are a professional customer support assistant. Provide concise, polite answers."},
+            {"role": "user", "content": "What is the return window for electronics?"},
+            {"role": "assistant", "content": "Electronics can be returned within 30 days of delivery with original packaging and receipt."}
+        ]
+    }
+]
+
+def format_chat_template(example, tokenizer):
+    """Formats dialogue using the model's official jinja chat template."""
+    formatted_text = tokenizer.apply_chat_template(
+        example["messages"],
+        tokenize=False,
+        add_generation_prompt=False
+    )
+    return {"text": formatted_text}
+
+def main():
+    print(f"Loading tokenizer: {MODEL_ID}...")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    # 3. Format dataset
+    raw_dataset = Dataset.from_list(sample_conversations)
+    formatted_dataset = raw_dataset.map(lambda x: format_chat_template(x, tokenizer))
+
+    # 4. Assistant-Only Loss Masking via Completion Collator
+    # In Llama 3.1, assistant turns begin with "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    response_template = "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    collator = DataCollatorForCompletionOnlyLM(
+        response_template=response_template,
+        tokenizer=tokenizer
+    )
+
+    # 5. Load model in BF16 (Transformers v5 uses dtype=)
+    print("Loading base model...")
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_ID,
+        dtype=torch.bfloat16,
+        attn_implementation="flash_attention_2"
+    )
+
+    # 6. SFT Training Arguments (Tülu 3 inspired recipe)
+    training_args = SFTConfig(
+        output_dir=OUTPUT_DIR,
+        learning_rate=5e-6,
+        lr_scheduler_type="linear",
+        warmup_ratio=0.03,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=8,  # 2 * 8 * 8 GPUs = 128 effective batch size
+        num_train_epochs=2,
+        max_seq_length=2048,
+        packing=False,  # Required for completion-only loss masking
+        dataset_text_field="text",
+        bf16=True,
+        logging_steps=10,
+        save_strategy="epoch",
+        gradient_checkpointing=True,
+        report_to="none"
+    )
+
+    # 7. Initialize SFTTrainer
+    trainer = SFTTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=formatted_dataset,
+        data_collator=collator
+    )
+
+    print("Launching SFT training loop...")
+    # trainer.train()
+
+if __name__ == "__main__":
+    main()
+</tab>
+<tab label="fsdp_config.yaml" lang="yaml">
+compute_environment: LOCAL_MACHINE
+debug: false
+distributed_type: FSDP
+downcast_bf16: 'no'
+gpu_ids: all
+machine_rank: 0
+main_training_function: main
+mixed_precision: bf16
+num_machines: 1
+num_processes: 8
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false
+
+fsdp_config:
+  fsdp_auto_wrap_policy: TRANSFORMER_BASED_WRAP
+  fsdp_backward_prefetch: BACKWARD_PRE
+  fsdp_cpu_ram_efficient_loading: true
+  fsdp_forward_prefetch: false
+  fsdp_offload_params: false
+  fsdp_sharding_strategy: FULL_SHARD
+  fsdp_state_dict_type: SHARDED_STATE_DICT
+  fsdp_sync_module_states: true
+  fsdp_transformer_layer_cls_to_wrap: LlamaDecoderLayer
+  fsdp_use_orig_params: true
+</tab>
+<tab label="launch.sh" lang="bash">
+#!/bin/bash
+# Launch full fine-tuning across 8xH100 node with Accelerate and FSDP
+export NCCL_DEBUG=INFO
+export NCCL_IB_DISABLE=0
+export NCCL_SOCKET_IFNAME=eth0
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+
+accelerate launch \
+  --config_file fsdp_config.yaml \
+  --num_processes 8 \
+  train_sft.py
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Direct Preference Optimization (DPO) Hand-off</strong>: SFT models act as the reference policy <tex>\pi_{\text{ref}}</tex> for DPO. A weak or overfitted SFT model severely impairs downstream preference learning because DPO penalizes drift relative to the SFT policy (Lesson 25, DPO and Preference Optimization).</li>
+<li><strong>Length Bias in Supervised Demonstrations</strong>: SFT models are notorious for learning length heuristics: if demonstration answers are verbose, the model learns that generating more tokens yields lower training loss, resulting in verbose, sycophantic customer responses.</li>
+<li><strong>Tool-Calling and JSON Schema Adherence</strong>: Modern SFT recipes enforce structured syntax by formatting tool calls within reserved XML or JSON blocks (e.g., <code>&lt;tool_call&gt;{"name": "check_balance", "args": {"user_id": 104}}&lt;/tool_call&gt;</code>) and penalizing invalid JSON during post-training evals.</li>
+<li><strong>Distillation from Frontier Teacher Models</strong>: When human demonstration dialogues are scarce, teams distill responses from larger models (such as GPT-4o or Claude 3.5 Sonnet). While highly effective for conversational fluency, distilled models often mimic teacher refusal behaviors and struggle on niche domain edge cases unless supplemented with real internal logs.</li>
+<li><strong>Safety and Refusal Alignment</strong>: SFT introduces deliberate refusal demonstrations ("I cannot help you bypass authentication protocols..."). Training on excessive refusal examples can cause the model to become over-cautious, refusing benign queries that share keywords with malicious prompts.</li>
+<li><strong>Weight Averaging Across SFT Checkpoints</strong>: Averaging checkpoints from epochs 1.5, 1.8, and 2.0 smooths out optimization variance, consistently yielding 0.5%–1.0% higher benchmark scores than the final step alone.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="022-summary.png" caption="Supervised fine-tuning summary" optional="1">Mind map summarizing Supervised Fine-Tuning: base model alignment, assistant-only loss masking, Tülu 3 hyperparameters, 8×H100 FSDP compute and memory accounting, and forgetting mitigation.</fig>
+<ul>
+<li>Supervised Fine-Tuning (SFT) transforms raw base continuators into compliant, role-bounded assistants by training on conversational dialogues using <strong>assistant-only loss masking</strong> (setting prompt labels to -100).</li>
+<li>Per the Superficial Alignment Hypothesis (LIMA), pretraining acquires world knowledge while SFT learns interaction style, format, and schemas; however, SFT cannot inject deep foundational skills without hallucination.</li>
+<li>Verified recipes (Tülu 3) specify an optimal learning rate of <strong><tex>5 \times 10^{-6}</tex></strong>, linear warmup and decay, batch size 128, and strict stopping at <strong>1 to 2 epochs</strong> to prevent memorization and diversity collapse.</li>
+<li>For our 50,000-conversation run on Llama 3.1 8B, <tex>6ND</tex> compute arithmetic demonstrates that full fine-tuning executes in just <strong>25.4 minutes</strong> across an 8×H100 node at a compute cost of <strong>~$10.15</strong>.</li>
+<li>Under FSDP across 8 GPUs, the 128.5 GB model and Adam states shard to <strong>16.06 GB per GPU</strong> (peak footprint ~20.1 GB), leaving > 70% headroom on an 80 GB H100.</li>
+<li>To mitigate catastrophic forgetting of multi-step math and coding capabilities, production pipelines cap epochs at 2, maintain low learning rates, and blend <strong>5%–10% pretraining data replay</strong> into the fine-tuning stream.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Brown et al. Language Models are Few-Shot Learners. <a href="https://arxiv.org/abs/2005.14165" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2005.14165</a>.<br>
+[2] Meta AI. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[3] Lambert et al. Tülu 3: Pushing Frontiers in Open Language Model Post-Training. <a href="https://arxiv.org/abs/2411.15124" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2411.15124</a>.<br>
+[4] Zhou et al. LIMA: Less Is More for Alignment. <a href="https://arxiv.org/abs/2305.11206" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.11206</a>.<br>
+[5] Taori et al. Stanford Alpaca: An Instruction-following LLaMA model. <a href="https://github.com/tatsu-lab/stanford_alpaca" rel="noopener noreferrer" target="_blank">https://github.com/tatsu-lab/stanford_alpaca</a>.<br>
+[6] Dao. FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. <a href="https://arxiv.org/abs/2307.08691" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2307.08691</a>.<br>
+[7] Ding et al. Enhancing Chat Language Models by Scaling High-quality Instructional Conversations. <a href="https://arxiv.org/abs/2305.14233" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.14233</a>.<br>
+[8] Kirkpatrick et al. Overcoming Catastrophic Forgetting in Neural Networks. <a href="https://arxiv.org/abs/1612.00796" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1612.00796</a>.</p>

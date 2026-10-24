@@ -1,0 +1,322 @@
+<h2>Introduction</h2>
+<p>Training large language models is governed by rigid arithmetic. Before launching a distributed cluster of hundreds or thousands of GPUs, an infrastructure engineer must answer three fundamental questions: How many floating-point operations will the training run take? How many days will the job monopolize the cluster? And how much will the compute bill cost? Answering these questions requires modeling the relationship between model architecture, dataset volume, hardware silicon limits, and cluster efficiency [1].</p>
+<p>The standard industry baseline for transformer compute is the <strong>6ND rule</strong>: training a dense autoregressive language model with <tex>N</tex> parameters on <tex>D</tex> tokens requires approximately <tex>6ND</tex> floating-point operations (FLOPs) [2]. When teams apply full activation recomputation to fit large micro-batches into GPU High Bandwidth Memory, that cost increases by 33% to <strong>8ND</strong> [3]. For modern long-context regimes, the quadratic attention operation adds an additional layer-dependent term that can alter the compute budget significantly [4].</p>
+<fig src="007-forward-backward-flops.svg" caption="The 6ND rule: training FLOPs breakdown per token">A breakdown of floating-point operations per token across forward, backward, and recomputation passes. The forward pass requires 2N operations for dense matrix multiplications. Backpropagation requires 4N operations (2N for activation gradients dL/dX and 2N for parameter weight gradients dL/dW). Full activation recomputation repeats the forward pass during backpropagation, adding 2N operations to reach 8N FLOPs per token.</fig>
+<p>However, theoretical FLOPs tell only half the story. Physical accelerators never operate at 100% of their advertised peak throughput. Inter-GPU communication, memory bandwidth limits, pipeline bubbles, and kernel launch overhead inevitably degrade performance. To measure real-world productivity, the field relies on <strong>Model FLOPs Utilization (MFU)</strong>—the ratio of theoretical minimal compute delivered to peak theoretical hardware capacity over wall-clock time [1]. Unlike Hardware FLOPs Utilization (HFU), which artificially rewards redundant recomputation, MFU is implementation-independent and serves as the definitive engineering metric of cluster productivity.</p>
+<p>In this lesson, we derive the 6ND and 8ND rules from first principles, formulate the quadratic attention term for long sequences, dissect the formal definitions of MFU and HFU, analyze why frontier training runs achieve 38% to 45% MFU, translate abstract efficiency into daily tokens-per-second telemetry, and calculate the concrete financial and operational penalty of underperforming clusters.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In system design interviews and cluster capacity reviews, training sizing questions begin by constraining the model, dataset, and target hardware. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: What model architecture and precision are we sizing for this pretraining run?<br>
+<strong>Interviewer</strong>: We are training a dense model based on the Llama 3.1 8B architecture—32 layers, hidden dimension 4,096, 32 query heads, 8 key-value heads, and a vocabulary size of 128,256, totaling 8.03 billion parameters. All weights, gradients, and activations run in 16-bit brain floating point (BF16).</p>
+<p><strong>Candidate</strong>: What is the training data volume and sequence context length?<br>
+<strong>Interviewer</strong>: The dataset is 1 trillion tokens (1e12 tokens). Sequences are packed to a context length of 8,192 tokens.</p>
+<p><strong>Candidate</strong>: What hardware cluster do we have allocated for the job?<br>
+<strong>Interviewer</strong>: We have 256 NVIDIA H100 80 GB SXM GPUs distributed across 32 nodes. Each node contains 8 GPUs interconnected via fourth-generation NVLink at 900 GB/s per GPU. Across nodes, each node connects through 8 InfiniBand NDR NICs offering 400 Gb/s (50 GB/s) per GPU.</p>
+<p><strong>Candidate</strong>: What is the peak theoretical BF16 throughput of these GPUs?<br>
+<strong>Interviewer</strong>: Each H100 SXM GPU provides 989 TFLOPS of dense BF16 tensor core compute. For financial budgeting, assume cloud capacity costs $3.00 per H100-hour.</p>
+<p><strong>Candidate</strong>: What target efficiency are we aiming for, and what batch size are we running?<br>
+<strong>Interviewer</strong>: The global batch size is approximately 4 million tokens (512 sequences of 8,192 tokens). We need to achieve at least 40% Model FLOPs Utilization (MFU). We want to know how long the run will take, what the compute will cost, and what happens if our software stack only reaches 30% MFU.</p>
+<p>The question underneath is: <em>How do we translate matrix operations and silicon specifications into reliable wall-clock schedules and cloud budgets, and how do we debug the hardware-software gap when throughput falls short?</em> To answer it, we begin by counting the arithmetic operations of a training step.</p>
+
+<h2>The 6ND Rule: Counting Training Operations</h2>
+<h3>Matrix multiplication arithmetic</h3>
+<p>A standard dense transformer consists primarily of linear projection layers: the attention projection matrices (<tex>W_q, W_k, W_v, W_o</tex>) and the feed-forward network matrices (<tex>W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}\text{ in SwiGLU}</tex>). Each linear transformation computes a General Matrix Multiply (GEMM) of the form <tex>Y = X W</tex>, where <tex>X \in \mathbb{R}^{B \times d_{\text{in}}}</tex> and <tex>W \in \mathbb{R}^{d_{\text{in}} \times d_{\text{out}}}</tex>.</p>
+<p>For every element in the output matrix <tex>Y</tex>, computing the dot product between a row of <tex>X</tex> and a column of <tex>W</tex> requires <tex>d_{\text{in}}</tex> multiplications and <tex>(d_{\text{in}} - 1)</tex> additions, which is conventionally rounded to <tex>2 d_{\text{in}}</tex> floating-point operations. Because the weight matrix contains <tex>d_{\text{in}} \times d_{\text{out}}</tex> parameters, multiplying a batch of <tex>B</tex> tokens requires exactly:</p>
+<texblock>\text{FLOPs} = 2 \times B \times d_{\text{in}} \times d_{\text{out}} = 2 \times B \times \text{Parameters}</texblock>
+<p>Summed across all linear layers in the network, a single <strong>forward pass</strong> requires exactly <tex>2N</tex> FLOPs per token, where <tex>N</tex> is the number of active model parameters [2].</p>
+
+<h3>The backward pass: activation gradients and weight gradients</h3>
+<p>During backpropagation, every linear layer must execute two separate matrix multiplications to propagate derivatives backward through the computational graph [5]:</p>
+<ol>
+<li><strong>Gradient with respect to inputs (<tex>\partial \mathcal{L} / \partial X</tex>)</strong>: To pass error signals to upstream layers, the layer computes the matrix product of upstream activation gradients <tex>\partial \mathcal{L} / \partial Y</tex> and transposed weights <tex>W^\top</tex>:
+<texblock>\frac{\partial \mathcal{L}}{\partial X} = \left(\frac{\partial \mathcal{L}}{\partial Y}\right) W^\top</texblock>
+Because <tex>W^\top</tex> has dimensions <tex>d_{\text{out}} \times d_{\text{in}}</tex>, this operation has the exact same arithmetic dimensions as the forward pass: <tex>2 \times B \times d_{\text{out}} \times d_{\text{in}} = 2 N</tex> FLOPs per token.</li>
+<li><strong>Gradient with respect to weights (<tex>\partial \mathcal{L} / \partial W</tex>)</strong>: To update the layer's weights, the layer computes the outer product of transposed input activations <tex>X^\top</tex> and upstream gradients <tex>\partial \mathcal{L} / \partial Y</tex>:
+<texblock>\frac{\partial \mathcal{L}}{\partial W} = X^\top \left(\frac{\partial \mathcal{L}}{\partial Y}\right)</texblock>
+This GEMM also operates over <tex>d_{\text{in}} \times B \times d_{\text{out}}\text{ tensors}</tex>, requiring another <tex>2 \times B \times d_{\text{in}} \times d_{\text{out}} = 2 N</tex> FLOPs per token.</li>
+</ol>
+<p>Consequently, <strong>the backward pass requires exactly twice the compute of the forward pass (<tex>4N\text{ FLOPs per token}</tex>)</strong>. Combining the forward pass (<tex>2N</tex>) and backward pass (<tex>4N</tex>) gives the foundational <strong>6ND rule</strong>:</p>
+<texblock>C_{\text{dense}} \approx 6 \times N \times D</texblock>
+<p>Here <tex>C_{\text{dense}}</tex> is the total floating-point operations required to train a model with <tex>N</tex> parameters on <tex>D</tex> tokens, excluding attention matrices, embedding lookup tables, and layer normalizations [2].</p>
+
+<h3>Full activation recomputation: the 8ND rule</h3>
+<p>As explored in Lesson 3, Training Memory, storing all intermediate forward activations across 32 layers for an 8,192-token context easily triggers out-of-memory errors. The standard mitigation is <strong>activation checkpointing</strong> (rematerialization). Under full activation checkpointing, only the boundary activations entering each transformer layer are saved during the forward pass; all internal intermediate activations are discarded [3].</p>
+<p>When the backward pass reaches that layer, it executes an additional forward pass through the layer to regenerate the discarded activations immediately before backpropagating through them. This extra forward pass requires another <tex>2N</tex> FLOPs per token. Under full activation recomputation, the total compute expands to:</p>
+<texblock>C_{\text{recompute}} = 2ND \text{ (forward)} + 2ND \text{ (recompute)} + 4ND \text{ (backward)} = 8ND</texblock>
+<p>Full activation recomputation thus imposes an exact <strong>33.3% compute penalty</strong> (<tex>8ND / 6ND = 1.333</tex>). In exchange, activation memory is slashed by over 90%, allowing larger micro-batches that saturate GPU Tensor Cores [3].</p>
+
+<h3>The quadratic attention term and sequence length</h3>
+<p>The 6ND and 8ND approximations assume that linear projection GEMMs dominate total compute. However, self-attention contains two operations whose compute scales quadratically with sequence length <tex>s</tex>: computing query-key attention scores (<tex>Q K^\top</tex>) and multiplying attention probabilities by values (<tex>P V</tex>) [4].</p>
+<p>Let <tex>s</tex> be the context length, <tex>h</tex> the hidden dimension, and <tex>L</tex> the number of layers. For a single sequence, projecting <tex>Q \in \mathbb{R}^{s \times h}</tex> against <tex>K^\top \in \mathbb{R}^{h \times s}</tex> requires <tex>2 s^2 h</tex> FLOPs per layer. Multiplying the resulting <tex>s \times s</tex> attention weights by <tex>V \in \mathbb{R}^{s \times h}</tex> requires another <tex>2 s^2 h</tex> FLOPs per layer. Across <tex>L</tex> layers, the forward attention pass takes <tex>4 L s^2 h</tex> FLOPs per sequence, which equates to <tex>4 L s h</tex> FLOPs per token [5].</p>
+<p>The backward pass through attention requires computing gradients with respect to queries, keys, and values, taking <tex>2\times</tex> the forward compute (<tex>8 L s h</tex> FLOPs per token). Summing forward and backward yields the exact analytical attention FLOPs per token:</p>
+<texblock>\text{Attention FLOPs per token} = 12 \times L \times s \times h</texblock>
+<p>Adding the attention term to the dense 6N term yields the comprehensive transformer FLOPs equation [4]:</p>
+<texblock>C_{\text{total}} = 6 N D + 12 L s h D = D \times (6 N + 12 L s h)</texblock>
+<p>Figure 2 illustrates how this quadratic term behaves across different sequence lengths for our running Llama 3.1 8B architecture (<tex>N = 8.03 \times 10^9, L = 32, h = 4,096</tex>).</p>
+<fig src="007-attention-flops-growth.svg" caption="Attention FLOPs vs dense linear FLOPs across sequence lengths">Comparison of dense linear compute (6N = 48.2 GFLOPs/token) and attention compute (12Lsh) for Llama 3.1 8B across context lengths. At 2,048 tokens, attention contributes 3.2 GFLOPs (6.7% overhead). At 8,192 tokens, attention adds 12.9 GFLOPs (26.7% overhead). At 32,768 tokens, attention reaches 51.5 GFLOPs (107% overhead), surpassing dense compute. At 128K tokens, attention reaches 206 GFLOPs (428% overhead), completely dominating the model's compute budget.</fig>
+<p>At short context lengths (<tex>s \le 2,048</tex>), the attention term accounts for less than 7% of total compute and is safely omitted from rough sizing calculations. However, at our pretraining context length of <tex>s = 8,192</tex>, attention adds <tex>12 \times 32 \times 8,192 \times 4,096 \approx 1.29 \times 10^{10}\text{ FLOPs per token}</tex>, which represents <strong>26.7% of the dense 6N budget</strong>. When models scale to long contexts of 32K or 128K tokens, quadratic attention compute explodes, necessitating FlashAttention-2 [6], sequence parallelism, or context parallelism (see Lesson 12, Tensor, Sequence and Context Parallelism).</p>
+
+<h2>Measuring Hardware Efficiency: MFU vs HFU</h2>
+<h3>The PaLM paper definitions</h3>
+<p>When training an LLM on thousands of GPUs, tracking raw clock time is insufficient. Systems teams must know how close the hardware is running to its physical thermodynamic limits. In 2022, Chowdhery et al. introduced two formal utilization metrics in the PaLM paper to standardize cross-cluster comparisons [1]:</p>
+<ul>
+<li><strong>Hardware FLOPs Utilization (HFU)</strong>: The percentage of theoretical peak hardware FLOPS executed by all physical operations occurring on the silicon during training. The numerator counts all floating-point instructions dispatched to tensor cores, including repeated forward passes from activation recomputation, padding tokens, and architectural overhead.
+<texblock>\text{HFU} = \frac{\text{Actual FLOPs Executed per Step}}{\text{Peak Hardware FLOPS} \times \text{Step Time}}</texblock></li>
+<li><strong>Model FLOPs Utilization (MFU)</strong>: The ratio of the <em>theoretical minimum</em> number of FLOPs required to execute the forward and backward passes of the model architecture to the total peak theoretical hardware FLOPs of the cluster over wall-clock time.
+<texblock>\text{MFU} = \frac{6 \times N \times \text{Tokens per Step}}{\text{Cluster Peak FLOPS} \times \text{Step Time}} = \frac{\text{Observed Tokens/sec} \times 6N}{\text{Total Cluster Peak FLOPS}}</texblock></li>
+</ul>
+<fig src="007-mfu-vs-hfu.svg" caption="MFU vs HFU: why Model FLOPs Utilization is the honest metric">Side-by-side comparison of MFU and HFU. MFU uses theoretical minimal compute (6N) in its numerator, making it independent of software implementation. HFU counts all executed operations (8N under full recomputation), artificially inflating reported efficiency by 33% without training any additional tokens. An unoptimized configuration with full recomputation can report 53.3% HFU while delivering the exact same wall-clock throughput as 40.0% MFU.</fig>
+
+<h3>Why MFU is the honest metric</h3>
+<p>The crucial insight is that <strong>HFU is implementation-dependent, whereas MFU is implementation-independent</strong> [1]. Consider a cluster running at a fixed token throughput. If an engineer enables full activation recomputation, the physical hardware executes 33% more operations per second because tensor cores repeatedly re-evaluate layer forward passes. The reported HFU jumps from 40.0% to 53.3%:</p>
+<texblock>\text{HFU} = \frac{8}{6} \times \text{MFU} \approx 1.333 \times \text{MFU}</texblock>
+<p>However, the job does not advance any faster. Not a single extra training token is processed. HFU acts as a vanity metric that artificially rewards software systems for wasting energy on redundant math. MFU, by contrast, holds the numerator strictly to <tex>6ND</tex> (or <tex>6ND + 12LshD</tex> if attention is factored in). If a new algorithmic kernel reduces activation memory without recomputation, MFU stays constant or rises, accurately reflecting true engineering progress [1].</p>
+
+<h3>Published MFU benchmarks in frontier training</h3>
+<p>Table 1 compiles verified MFU and HFU numbers reported by frontier AI labs across major large-scale training runs.</p>
+<table>
+<thead><tr><th>Training Run</th><th>Model Size</th><th>Cluster Hardware</th><th>Reported MFU</th><th>Reported HFU</th><th>Key Parallelism Strategy</th></tr></thead>
+<tbody>
+<tr><td>Google PaLM [1]</td><td>540B dense</td><td>6,144 TPU v4</td><td>46.2%</td><td>57.8%</td><td>2-way pipeline, tensor, Pathways pod</td></tr>
+<tr><td>Meta Llama 3 [3]</td><td>405B dense</td><td>8,192 NVIDIA H100</td><td>43.0%</td><td>~54%</td><td>4D parallelism (TP=8, CP=2, PP=16, FSDP)</td></tr>
+<tr><td>Meta Llama 3 [3]</td><td>405B dense</td><td>16,384 NVIDIA H100</td><td>41.0%</td><td>~51%</td><td>4D parallelism, DP=128 (reduced local batch)</td></tr>
+<tr><td>MegaScale (ByteDance) [7]</td><td>175B dense</td><td>12,288 NVIDIA A100</td><td>55.2%</td><td>~68%</td><td>3D parallelism, overlap optimization</td></tr>
+<tr><td>DeepSeek-V3 [8]</td><td>671B MoE (37B active)</td><td>2,048 NVIDIA H800</td><td>~40%*</td><td>—</td><td>DualPipe, FP8 mixed precision, EP=64</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Verified MFU achievements in large-scale frontier training runs. *DeepSeek-V3 reports overall training throughput enabled by FP8 and DualPipe overlapping.</p>
+<p>Across industry clusters, <strong>a sustained BF16 MFU between 38% and 45% represents state-of-the-art execution for dense models on large H100 clusters</strong> [3]. Smaller models or runs constrained by high communication-to-computation ratios often drop to 30%–35%, while heavily customized Megatron-LM or MegaScale pipelines with aggressive compute-communication overlap can reach 50% to 55% on A100/H100 clusters [7].</p>
+
+<h2>What Eats Your MFU? The Efficiency Tax</h2>
+<p>If NVIDIA H100 Tensor Cores can execute 989 trillion floating-point operations every second, why do frontier clusters sustain only 400 to 450 TFLOPS of useful work? The 60% loss breaks down into four structural engineering bottlenecks, illustrated as a waterfall in Figure 4.</p>
+<fig src="007-mfu-waterfall-losses.svg" caption="The MFU waterfall: where does peak silicon FLOPs go?">Decomposition of the efficiency gap between theoretical 100% peak silicon throughput (989 TFLOPS on H100) and 40% achieved MFU. 22% is lost to memory-bandwidth-bound non-GEMM operators (RMSNorm, RoPE, activations, softmax). 18% is lost to inter-node network communication and synchronization. 12% is consumed by pipeline fill and drain bubbles. 8% is lost to host-device I/O and CUDA driver overhead, leaving 40% net productive compute.</fig>
+
+<h3>1. Memory-bandwidth-bound operations</h3>
+<p>Tensor Cores achieve their advertised peak throughput only during compute-bound dense GEMMs where arithmetic intensity exceeds 150 FLOPs per byte. Transformer architectures contain numerous operators that do not perform matrix multiplications [5]:</p>
+<ul>
+<li><strong>RMSNorm and LayerNorm</strong>: Compute elementwise sums, variances, and scaling. These operations are strictly bound by HBM3 memory bandwidth (3.35 TB/s on H100) and run at less than 5% of Tensor Core compute capability.</li>
+<li><strong>Rotary Positional Embeddings (RoPE)</strong>: Apply 2D rotation matrices to every token query and key vector, requiring elementwise slicing and transcendental trigonometric evaluations.</li>
+<li><strong>SwiGLU activation functions</strong>: Evaluate <tex>\text{Swish}(x W_{\text{gate}}) \odot (x W_{\text{up}})</tex>, involving elementwise multiplications and sigmoids across 14,336 dimensions.</li>
+<li><strong>Softmax and dropout</strong>: Normalize attention matrices row by row. While FlashAttention fuses these into SRAM, their arithmetic intensity remains fundamentally lower than a GEMM [6].</li>
+</ul>
+
+<h3>2. Collective communication overhead</h3>
+<p>In distributed training, GPUs must constantly exchange gradients, activations, and parameter shards. Across 256 GPUs, synchronizing states via <code>All-Reduce</code> or <code>Reduce-Scatter</code> traverses inter-node InfiniBand networks. Even with 400 Gb/s (50 GB/s) NDR NICs, inter-node network bandwidth is <strong>18 times slower than intra-node NVLink (900 GB/s)</strong> and <strong>67 times slower than local HBM (3.35 TB/s)</strong>. If communication cannot be fully overlapped behind backward GEMMs, GPUs stall in idle synchronization barriers (see Lesson 10, Data Parallelism and All-Reduce) [5].</p>
+
+<h3>3. Pipeline bubbles and synchronization barriers</h3>
+<p>When training models across tens of pipeline stages, GPUs at the end of the pipeline must wait for activations to propagate forward, while GPUs at the beginning must wait for gradients to propagate backward. In a 1F1B (one forward, one backward) schedule with <tex>p</tex> pipeline stages and <tex>m</tex> micro-batches, the pipeline bubble fraction is [5]:</p>
+<texblock>\text{Bubble Fraction} = \frac{p - 1}{m + p - 1}</texblock>
+<p>If micro-batch depth <tex>m</tex> is small relative to pipeline stages <tex>p</tex>, GPUs sit completely idle for 10% to 25% of the step duration (see Lesson 13, Pipeline Parallelism).</p>
+
+<h3>4. Data starvation, host overhead, and cluster goodput</h3>
+<p>If CPU dataloaders cannot tokenize, collate, and transfer 4 million tokens to HBM before the previous step completes, GPUs stall on the CUDA stream. Furthermore, real-world clusters suffer from straggler GPUs with thermal throttling, silent data corruption, optical transceiver packet drops, and checkpoint save stalls. As explored in Lesson 29, Failures, Restarts and Elastic Training, cluster <strong>goodput</strong>—the fraction of total operational hours spent computing valid forward-backward steps—is frequently 5% to 10% lower than instantaneous MFU.</p>
+
+<h2>Tokens per Second: The Operational Metric</h2>
+<h3>Translating MFU into daily telemetry</h3>
+<p>While MFU is the standard metric for academic papers and capacity proposals, cluster on-call engineers do not read MFU directly from physical sensors. Hardware telemetry dashboards track <strong>tokens per second per GPU</strong> and <strong>aggregate cluster token throughput</strong>. Translating between MFU and tokens per second requires a simple inversion of the MFU definition [1]:</p>
+<texblock>\text{Tokens / sec / GPU} = \frac{\text{MFU} \times \text{Peak Theoretical FLOPS}}{6 \times N}</texblock>
+<p>Figure 5 diagrams this operational bridge and applies it directly to our pretraining scenario.</p>
+<fig src="007-tokens-per-sec-formula.svg" caption="Connecting theory to dashboards: the tokens/sec/GPU metric">The mathematical conversion between theoretical MFU and operational cluster throughput. Evaluated for Llama 3.1 8B (8.03B parameters) on an NVIDIA H100 SXM (989 TFLOPS peak BF16) at 40% target MFU. A single GPU delivers 8,211 tokens/second. The 256-GPU cluster delivers 2,102,000 tokens/second, completing 1 trillion tokens in 5.51 days.</fig>
+
+<h3>Worked example: the running pretraining scenario</h3>
+<p>We now execute the full arithmetic for our running pretraining scenario using the facts table constants:</p>
+<ul>
+<li><strong>Model size <tex>N</tex></strong>: <tex>8.03 \times 10^9\text{ parameters}</tex></li>
+<li><strong>Training tokens <tex>D</tex></strong>: <tex>1.0 \times 10^{12}\text{ tokens (1 Trillion)}</tex></li>
+<li><strong>Hardware cluster</strong>: 256 NVIDIA H100 SXM GPUs (989 TFLOPS dense BF16 each)</li>
+<li><strong>Target efficiency</strong>: 40% MFU (<tex>0.40</tex>)</li>
+</ul>
+<p>First, calculate total theoretical dense compute:</p>
+<texblock>C = 6 \times N \times D = 6 \times (8.03 \times 10^9) \times 10^{12} = 4.818 \times 10^{22}\text{ FLOPs} \approx 4.8 \times 10^{22}\text{ FLOPs}</texblock>
+<p>Second, calculate effective cluster compute throughput at 40% MFU:</p>
+<texblock>\text{Cluster Effective FLOPS} = 256 \times (989 \times 10^{12}\text{ FLOPS}) \times 0.40 = 1.0127 \times 10^{17}\text{ FLOPS}</texblock>
+<p>Third, calculate total wall-clock training time in seconds, hours, and days:</p>
+<texblock>\text{Time} = \frac{4.818 \times 10^{22}\text{ FLOPs}}{1.0127 \times 10^{17}\text{ FLOPS}} = 4.7576 \times 10^5\text{ seconds} \approx 132.16\text{ hours} \approx 5.51\text{ days}</texblock>
+<p>Fourth, calculate total GPU-hours and financial cost at $3.00 per H100-hour:</p>
+<texblock>\text{GPU-hours} = 132.16\text{ hours} \times 256\text{ GPUs} \approx 33,830.5\text{ GPU-hours} \approx 33,800\text{ GPU-hours}</texblock>
+<texblock>\text{Financial Cost} = 33,830.5\text{ GPU-hours} \times 3.00\text{ dollars/hour} \approx 101,491\text{ dollars}</texblock>
+<p>Fifth, calculate the daily operational telemetry target:</p>
+<texblock>\text{Throughput per GPU} = \frac{0.40 \times (989 \times 10^{12})}{6 \times (8.03 \times 10^9)} = \frac{3.956 \times 10^{14}}{4.818 \times 10^{10}} \approx 8,211\text{ tokens / sec / GPU}</texblock>
+<p>Across the entire 256-GPU cluster, the telemetry target is <tex>256 \times 8,211 \approx 2,102,000\text{ tokens / sec}</tex> (2.10 million tokens/second). If the Grafana dashboard shows 2.10M tokens/s, the cluster is hitting its 40% target.</p>
+
+<h4>Which MFU target should we plan for?</h4>
+<p>When presenting a cluster capacity plan to leadership, teams frequently ask: <em>"Can we plan for 50% MFU, or should we assume 30% to be safe?"</em> Planning for 40% MFU is the engineering sweet spot for dense models on modern H100 clusters running Megatron-LM or PyTorch FSDP2. Planning for 50% requires zero pipeline bubbles, perfect network overlap, and minimal host overhead—conditions rarely sustained outside specialized benchmarks [7].</p>
+<p>Conversely, settling for 30% MFU carries a severe financial and operational penalty. Let us recalculate our pretraining run assuming the engineering team fails to overlap communications or misconfigures activation checkpointing, yielding 30% MFU:</p>
+<ul>
+<li><strong>Tokens / sec / GPU at 30% MFU</strong>: <tex>(0.30 \times 989 \times 10^{12}) / (6 \times 8.03 \times 10^9) \approx 6,158\text{ tokens / sec}</tex></li>
+<li><strong>Total wall-clock time</strong>: <tex>4.818 \times 10^{22} / (256 \times 989 \times 10^{12} \times 0.30) \approx 6.343 \times 10^5\text{ s} \approx 176.2\text{ hours} \approx 7.34\text{ days}</tex></li>
+<li><strong>Total GPU-hours consumed</strong>: <tex>176.2\text{ hours} \times 256 = 45,107.3\text{ GPU-hours}</tex></li>
+<li><strong>Cloud rental cost</strong>: <tex>45,107.3 \times 3.00\text{ dollars/hour} \approx 135,322\text{ dollars}</tex></li>
+</ul>
+<p>Figure 6 compares the two outcomes side by side.</p>
+<fig src="007-cost-of-30-vs-40-mfu.svg" caption="The cost of low MFU: 40% target vs 30% unoptimized run">Financial and schedule comparison between 40% and 30% MFU for pretraining Llama 3.1 8B on 1T tokens across 256 H100 GPUs. Operating at 30% MFU extends training time by 1.84 days (+44 cluster hours), consumes 11,277 extra GPU-hours, and wastes $33,830 in direct compute expenditure.</fig>
+<p>The difference between 30% and 40% MFU is not an abstract academic detail: <strong>a 10% MFU deficit costs exactly $33,830.47 in wasted cash and delays the training schedule by 1.84 days (44 cluster hours) on a single 1-trillion-token run</strong>. Spending two engineering sprints profiling kernels and overlapping communications with collective buckets pays for itself many times over.</p>
+
+<h2>In Practice</h2>
+<p>The first tab provides a complete Python calculator that sizes training compute, wall-clock time, GPU-hours, and financial expenditure across arbitrary model architectures, clusters, and MFU targets. The second tab demonstrates how to embed real-time MFU accounting directly inside a PyTorch training loop to monitor cluster telemetry against theoretical silicon limits.</p>
+
+<codetabs>
+<tab label="Training Sizer" lang="python">
+def estimate_training_run(
+    param_count: float,
+    token_count: float,
+    num_gpus: int,
+    gpu_peak_tflops: float,
+    target_mfu: float,
+    cost_per_gpu_hour: float = 3.00,
+    seq_len: int = 8192,
+    num_layers: int = 32,
+    hidden_dim: int = 4096,
+):
+    """
+    Computes total training FLOPs, wall-clock duration, GPU-hours,
+    financial cost, and target tokens/sec/GPU.
+    """
+    # 1. Compute FLOPs
+    dense_flops = 6.0 * param_count * token_count
+    attn_flops_per_token = 12.0 * num_layers * seq_len * hidden_dim
+    total_attn_flops = attn_flops_per_token * token_count
+    total_flops = dense_flops + total_attn_flops
+
+    # 2. Compute Cluster Speed
+    gpu_peak_flops = gpu_peak_tflops * 1e12
+    effective_flops_per_gpu = target_mfu * gpu_peak_flops
+    cluster_effective_flops = num_gpus * effective_flops_per_gpu
+
+    # 3. Time and Resource Accounting
+    wall_clock_sec = dense_flops / cluster_effective_flops
+    wall_clock_hours = wall_clock_sec / 3600.0
+    wall_clock_days = wall_clock_hours / 24.0
+    gpu_hours = wall_clock_hours * num_gpus
+    total_cost = gpu_hours * cost_per_gpu_hour
+
+    # 4. Operational Telemetry
+    tokens_per_sec_per_gpu = effective_flops_per_gpu / (6.0 * param_count)
+    cluster_tokens_per_sec = tokens_per_sec_per_gpu * num_gpus
+
+    return {
+        "dense_flops": dense_flops,
+        "total_flops_with_attn": total_flops,
+        "attn_overhead_pct": (total_attn_flops / dense_flops) * 100.0,
+        "wall_clock_days": wall_clock_days,
+        "wall_clock_hours": wall_clock_hours,
+        "gpu_hours": gpu_hours,
+        "total_cost_usd": total_cost,
+        "tok_per_sec_per_gpu": tokens_per_sec_per_gpu,
+        "cluster_tok_per_sec": cluster_tokens_per_sec,
+    }
+
+
+# Sizing our running pretraining scenario
+res = estimate_training_run(
+    param_count=8.03e9,
+    token_count=1.0e12,
+    num_gpus=256,
+    gpu_peak_tflops=989.0,
+    target_mfu=0.40,
+    cost_per_gpu_hour=3.00,
+    seq_len=8192,
+    num_layers=32,
+    hidden_dim=4096,
+)
+
+print(f"Dense 6ND FLOPs:       {res['dense_flops']:.2e}")
+print(f"Attention Overhead:    {res['attn_overhead_pct']:.1f}%")
+print(f"Wall-Clock Time:       {res['wall_clock_days']:.2f} days ({res['wall_clock_hours']:.1f} hrs)")
+print(f"Hardware Compute:      {res['gpu_hours']:,.0f} GPU-hours")
+print(f"Total Budgeted Cost:   ${res['total_cost_usd']:,.2f}")
+print(f"Target Telemetry/GPU:  {res['tok_per_sec_per_gpu']:.1f} tokens/s")
+print(f"Target Cluster Speed:  {res['cluster_tok_per_sec']:,.0f} tokens/s")
+</tab>
+<tab label="PyTorch MFU Monitor" lang="python">
+import time
+import torch
+
+class MFUMonitor:
+    """
+    Tracks step execution time and reports achieved Model FLOPs Utilization (MFU)
+    directly inside a PyTorch distributed training loop.
+    """
+    def __init__(self, num_params: int, peak_flops_per_gpu: float, world_size: int):
+        self.num_params = num_params
+        self.peak_flops = peak_flops_per_gpu
+        self.world_size = world_size
+        self.flops_per_token = 6.0 * num_params
+        self.start_time = None
+
+    def tic(self):
+        # Synchronize CUDA device to record exact step boundary
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        self.start_time = time.perf_counter()
+
+    def toc(self, batch_tokens_per_gpu: int):
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        elapsed = time.perf_counter() - self.start_time
+
+        # Calculate metrics
+        tok_per_sec_per_gpu = batch_tokens_per_gpu / elapsed
+        achieved_flops_per_gpu = tok_per_sec_per_gpu * self.flops_per_token
+        mfu = achieved_flops_per_gpu / self.peak_flops
+
+        return {
+            "step_time_ms": elapsed * 1000.0,
+            "tok_per_sec_gpu": tok_per_sec_per_gpu,
+            "cluster_tok_per_sec": tok_per_sec_per_gpu * self.world_size,
+            "mfu": mfu,
+        }
+
+# Example instantiation for Llama 3.1 8B on H100 SXM (989 TFLOPS dense BF16)
+monitor = MFUMonitor(
+    num_params=8_030_000_000,
+    peak_flops_per_gpu=989e12,
+    world_size=256
+)
+
+# Simulated step: micro-batch 2, seq_len 8,192 => 16,384 tokens per GPU per step
+tokens_in_step = 16_384
+monitor.tic()
+# [Execute forward, backward, optimizer step here...]
+time.sleep(1.995)  # Simulating a 1.995s step execution
+stats = monitor.toc(tokens_in_step)
+
+print(f"Step Time:      {stats['step_time_ms']:.1f} ms")
+print(f"Throughput/GPU: {stats['tok_per_sec_gpu']:.1f} tokens/s")
+print(f"Cluster Speed:  {stats['cluster_tok_per_sec']:,.0f} tokens/s")
+print(f"Achieved MFU:   {stats['mfu'] * 100.0:.2f}%")
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>FP8 Training and the MFU Denominator</strong>: Modern accelerators like the NVIDIA H100 support FP8 Tensor Core operations with double the theoretical throughput (1,979 TFLOPS vs 989 TFLOPS BF16). When transitioning to FP8, engineers must explicitly specify whether MFU is calculated against the BF16 peak or the FP8 peak [7]. Calculating against BF16 peak can yield apparent MFU values exceeding 70%, which is mathematically invalid; MFU should always divide by the peak theoretical speed of the active arithmetic format.</li>
+<li><strong>FlashAttention without FLOP Inflation</strong>: Standard naive attention materializes an <tex>s \times s</tex> attention score matrix in HBM, generating massive memory traffic. FlashAttention computes exact attention within fast on-chip SRAM via tiling [6]. It dramatically reduces wall-clock time without increasing FLOPs, directly improving observed MFU.</li>
+<li><strong>Bucket Sizing in Distributed Data Parallelism</strong>: PyTorch DistributedDataParallel (DDP) and FSDP2 group parameter gradients into contiguous memory "buckets" (typically 25 MB to 50 MB) to overlap all-reduce communication with backward pass computation. Sub-optimal bucket sizes cause either high latency overhead (buckets too small) or delayed communication overlap (buckets too large), causing MFU to plummet (see Lesson 10, Data Parallelism and All-Reduce).</li>
+<li><strong>DCGM Profiling and Tensor Core Active Ratio</strong>: The NVIDIA Data Center GPU Manager (DCGM) exposes hardware performance counters such as <code>DCGM_FI_PROF_PIPE_TENSOR_ACTIVE</code>. Monitoring this counter reveals what percentage of clock cycles the hardware tensor pipelines are physically executing math, allowing engineers to isolate memory-bound kernel stalls from network communication stalls.</li>
+<li><strong>Impact of Variable Sequence Lengths and Document Packing</strong>: Padding sequences to a fixed context length creates "phantom tokens" that consume forward and backward matrix operations without contributing to learning. Modern training pipelines employ <strong>document packing</strong> (concatenating multiple documents separated by end-of-text tokens into single 8,192-token sequences) to ensure 100% of computed FLOPs train genuine tokens (see Lesson 17, Pretraining Data Pipelines).</li>
+<li><strong>Cluster Goodput vs MFU</strong>: While MFU measures efficiency during active step execution, cluster goodput factors in node failures, checkpoint serialization overhead, NCCL watchdog timeouts, and pipeline restart drains. In large-scale training across thousands of GPUs, an MFU of 42% combined with 88% goodput results in an effective end-to-end efficiency of 37% [3].</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="007-summary.png" caption="Training FLOPs, Time and MFU summary" optional="1">Mind map summarizing the training FLOPs, time, and MFU lesson: the 6ND rule, attention compute growth, MFU versus HFU, cluster efficiency bottlenecks, operational telemetry, and cluster budgeting.</fig>
+<ul>
+<li>Dense transformer pretraining requires approximately <tex>6ND</tex> floating-point operations (<tex>2ND</tex> for forward pass, <tex>4ND</tex> for backward pass). Full activation recomputation adds <tex>2ND</tex>, reaching <tex>8ND</tex> (+33.3% compute).</li>
+<li>The quadratic attention term contributes <tex>12Lsh</tex> FLOPs per token. For an 8B model, attention represents only 6.7% overhead at 2,048 tokens, but climbs to 26.7% at 8,192 tokens and over 100% at 32K context.</li>
+<li><strong>Model FLOPs Utilization (MFU)</strong> measures the ratio of theoretical minimal compute (<tex>6ND</tex>) to peak hardware capacity over wall-clock time. Unlike Hardware FLOPs Utilization (HFU), MFU is implementation-independent and does not reward redundant recomputations.</li>
+<li>Frontier dense LLM training runs on H100 clusters typically achieve between 38% and 45% MFU (e.g., Llama 3 405B achieved 41%–43% MFU across up to 16K GPUs). Losses stem from memory-bound non-GEMM operators, inter-node network synchronization, and pipeline bubbles.</li>
+<li>Daily cluster telemetry translates MFU into tokens/sec/GPU via <tex>\text{Tokens/sec/GPU} = (\text{MFU} \times \text{Peak FLOPS}) / (6N)</tex>. For Llama 3.1 8B on H100 at 40% MFU, this target is 8,211 tokens/s/GPU.</li>
+<li>Our running pretraining run (8.03B model, 1T tokens, 256 H100s at 40% MFU) requires <tex>4.82 \times 10^{22}</tex> FLOPs, taking 5.51 days (33,830 GPU-hours) and costing $101,491. Underperforming at 30% MFU wastes $33,830 and delays the project by 1.84 days.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Chowdhery et al. PaLM: Scaling Language Modeling with Pathways. <a href="https://arxiv.org/abs/2204.02311" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2204.02311</a>.<br>
+[2] Kaplan et al. Scaling Laws for Neural Language Models. <a href="https://arxiv.org/abs/2001.08361" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2001.08361</a>.<br>
+[3] Dubey et al. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[4] Narayanan et al. Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM. <a href="https://arxiv.org/abs/2104.04473" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2104.04473</a>.<br>
+[5] Korthikanti et al. Reducing Activation Recomputation in Large Transformer Models. <a href="https://arxiv.org/abs/2205.05198" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2205.05198</a>.<br>
+[6] Dao. FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. <a href="https://arxiv.org/abs/2307.08691" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2307.08691</a>.<br>
+[7] Jiang et al. MegaScale: Scaling Large Language Model Training to More Than 10,000 GPUs. <a href="https://arxiv.org/abs/2402.15627" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2402.15627</a>.<br>
+[8] DeepSeek-AI. DeepSeek-V3 Technical Report. <a href="https://arxiv.org/abs/2412.19437" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2412.19437</a>.</p>

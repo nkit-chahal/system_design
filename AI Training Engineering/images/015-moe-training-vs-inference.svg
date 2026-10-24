@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.xs{font-size:11px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Mixture-of-Experts: Training Demands vs Inference Serving</text>
+  <text x="25" y="44" class="sm" fill="#555">Why MoE training introduces communication, gradient, and memory challenges absent during inference serving.</text>
+
+  <!-- Left: MoE Inference (Inference Lesson 35) -->
+  <rect x="25" y="65" width="370" height="210" rx="6" class="blue"/>
+  <text x="210" y="88" text-anchor="middle" class="b">MoE Serving (Inference Lesson 35)</text>
+  <rect x="40" y="100" width="340" height="32" rx="4" class="white"/>
+  <text x="210" y="121" text-anchor="middle" class="sm"><tspan class="b">Read-Only Weights:</tspan> 2 bytes/param (BF16) or 1 byte (FP8)</text>
+  <text x="40" y="152" class="sm">• <tspan class="b">Memory:</tspan> Weights + KV cache; no optimizer or gradients.</text>
+  <text x="40" y="172" class="sm">• <tspan class="b">Execution:</tspan> Forward pass only; no backpropagation.</text>
+  <text x="40" y="192" class="sm">• <tspan class="b">Routing:</tspan> Router weights are static frozen parameters.</text>
+  <text x="40" y="212" class="sm">• <tspan class="b">Communication:</tspan> Single forward All-to-All or TP All-Reduce.</text>
+  <text x="40" y="232" class="sm">• <tspan class="b">Bottleneck:</tspan> Memory bandwidth for loading active expert weights.</text>
+  <text x="40" y="252" class="xs" fill="#555">Treated as a retrieval and batching problem.</text>
+
+  <!-- Right: MoE Training (This Lesson) -->
+  <rect x="420" y="65" width="375" height="210" rx="6" class="orange"/>
+  <text x="607" y="88" text-anchor="middle" class="b">MoE Training (AI Training Lesson 15)</text>
+  <rect x="435" y="100" width="345" height="32" rx="4" class="white"/>
+  <text x="607" y="121" text-anchor="middle" class="sm"><tspan class="b">Adam States for ALL Experts:</tspan> 16 bytes/param</text>
+  <text x="435" y="152" class="sm">• <tspan class="b">Memory:</tspan> Every expert (active or idle) requires 16 bytes.</text>
+  <text x="435" y="172" class="sm">• <tspan class="b">Execution:</tspan> Forward + backward passes through dynamic routes.</text>
+  <text x="435" y="192" class="sm">• <tspan class="b">Routing gradients:</tspan> Router weights require continuous backprop.</text>
+  <text x="435" y="212" class="sm">• <tspan class="b">Communication:</tspan> <tspan class="b">Four All-to-All collectives</tspan> per MoE layer.</text>
+  <text x="435" y="232" class="sm">• <tspan class="b">Stability:</tspan> Router collapse, token dropping, and load imbalance.</text>
+  <text x="435" y="252" class="xs" fill="#b45f06">A high-throughput interconnect and numerical stability challenge.</text>
+
+  <!-- Bottom Synthesis Banner -->
+  <rect x="25" y="290" width="770" height="45" rx="4" class="gray"/>
+  <text x="40" y="310" class="sm"><tspan class="b">The Core Training Dilemma:</tspan> MoE training provides the compute throughput of a smaller model (6 × N_active × D FLOPs)</text>
+  <text x="40" y="326" class="sm">while demanding the memory capacity (16 × N_total bytes) and cluster interconnect of a giant model.</text>
+</svg>

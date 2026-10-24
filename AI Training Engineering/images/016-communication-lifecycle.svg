@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="380" viewBox="0 0 820 380" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Collective Communication Lifecycle: DDP vs FSDP</text>
+  <text x="25" y="46" class="sm" fill="#555">Comparison of communication events, overlap phases, and total collective network volume</text>
+
+  <!-- Legend placed top-right -->
+  <g transform="translate(560, 24)">
+    <rect x="0" y="0" width="16" height="12" class="blue"/>
+    <text x="22" y="10" class="sm">Compute (GEMM)</text>
+    <rect x="130" y="0" width="16" height="12" class="purple"/>
+    <text x="152" y="10" class="sm">Communication</text>
+  </g>
+
+  <!-- Section 1: DDP Execution Timeline -->
+  <g transform="translate(25, 68)">
+    <rect x="0" y="0" width="770" height="120" rx="6" class="gray"/>
+    <text x="15" y="22" class="b" fill="#1c4587">Distributed Data Parallel (DDP)</text>
+    <text x="755" y="22" text-anchor="end" class="sm b" fill="#1c4587">Volume: 2(N-1)/N × Gradient Size</text>
+
+    <!-- Forward Pass Lane -->
+    <text x="15" y="48" class="sm b">Forward:</text>
+    <rect x="120" y="34" width="360" height="20" class="blue"/>
+    <text x="300" y="48" text-anchor="middle" class="sm">Compute Layer 0 → L-1 (Zero Communication!)</text>
+
+    <!-- Backward Pass Compute Lane -->
+    <text x="15" y="76" class="sm b">Bwd Compute:</text>
+    <rect x="120" y="62" width="360" height="20" class="blue"/>
+    <text x="300" y="76" text-anchor="middle" class="sm">Compute Gradients Layer L-1 → Layer 0</text>
+
+    <!-- Backward Pass Comm Lane (Overlapped) -->
+    <text x="15" y="102" class="sm b">Bwd Comm:</text>
+    <rect x="220" y="88" width="300" height="20" class="purple"/>
+    <text x="370" y="102" text-anchor="middle" class="sm b">Async All-Reduce (Overlapped)</text>
+    <text x="535" y="102" class="sm" fill="#274e13">✓ Fully hidden by backward compute</text>
+  </g>
+
+  <!-- Section 2: FSDP2 Execution Timeline -->
+  <g transform="translate(25, 202)">
+    <rect x="0" y="0" width="770" height="125" rx="6" class="gray"/>
+    <text x="15" y="22" class="b" fill="#b45f06">Fully Sharded Data Parallel (FSDP2)</text>
+    <text x="755" y="22" text-anchor="end" class="sm b" fill="#b45f06">Volume: 3(N-1)/N × Model Size (1.5× DDP)</text>
+
+    <!-- Forward Pass Lane -->
+    <text x="15" y="52" class="sm b">Forward:</text>
+    <rect x="100" y="38" width="80" height="20" class="purple"/>
+    <text x="140" y="52" text-anchor="middle" class="sm">All-Gather</text>
+    <rect x="185" y="38" width="80" height="20" class="blue"/>
+    <text x="225" y="52" text-anchor="middle" class="sm">GEMM L0</text>
+
+    <rect x="270" y="38" width="80" height="20" class="purple"/>
+    <text x="310" y="52" text-anchor="middle" class="sm">All-Gather</text>
+    <rect x="355" y="38" width="80" height="20" class="blue"/>
+    <text x="395" y="52" text-anchor="middle" class="sm">GEMM L1</text>
+    <text x="450" y="52" class="sm">... (Weights resharded after each layer)</text>
+
+    <!-- Backward Pass Lane -->
+    <text x="15" y="88" class="sm b">Backward:</text>
+    <rect x="100" y="74" width="80" height="20" class="purple"/>
+    <text x="140" y="88" text-anchor="middle" class="sm">All-Gather W</text>
+    <rect x="185" y="74" width="80" height="20" class="blue"/>
+    <text x="225" y="88" text-anchor="middle" class="sm">Grad GEMM</text>
+    <rect x="270" y="74" width="105" height="20" class="purple"/>
+    <text x="322" y="88" text-anchor="middle" class="sm">Reduce-Scatter G</text>
+    <text x="390" y="88" class="sm">... (Gradients sharded immediately)</text>
+
+    <!-- Note on FSDP2 volume -->
+    <text x="15" y="114" class="sm" fill="#555">Prefetching fetches Layer i+1 weights during Layer i compute; requires high interconnect bandwidth.</text>
+  </g>
+
+  <!-- Bottom Annotation Bar -->
+  <rect x="25" y="338" width="770" height="32" rx="4" class="white"/>
+  <text x="35" y="359" class="sm"><tspan class="b">Interconnect Impact:</tspan> On 900 GB/s NVLink, FSDP's 50% extra communication is hidden; on slow networks, it creates compute stalls.</text>
+</svg>

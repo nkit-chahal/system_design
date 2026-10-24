@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="340" viewBox="0 0 920 340" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:13px;fill:#000}
+    .sm{font-size:11px}.lg{font-size:15px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Header -->
+  <text x="20" y="28" class="lg b">The Numbers That Bound Every Training Run (Llama 3.1 8B on 1T Tokens)</text>
+
+  <!-- Card 1: Static Memory -->
+  <rect x="15" y="45" width="210" height="275" rx="6" class="blue"/>
+  <text x="120" y="70" class="mid b">1. Static Memory</text>
+  <text x="120" y="90" class="mid b lg">16 Bytes / Param</text>
+  
+  <rect x="25" y="105" width="190" height="110" rx="4" class="white"/>
+  <text x="35" y="125" class="sm">• BF16 weights: 2 B (16.1 GB)</text>
+  <text x="35" y="145" class="sm">• BF16 gradients: 2 B (16.1 GB)</text>
+  <text x="35" y="165" class="sm">• FP32 master: 4 B (32.1 GB)</text>
+  <text x="35" y="185" class="sm">• Adam m + v: 8 B (64.2 GB)</text>
+  <text x="35" y="205" class="sm b">Total static: 128.5 GB</text>
+
+  <rect x="25" y="225" width="190" height="85" rx="4" class="red"/>
+  <text x="120" y="247" class="mid b sm">Exceeds 80 GB H100</text>
+  <text x="120" y="267" class="mid sm">128.5 GB &gt; 79.6 GiB HBM</text>
+  <text x="120" y="287" class="mid sm">FSDP on 8 GPUs: 16.1 GB</text>
+
+  <!-- Card 2: Compute Budget -->
+  <rect x="240" y="45" width="210" height="275" rx="6" class="orange"/>
+  <text x="345" y="70" class="mid b">2. Compute Budget</text>
+  <text x="345" y="90" class="mid b lg">6ND ≈ 4.8e22 FLOPs</text>
+
+  <rect x="250" y="105" width="190" height="110" rx="4" class="white"/>
+  <text x="260" y="125" class="sm">• N = 8.03B parameters</text>
+  <text x="260" y="145" class="sm">• D = 1.00T tokens</text>
+  <text x="260" y="165" class="sm">• Forward: 2ND (1.61e22)</text>
+  <text x="260" y="185" class="sm">• Backward: 4ND (3.21e22)</text>
+  <text x="260" y="205" class="sm b">Total: 4.818e22 FLOPs</text>
+
+  <rect x="250" y="225" width="190" height="85" rx="4" class="white"/>
+  <text x="345" y="247" class="mid b sm">Full Recomputation</text>
+  <text x="345" y="267" class="mid sm">8ND ≈ 6.42e22 FLOPs</text>
+  <text x="345" y="287" class="mid sm">+33% FLOPs, -90% memory</text>
+
+  <!-- Card 3: Wall-Clock Duration -->
+  <rect x="465" y="45" width="210" height="275" rx="6" class="purple"/>
+  <text x="570" y="70" class="mid b">3. Cluster Duration</text>
+  <text x="570" y="90" class="mid b lg">≈ 5.5 Days on 256 H100</text>
+
+  <rect x="475" y="105" width="190" height="110" rx="4" class="white"/>
+  <text x="485" y="125" class="sm">• 256 H100 SXM (989 TF)</text>
+  <text x="485" y="145" class="sm">• Cluster peak: 2.53e17 FLOPS</text>
+  <text x="485" y="165" class="sm">• Target MFU: 40%</text>
+  <text x="485" y="185" class="sm">• Effective: 1.01e17 FLOPS</text>
+  <text x="485" y="205" class="sm b">Time: 475,741 seconds</text>
+
+  <rect x="475" y="225" width="190" height="85" rx="4" class="green"/>
+  <text x="570" y="247" class="mid b sm">Cluster GPU-Hours</text>
+  <text x="570" y="267" class="mid sm">132.15 hours (5.5 days)</text>
+  <text x="570" y="287" class="mid sm">33,830 GPU-hours total</text>
+
+  <!-- Card 4: Financial Cost -->
+  <rect x="690" y="45" width="215" height="275" rx="6" class="green"/>
+  <text x="797" y="70" class="mid b">4. Financial Cost</text>
+  <text x="797" y="90" class="mid b lg">≈ $101,000</text>
+
+  <rect x="700" y="105" width="195" height="110" rx="4" class="white"/>
+  <text x="710" y="125" class="sm">• Assumed rate: $3.00/GPU-hr</text>
+  <text x="710" y="145" class="sm">• 33,830 × $3.00 = $101,490</text>
+  <text x="710" y="165" class="sm">• Per 1M tokens: ≈ $0.101</text>
+  <text x="710" y="185" class="sm">• Per day: ≈ $18,432</text>
+  <text x="710" y="205" class="sm b">Budget: ≈ $101,000</text>
+
+  <rect x="700" y="225" width="195" height="85" rx="4" class="red"/>
+  <text x="797" y="247" class="mid b sm">If MFU Drops to 25%</text>
+  <text x="797" y="267" class="mid sm">Duration: 8.8 days (+3.3 d)</text>
+  <text x="797" y="287" class="mid sm">Cost: $162,385 (+$61,000)</text>
+</svg>

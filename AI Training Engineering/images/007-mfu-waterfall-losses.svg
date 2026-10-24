@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">The MFU Waterfall: Where Does Peak Silicon FLOPs Go?</text>
+  <text x="25" y="48" class="sm" fill="#555">Decomposition of the gap between 100% theoretical peak hardware FLOPS and 40% achieved MFU</text>
+
+  <!-- Bar 1: Peak Silicon 100% -->
+  <rect x="35" y="80" width="105" height="180" class="blue"/>
+  <text x="87" y="160" text-anchor="middle" class="b">Peak Silicon</text>
+  <text x="87" y="180" text-anchor="middle" class="sm">100% (989 TF)</text>
+
+  <!-- Loss 1: Memory-bound kernels (-22%) -->
+  <rect x="160" y="80" width="115" height="40" class="red"/>
+  <text x="217" y="100" text-anchor="middle" class="b sm">-22% Mem-Bound</text>
+  <text x="217" y="114" text-anchor="middle" class="sm" fill="#555">RMSNorm, RoPE, Act</text>
+
+  <!-- Loss 2: Communication sync (-18%) -->
+  <rect x="295" y="120" width="115" height="34" class="red"/>
+  <text x="352" y="137" text-anchor="middle" class="b sm">-18% Network</text>
+  <text x="352" y="150" text-anchor="middle" class="sm" fill="#555">All-Reduce, FSDP sync</text>
+
+  <!-- Loss 3: Pipeline / Schedule Bubbles (-12%) -->
+  <rect x="430" y="154" width="115" height="24" class="yellow"/>
+  <text x="487" y="171" text-anchor="middle" class="b sm">-12% Bubbles</text>
+
+  <!-- Loss 4: Dataloading & Host-Device (-8%) -->
+  <rect x="565" y="178" width="115" height="18" class="yellow"/>
+  <text x="622" y="192" text-anchor="middle" class="b sm">-8% Host / I/O</text>
+
+  <!-- Bar 5: Achieved MFU 40% -->
+  <rect x="700" y="188" width="90" height="72" class="green"/>
+  <text x="745" y="222" text-anchor="middle" class="b">Achieved</text>
+  <text x="745" y="240" text-anchor="middle" class="b">40% MFU</text>
+
+  <!-- Connecting dashed lines -->
+  <line x1="140" y1="80" x2="160" y2="80" stroke="#999" stroke-dasharray="2 2"/>
+  <line x1="275" y1="120" x2="295" y2="120" stroke="#999" stroke-dasharray="2 2"/>
+  <line x1="410" y1="154" x2="430" y2="154" stroke="#999" stroke-dasharray="2 2"/>
+  <line x1="545" y1="178" x2="565" y2="178" stroke="#999" stroke-dasharray="2 2"/>
+  <line x1="680" y1="196" x2="700" y2="196" stroke="#999" stroke-dasharray="2 2"/>
+
+  <!-- Ground axis line -->
+  <line x1="25" y1="260" x2="800" y2="260" stroke="#000" stroke-width="1.2"/>
+
+  <!-- Explanatory footer -->
+  <rect x="25" y="274" width="770" height="62" rx="6" class="gray"/>
+  <text x="40" y="296" class="b">Why 40% MFU is High Performance:</text>
+  <text x="40" y="314" class="sm">Tensor Cores can only run at peak speed during dense matrix multiplications (GEMMs). Non-GEMM operators,</text>
+  <text x="40" y="330" class="sm">cross-node network latency, and synchronization overhead consume the remaining 60% in production clusters.</text>
+</svg>

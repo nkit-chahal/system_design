@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">The Four-Tier Evaluation Hierarchy During Training</text>
+  <text x="25" y="42" class="sm" fill="#555">Balancing evaluation fidelity with compute cost: continuous telemetry at the base to full generation at milestones.</text>
+
+  <!-- Left Side: Pyramid / Tier Stack -->
+  <!-- Tier 4: Apex (Milestones) -->
+  <rect x="180" y="65" width="260" height="42" rx="4" class="red"/>
+  <text x="310" y="84" text-anchor="middle" class="b sm">Tier 4: LLM-as-Judge &amp; Safety</text>
+  <text x="310" y="99" text-anchor="middle" class="sm">Milestone checkpoints · Heavy compute</text>
+
+  <!-- Tier 3: Generation (Every 10k-20k steps) -->
+  <rect x="130" y="115" width="360" height="44" rx="4" class="purple"/>
+  <text x="310" y="134" text-anchor="middle" class="b sm">Tier 3: Reasoning &amp; Code Generation</text>
+  <text x="310" y="149" text-anchor="middle" class="sm">GSM8K, MATH, HumanEval · CoT autoregressive decode</text>
+
+  <!-- Tier 2: Fast Multiple Choice (Every 2k steps) -->
+  <rect x="80" y="167" width="460" height="44" rx="4" class="orange"/>
+  <text x="310" y="186" text-anchor="middle" class="b sm">Tier 2: Core Academic Benchmarks</text>
+  <text x="310" y="201" text-anchor="middle" class="sm">MMLU (5-shot), ARC, HellaSwag · Log-likelihood scoring</text>
+
+  <!-- Tier 1: Base (Every 100-500 steps) -->
+  <rect x="30" y="219" width="560" height="48" rx="4" class="green"/>
+  <text x="310" y="239" text-anchor="middle" class="b sm">Tier 1: Continuous Held-Out Loss &amp; Perplexity</text>
+  <text x="310" y="255" text-anchor="middle" class="sm">Validation cross-entropy · Zero generation · Zero GPU idle time</text>
+
+  <!-- Right Side Explanation Panel -->
+  <rect x="610" y="65" width="205" height="202" rx="5" class="gray"/>
+  <text x="620" y="88" class="b sm">Cadence &amp; Cost Trade-off:</text>
+
+  <text x="620" y="108" class="sm"><tspan class="b" fill="#274e13">Tier 1 (Continuous)</tspan>:</text>
+  <text x="620" y="124" class="sm">• Run every 100–500 steps</text>
+  <text x="620" y="140" class="sm">• &lt; 0.5% compute overhead</text>
+
+  <text x="620" y="162" class="sm"><tspan class="b" fill="#d79b00">Tier 2 (Frequent)</tspan>:</text>
+  <text x="620" y="178" class="sm">• Every 2,000 steps</text>
+  <text x="620" y="194" class="sm">• ~10 min on 8 GPUs</text>
+
+  <text x="620" y="216" class="sm"><tspan class="b" fill="#990000">Tiers 3 &amp; 4 (Milestones)</tspan>:</text>
+  <text x="620" y="232" class="sm">• Major checkpoints (10k+)</text>
+  <text x="620" y="248" class="sm">• Dedicated eval cluster</text>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="284" width="790" height="52" rx="4" class="white"/>
+  <text x="38" y="304" class="b sm">Architectural Separation:</text>
+  <text x="210" y="304" class="sm">Never halt 256 training GPUs to run multi-hour generation benchmarks.</text>
+  <text x="38" y="322" class="sm">Stream saved checkpoints to a dedicated 8-GPU evaluation pool that runs lm-evaluation-harness asynchronously.</text>
+</svg>

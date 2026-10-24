@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Kaplan vs Hoffmann (Chinchilla): How Scaling Laws Shifted</text>
+  <text x="25" y="48" class="sm" fill="#555">The empirical evolution from parameter-heavy scaling (2020) to balanced compute-optimal scaling (2022)</text>
+
+  <!-- Left Card: Kaplan et al. (OpenAI, 2020) -->
+  <rect x="25" y="70" width="370" height="185" rx="6" class="orange"/>
+  <text x="40" y="96" class="title" fill="#b45f06">Kaplan et al. (2020)</text>
+  <text x="40" y="118" class="sm">• Parameter scaling: <tspan class="b">N ∝ C^0.73</tspan></text>
+  <text x="40" y="136" class="sm">• Dataset scaling: <tspan class="b">D ∝ C^0.27</tspan></text>
+  <text x="40" y="154" class="sm">• Recommendation: Scale model size ~3× faster than tokens</text>
+  <text x="40" y="172" class="sm">• Resulting archetype: <tspan class="b">GPT-3 175B on 300B tokens</tspan></text>
+  <rect x="40" y="186" width="340" height="54" rx="4" class="white"/>
+  <text x="50" y="206" class="sm b" fill="#900">Severe Flaw: Undertrained Models</text>
+  <text x="50" y="224" class="sm">Trained with fixed learning rate schedules, leading</text>
+  <text x="50" y="238" class="sm">to premature evaluation of undertrained weights.</text>
+
+  <!-- Right Card: Hoffmann et al. / Chinchilla (DeepMind, 2022) -->
+  <rect x="425" y="70" width="370" height="185" rx="6" class="green"/>
+  <text x="440" y="96" class="title" fill="#274e13">Hoffmann et al. (2022)</text>
+  <text x="440" y="118" class="sm">• Parameter scaling: <tspan class="b">N ∝ C^0.50</tspan></text>
+  <text x="440" y="136" class="sm">• Dataset scaling: <tspan class="b">D ∝ C^0.50</tspan></text>
+  <text x="440" y="154" class="sm">• Recommendation: Scale parameters and data equally</text>
+  <text x="440" y="172" class="sm">• Resulting archetype: <tspan class="b">Chinchilla 70B on 1.4T tokens</tspan></text>
+  <rect x="440" y="186" width="340" height="54" rx="4" class="white"/>
+  <text x="450" y="206" class="sm b" fill="#274e13">The 20 Tokens/Parameter Rule</text>
+  <text x="450" y="224" class="sm">At 70B params, 1.4T tokens matches GPT-3 quality</text>
+  <text x="450" y="238" class="sm">using identical compute while 2.5× smaller to serve.</text>
+
+  <!-- Bottom Explanatory Banner -->
+  <rect x="25" y="270" width="770" height="65" rx="6" class="gray"/>
+  <text x="40" y="293" class="b">The Core Insight:</text>
+  <text x="40" y="312" class="sm">Kaplan advised building giant models on small datasets. Hoffmann proved that for a fixed compute budget C,</text>
+  <text x="40" y="328" class="sm">optimal cross-entropy loss occurs when tokens and parameters grow at the same rate: D ≈ 20 × N.</text>
+</svg>

@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">End-to-End Pretraining Sizing Workflow</text>
+  <text x="25" y="48" class="sm" fill="#555">The rigorous 6-step engineering pipeline to size cluster compute, memory, network, and budget</text>
+
+  <!-- Step 1: N & D -->
+  <rect x="25" y="75" width="115" height="150" rx="6" class="blue"/>
+  <text x="82" y="100" text-anchor="middle" class="b">Step 1</text>
+  <text x="82" y="118" text-anchor="middle" class="sm b">Pick N &amp; D</text>
+  <text x="82" y="142" text-anchor="middle" class="sm">FLOP budget</text>
+  <text x="82" y="158" text-anchor="middle" class="sm">Chinchilla vs</text>
+  <text x="82" y="174" text-anchor="middle" class="sm">Overtraining</text>
+  <text x="82" y="200" text-anchor="middle" class="sm b" fill="#0b5394">8B on 1T</text>
+
+  <!-- Arrow 1 to 2 -->
+  <line x1="140" y1="150" x2="155" y2="150" class="edge"/>
+
+  <!-- Step 2: FLOPs & Time -->
+  <rect x="155" y="75" width="115" height="150" rx="6" class="orange"/>
+  <text x="212" y="100" text-anchor="middle" class="b">Step 2</text>
+  <text x="212" y="118" text-anchor="middle" class="sm b">FLOPs &amp; Time</text>
+  <text x="212" y="142" text-anchor="middle" class="sm">6ND compute</text>
+  <text x="212" y="158" text-anchor="middle" class="sm">Planned MFU</text>
+  <text x="212" y="174" text-anchor="middle" class="sm">GPU count</text>
+  <text x="212" y="200" text-anchor="middle" class="sm b" fill="#b45f06">5.5 days</text>
+
+  <!-- Arrow 2 to 3 -->
+  <line x1="270" y1="150" x2="285" y2="150" class="edge"/>
+
+  <!-- Step 3: VRAM Check -->
+  <rect x="285" y="75" width="115" height="150" rx="6" class="yellow"/>
+  <text x="342" y="100" text-anchor="middle" class="b">Step 3</text>
+  <text x="342" y="118" text-anchor="middle" class="sm b">Memory Fit</text>
+  <text x="342" y="142" text-anchor="middle" class="sm">16B states</text>
+  <text x="342" y="158" text-anchor="middle" class="sm">FSDP sharding</text>
+  <text x="342" y="174" text-anchor="middle" class="sm">Activations</text>
+  <text x="342" y="200" text-anchor="middle" class="sm b" fill="#7f6000">34 GB &lt; 80 GB</text>
+
+  <!-- Arrow 3 to 4 -->
+  <line x1="400" y1="150" x2="415" y2="150" class="edge"/>
+
+  <!-- Step 4: Network Overlap -->
+  <rect x="415" y="75" width="115" height="150" rx="6" class="purple"/>
+  <text x="472" y="100" text-anchor="middle" class="b">Step 4</text>
+  <text x="472" y="118" text-anchor="middle" class="sm b">Network Check</text>
+  <text x="472" y="142" text-anchor="middle" class="sm">All-reduce vol</text>
+  <text x="472" y="158" text-anchor="middle" class="sm">IB bandwidth</text>
+  <text x="472" y="174" text-anchor="middle" class="sm">Step vs comm</text>
+  <text x="472" y="200" text-anchor="middle" class="sm b" fill="#4a154b">Hides in math</text>
+
+  <!-- Arrow 4 to 5 -->
+  <line x1="530" y1="150" x2="545" y2="150" class="edge"/>
+
+  <!-- Step 5: Full Budget -->
+  <rect x="545" y="75" width="115" height="150" rx="6" class="red"/>
+  <text x="602" y="100" text-anchor="middle" class="b">Step 5</text>
+  <text x="602" y="118" text-anchor="middle" class="sm b">Total Budget</text>
+  <text x="602" y="142" text-anchor="middle" class="sm">Base rental</text>
+  <text x="602" y="158" text-anchor="middle" class="sm">+10% restarts</text>
+  <text x="602" y="174" text-anchor="middle" class="sm">+5% online eval</text>
+  <text x="602" y="200" text-anchor="middle" class="sm b" fill="#900">$116,715</text>
+
+  <!-- Arrow 5 to 6 -->
+  <line x1="660" y1="150" x2="675" y2="150" class="edge"/>
+
+  <!-- Step 6: Empirical Validation -->
+  <rect x="675" y="75" width="120" height="150" rx="6" class="green"/>
+  <text x="735" y="100" text-anchor="middle" class="b">Step 6</text>
+  <text x="735" y="118" text-anchor="middle" class="sm b">Validate &amp; Tune</text>
+  <text x="735" y="142" text-anchor="middle" class="sm">100-step test</text>
+  <text x="735" y="158" text-anchor="middle" class="sm">Tokens/s/GPU</text>
+  <text x="735" y="174" text-anchor="middle" class="sm">Measure MFU</text>
+  <text x="735" y="200" text-anchor="middle" class="sm b" fill="#274e13">Recalibrate</text>
+
+  <!-- Bottom Explanatory Banner -->
+  <rect x="25" y="245" width="770" height="75" rx="6" class="gray"/>
+  <text x="40" y="268" class="b">Engineering Rigor:</text>
+  <text x="40" y="288" class="sm">Never launch a pretraining run based on raw FLOP arithmetic alone. Always verify memory headroom,</text>
+  <text x="40" y="304" class="sm">ensure network communication hides behind compute, add operational failure buffers, and validate with live telemetry.</text>
+</svg>

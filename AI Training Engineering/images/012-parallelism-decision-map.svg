@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="300" viewBox="0 0 800 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .lg { font-size: 16px; }
+    .b { font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .yellow { fill: #fff2cc; stroke: #d6b656; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #000; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="400" y="24" text-anchor="middle" class="lg b">Parallelism Architecture Decision Matrix for LLM Training</text>
+
+  <!-- Left: Model Size Dimension -->
+  <rect x="30" y="45" width="350" height="185" rx="5" class="gray"/>
+  <text x="205" y="68" text-anchor="middle" class="b">Model Parameter Sizing (TP Decision)</text>
+
+  <rect x="45" y="80" width="320" height="60" rx="3" class="green"/>
+  <text x="205" y="100" text-anchor="middle" class="sm b">Model Size &lt;= 13B (e.g. Llama 3.1 8B)</text>
+  <text x="205" y="117" text-anchor="middle" class="sm">TP = 1 (No Tensor Parallelism)</text>
+  <text x="205" y="132" text-anchor="middle" class="sm">FSDP / HSDP alone easily fits on 80 GB GPUs</text>
+
+  <rect x="45" y="150" width="320" height="65" rx="3" class="orange"/>
+  <text x="205" y="170" text-anchor="middle" class="sm b">Model Size &gt;= 70B (e.g. Llama 3.1 70B)</text>
+  <text x="205" y="187" text-anchor="middle" class="sm">TP = 8 (Confined strictly to intra-node NVLink)</text>
+  <text x="205" y="202" text-anchor="middle" class="sm">Required to shard layer GEMMs and manage memory</text>
+
+  <!-- Right: Sequence Length Dimension -->
+  <rect x="420" y="45" width="350" height="185" rx="5" class="gray"/>
+  <text x="595" y="68" text-anchor="middle" class="b">Context Length Sizing (CP Decision)</text>
+
+  <rect x="435" y="80" width="320" height="60" rx="3" class="green"/>
+  <text x="595" y="100" text-anchor="middle" class="sm b">Context Length &lt;= 8,192 Tokens</text>
+  <text x="595" y="117" text-anchor="middle" class="sm">CP = 1 (No Context Parallelism)</text>
+  <text x="595" y="132" text-anchor="middle" class="sm">FlashAttention + activation checkpointing fits in memory</text>
+
+  <rect x="435" y="150" width="320" height="65" rx="3" class="purple"/>
+  <text x="595" y="170" text-anchor="middle" class="sm b">Context Length &gt;= 32K - 128K+ Tokens</text>
+  <text x="595" y="187" text-anchor="middle" class="sm">CP = 4 or 8 (Ring Attention or DeepSpeed-Ulysses)</text>
+  <text x="595" y="202" text-anchor="middle" class="sm">Shards sequence tokens across GPUs to prevent OOM</text>
+
+  <!-- Bottom: Our Pretraining Run Decision Box -->
+  <rect x="30" y="240" width="740" height="48" rx="4" class="yellow"/>
+  <text x="400" y="258" text-anchor="middle" class="b">Our Pretraining Run Decision: Llama 3.1 8B at 8,192 Context on 256 H100 GPUs</text>
+  <text x="400" y="276" text-anchor="middle" class="sm b" fill="#2b5797">Selected Parallelism: TP = 1, CP = 1, HSDP = (replicate=32, shard=8). Zero TP communication overhead, peak 40% MFU!</text>
+</svg>

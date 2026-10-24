@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="360" viewBox="0 0 820 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.xs{font-size:11px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Expert Parallelism: The Four All-to-All Collectives per Step</text>
+  <text x="25" y="44" class="sm" fill="#555">Sharding 4 experts across 4 GPUs (EP = 4). Forward and backward passes each require two All-to-All collectives.</text>
+
+  <!-- Step 1: Local Routing -->
+  <rect x="25" y="65" width="175" height="210" rx="6" class="blue"/>
+  <text x="112" y="88" text-anchor="middle" class="b">1. Local Routing</text>
+  <rect x="35" y="100" width="155" height="40" rx="3" class="white"/>
+  <text x="112" y="118" text-anchor="middle" class="xs b">Router Gating Wg</text>
+  <text x="112" y="132" text-anchor="middle" class="xs">Top-k Expert Selection</text>
+  <text x="40" y="160" class="xs">• Tokens [b, s, h] on GPU</text>
+  <text x="40" y="178" class="xs">• Router scores affinity</text>
+  <text x="40" y="196" class="xs">• Top-k indices selected</text>
+  <text x="40" y="214" class="xs">• Tokens bucketed by</text>
+  <text x="40" y="230" class="xs">  target destination GPU</text>
+  <text x="40" y="255" class="xs" fill="#555">Local to each rank</text>
+
+  <!-- Arrow 1 -> 2 -->
+  <path d="M 200 170 L 225 170" class="edge"/>
+
+  <!-- Step 2: Forward Dispatch (All-to-All) -->
+  <rect x="225" y="65" width="175" height="210" rx="6" class="orange"/>
+  <text x="312" y="88" text-anchor="middle" class="b">2. Dispatch (A2A)</text>
+  <rect x="235" y="100" width="155" height="40" rx="3" class="white"/>
+  <text x="312" y="118" text-anchor="middle" class="xs b">All-to-All Collective #1</text>
+  <text x="312" y="132" text-anchor="middle" class="xs">Forward Token Dispatch</text>
+  <text x="240" y="160" class="xs">• GPUs exchange tokens</text>
+  <text x="240" y="178" class="xs">• Each GPU receives</text>
+  <text x="240" y="196" class="xs">  tokens routed to its</text>
+  <text x="240" y="214" class="xs">  local expert</text>
+  <text x="240" y="234" class="xs">• Volume: k × b × s × h × 2</text>
+  <text x="240" y="255" class="xs" fill="#b45f06">Network bandwidth heavy</text>
+
+  <!-- Arrow 2 -> 3 -->
+  <path d="M 400 170 L 425 170" class="edge"/>
+
+  <!-- Step 3: Local Expert Compute -->
+  <rect x="425" y="65" width="175" height="210" rx="6" class="green"/>
+  <text x="512" y="88" text-anchor="middle" class="b">3. Expert Compute</text>
+  <rect x="435" y="100" width="155" height="40" rx="3" class="white"/>
+  <text x="512" y="118" text-anchor="middle" class="xs b">Local Expert MLP</text>
+  <text x="512" y="132" text-anchor="middle" class="xs">SwiGLU Matrix Mults</text>
+  <text x="440" y="160" class="xs">• GPU i executes Expert i</text>
+  <text x="440" y="178" class="xs">• Computes on gathered</text>
+  <text x="440" y="196" class="xs">  dispatched tokens</text>
+  <text x="440" y="214" class="xs">• High GEMM efficiency</text>
+  <text x="440" y="230" class="xs">  if load is balanced</text>
+  <text x="440" y="255" class="xs" fill="#2d7600">Local compute only</text>
+
+  <!-- Arrow 3 -> 4 -->
+  <path d="M 600 170 L 625 170" class="edge"/>
+
+  <!-- Step 4: Forward Combine (All-to-All) -->
+  <rect x="625" y="65" width="175" height="210" rx="6" class="orange"/>
+  <text x="712" y="88" text-anchor="middle" class="b">4. Combine (A2A)</text>
+  <rect x="635" y="100" width="155" height="40" rx="3" class="white"/>
+  <text x="712" y="118" text-anchor="middle" class="xs b">All-to-All Collective #2</text>
+  <text x="712" y="132" text-anchor="middle" class="xs">Forward Output Combine</text>
+  <text x="640" y="160" class="xs">• Expert outputs sent</text>
+  <text x="640" y="178" class="xs">  back to source GPUs</text>
+  <text x="640" y="196" class="xs">• Scaled by gating weights</text>
+  <text x="640" y="214" class="xs">• Accumulated into output</text>
+  <text x="640" y="230" class="xs">  hidden state buffer</text>
+  <text x="640" y="255" class="xs" fill="#b45f06">Network bandwidth heavy</text>
+
+  <!-- Bottom Explanatory Banner -->
+  <rect x="25" y="285" width="775" height="60" rx="4" class="purple"/>
+  <text x="40" y="306" class="b">The Backward Pass Mirrors Forward (Collectives #3 and #4):</text>
+  <text x="40" y="324" class="xs">During backpropagation, <tspan class="b">Backward Dispatch (A2A #3)</tspan> sends activation gradients to the expert GPUs, and <tspan class="b">Backward Combine (A2A #4)</tspan></text>
+  <text x="40" y="338" class="xs">returns computed input gradients back to the original GPUs. Every training step executes <tspan class="b">four All-to-All collectives per MoE layer</tspan>.</text>
+</svg>

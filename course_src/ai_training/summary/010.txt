@@ -1,0 +1,7 @@
+center: Data Parallelism and All-Reduce
+branch: Replica Architecture | full weight copies | slice global batch | identical optimizer step
+branch: Ring All-Reduce | reduce-scatter and all-gather | traffic approaches 2S | independent of rank count
+branch: Collective Topology | tree for latency | ring for high bandwidth | nccl auto heuristic switch
+branch: Gradient Bucketing | autograd backward hooks | bucket cap mb sizing | overlap comm with compute
+branch: Optimization Dynamics | critical batch size limit | gradient noise scale | linear learning rate warmup
+branch: Cluster Budget | sixteen gigabytes gradients | thirty-one ms on nvlink | six hundred forty ms on ib

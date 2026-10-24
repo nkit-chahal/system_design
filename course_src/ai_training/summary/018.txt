@@ -1,0 +1,7 @@
+center: Deduplication and Quality Filtering
+branch: Hazards Of Duplication | verbatim memorization risks | wasted training cluster compute | evaluation benchmark contamination
+branch: Deduplication Levels | url normalization hash | exact document sha two fifty six | near duplicate minhash lsh
+branch: Minhash And Lsh | word five gram shingles | s curve collision formula | union find graph clustering
+branch: Substring Deduplication | suffix array lexicographical sort | longest common prefix array | prunes repeated spans
+branch: Quality Filtering Tiers | gopher rule based heuristics | kenlm perplexity filters | fineweb edu neural classifier
+branch: Proxy Ablation Strategy | one billion parameter models | twenty five billion tokens | guides pretraining data mixture

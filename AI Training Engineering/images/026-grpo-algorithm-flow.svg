@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="360" viewBox="0 0 820 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Step 1: Prompt input -->
+  <rect x="20" y="140" width="110" height="60" rx="6" class="purple"/>
+  <text x="36" y="165" class="b">Prompt q</text>
+  <text x="32" y="185" class="sm">math / code</text>
+  <path d="M130,170 L160,170" class="edge"/>
+
+  <!-- Step 2: Policy rollout generation -->
+  <rect x="165" y="125" width="135" height="90" rx="6" class="orange"/>
+  <text x="180" y="152" class="b">Policy Model</text>
+  <text x="175" y="172" class="sm">Sample group G</text>
+  <text x="182" y="192" class="sm">G=8 completions</text>
+
+  <!-- Fan out to 4 representative outputs -->
+  <path d="M300,140 L345,60" class="edge"/>
+  <path d="M300,160 L345,130" class="edge"/>
+  <path d="M300,180 L345,210" class="edge"/>
+  <path d="M300,200 L345,280" class="edge"/>
+
+  <!-- Outputs o_1 to o_G -->
+  <rect x="350" y="42" width="100" height="36" rx="4" class="blue"/>
+  <text x="362" y="65" class="sm">Output o_1</text>
+  <rect x="350" y="112" width="100" height="36" rx="4" class="blue"/>
+  <text x="362" y="135" class="sm">Output o_2</text>
+  <rect x="350" y="192" width="100" height="36" rx="4" class="blue"/>
+  <text x="362" y="215" class="sm">Output o_3</text>
+  <rect x="350" y="262" width="100" height="36" rx="4" class="blue"/>
+  <text x="362" y="285" class="sm">Output o_G</text>
+
+  <!-- Verifiable reward evaluations -->
+  <path d="M450,60 L485,60" class="edge"/>
+  <path d="M450,130 L485,130" class="edge"/>
+  <path d="M450,210 L485,210" class="edge"/>
+  <path d="M450,280 L485,280" class="edge"/>
+
+  <rect x="490" y="42" width="80" height="36" rx="4" class="green"/>
+  <text x="502" y="65" class="sm">r_1 = 1.0</text>
+  <rect x="490" y="112" width="80" height="36" rx="4" class="red"/>
+  <text x="502" y="135" class="sm">r_2 = 0.0</text>
+  <rect x="490" y="192" width="80" height="36" rx="4" class="green"/>
+  <text x="502" y="215" class="sm">r_3 = 1.0</text>
+  <rect x="490" y="262" width="80" height="36" rx="4" class="red"/>
+  <text x="502" y="285" class="sm">r_G = 0.0</text>
+
+  <!-- Convergence to Group Advantage Calculation -->
+  <path d="M570,60 L615,140" class="edge"/>
+  <path d="M570,130 L615,155" class="edge"/>
+  <path d="M570,210 L615,185" class="edge"/>
+  <path d="M570,280 L615,200" class="edge"/>
+
+  <rect x="620" y="115" width="180" height="110" rx="8" class="yellow"/>
+  <text x="635" y="140" class="b">Group Normalization</text>
+  <text x="635" y="162" class="sm">mean = avg(r_1..r_G)</text>
+  <text x="635" y="182" class="sm">std = stdev(r_1..r_G)</text>
+  <text x="635" y="205" class="b sm">A_i = (r_i - mean) / std</text>
+
+  <!-- Bottom: Note highlighting no critic -->
+  <rect x="165" y="275" width="430" height="65" rx="6" class="gray"/>
+  <text x="175" y="297" class="sm b">No Critic (Value Network) Needed:</text>
+  <text x="175" y="315" class="sm">Advantage is computed purely from relative intra-group statistics.</text>
+  <text x="175" y="331" class="sm">Saves 16 bytes/param of optimizer states and a separate backward pass.</text>
+</svg>

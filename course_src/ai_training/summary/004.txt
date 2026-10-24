@@ -1,0 +1,7 @@
+center: Optimizers
+branch: Momentum And Adam | momentum smooths valley ravines | adam normalizes coordinate scales | bias correction handles initialization
+branch: Decoupled Weight Decay | l two penalty distorts variance | adamw applies direct shrinkage | scale free uniform regularization
+branch: Learning Rate Schedules | linear warmup prevents divergence | cosine decay requires fixed horizon | warmup stable decay flexibility
+branch: Standard Hyperparameters | beta two point nine five | weight decay point one | gradient clipping prevents spikes
+branch: Memory Saving Optimizers | eight bit adam quantizes states | adafactor low rank factors | muon orthogonalizes weight matrices
+branch: Distributed Memory Sizing | sixteen bytes per parameter | intra node fsdp sharding | sixteen gigabytes per gpu

@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.xs{font-size:11px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Composing EP with DP: The Layer-by-Layer Parallel Transition</text>
+  <text x="25" y="44" class="sm" fill="#555">Shared attention layers execute in Data Parallelism; MoE MLP layers transition via All-to-All into Expert Parallelism.</text>
+
+  <!-- Flow diagram across 3 stages -->
+  <!-- Box 1: Attention under DP -->
+  <rect x="25" y="65" width="225" height="195" rx="6" class="blue"/>
+  <text x="137" y="88" text-anchor="middle" class="b">Dense Layer: DP</text>
+  <rect x="35" y="100" width="205" height="42" rx="4" class="white"/>
+  <text x="137" y="118" text-anchor="middle" class="xs b">Self-Attention &amp; RMSNorm</text>
+  <text x="137" y="132" text-anchor="middle" class="xs">Shared Parameters</text>
+  <text x="40" y="162" class="xs">• Replicated on all DP ranks</text>
+  <text x="40" y="180" class="xs">• Each GPU computes its local</text>
+  <text x="40" y="196" class="xs">  data-parallel batch slice [b, s]</text>
+  <text x="40" y="216" class="xs">• Gradients synchronized via</text>
+  <text x="40" y="232" class="xs">  DP All-Reduce / reduce-scatter</text>
+  <text x="40" y="250" class="xs" fill="#555">Standard data parallel compute</text>
+
+  <!-- Transition Arrow: Forward All-to-All Dispatch -->
+  <path d="M 250 162 L 285 162" class="edge"/>
+  <text x="267" y="148" text-anchor="middle" class="xs b" fill="#b45f06">A2A</text>
+  <text x="267" y="178" text-anchor="middle" class="xs" fill="#b45f06">Dispatch</text>
+
+  <!-- Box 2: MoE Layer under EP -->
+  <rect x="285" y="65" width="245" height="195" rx="6" class="orange"/>
+  <text x="407" y="88" text-anchor="middle" class="b">Sparse Layer: EP</text>
+  <rect x="295" y="100" width="225" height="42" rx="4" class="white"/>
+  <text x="407" y="118" text-anchor="middle" class="xs b">MoE Experts (Sharded)</text>
+  <text x="407" y="132" text-anchor="middle" class="xs">E = 8 Experts on 8 GPUs</text>
+  <text x="300" y="162" class="xs">• Tokens redistributed by router</text>
+  <text x="300" y="180" class="xs">• GPU i executes Expert i</text>
+  <text x="300" y="196" class="xs">• Local MLP computation on</text>
+  <text x="300" y="212" class="xs">  gathered cross-rank tokens</text>
+  <text x="300" y="232" class="xs">• Shards static Adam memory</text>
+  <text x="300" y="250" class="xs" fill="#b45f06">No parameter replication!</text>
+
+  <!-- Transition Arrow: Forward All-to-All Combine -->
+  <path d="M 530 162 L 565 162" class="edge"/>
+  <text x="547" y="148" text-anchor="middle" class="xs b" fill="#2d7600">A2A</text>
+  <text x="547" y="178" text-anchor="middle" class="xs" fill="#2d7600">Combine</text>
+
+  <!-- Box 3: Return to DP for Residual -->
+  <rect x="565" y="65" width="230" height="195" rx="6" class="green"/>
+  <text x="680" y="88" text-anchor="middle" class="b">Residual &amp; Next Block</text>
+  <rect x="575" y="100" width="210" height="42" rx="4" class="white"/>
+  <text x="680" y="118" text-anchor="middle" class="xs b">Residual Add &amp; LayerNorm</text>
+  <text x="680" y="132" text-anchor="middle" class="xs">Return to DP State</text>
+  <text x="580" y="162" class="xs">• Gathered expert outputs scaled</text>
+  <text x="580" y="178" class="xs">  by gating scores</text>
+  <text x="580" y="196" class="xs">• Added to attention residual</text>
+  <text x="580" y="214" class="xs">• Passes to next transformer</text>
+  <text x="580" y="230" class="xs">  block under Data Parallelism</text>
+  <text x="580" y="250" class="xs" fill="#2d7600">Seamless layer transition</text>
+
+  <!-- Bottom Explanatory Banner -->
+  <rect x="25" y="275" width="770" height="50" rx="4" class="gray"/>
+  <text x="40" y="295" class="sm"><tspan class="b">Cluster Mapping Rule:</tspan> Keep EP = 8 inside each 8-GPU server node so that All-to-All dispatch and combine execute over</text>
+  <text x="40" y="313" class="sm">900 GB/s NVLink. Wrap the 32 nodes in Data Parallelism (DP = 32) over InfiniBand for clean, scalable pretraining.</text>
+</svg>

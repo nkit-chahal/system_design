@@ -1,0 +1,330 @@
+<h2>Introduction</h2>
+<p>Distributed deep learning began with a straightforward idea: when a dataset is too vast for a single machine to process in a reasonable time, distribute the data across multiple workers. In <strong>data parallelism (DP)</strong>, every GPU in a cluster holds an identical copy of the model parameters. Each worker ingests a unique slice of the global training batch, computes a forward pass to determine the loss, and evaluates backpropagation to calculate local parameter gradients. Before any parameter can be updated, the workers execute a distributed collective operation called <strong>all-reduce</strong> to compute the arithmetic average of their gradients across all devices. Once synchronized, every GPU applies an identical optimizer update, guaranteeing that the model replicas remain bit-for-bit identical at the start of the next training step [1].</p>
+<p>While conceptually elegant, scaling data parallelism to hundreds or thousands of GPUs reveals severe systems challenges. As cluster size grows, the volume of gradient data transmitted across network links threatens to overwhelm inter-node interconnects. Modern training systems overcome this communication barrier through bandwidth-optimal ring collectives, hierarchical network routing, and aggressive <strong>communication-computation overlap</strong>, where gradient synchronization for completed layers runs concurrently with backpropagation of earlier layers [1], [2].</p>
+<fig src="010-data-parallel-overview.svg" caption="Distributed Data Parallelism workflow across four worker GPUs">A global batch of 512 sequences is partitioned into distinct micro-batches across worker GPUs. Each worker maintains a complete model replica and independently computes local forward and backward passes. A collective all-reduce averages gradients across all workers, enabling identical optimizer parameter updates.</fig>
+<p>However, pure data parallelism faces an unyielding physical constraint. Because every worker must maintain a complete copy of the model weights, gradients, and optimizer states, data parallelism does not reduce the per-GPU memory footprint by a single byte [5]. For modern large language models, the static memory required by standard mixed-precision optimizers exceeds the physical capacity of modern accelerators before allocating even one activation tensor. Understanding how data parallelism functions, where its network communication scales, and where its memory wall hits is the essential foundation for all advanced distributed training architectures.</p>
+<p>In this lesson, we examine the mechanics of data parallelism, derive the exact communication volume of ring and tree all-reduce algorithms, analyze how PyTorch DDP overlaps gradient communication with backward computation, evaluate worked cluster timings for our 256-GPU cluster, examine the mathematical limits of batch size scaling, and discover why plain data parallelism must ultimately yield to state sharding.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In systems design interviews for distributed training infrastructure, discussions around data parallelism typically begin with cluster sizing and scaling efficiency. Here is how a discussion between a candidate and an interviewer unfolds:</p>
+<p><strong>Candidate</strong>: What model architecture, precision, and optimizer are we targeting for this pretraining cluster?<br>
+<strong>Interviewer</strong>: We are training a model with the Llama 3.1 8B architecture—8.03 billion parameters across 32 transformer layers. We use BF16 mixed-precision training with the AdamW optimizer.</p>
+<p><strong>Candidate</strong>: What cluster hardware and network topology are available?<br>
+<strong>Interviewer</strong>: We have 256 NVIDIA H100 80 GB SXM GPUs arranged across 32 nodes (8 GPUs per node). Within each node, the 8 GPUs communicate over NVLink at 900 GB/s bidirectional bandwidth per GPU. Across nodes, each node connects through 8 dedicated 400 Gb/s InfiniBand NDR NICs, providing 50 GB/s line rate per GPU.</p>
+<p><strong>Candidate</strong>: What are the sequence length and global batch size targets?<br>
+<strong>Interviewer</strong>: The sequence length is 8,192 tokens. The target global batch size is approximately 4 million tokens per optimizer step, which equals 512 sequences.</p>
+<p><strong>Candidate</strong>: Can we train this run using plain PyTorch DistributedDataParallel (DDP) across all 256 GPUs?<br>
+<strong>Interviewer</strong>: That is the core question. Can you train Llama 3.1 8B using pure data parallelism on this cluster, how long does the gradient all-reduce take, and does network communication hide behind compute?</p>
+<p>The question underneath is: <em>How does data-parallel communication scale across an InfiniBand network fabric, can asynchronous gradient bucketing completely mask collective latency behind tensor core computation, and why does memory capacity force us beyond plain replication?</em></p>
+
+<h2>The Mechanics of Data Parallelism and All-Reduce</h2>
+<h3>Micro-batch partitioning and synchronization</h3>
+<p>Let <tex>N</tex> be the number of data-parallel workers (GPUs) and let <tex>B</tex> be the global batch size measured in sequences. In standard data parallelism, each GPU receives a disjoint <strong>micro-batch</strong> of size <tex>b = B / N</tex> sequences. Worker <tex>i</tex> evaluates the loss <tex>\mathcal{L}_i(W)</tex> over its local micro-batch using local model weights <tex>W</tex>. During the backward pass, automatic differentiation evaluates local parameter gradients:</p>
+<texblock>g_i = \nabla_W \mathcal{L}_i(W)</texblock>
+<p>Because the objective function across the global batch is the arithmetic mean of the local losses, the true global gradient <tex>\bar{g}</tex> is the average of the local gradient vectors across all <tex>N</tex> workers [1]:</p>
+<texblock>\bar{g} = \frac{1}{N} \sum_{i=0}^{N-1} g_i</texblock>
+<p>The collective operation that sums tensors across all ranks and delivers the resulting sum to every rank is <strong>all-reduce</strong>. Once all-reduce completes, each worker scales the sum by <tex>1/N</tex> to produce <tex>\bar{g}</tex> and invokes its local optimizer (such as AdamW) to update <tex>W</tex>. Because all replicas begin with identical initial weights and apply identical averaged gradients, their updated weights remain synchronized without requiring parameter broadcasts.</p>
+
+<h3>The Ring All-Reduce algorithm</h3>
+<p>A naive implementation of all-reduce might designate a master node, gather all gradients to that node, sum them, and broadcast the result back. For <tex>N = 256</tex> workers, the master node's network interface would saturate immediately, creating an intractable bottleneck. Modern distributed systems execute all-reduce using decentralized algorithms, most notably <strong>ring all-reduce</strong> [2].</p>
+<p>In ring all-reduce, the <tex>N</tex> GPUs are logically arranged in a unidirectional ring: rank <tex>i</tex> transmits data only to rank <tex>(i+1) \bmod N</tex> and receives data only from rank <tex>(i-1) \bmod N</tex>. The gradient buffer of size <tex>S</tex> bytes is partitioned into <tex>N</tex> equal chunks of size <tex>S / N</tex>. The algorithm executes in two distinct phases of <tex>N - 1</tex> steps each [2]:</p>
+<fig src="010-ring-allreduce-phases.svg" caption="Ring All-Reduce: Reduce-Scatter and All-Gather phases">A logical ring of four GPUs where a gradient tensor is split into four equal chunks. In Phase 1 (Reduce-Scatter), workers circulate and accumulate chunks over N - 1 steps until each worker holds one fully reduced chunk. In Phase 2 (All-Gather), workers circulate the reduced chunks over N - 1 steps until all workers possess the complete averaged gradient.</fig>
+
+<h4>Phase 1: Reduce-Scatter (<tex>N - 1</tex> steps)</h4>
+<p>At each step <tex>k \in [0, N-2]</tex>, each worker <tex>i</tex> sends chunk <tex>(i - k) \bmod N</tex> to rank <tex>i+1</tex> while simultaneously receiving chunk <tex>(i - k - 1) \bmod N</tex> from rank <tex>i-1</tex>. Upon receiving a chunk, the worker performs an element-wise vector sum with its local corresponding chunk. After <tex>N - 1</tex> steps, each worker holds the fully accumulated sum for exactly one of the <tex>N</tex> chunks. The total volume of data sent by each GPU during this phase is:</p>
+<texblock>\text{Data Sent}_{\text{reduce-scatter}} = (N - 1) \times \left(\frac{S}{N}\right) = \frac{N - 1}{N} S\text{ bytes}</texblock>
+
+<h4>Phase 2: All-Gather (<tex>N - 1</tex> steps)</h4>
+<p>In the second phase, the fully reduced chunks are circulated around the ring so that every worker receives the complete gradient tensor. At each step, worker <tex>i</tex> sends its newly acquired fully reduced chunk to rank <tex>i+1</tex> and receives another reduced chunk from rank <tex>i-1</tex>. After <tex>N - 1</tex> steps, all <tex>N</tex> chunks have visited every GPU. The total data sent by each GPU during all-gather is identical to Phase 1:</p>
+<texblock>\text{Data Sent}_{\text{all-gather}} = (N - 1) \times \left(\frac{S}{N}\right) = \frac{N - 1}{N} S\text{ bytes}</texblock>
+
+<h4>Total traffic and bandwidth optimality</h4>
+<p>Summing both phases yields the total network traffic transmitted (and received) by each GPU during ring all-reduce [2]:</p>
+<texblock>\text{Total Data Sent per GPU} = 2 \times \frac{N - 1}{N} S\text{ bytes}</texblock>
+<p>This formula demonstrates a profound mathematical property: as the number of GPUs <tex>N</tex> grows large, the fraction <tex>(N - 1) / N \to 1</tex>. Consequently:</p>
+<texblock>\lim_{N \to \infty} \text{Total Data Sent per GPU} = 2S\text{ bytes}</texblock>
+<p>The communication volume per GPU is <strong>asymptotically independent of the number of GPUs</strong>. Doubling the cluster size from 128 to 256 GPUs does not double the data transmitted per worker; each worker always transfers approximately <tex>2S</tex> bytes. If the interconnect provides bidirectional bandwidth <tex>B</tex>, the transfer time is governed by:</p>
+<texblock>T_{\text{ring}} = 2 \frac{N - 1}{N} \frac{S}{B} + 2(N - 1)\alpha</texblock>
+<p>where <tex>\alpha</tex> represents the network latency per transfer step. For large models where <tex>S</tex> is measured in gigabytes, the bandwidth term <tex>2S/B</tex> completely dominates the latency term <tex>2N\alpha</tex>, achieving near 100% link utilization [2].</p>
+
+<h3>Collective Topologies in NCCL: Ring versus Tree</h3>
+<p>The NVIDIA Collective Communications Library (<strong>NCCL</strong>) implements the communication primitives underpinning PyTorch DDP. While the ring algorithm maximizes bandwidth utilization for large messages, its latency scales linearly with <tex>N</tex> (<tex>2(N-1)\alpha</tex> steps). On large clusters with hundreds or thousands of nodes, this linear hop count introduces measurable overhead for small tensors [6].</p>
+<fig src="010-tree-vs-ring-latency.svg" caption="NCCL communication algorithms: Ring versus Double Binary Tree">Comparison of communication topologies in NCCL. Ring all-reduce requires 2(N-1) transfer steps but achieves near 100% bus bandwidth utilization for large tensors. Double Binary Tree requires only 2 log2(N) steps, significantly reducing latency for small payloads. NCCL automatically chooses between Ring and Tree based on message size.</fig>
+<p>To eliminate this latency bottleneck, NCCL incorporates the <strong>Double Binary Tree</strong> algorithm [6]. GPUs are arranged into two complementary binary trees where internal nodes in one tree act as leaves in the other. In a tree topology, the reduction flows up to the root in <tex>\log_2 N</tex> steps, followed by a broadcast down the tree in <tex>\log_2 N</tex> steps, yielding a total latency of <tex>2 \log_2 N \times \alpha</tex> [6]. However, because root and internal nodes must service multiple child edges, link utilization is lower than in a balanced ring.</p>
+<p>NCCL selects the optimal algorithm dynamically at runtime using an internal analytical cost model (the <code>auto</code> algorithm mode). For small buffers (typically below 256 KiB to 4 MiB), NCCL deploys Tree all-reduce to minimize latency hops. For large gradient tensors, it routes traffic through Ring all-reduce (or NVLS hardware-accelerated multicast trees within Hopper NVSwitches) to saturate line-rate bandwidth [6].</p>
+
+<h2>Overlapping Communication with Computation</h2>
+<h3>Why naive synchronization stalls training</h3>
+<p>A naive data-parallel implementation would compute the full forward pass, compute the full backward pass across all layers, and then initiate an all-reduce across all model parameters. Under this blocking model, GPU tensor cores sit completely idle throughout the all-reduce phase, waiting for network transfers to conclude. Conversely, the high-speed network interfaces sit completely idle throughout the forward and backward passes. This serialization wastes substantial hardware capacity [1].</p>
+
+<h3>PyTorch DDP: Autograd hooks and gradient bucketing</h3>
+<p>PyTorch <strong>DistributedDataParallel (DDP)</strong> avoids serialization by overlapping communication directly with the backward pass [1]. This overlap relies on a fundamental architectural reality: backpropagation traverses neural network layers in <strong>reverse topological order</strong>. Gradients for the final transformer layer (Layer 32) are fully evaluated milliseconds after the backward pass begins, while gradients for Layer 1 will not be computed until the backward pass reaches completion.</p>
+<fig src="010-ddp-gradient-bucketing.svg" caption="PyTorch DDP gradient bucketing and asynchronous communication stream">PyTorch DDP groups model parameters into buckets in reverse order. As backpropagation evaluates gradients from Layer 32 down to Layer 1, autograd hooks mark parameters ready. When Bucket 0 reaches capacity (bucket_cap_mb, default 25 MB), DDP launches an asynchronous all-reduce on a separate CUDA communication stream while the compute stream concurrently evaluates gradients for Bucket 1.</fig>
+<p>Instead of dispatching an all-reduce operation for each individual parameter—which would flood the CUDA stream and NCCL with thousands of tiny, high-overhead kernel launches—DDP aggregates parameter gradients into contiguous memory buffers called <strong>buckets</strong> [1]:</p>
+<ol>
+<li><strong>Initialization</strong>: When <code>DistributedDataParallel(model)</code> is constructed, DDP inspects the model parameters and packs them into buckets in roughly reverse order of <code>model.parameters()</code>. The maximum size of each bucket is governed by the configuration parameter <code>bucket_cap_mb</code> (defaulting to 25 MiB) [1], [7].</li>
+<li><strong>Hook Registration</strong>: DDP registers a post-accumulate gradient autograd hook (<code>register_post_accumulate_grad_hook</code>) on every parameter tensor [1].</li>
+<li><strong>Bucket Readiness</strong>: As <code>loss.backward()</code> executes, whenever a parameter's gradient computation concludes, its autograd hook fires and marks that parameter ready within its assigned bucket.</li>
+<li><strong>Asynchronous Launch</strong>: The instant the final parameter in a bucket is marked ready, DDP immediately dispatches an asynchronous non-blocking all-reduce (via <code>torch.distributed.all_reduce</code>) for that entire bucket on a dedicated CUDA communication stream [1].</li>
+<li><strong>Concurrent Execution</strong>: While the network interface transfers and reduces Bucket 0 across the cluster, the GPU compute stream is actively evaluating gradients for Bucket 1. By the time the backward pass reaches the initial model layers, nearly all upper-layer gradient buckets have already completed their network transfers [1].</li>
+</ol>
+
+<h3>Gradient accumulation and synchronization control</h3>
+<p>When training large models, the micro-batch size that fits in memory may be smaller than the desired batch size per GPU. Engineers use <strong>gradient accumulation</strong>: running multiple local forward and backward passes, accumulating gradients into <code>param.grad</code>, and executing the optimizer update only once every <tex>K</tex> micro-steps.</p>
+<p>Under standard DDP, every call to <code>loss.backward()</code> triggers gradient all-reduce across all buckets. Launching communication on intermediate accumulation steps is entirely redundant, as only the final accumulated gradient needs to be synchronized. PyTorch DDP provides the <code>model.no_sync()</code> context manager to disable gradient synchronization during intermediate micro-batches [1], [7]:</p>
+<codetabs>
+<tab label="Accumulation Loop" lang="python">
+# Accumulate gradients over K micro-batches without network sync
+optimizer.zero_grad()
+for step in range(accumulation_steps):
+    is_last_microbatch = (step == accumulation_steps - 1)
+    
+    # Disable all-reduce during intermediate micro-steps
+    if not is_last_microbatch:
+        with model.no_sync():
+            outputs = model(inputs[step])
+            loss = criterion(outputs, targets[step]) / accumulation_steps
+            loss.backward()
+    else:
+        # Final micro-step: DDP hooks fire and all-reduce runs
+        outputs = model(inputs[step])
+        loss = criterion(outputs, targets[step]) / accumulation_steps
+        loss.backward()
+
+optimizer.step()
+</tab>
+</codetabs>
+<p>By wrapping the first <tex>K-1</tex> backward passes in <code>model.no_sync()</code>, the cluster eliminates <tex>K-1</tex> network communication rounds, preserving interconnect bandwidth exclusively for the final synchronization step [1].</p>
+
+<h2>Worked Cluster Numbers: Bandwidth, Latency, and Compute Overlap</h2>
+<h3>Sizing gradient communication for Llama 3.1 8B</h3>
+<p>Let us apply these formulas to our pretraining scenario. The model has <tex>N_{\text{params}} = 8.03 \times 10^9</tex> parameters. In BF16 mixed-precision training, each gradient element requires 2 bytes. The uncompressed gradient tensor size is:</p>
+<texblock>S = 8.03 \times 10^9 \times 2\text{ bytes} = 16.06 \times 10^9\text{ bytes} \approx 16.06\text{ GB} \quad (14.96\text{ GiB})</texblock>
+<p>We evaluate all-reduce communication performance across two physical network fabrics:</p>
+
+<h4>1. Intra-node NVLink (8 GPUs)</h4>
+<p>Inside a single 8-GPU H100 SXM node, GPUs connect through NVSwitches providing 900 GB/s bidirectional NVLink bandwidth per GPU (450 GB/s transmit and 450 GB/s receive). For <tex>N = 8</tex> ranks:</p>
+<texblock>\text{Traffic Factor} = 2 \times \frac{8 - 1}{8} = 2 \times \frac{7}{8} = 1.75</texblock>
+<texblock>\text{Data Transferred per GPU} = 1.75 \times 16.06\text{ GB} = 28.105\text{ GB}</texblock>
+<p>At 900 GB/s effective bus bandwidth, the time required to all-reduce the entire 8B gradient tensor across the node is:</p>
+<texblock>T_{\text{NVLink}} = \frac{28.105\text{ GB}}{900\text{ GB/s}} \approx 0.0312\text{ s} = 31.2\text{ ms}</texblock>
+<p>Even accounting for 80% practical bus efficiency (~720 GB/s), the all-reduce completes in under 39 ms.</p>
+
+<h4>2. Inter-node InfiniBand (256 GPUs across 32 nodes)</h4>
+<p>Across the full 256-GPU cluster, each node contains 8 InfiniBand NDR NICs operating at 400 Gb/s, providing <tex>50\text{ GB/s}</tex> dedicated bidirectional line rate per GPU. For <tex>N = 256</tex> ranks:</p>
+<texblock>\text{Traffic Factor} = 2 \times \frac{256 - 1}{256} = 2 \times \frac{255}{256} \approx 1.9922</texblock>
+<texblock>\text{Data Transferred per GPU} = 1.9922 \times 16.06\text{ GB} = 31.995\text{ GB} \approx 32.00\text{ GB}</texblock>
+<p>At 50 GB/s line rate, the theoretical minimum all-reduce time across the 256-GPU cluster is:</p>
+<texblock>T_{\text{IB}} = \frac{31.995\text{ GB}}{50\text{ GB/s}} \approx 0.640\text{ s} = 640\text{ ms}</texblock>
+<p>Assuming 90% network efficiency after packet headers and congestion (~45 GB/s), the actual transfer requires approximately 711 ms.</p>
+
+<h3>Step compute time versus communication latency</h3>
+<p>To determine whether the 640 ms InfiniBand all-reduce introduces pipeline stalls, we must compare it against the computation time of one training step. The global batch size is 512 sequences of 8,192 tokens (approximately 4.19 million tokens). Across 256 GPUs, each GPU processes:</p>
+<texblock>\text{Sequences per GPU} = \frac{512}{256} = 2\text{ sequences} = 16,384\text{ tokens per step}</texblock>
+<p>With micro-batch size <tex>b = 1</tex>, each GPU executes 2 gradient accumulation steps. When using full activation checkpointing (recomputation), training requires approximately <tex>8 \times N_{\text{params}}</tex> floating-point operations per token [3] (see Lesson 7, Training FLOPs, Time and MFU). The compute workload per GPU per step is:</p>
+<texblock>\text{FLOPs per step} = 8 \times 8.03 \times 10^9 \times 16,384 \approx 1.053 \times 10^{15}\text{ FLOPs} = 1,053\text{ TFLOPs}</textblock>
+<p>An NVIDIA H100 SXM GPU delivers 989 dense BF16 TFLOPS peak. At our target 40% Model FLOPs Utilization (MFU), the sustained execution throughput is:</p>
+<texblock>\text{Sustained Throughput} = 989\text{ TFLOPS} \times 0.40 = 395.6\text{ TFLOPS}</textblock>
+<p>Dividing workload by throughput yields the total step compute duration:</p>
+<texblock>T_{\text{compute}} = \frac{1,053\text{ TFLOPs}}{395.6\text{ TFLOPS}} \approx 2.662\text{ seconds}</texblock>
+<p>In standard backpropagation with activation recomputation, the forward pass consumes approximately one quarter of the computation (~0.665 s), while the backward pass consumes three quarters (<tex>\approx 1.997\text{ s}</tex>).</p>
+<fig src="010-comm-vs-comp-timeline.svg" caption="Communication versus computation timelines for Llama 3.1 8B across cluster configurations">Execution timelines comparing step compute time against all-reduce duration. Within an 8-GPU node over NVLink, all-reduce requires only 31.2 ms (1.2% of step time). Across 256 GPUs over 400 Gb/s InfiniBand, all-reduce takes 640 ms, which fits comfortably inside the 1,997 ms backward pass. With a smaller batch of 1 sequence per GPU, the backward pass shrinks to 998 ms, narrowing the overlap margin.</fig>
+<p>Here is the critical observation: <strong>the 640 ms InfiniBand all-reduce is vastly shorter than the 1,997 ms backward compute pass</strong> (<tex>640\text{ ms} / 1,997\text{ ms} \approx 32\%</tex>). Because DDP streams gradient buckets asynchronously as layers complete, the entire 16 GB gradient transfer finishes long before the backward pass evaluates the final input embeddings. The communication overhead is 100% hidden, allowing the cluster to scale with near-linear compute efficiency.</p>
+
+<h3>The vulnerability of shrinking batch size</h3>
+<p>What happens if the team reduces the global batch size to 256 sequences (1 sequence per GPU, with no gradient accumulation)?</p>
+<p>With only 8,192 tokens per GPU, the compute workload halves to 526 TFLOPs, cutting total step compute to 1.33 s and backward pass duration to approximately 0.998 s (998 ms). While the 640 ms all-reduce still fits within 998 ms, the communication margin narrows dramatically: communication now occupies 64% of the backward window. Any transient packet loss, route congestion on the spine switches, or straggler GPU delay will immediately exceed the remaining 358 ms buffer, stalling the compute engines and degrading cluster MFU.</p>
+
+<h2>Global Batch Size, Gradient Accumulation, and Optimization Limits</h2>
+<h3>The Critical Batch Size and Gradient Noise Scale</h3>
+<p>Given that larger batch sizes provide longer backward passes that easily conceal communication latency, why not scale the global batch size to 10 million or 50 million tokens? The constraint lies not in networking, but in optimization mathematics.</p>
+<p>In their seminal empirical study, McCandlish et al. established that every neural network training run exhibits a <strong>Critical Batch Size</strong>, denoted <tex>B_{\text{crit}}</tex> [4]. The critical batch size is governed by the <strong>gradient noise scale</strong> <tex>\mathcal{B}^*</tex>, which measures the ratio of the trace of the gradient covariance matrix to the squared norm of the true gradient vector [4]:</p>
+<texblock>\mathcal{B}^* = \frac{\text{Tr}(\Sigma)}{|G|^2} = \frac{\mathbb{E}[|g_i - G|^2]}{|G|^2}</texblock>
+<p>where <tex>G = \mathbb{E}[g_i]</tex> is the true gradient and <tex>\Sigma</tex> is the covariance of individual sample gradients.</p>
+<fig src="010-batch-size-scaling-curves.svg" caption="Illustrative optimization dynamics: Critical batch size and sample efficiency limits">Illustrative plots depicting optimization scaling as batch size expands. Below B_crit, training speedup scales linearly with batch size while the total optimization steps required to reach target loss decrease inversely. Above B_crit, gradient noise is eliminated, leading to diminishing returns where processing additional tokens yields minimal optimization progress.</fig>
+<p>The gradient noise scale defines two distinct operating regimes [4]:</p>
+<ul>
+<li><strong>Linear Scaling Regime (<tex>B \ll B_{\text{crit}}</tex>)</strong>: When the batch size is small, individual gradients are noisy. Increasing the batch size averages out the noise, providing a higher-fidelity gradient estimate. In this regime, doubling the batch size halves the number of optimizer steps required to reach a target validation loss. Step throughput scales with near-perfect linear speedup.</li>
+<li><strong>Diminishing Returns Regime (<tex>B \gg B_{\text{crit}}</tex>)</strong>: Once the batch size surpasses <tex>B_{\text{crit}}</tex>, gradient variance is effectively eliminated; additional samples yield virtually identical gradient averages. Further increasing batch size does not reduce the required optimization steps, meaning extra compute is wasted on redundant data. Total sample efficiency collapses.</li>
+</ul>
+<p>For modern 7B–8B parameter autoregressive language models, empirical measurements show that <tex>B_{\text{crit}}</tex> starts around 1 million to 2 million tokens in early training and expands to approximately 4M to 8M tokens as the loss stabilizes [4]. Our target pretraining batch size of ~4M tokens (512 sequences of 8,192 tokens) sits precisely at this sweet spot, maximizing cluster parallelism without crossing into the regime of wasteful diminishing returns.</p>
+
+<h3>Learning rate scaling rules</h3>
+<p>When changing the global batch size, the learning rate must be adjusted to maintain stable convergence. Two primary conventions exist:</p>
+<ol>
+<li><strong>Linear Scaling Rule</strong>: Formulated by Goyal et al. for SGD [3], setting <tex>\eta_{\text{new}} = \eta_{\text{base}} \times (B_{\text{new}} / B_{\text{base}})</tex>. To prevent early instability when applying large learning rates, training must include a <strong>linear warmup</strong> schedule, gradually ramping the learning rate from near zero over the first several thousand steps [3].</li>
+<li><strong>Square-Root Scaling Rule</strong>: For adaptive moment optimizers such as AdamW, the second moment normalizer scales with the root of squared gradients. Many pretraining recipes scale the learning rate with the square root of the batch size ratio: <tex>\eta_{\text{new}} = \eta_{\text{base}} \times \sqrt{B_{\text{new}} / B_{\text{base}}}</tex>, which maintains better numerical stability across large batch transitions.</li>
+</ol>
+
+<h2>The Memory Wall: Why Plain DDP Fails for 8B Models</h2>
+<p>We have demonstrated that over our 256-GPU InfiniBand network, data-parallel communication takes only 640 ms and hides entirely behind the 1,997 ms backward pass. Why, then, can we not simply deploy standard PyTorch DDP to pretrain Llama 3.1 8B?</p>
+<p>The answer is the <strong>16-byte memory wall</strong> analyzed in Lesson 3, Training Memory. In pure DDP, every worker GPU maintains a standalone, complete model replica. For mixed-precision training with AdamW, each parameter requires 16 bytes of static memory [5]:</p>
+<ul>
+<li>BF16 model parameters: 2 bytes (<tex>8.03 \times 10^9 \times 2 = 16.06\text{ GB}</tex>)</li>
+<li>BF16 gradients: 2 bytes (<tex>8.03 \times 10^9 \times 2 = 16.06\text{ GB}</tex>)</li>
+<li>FP32 master parameters: 4 bytes (<tex>8.03 \times 10^9 \times 4 = 32.12\text{ GB}</tex>)</li>
+<li>FP32 Adam momentum (<tex>m</tex>): 4 bytes (<tex>8.03 \times 10^9 \times 4 = 32.12\text{ GB}</tex>)</li>
+<li>FP32 Adam variance (<tex>v</tex>): 4 bytes (<tex>8.03 \times 10^9 \times 4 = 32.12\text{ GB}</tex>)</li>
+</ul>
+<fig src="010-memory-wall-plain-ddp.svg" caption="Memory accounting under Plain DDP: The 128.5 GB memory wall on an 80 GB GPU">Under plain DDP, all 16 bytes per parameter are replicated on every GPU. For Llama 3.1 8B, this requires 128.5 GB of static memory per GPU. Because an H100 provides only 79.6 GiB of usable memory, plain DDP crashes with Out-Of-Memory before allocating any activation tensors. This failure necessitates state sharding via ZeRO and FSDP.</fig>
+<p>Summing these components yields:</p>
+<texblock>\text{Static Memory per GPU} = 16\text{ bytes} \times 8.03 \times 10^9 = 128.48\text{ GB} \quad (119.66\text{ GiB})</texblock>
+<p>An NVIDIA H100 80 GB SXM GPU exposes 79.6 GiB of usable High Bandwidth Memory. Replicating the model states under plain DDP requires 119.66 GiB, exceeding physical memory capacity by <strong>48.5 GB per GPU</strong> before allocating a single activation tensor, communication buffer, or CUDA context overhead!</p>
+<p>Gradient accumulation reduces activation memory by shrinking the micro-batch size, but <strong>gradient accumulation does nothing to shrink static model or optimizer states</strong>. Plain PyTorch DDP cannot train Llama 3.1 8B on an 80 GB GPU. To make pretraining physically possible, the redundant 16 bytes per parameter must be partitioned across devices. Table 1 compares the state management and communication characteristics of data-parallel strategies.</p>
+
+<table>
+<thead><tr><th>Parallelism Strategy</th><th>Weights per GPU</th><th>Gradients per GPU</th><th>Optimizer States per GPU</th><th>Communication Primitive</th><th>Total Comm Volume</th></tr></thead>
+<tbody>
+<tr><td><strong>Plain DDP</strong></td><td>Full (<tex>2\Psi</tex>)</td><td>Full (<tex>2\Psi</tex>)</td><td>Full (<tex>12\Psi</tex>)</td><td>All-Reduce (Gradients)</td><td><tex>2\Psi</tex></td></tr>
+<tr><td><strong>ZeRO-1</strong></td><td>Full (<tex>2\Psi</tex>)</td><td>Full (<tex>2\Psi</tex>)</td><td>Sharded (<tex>12\Psi / N</tex>)</td><td>All-Reduce (Gradients)</td><td><tex>2\Psi</tex></td></tr>
+<tr><td><strong>ZeRO-2</strong></td><td>Full (<tex>2\Psi</tex>)</td><td>Sharded (<tex>2\Psi / N</tex>)</td><td>Sharded (<tex>12\Psi / N</tex>)</td><td>Reduce-Scatter (Gradients)</td><td><tex>1\Psi</tex></td></tr>
+<tr><td><strong>FSDP / ZeRO-3</strong></td><td>Sharded (<tex>2\Psi / N</tex>)</td><td>Sharded (<tex>2\Psi / N</tex>)</td><td>Sharded (<tex>12\Psi / N</tex>)</td><td>All-Gather (Weights) + Reduce-Scatter (Grads)</td><td><tex>3\Psi</tex></td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: State storage and communication characteristics across data-parallel paradigms. <tex>\Psi</tex> represents model parameter size in BF16 (16.06 GB for Llama 3.1 8B).</p>
+
+<h4>How much data parallelism for our run?</h4>
+<p>For our 256-GPU pretraining run targeting Llama 3.1 8B with global batch size 512 sequences, we require a total data-parallel degree of 256 (<tex>\text{DP} = 256</tex>). However, because plain DDP runs out of memory, we cannot replicate all states. Instead, we must employ <strong>sharded data parallelism</strong> (Fully Sharded Data Parallelism / ZeRO), which we explore thoroughly in Lesson 11, ZeRO and FSDP. By sharding optimizer states, gradients, and model parameters across GPUs, the static memory per GPU drops from 128.5 GB to under 16 GB, fitting comfortably within our 80 GB H100 budget while preserving the overlap characteristics of all-reduce.</p>
+
+<h2>In Practice</h2>
+<p>The code below demonstrates a minimal, correct PyTorch DistributedDataParallel implementation configured for multi-node execution. The script configures the process group using NCCL, tunes gradient bucketing via <code>bucket_cap_mb</code>, demonstrates gradient accumulation with <code>model.no_sync()</code>, and is launched using <code>torchrun</code>.</p>
+<codetabs>
+<tab label="train_ddp.py" lang="python">
+import os
+import torch
+import torch.nn as nn
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader, Dataset
+from torch.utils.data.distributed import DistributedSampler
+
+class SyntheticDataset(Dataset):
+    def __init__(self, size: int = 1024, seq_len: int = 2048, hidden: int = 4096):
+        self.size = size
+        self.seq_len = seq_len
+        self.hidden = hidden
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        # Micro-batch synthetic token representations
+        x = torch.randn(self.seq_len, self.hidden)
+        y = torch.randn(self.seq_len, self.hidden)
+        return x, y
+
+def setup_distributed():
+    # torchrun populates RANK, WORLD_SIZE, LOCAL_RANK, MASTER_ADDR, MASTER_PORT
+    dist.init_process_group(backend="nccl")
+    local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+    return local_rank
+
+def cleanup_distributed():
+    dist.destroy_process_group()
+
+def main():
+    local_rank = setup_distributed()
+    device = torch.device(f"cuda:{local_rank}")
+
+    # Simple model replica
+    model = nn.Sequential(
+        nn.Linear(4096, 4096, bias=False),
+        nn.GELU(),
+        nn.Linear(4096, 4096, bias=False)
+    ).to(device)
+
+    # Wrap in DDP with custom bucket_cap_mb (default 25 MB)
+    # Tuning bucket_cap_mb balances overlap frequency against collective launch overhead
+    model = DDP(
+        model,
+        device_ids=[local_rank],
+        output_device=local_rank,
+        bucket_cap_mb=25,
+        find_unused_parameters=False
+    )
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+    criterion = nn.MSELoss()
+
+    dataset = SyntheticDataset()
+    sampler = DistributedSampler(dataset, shuffle=True)
+    loader = DataLoader(dataset, batch_size=1, sampler=sampler)
+
+    accumulation_steps = 2
+    model.train()
+
+    optimizer.zero_grad()
+    for step, (inputs, targets) in enumerate(loader):
+        inputs = inputs.to(device)
+        targets = targets.to(device)
+        is_accumulation_boundary = ((step + 1) % accumulation_steps == 0)
+
+        # Disable all-reduce gradient synchronization during intermediate micro-steps
+        if not is_accumulation_boundary:
+            with model.no_sync():
+                outputs = model(inputs)
+                loss = criterion(outputs, targets) / accumulation_steps
+                loss.backward()
+        else:
+            # Final micro-step: triggers asynchronous bucketed all-reduce
+            outputs = model(inputs)
+            loss = criterion(outputs, targets) / accumulation_steps
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+    cleanup_distributed()
+
+if __name__ == "__main__":
+    main()
+</tab>
+<tab label="torchrun launch" lang="bash">
+# Launch script for 32 nodes with 8 H100 GPUs per node (256 GPUs total)
+# Run on Rank 0 node:
+torchrun \
+  --nnodes=32 \
+  --nproc_per_node=8 \
+  --node_rank=0 \
+  --master_addr="10.0.0.1" \
+  --master_port=29500 \
+  train_ddp.py
+
+# NCCL Environment variables for network tuning:
+# export NCCL_DEBUG=INFO             # Print collective algorithm and topology logs
+# export NCCL_IB_DISABLE=0           # Ensure InfiniBand fabric is enabled
+# export NCCL_BUFFSIZE=4194304       # 4 MB NCCL ring buffer size per channel
+# export NCCL_NET_GDR_LEVEL=5        # Enable GPUDirect RDMA across InfiniBand NICs
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>GPUDirect RDMA</strong>: How modern NICs bypass host memory and transfer gradient buffers directly between GPU HBM across PCI switches or NVLink, cutting latency and freeing CPU cores [6].</li>
+<li><strong>Gradient Compression</strong>: Techniques such as FP8 gradient all-reduce, 1-bit Adam, and PowerSGD that compress the 16 GB gradient payload to 8 GB or 2 GB on bandwidth-constrained Ethernet clusters.</li>
+<li><strong>Straggler Mitigation</strong>: How a single throttled GPU or thermal event on one of 256 workers stalls the synchronous ring all-reduce, degrading cluster-wide MFU, and how watchdogs monitor rank completion times.</li>
+<li><strong>NCCL Channels</strong>: How NCCL establishes multiple concurrent rings and trees (typically 8 to 32 channels) mapped to distinct SMs and PCIe lanes to fully saturate bidirectional interconnects [6].</li>
+<li><strong>Dynamic Batch Sizing</strong>: Gradually expanding the global batch size from 1M to 4M tokens across the pretraining curriculum to match the evolving gradient noise scale <tex>\mathcal{B}^*</tex> [4].</li>
+<li><strong>Fault Recovery</strong>: Why data-parallel checkpoints require coordinated distributed saving (such as PyTorch Distributed Checkpointing), where each rank saves its local data slice without gathering to rank 0.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="010-summary.png" caption="Data parallelism and all-reduce summary" optional="1">Mind map summarizing data parallelism, the ring all-reduce algorithm, NCCL tree and ring topologies, gradient bucketing and overlap, and memory constraints.</fig>
+<ul>
+<li>Data parallelism replicates the full model across all GPUs and partitions the global batch into distinct micro-batches. Local gradients are averaged via collective all-reduce before the optimizer step.</li>
+<li>Ring all-reduce executes in two phases—Reduce-Scatter and All-Gather—transferring <tex>2(N-1)/N \times S</tex> bytes per GPU. Communication volume asymptotically approaches <tex>2S</tex>, remaining independent of GPU count.</li>
+<li>NCCL dynamically switches between Double Binary Tree (low latency, <tex>2 \log_2 N</tex> steps) for small payloads and Ring (high bandwidth, <tex>2N</tex> steps) for large gradient buffers.</li>
+<li>PyTorch DDP overlaps communication with computation by grouping parameters into buckets (governed by <code>bucket_cap_mb</code>) and launching asynchronous all-reduces as reverse-topological backpropagation completes each bucket.</li>
+<li>For Llama 3.1 8B (16.06 GB BF16 gradients), all-reduce takes 31.2 ms over intra-node NVLink and 640 ms across 256 GPUs over 400 Gb/s InfiniBand. This 640 ms is easily hidden within the 1,997 ms backward pass.</li>
+<li>Plain DDP cannot train Llama 3.1 8B because replicating weights, gradients, and Adam states requires 128.5 GB per GPU, exceeding an 80 GB H100 by 48.5 GB. Sharded data parallelism (ZeRO and FSDP) is mandatory.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Li et al. PyTorch Distributed: Experiences on Accelerating Data Parallel Training. <a href="https://arxiv.org/abs/2006.15704" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2006.15704</a>.<br>
+[2] Patarasuk and Yuan. Bandwidth Optimal All-reduce Algorithms for Clusters of Workstations. <a href="https://doi.org/10.1016/j.jpdc.2008.09.002" rel="noopener noreferrer" target="_blank">https://doi.org/10.1016/j.jpdc.2008.09.002</a>.<br>
+[3] Goyal et al. Accurate, Large Minibatch SGD: Training ImageNet in 1 Hour. <a href="https://arxiv.org/abs/1706.02677" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1706.02677</a>.<br>
+[4] McCandlish et al. An Empirical Model of Large-Batch Training. <a href="https://arxiv.org/abs/1812.06162" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1812.06162</a>.<br>
+[5] Rajbhandari et al. ZeRO: Memory Optimizations Toward Training Trillion Parameter Models. <a href="https://arxiv.org/abs/1910.02054" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1910.02054</a>.<br>
+[6] NVIDIA NCCL Documentation: Collective Operations and Algorithms. <a href="https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/index.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/index.html</a>.<br>
+[7] PyTorch Documentation: Distributed Data Parallel. <a href="https://pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html" rel="noopener noreferrer" target="_blank">https://pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html</a>.</p>

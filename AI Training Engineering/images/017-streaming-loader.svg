@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="25" y="30" class="lg b">Streaming Data Loader with Deterministic Resumption</text>
+  <text x="25" y="52" class="sm" fill="#555">Prefetched binary shards eliminate remote storage stalls and guarantee exact reproducibility</text>
+
+  <!-- Left: Remote Object Store -->
+  <rect x="25" y="80" width="170" height="190" rx="5" class="blue"/>
+  <text x="110" y="105" class="b mid">Cloud Object Store</text>
+  <text x="110" y="125" class="sm mid">(S3 / GCS / Ceph)</text>
+
+  <rect x="40" y="140" width="140" height="26" rx="3" class="white"/>
+  <text x="110" y="157" class="sm mid">shard_00042.bin</text>
+  <rect x="40" y="172" width="140" height="26" rx="3" class="white"/>
+  <text x="110" y="189" class="sm mid">shard_00043.bin</text>
+  <rect x="40" y="204" width="140" height="26" rx="3" class="white"/>
+  <text x="110" y="221" class="sm mid">shard_00044.bin</text>
+  <text x="110" y="252" class="sm mid" fill="#555">4 TB total (1T tokens)</text>
+
+  <line x1="195" y1="175" x2="235" y2="175" class="edge"/>
+  <text x="215" y="165" class="sm mid" fill="#000">Stream</text>
+
+  <!-- Middle: Training Node -->
+  <rect x="240" y="70" width="350" height="240" rx="6" class="group"/>
+  <text x="255" y="92" class="b">Training Node (8× H100)</text>
+
+  <!-- Node NVMe Cache -->
+  <rect x="255" y="110" width="150" height="145" rx="5" class="orange"/>
+  <text x="330" y="132" class="b mid">Local NVMe Cache</text>
+  <text x="330" y="150" class="sm mid">Prefetch worker thread</text>
+  <rect x="270" y="165" width="120" height="24" rx="3" class="white"/>
+  <text x="330" y="181" class="sm mid">shard_00042 (active)</text>
+  <rect x="270" y="195" width="120" height="24" rx="3" class="white"/>
+  <text x="330" y="211" class="sm mid">shard_00043 (cached)</text>
+  <text x="330" y="240" class="sm mid" fill="#7d4b00">Zero network stall</text>
+
+  <line x1="405" y1="175" x2="435" y2="175" class="edge"/>
+
+  <!-- DataLoader processes -->
+  <rect x="440" y="110" width="135" height="145" rx="5" class="purple"/>
+  <text x="507" y="132" class="b mid">PyTorch Workers</text>
+  <text x="507" y="150" class="sm mid">Memory-mapped read</text>
+  <text x="507" y="170" class="sm mid">Pinned host memory</text>
+  <text x="507" y="190" class="sm mid">Slice [8192] uint32</text>
+  <text x="507" y="215" class="sm b mid" fill="#4d2c63">Async H2D DMA</text>
+  <text x="507" y="240" class="sm mid" fill="#4d2c63">cudaStreamCopy</text>
+
+  <line x1="575" y1="175" x2="615" y2="175" class="edge"/>
+
+  <!-- Right: H100 GPUs -->
+  <rect x="620" y="80" width="175" height="190" rx="5" class="green"/>
+  <text x="707" y="105" class="b mid">8× H100 GPUs</text>
+  <text x="707" y="125" class="sm mid">HBM3 Execution</text>
+  <rect x="635" y="140" width="145" height="40" rx="3" class="white"/>
+  <text x="707" y="157" class="sm b mid">8,211 tokens/sec</text>
+  <text x="707" y="173" class="sm mid">per GPU (at 40% MFU)</text>
+
+  <!-- Bottom Resumption State -->
+  <rect x="635" y="195" width="145" height="60" rx="3" class="yellow"/>
+  <text x="707" y="212" class="sm b mid">Checkpoint State:</text>
+  <text x="707" y="228" class="sm mid">shard_idx: 42</text>
+  <text x="707" y="244" class="sm mid">seq_offset: 1,840</text>
+
+  <text x="25" y="332" class="sm" fill="#555">Restarting reads exactly sequence 1,841 without re-shuffling or re-reading past shards.</text>
+</svg>

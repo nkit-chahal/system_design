@@ -1,0 +1,7 @@
+center: Pipeline Parallelism
+branch: Stage Partitioning | vertical split of layers | point to point activations | embedding and head asymmetry
+branch: Schedulers And Bubbles | naive execution stalls gpus | gpipe causes memory explosion | one f one b caps activations
+branch: Bubble Arithmetic | p minus one over total | high microbatch count helps | interleaved virtual stages
+branch: Zero Bubble Training | decouples activation and weight | fills idle bubbles | under five percent overhead
+branch: Network And Interconnect | low frequency p2p transfers | crosses nodes over infiniband | avoids fine grained all reduce
+branch: Sizing Decision | unnecessary for eight billion | essential for seventy billion | combined with tp and fsdp

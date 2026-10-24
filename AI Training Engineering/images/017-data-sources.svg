@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="25" y="30" class="lg b">Pretraining Data Mixtures Across Open Research Datasets</text>
+  <text x="25" y="52" class="sm" fill="#555">Domain breakdowns reported in open dataset documentation and technical reports</text>
+
+  <!-- Legend -->
+  <rect x="25" y="70" width="14" height="14" class="blue"/>
+  <text x="45" y="82" class="sm">Web Crawl (CC/C4)</text>
+  <rect x="200" y="70" width="14" height="14" class="orange"/>
+  <text x="220" y="82" class="sm">Code (GitHub)</text>
+  <rect x="345" y="70" width="14" height="14" class="green"/>
+  <text x="365" y="82" class="sm">Academic (arXiv/peS2o)</text>
+  <rect x="525" y="70" width="14" height="14" class="yellow"/>
+  <text x="545" y="82" class="sm">Books</text>
+  <rect x="625" y="70" width="14" height="14" class="purple"/>
+  <text x="645" y="82" class="sm">Curated (Wiki/Q&amp;A)</text>
+
+  <!-- Dataset 1: FineWeb -->
+  <text x="25" y="125" class="b">FineWeb (15.0T tokens)</text>
+  <rect x="25" y="135" width="760" height="28" rx="3" class="blue"/>
+  <text x="405" y="154" class="sm b mid" fill="#1b3e6b">100% Filtered Common Crawl (96 snapshots, 2013–2024)</text>
+
+  <!-- Dataset 2: Dolma (v1.6) -->
+  <text x="25" y="190" class="b">Dolma (3.0T tokens · OLMo)</text>
+  <rect x="25" y="200" width="517" height="28" rx="3" class="blue"/>
+  <text x="283" y="219" class="sm b mid" fill="#1b3e6b">Web Crawl (68%)</text>
+  <rect x="542" y="200" width="106" height="28" rx="3" class="green"/>
+  <text x="595" y="219" class="sm b mid" fill="#2d572c">Papers (14%)</text>
+  <rect x="648" y="200" width="68" height="28" rx="3" class="orange"/>
+  <text x="682" y="219" class="sm b mid" fill="#7d4b00">Code (9%)</text>
+  <rect x="716" y="200" width="69" height="28" rx="3" class="purple"/>
+  <text x="750" y="219" class="sm b mid" fill="#4d2c63">Other (9%)</text>
+
+  <!-- Dataset 3: RedPajama-1T -->
+  <text x="25" y="255" class="b">RedPajama-1T (1.2T tokens · LLaMA reproduction)</text>
+  <rect x="25" y="265" width="630" height="28" rx="3" class="blue"/>
+  <text x="340" y="284" class="sm b mid" fill="#1b3e6b">Common Crawl &amp; C4 (87.7%)</text>
+  <rect x="655" y="265" width="37" height="28" rx="3" class="orange"/>
+  <text x="673" y="284" class="sm b mid" fill="#7d4b00">5%</text>
+  <rect x="692" y="265" width="32" height="28" rx="3" class="yellow"/>
+  <text x="708" y="284" class="sm b mid" fill="#5c4800">4%</text>
+  <rect x="724" y="265" width="30" height="28" rx="3" class="green"/>
+  <text x="739" y="284" class="sm b mid" fill="#2d572c">2%</text>
+  <rect x="754" y="265" width="31" height="28" rx="3" class="purple"/>
+  <text x="769" y="284" class="sm b mid" fill="#4d2c63">4%</text>
+
+  <text x="25" y="320" class="sm" fill="#555">Web text provides massive volume and lexical breadth; code, books, and papers supply reasoning and long-form structure.</text>
+</svg>

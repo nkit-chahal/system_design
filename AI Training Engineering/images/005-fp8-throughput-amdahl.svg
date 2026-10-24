@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="25" class="title">FP8 Throughput: Why Theoretical 2x Yields 1.30x-1.45x in Practice</text>
+  <text x="25" y="45" class="sm" fill="#555">Amdahl's law and systems overheads during distributed pretraining (illustrative step breakdown)</text>
+
+  <!-- Bar 1: Pure BF16 Step (100% time, e.g. 2.00s) -->
+  <text x="25" y="78" class="sm b">BF16 Training Step Time: 100% (2.00 seconds)</text>
+  <!-- Total bar width 750px -->
+  <!-- GEMMs: 80% = 600px -->
+  <rect x="25" y="85" width="600" height="38" class="blue"/>
+  <text x="325" y="108" text-anchor="middle" class="sm b">Matrix Multiplications (GEMMs): 80% of step time (1.60s)</text>
+
+  <!-- Non-GEMMs: 20% = 150px -->
+  <rect x="625" y="85" width="150" height="38" class="yellow"/>
+  <text x="700" y="108" text-anchor="middle" class="sm b">Non-GEMM: 20% (0.40s)</text>
+
+  <!-- Bar 2: FP8 Training Step Time (approx 72% time, 1.44s) -->
+  <text x="25" y="148" class="sm b">FP8 Training Step Time: ~72% (1.44 seconds) --&gt; 1.39x Realized Speedup</text>
+  <!-- FP8 GEMMs: 600px / 1.75 = 343px -->
+  <rect x="25" y="155" width="343" height="38" class="green"/>
+  <text x="196" y="178" text-anchor="middle" class="sm b" fill="#05673d">FP8 GEMMs: 0.91s (1.75x kernel gain)</text>
+
+  <!-- Non-GEMMs: 150px (unchanged) -->
+  <rect x="368" y="155" width="150" height="38" class="yellow"/>
+  <text x="443" y="178" text-anchor="middle" class="sm b">Non-GEMM: 0.40s</text>
+
+  <!-- Quant overhead: 45px = 0.13s -->
+  <rect x="518" y="155" width="55" height="38" class="red"/>
+  <text x="545" y="178" text-anchor="middle" class="sm b" fill="#b85450">Quant: 0.13s</text>
+
+  <!-- Saved Time (209px) -->
+  <rect x="573" y="155" width="202" height="38" class="gray"/>
+  <text x="674" y="178" text-anchor="middle" class="sm" fill="#555">Time Saved: ~28%</text>
+
+  <!-- Bottom Explanatory Grid -->
+  <rect x="25" y="210" width="750" height="95" rx="6" class="gray"/>
+  <text x="40" y="232" class="sm b">Why the Speedup Caps at 1.30x - 1.45x:</text>
+  <text x="40" y="252" class="sm">• <tspan class="b">Non-GEMM operations stay in BF16/FP32:</tspan> RMSNorm, Softmax, RoPE rotary embeddings, and AdamW master updates.</text>
+  <text x="40" y="272" class="sm">• <tspan class="b">Collective network communication:</tspan> Gradient all-reduce across 256 GPUs stays in BF16 over InfiniBand NDR.</text>
+  <text x="40" y="292" class="sm">• <tspan class="b">Quantization overhead:</tspan> Calculating dynamic amax statistics and casting between formats adds memory-bound kernel passes.</text>
+</svg>

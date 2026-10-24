@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="300" viewBox="0 0 820 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Gradient Accumulation Across Micro-Batches</text>
+  <text x="25" y="48" class="sm" fill="#555">Simulating large global batch sizes by summing gradients in HBM before collective synchronization and optimizer step</text>
+
+  <!-- Micro-batch 1 -->
+  <rect x="25" y="70" width="165" height="135" rx="6" class="blue"/>
+  <text x="107" y="93" text-anchor="middle" class="b">Micro-batch 1</text>
+  <text x="107" y="112" text-anchor="middle" class="sm">Forward: L1 = Loss(m1)</text>
+  <text x="107" y="130" text-anchor="middle" class="sm">Loss scaled: L1 / K</text>
+  <text x="107" y="148" text-anchor="middle" class="sm">Backward: L1.backward()</text>
+  <rect x="35" y="158" width="145" height="36" rx="4" class="white"/>
+  <text x="107" y="180" text-anchor="middle" class="sm b" fill="#005cc5">.grad = d(L1/K)/dW</text>
+
+  <!-- Plus Sign -->
+  <text x="202" y="143" text-anchor="middle" class="title" fill="#666">+</text>
+
+  <!-- Micro-batch 2 -->
+  <rect x="215" y="70" width="165" height="135" rx="6" class="blue"/>
+  <text x="297" y="93" text-anchor="middle" class="b">Micro-batch 2</text>
+  <text x="297" y="112" text-anchor="middle" class="sm">Forward: L2 = Loss(m2)</text>
+  <text x="297" y="130" text-anchor="middle" class="sm">Loss scaled: L2 / K</text>
+  <text x="297" y="148" text-anchor="middle" class="sm">Backward: L2.backward()</text>
+  <rect x="225" y="158" width="145" height="36" rx="4" class="white"/>
+  <text x="297" y="180" text-anchor="middle" class="sm b" fill="#005cc5">.grad += d(L2/K)/dW</text>
+
+  <!-- Dots -->
+  <text x="395" y="143" text-anchor="middle" class="title" fill="#666">...</text>
+
+  <!-- Micro-batch K -->
+  <rect x="410" y="70" width="165" height="135" rx="6" class="blue"/>
+  <text x="492" y="93" text-anchor="middle" class="b">Micro-batch K</text>
+  <text x="492" y="112" text-anchor="middle" class="sm">Forward: LK = Loss(mK)</text>
+  <text x="492" y="130" text-anchor="middle" class="sm">Loss scaled: LK / K</text>
+  <text x="492" y="148" text-anchor="middle" class="sm">Backward: LK.backward()</text>
+  <rect x="420" y="158" width="145" height="36" rx="4" class="yellow"/>
+  <text x="492" y="180" text-anchor="middle" class="sm b" fill="#d79b00">Total Avg Gradient</text>
+
+  <!-- Arrow to Step -->
+  <path d="M 575 137 L 610 137" class="edge"/>
+
+  <!-- Optimizer Step Box -->
+  <rect x="615" y="70" width="180" height="135" rx="6" class="green"/>
+  <text x="705" y="93" text-anchor="middle" class="b">Global Step (Sync &amp; Update)</text>
+  <text x="705" y="113" text-anchor="middle" class="sm">1. All-Reduce Gradients</text>
+  <text x="705" y="131" text-anchor="middle" class="sm">2. Clip norm (max=1.0)</text>
+  <text x="705" y="149" text-anchor="middle" class="sm">3. optimizer.step()</text>
+  <rect x="625" y="158" width="160" height="36" rx="4" class="white"/>
+  <text x="705" y="180" text-anchor="middle" class="sm b" fill="#05673d">optimizer.zero_grad()</text>
+
+  <!-- Bottom Explanatory Banner -->
+  <rect x="25" y="220" width="770" height="65" rx="6" class="gray"/>
+  <text x="40" y="242" class="sm b">Pretraining Scenario Accounting (Llama 3.1 8B on 256 H100s):</text>
+  <text x="40" y="264" class="sm">• Global batch = 512 sequences (4,194,304 tokens). Each of the 256 GPUs processes 2 sequences per step (K = 2 accumulation steps of b = 1).</text>
+</svg>

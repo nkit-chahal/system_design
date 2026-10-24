@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="360" viewBox="0 0 840 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .card { rx: 4px; stroke-width: 1.1; }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">The Modern LLM Evaluation Benchmark Taxonomy</text>
+  <text x="25" y="42" class="sm" fill="#555">Ten core benchmarks grouped by evaluation objective, cognitive capability, and scoring mechanism.</text>
+
+  <!-- Row 1: Knowledge & Math -->
+  <!-- 1. Academic Knowledge -->
+  <g transform="translate(25, 60)">
+    <rect x="0" y="0" width="255" height="92" class="card blue"/>
+    <text x="12" y="22" class="b sm">1. Academic Knowledge</text>
+    <text x="12" y="40" class="sm">• <tspan class="b">MMLU</tspan>: 57 subjects, 4 choices</text>
+    <text x="12" y="58" class="sm">• <tspan class="b">MMLU-Pro</tspan>: Harder, 10 choices</text>
+    <text x="12" y="76" class="sm" fill="#555">Scoring: Log-prob / choice accuracy</text>
+  </g>
+
+  <!-- 2. Math & Symbolic -->
+  <g transform="translate(292, 60)">
+    <rect x="0" y="0" width="255" height="92" class="card orange"/>
+    <text x="12" y="22" class="b sm">2. Math &amp; Formal Reasoning</text>
+    <text x="12" y="40" class="sm">• <tspan class="b">GSM8K</tspan>: Grade school math CoT</text>
+    <text x="12" y="58" class="sm">• <tspan class="b">MATH</tspan>: High-school / Olympiad</text>
+    <text x="12" y="76" class="sm" fill="#555">Scoring: Exact-match integer / LaTeX</text>
+  </g>
+
+  <!-- 3. Code Generation -->
+  <g transform="translate(560, 60)">
+    <rect x="0" y="0" width="255" height="92" class="card green"/>
+    <text x="12" y="22" class="b sm">3. Program Synthesis (Code)</text>
+    <text x="12" y="40" class="sm">• <tspan class="b">HumanEval</tspan>: 164 Python problems</text>
+    <text x="12" y="58" class="sm">• <tspan class="b">MBPP</tspan>: 974 entry-level tasks</text>
+    <text x="12" y="76" class="sm" fill="#555">Scoring: Execution pass@k unit tests</text>
+  </g>
+
+  <!-- Row 2: Expert, Commonsense, and Alignment -->
+  <!-- 4. Expert Science -->
+  <g transform="translate(25, 165)">
+    <rect x="0" y="0" width="255" height="95" class="card purple"/>
+    <text x="12" y="22" class="b sm">4. Google-Proof Science</text>
+    <text x="12" y="40" class="sm">• <tspan class="b">GPQA</tspan>: Graduate physics, bio,</text>
+    <text x="22" y="58" class="sm">and chemistry PhD questions</text>
+    <text x="12" y="78" class="sm" fill="#555">Scoring: Diamond subset accuracy</text>
+  </g>
+
+  <!-- 5. Commonsense Reasoning -->
+  <g transform="translate(292, 165)">
+    <rect x="0" y="0" width="255" height="95" class="card gray"/>
+    <text x="12" y="22" class="b sm">5. Commonsense &amp; Science</text>
+    <text x="12" y="40" class="sm">• <tspan class="b">ARC-C</tspan>: Grade-school reasoning</text>
+    <text x="12" y="58" class="sm">• <tspan class="b">HellaSwag</tspan>: Sentence completion</text>
+    <text x="12" y="78" class="sm" fill="#555">Scoring: Normalized log-likelihood</text>
+  </g>
+
+  <!-- 6. Instruction & Alignment -->
+  <g transform="translate(560, 165)">
+    <rect x="0" y="0" width="255" height="95" class="card red"/>
+    <text x="12" y="22" class="b sm">6. Instruction &amp; Preference</text>
+    <text x="12" y="40" class="sm">• <tspan class="b">IFEval</tspan>: Verifiable rule following</text>
+    <text x="12" y="58" class="sm">• <tspan class="b">Chatbot Arena</tspan>: Crowd Elo</text>
+    <text x="12" y="78" class="sm" fill="#555">Scoring: Constraint verification &amp; win rate</text>
+  </g>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="275" width="790" height="60" rx="4" class="white"/>
+  <text x="38" y="295" class="b sm">Evaluation Blindspots:</text>
+  <text x="38" y="313" class="sm">• Academic multiple-choice tests (MMLU) saturate quickly and fail to measure real conversational utility.</text>
+  <text x="38" y="328" class="sm">• Product evaluation requires pairing academic benchmarks with task-specific private test suites.</text>
+</svg>

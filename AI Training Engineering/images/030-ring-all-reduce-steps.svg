@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #666; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.4; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Ring All-Reduce Mechanics: Two-Phase Ring Transfer</text>
+  <text x="25" y="42" class="sm" fill="#555">Splitting buffer into N chunks decouples communication time from rank count N at large sizes.</text>
+
+  <!-- Left Half: Phase 1 Scatter-Reduce -->
+  <rect x="25" y="58" width="385" height="215" rx="6" class="gray"/>
+  <text x="40" y="80" class="b">Phase 1: Scatter-Reduce (N − 1 steps)</text>
+  <text x="40" y="98" class="sm" fill="#555">Each rank sends chunk of size S/N and reduces incoming chunk.</text>
+
+  <!-- 4 Ranks in a ring -->
+  <g transform="translate(40, 115)">
+    <!-- Rank 0 -->
+    <rect x="20" y="0" width="70" height="38" rx="4" class="orange"/>
+    <text x="55" y="18" text-anchor="middle" class="b sm">Rank 0</text>
+    <text x="55" y="32" text-anchor="middle" class="sm">holds chunk 0</text>
+
+    <!-- Edge Rank 0 -> Rank 1 -->
+    <path d="M90,19 L200,19" class="edge"/>
+    <text x="145" y="14" text-anchor="middle" class="sm" fill="#555">send S/N</text>
+
+    <!-- Rank 1 -->
+    <rect x="200" y="0" width="70" height="38" rx="4" class="blue"/>
+    <text x="235" y="18" text-anchor="middle" class="b sm">Rank 1</text>
+    <text x="235" y="32" text-anchor="middle" class="sm">holds chunk 1</text>
+
+    <!-- Edge Rank 1 -> Rank 2 -->
+    <path d="M235,38 L235,68" class="edge"/>
+
+    <!-- Rank 2 -->
+    <rect x="200" y="68" width="70" height="38" rx="4" class="green"/>
+    <text x="235" y="86" text-anchor="middle" class="b sm">Rank 2</text>
+    <text x="235" y="100" text-anchor="middle" class="sm">holds chunk 2</text>
+
+    <!-- Edge Rank 2 -> Rank 3 -->
+    <path d="M200,87 L90,87" class="edge"/>
+    <text x="145" y="82" text-anchor="middle" class="sm" fill="#555">send S/N</text>
+
+    <!-- Rank 3 -->
+    <rect x="20" y="68" width="70" height="38" rx="4" class="purple"/>
+    <text x="55" y="86" text-anchor="middle" class="b sm">Rank 3</text>
+    <text x="55" y="100" text-anchor="middle" class="sm">holds chunk 3</text>
+
+    <!-- Edge Rank 3 -> Rank 0 -->
+    <path d="M55,68 L55,38" class="edge"/>
+  </g>
+
+  <text x="40" y="248" class="sm b">Result after N − 1 steps:</text>
+  <text x="40" y="264" class="sm">Each rank holds 1 fully reduced chunk of size S/N.</text>
+
+  <!-- Right Half: Phase 2 All-Gather -->
+  <rect x="430" y="58" width="385" height="215" rx="6" class="gray"/>
+  <text x="445" y="80" class="b">Phase 2: All-Gather (N − 1 steps)</text>
+  <text x="445" y="98" class="sm" fill="#555">Each rank circulates its reduced chunk around the ring.</text>
+
+  <!-- 4 Ranks in a ring -->
+  <g transform="translate(445, 115)">
+    <!-- Rank 0 -->
+    <rect x="20" y="0" width="70" height="38" rx="4" class="green"/>
+    <text x="55" y="18" text-anchor="middle" class="b sm">Rank 0</text>
+    <text x="55" y="32" text-anchor="middle" class="sm">shares Σ chunk 0</text>
+
+    <!-- Edge Rank 0 -> Rank 1 -->
+    <path d="M90,19 L200,19" class="edge"/>
+    <text x="145" y="14" text-anchor="middle" class="sm" fill="#555">send S/N</text>
+
+    <!-- Rank 1 -->
+    <rect x="200" y="0" width="70" height="38" rx="4" class="green"/>
+    <text x="235" y="18" text-anchor="middle" class="b sm">Rank 1</text>
+    <text x="235" y="32" text-anchor="middle" class="sm">shares Σ chunk 1</text>
+
+    <!-- Edge Rank 1 -> Rank 2 -->
+    <path d="M235,38 L235,68" class="edge"/>
+
+    <!-- Rank 2 -->
+    <rect x="200" y="68" width="70" height="38" rx="4" class="green"/>
+    <text x="235" y="86" text-anchor="middle" class="b sm">Rank 2</text>
+    <text x="235" y="100" text-anchor="middle" class="sm">shares Σ chunk 2</text>
+
+    <!-- Edge Rank 2 -> Rank 3 -->
+    <path d="M200,87 L90,87" class="edge"/>
+    <text x="145" y="82" text-anchor="middle" class="sm" fill="#555">send S/N</text>
+
+    <!-- Rank 3 -->
+    <rect x="20" y="68" width="70" height="38" rx="4" class="purple"/>
+    <text x="55" y="86" text-anchor="middle" class="b sm">Rank 3</text>
+    <text x="55" y="100" text-anchor="middle" class="sm">shares Σ chunk 3</text>
+
+    <!-- Edge Rank 3 -> Rank 0 -->
+    <path d="M55,68 L55,38" class="edge"/>
+  </g>
+
+  <text x="445" y="248" class="sm b">Result after 2(N − 1) total steps:</text>
+  <text x="445" y="264" class="sm">All ranks hold all N reduced chunks (entire reduced tensor S).</text>
+
+  <!-- Bottom Accounting Box -->
+  <rect x="25" y="284" width="790" height="54" rx="4" class="white"/>
+  <text x="38" y="304" class="b sm">Volume Equation:</text>
+  <text x="155" y="304" class="sm">Total bytes sent per GPU = <tspan class="b">2 × (N − 1) × (S / N) = 2(N − 1)/N × S</tspan>.</text>
+  <text x="38" y="324" class="sm">As N grows (e.g. N = 256), factor 2(255)/256 ≈ <tspan class="b">1.992</tspan>. Each GPU sends and receives almost exactly twice the buffer size.</text>
+</svg>

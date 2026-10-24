@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Saved Tensors: What the Forward Pass Must Keep</text>
+  <text x="25" y="48" class="sm" fill="#555">Every tensor retained in GPU HBM is preserved solely to evaluate the backward chain rule</text>
+
+  <!-- Left: Retained in HBM (Must Keep) -->
+  <rect x="25" y="65" width="460" height="235" rx="6" class="blue"/>
+  <text x="40" y="90" class="b" fill="#005cc5">Retained in GPU Memory (Activation Memory)</text>
+  <text x="40" y="110" class="sm" fill="#333">Tensors required by backpropagation gradient formulas:</text>
+
+  <!-- Item 1: Linear Inputs -->
+  <rect x="40" y="125" width="430" height="48" rx="4" class="white"/>
+  <text x="50" y="144" class="sm b">Linear Inputs X: <tspan fill="#555" font-weight="normal">Needed for dL/dW = X.T @ (dL/dY)</tspan></text>
+  <text x="50" y="162" class="sm" fill="#005cc5">• Stored for QKV projections, attention out-projection, and MLP layers</text>
+
+  <!-- Item 2: Attention Matrices / Q,K,V -->
+  <rect x="40" y="180" width="430" height="48" rx="4" class="white"/>
+  <text x="50" y="199" class="sm b">Attention Tensors: <tspan fill="#555" font-weight="normal">Q, K, V or full NxN attention probabilities</tspan></text>
+  <text x="50" y="217" class="sm" fill="#005cc5">• Standard attention saves S x S matrix; FlashAttention recomputes it from Q,K,V</text>
+
+  <!-- Item 3: Norm Stats & Activation Masks -->
+  <rect x="40" y="235" width="430" height="52" rx="4" class="white"/>
+  <text x="50" y="254" class="sm b">Normalization Inputs &amp; Non-linear Masks:</text>
+  <text x="50" y="272" class="sm" fill="#005cc5">• RMSNorm inputs &amp; scaling factors; SwiGLU / GeLU gate pre-activations</text>
+
+  <!-- Right: Discarded Immediately (Can Free) -->
+  <rect x="500" y="65" width="295" height="235" rx="6" class="gray"/>
+  <text x="515" y="90" class="b" fill="#333">Discarded Immediately</text>
+  <text x="515" y="110" class="sm" fill="#555">Intermediate buffers freed right away:</text>
+
+  <rect x="515" y="125" width="265" height="48" rx="4" class="white"/>
+  <text x="525" y="145" class="sm b">Residual Addition Outputs:</text>
+  <text x="525" y="163" class="sm">• Inverted by simple subtraction</text>
+
+  <rect x="515" y="180" width="265" height="48" rx="4" class="white"/>
+  <text x="525" y="200" class="sm b">Temporary GEMM Buffers:</text>
+  <text x="525" y="218" class="sm">• Scratchpad SRAM workspaces</text>
+
+  <rect x="515" y="235" width="265" height="52" rx="4" class="white"/>
+  <text x="525" y="254" class="sm b">Full Vocab Logits Tensor:</text>
+  <text x="525" y="272" class="sm">• Discarded if chunked cross-entropy is used</text>
+</svg>

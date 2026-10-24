@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="25" class="title">FP8 Scaling: Per-Tensor Delayed Scaling vs DeepSeek-V3 Fine-Grained</text>
+  <text x="25" y="45" class="sm" fill="#555">Global scalar scaling (Transformer Engine) versus localized tile-wise and block-wise scaling</text>
+
+  <!-- Left: Per-Tensor Delayed Scaling -->
+  <rect x="25" y="65" width="375" height="245" rx="6" class="gray"/>
+  <text x="212" y="88" text-anchor="middle" class="b">Per-Tensor Delayed Scaling (Transformer Engine)</text>
+  <text x="212" y="106" text-anchor="middle" class="sm">Single scale factor S applied to entire matrix</text>
+
+  <rect x="40" y="120" width="345" height="52" rx="4" class="white"/>
+  <text x="50" y="141" class="sm b">Coarse Global Scaling:</text>
+  <text x="50" y="159" class="sm">S = FP8_MAX / amax_history(16 steps)</text>
+
+  <rect x="40" y="180" width="345" height="55" rx="4" class="yellow"/>
+  <text x="50" y="201" class="sm b">The Outlier Dilemma:</text>
+  <text x="50" y="219" class="sm">A single outlier channel crushes precision for all tokens</text>
+
+  <rect x="40" y="245" width="345" height="52" rx="4" class="white"/>
+  <text x="50" y="265" class="sm b" fill="#555">Format Requirement:</text>
+  <text x="50" y="283" class="sm">Needs Hybrid FP8: E4M3 forward, E5M2 backward</text>
+
+  <!-- Right: DeepSeek-V3 Fine-Grained Scaling -->
+  <rect x="420" y="65" width="375" height="245" rx="6" class="green"/>
+  <text x="607" y="88" text-anchor="middle" class="b" fill="#05673d">Fine-Grained Tile/Block Scaling (DeepSeek-V3)</text>
+  <text x="607" y="106" text-anchor="middle" class="sm">Localized scale factors computed on the fly</text>
+
+  <rect x="435" y="120" width="345" height="52" rx="4" class="white"/>
+  <text x="445" y="141" class="sm b">Tile-Wise Activations (1 x 128):</text>
+  <text x="445" y="159" class="sm">Independent scale factor per token per 128 channels</text>
+
+  <rect x="435" y="180" width="345" height="55" rx="4" class="white"/>
+  <text x="445" y="201" class="sm b">Block-Wise Weights (128 x 128):</text>
+  <text x="445" y="219" class="sm">Independent scale factor per 128x128 weight block</text>
+
+  <rect x="435" y="245" width="345" height="52" rx="4" class="white"/>
+  <text x="445" y="265" class="sm b" fill="#05673d">Decisive Breakthrough:</text>
+  <text x="445" y="283" class="sm">Enables pure E4M3 for BOTH forward and backward!</text>
+</svg>

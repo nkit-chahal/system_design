@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="390" viewBox="0 0 840 390" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 11px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .box { rx: 3px; stroke-width: 1.1; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">The Five Core NCCL Collectives in Distributed Training</text>
+  <text x="25" y="42" class="sm" fill="#555">Input buffers transform into output buffers across N ranks. Used across DP, TP, PP, SP, and MoE.</text>
+
+  <!-- 1. All-Reduce -->
+  <g transform="translate(25, 58)">
+    <rect x="0" y="0" width="790" height="52" rx="4" class="gray"/>
+    <text x="15" y="22" class="b">All-Reduce</text>
+    <text x="15" y="40" class="sm" fill="#555">Used in: DDP, Tensor Parallelism</text>
+
+    <!-- Ranks inputs -->
+    <rect x="250" y="8" width="45" height="16" class="orange box"/>
+    <text x="272" y="20" text-anchor="middle" class="sm">A₀</text>
+    <rect x="300" y="8" width="45" height="16" class="blue box"/>
+    <text x="322" y="20" text-anchor="middle" class="sm">A₁</text>
+    <rect x="350" y="8" width="45" height="16" class="green box"/>
+    <text x="372" y="20" text-anchor="middle" class="sm">A₂</text>
+    <rect x="400" y="8" width="45" height="16" class="purple box"/>
+    <text x="422" y="20" text-anchor="middle" class="sm">A₃</text>
+    <text x="235" y="21" class="sm" text-anchor="end">Input:</text>
+
+    <path d="M460,26 L490,26" class="edge"/>
+
+    <!-- Ranks outputs -->
+    <text x="500" y="21" class="sm">Output on every rank:</text>
+    <rect x="635" y="8" width="135" height="16" class="red box"/>
+    <text x="702" y="20" text-anchor="middle" class="sm b">Σ Aᵢ = A₀+A₁+A₂+A₃</text>
+    <text x="500" y="42" class="sm">Bus traffic per rank: <tspan class="b">2(N−1)/N × S</tspan></text>
+  </g>
+
+  <!-- 2. All-Gather -->
+  <g transform="translate(25, 118)">
+    <rect x="0" y="0" width="790" height="52" rx="4" class="gray"/>
+    <text x="15" y="22" class="b">All-Gather</text>
+    <text x="15" y="40" class="sm" fill="#555">Used in: FSDP forward, Sequence Parallelism</text>
+
+    <!-- Ranks inputs -->
+    <text x="235" y="21" class="sm" text-anchor="end">Input:</text>
+    <rect x="250" y="8" width="45" height="16" class="orange box"/>
+    <text x="272" y="20" text-anchor="middle" class="sm">S₀</text>
+    <rect x="300" y="8" width="45" height="16" class="blue box"/>
+    <text x="322" y="20" text-anchor="middle" class="sm">S₁</text>
+    <rect x="350" y="8" width="45" height="16" class="green box"/>
+    <text x="372" y="20" text-anchor="middle" class="sm">S₂</text>
+    <rect x="400" y="8" width="45" height="16" class="purple box"/>
+    <text x="422" y="20" text-anchor="middle" class="sm">S₃</text>
+
+    <path d="M460,26 L490,26" class="edge"/>
+
+    <!-- Ranks outputs -->
+    <text x="500" y="21" class="sm">Output on every rank:</text>
+    <rect x="635" y="8" width="30" height="16" class="orange box"/>
+    <text x="650" y="20" text-anchor="middle" class="sm">S₀</text>
+    <rect x="667" y="8" width="30" height="16" class="blue box"/>
+    <text x="682" y="20" text-anchor="middle" class="sm">S₁</text>
+    <rect x="699" y="8" width="30" height="16" class="green box"/>
+    <text x="714" y="20" text-anchor="middle" class="sm">S₂</text>
+    <rect x="731" y="8" width="30" height="16" class="purple box"/>
+    <text x="746" y="20" text-anchor="middle" class="sm">S₃</text>
+    <text x="500" y="42" class="sm">Bus traffic per rank: <tspan class="b">(N−1)/N × S</tspan></text>
+  </g>
+
+  <!-- 3. Reduce-Scatter -->
+  <g transform="translate(25, 178)">
+    <rect x="0" y="0" width="790" height="52" rx="4" class="gray"/>
+    <text x="15" y="22" class="b">Reduce-Scatter</text>
+    <text x="15" y="40" class="sm" fill="#555">Used in: FSDP backward gradient reduction</text>
+
+    <text x="235" y="21" class="sm" text-anchor="end">Input:</text>
+    <text x="250" y="20" class="sm">Tensors on each rank</text>
+    <text x="250" y="38" class="sm fill-555">split into N equal chunks</text>
+
+    <path d="M460,26 L490,26" class="edge"/>
+
+    <text x="500" y="21" class="sm">Output: rank i gets reduced chunk i:</text>
+    <rect x="700" y="8" width="70" height="16" class="green box"/>
+    <text x="735" y="20" text-anchor="middle" class="sm b">Σ chunk i</text>
+    <text x="500" y="42" class="sm">Bus traffic per rank: <tspan class="b">(N−1)/N × S</tspan></text>
+  </g>
+
+  <!-- 4. All-to-All -->
+  <g transform="translate(25, 238)">
+    <rect x="0" y="0" width="790" height="52" rx="4" class="gray"/>
+    <text x="15" y="22" class="b">All-to-All</text>
+    <text x="15" y="40" class="sm" fill="#555">Used in: MoE token dispatch and combine</text>
+
+    <text x="235" y="21" class="sm" text-anchor="end">Input:</text>
+    <text x="250" y="20" class="sm">Rank i sends slice j to rank j</text>
+    <text x="250" y="38" class="sm" fill="#555">N × N personalized routing</text>
+
+    <path d="M460,26 L490,26" class="edge"/>
+
+    <text x="500" y="21" class="sm">Output: rank i gets slice i from all ranks</text>
+    <rect x="715" y="8" width="55" height="16" class="purple box"/>
+    <text x="742" y="20" text-anchor="middle" class="sm">Transposed</text>
+    <text x="500" y="42" class="sm">Bus traffic per rank: <tspan class="b">(N−1)/N × S</tspan></text>
+  </g>
+
+  <!-- 5. Broadcast -->
+  <g transform="translate(25, 298)">
+    <rect x="0" y="0" width="790" height="52" rx="4" class="gray"/>
+    <text x="15" y="22" class="b">Broadcast</text>
+    <text x="15" y="40" class="sm" fill="#555">Used in: Weight initialization, pipeline bounds</text>
+
+    <text x="235" y="21" class="sm" text-anchor="end">Input:</text>
+    <rect x="250" y="8" width="60" height="16" class="orange box"/>
+    <text x="280" y="20" text-anchor="middle" class="sm">Rank 0: X</text>
+    <text x="320" y="20" class="sm">Others: empty</text>
+
+    <path d="M460,26 L490,26" class="edge"/>
+
+    <text x="500" y="21" class="sm">Output: tensor X on all ranks</text>
+    <rect x="680" y="8" width="90" height="16" class="orange box"/>
+    <text x="725" y="20" text-anchor="middle" class="sm b">Rank 0..N: X</text>
+    <text x="500" y="42" class="sm">Bus traffic per rank: <tspan class="b">1.0 × S</tspan></text>
+  </g>
+
+  <!-- Footnote -->
+  <text x="35" y="375" class="sm" fill="#555">Note: All-Reduce is mathematically equivalent to Reduce-Scatter followed by All-Gather, taking 2× the network volume.</text>
+</svg>

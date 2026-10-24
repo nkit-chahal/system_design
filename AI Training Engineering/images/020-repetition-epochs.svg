@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .axis{stroke:#000;stroke-width:1.5;marker-end:url(#arrow)}
+    .grid{stroke:#eee;stroke-width:1;stroke-dasharray:3 3}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Impact of Data Repetition on Validation Loss (Illustrative)</text>
+  <text x="25" y="48" class="sm" fill="#555">Empirical behavior under data-constrained scaling (Muennighoff et al., 2023)</text>
+
+  <!-- Axes -->
+  <!-- Origin at (90, 260). X-axis to 480, Y-axis to 85 -->
+  <line x1="90" y1="260" x2="480" y2="260" class="axis"/>
+  <line x1="90" y1="260" x2="90" y2="85" class="axis"/>
+
+  <!-- Axis Labels -->
+  <text x="285" y="305" text-anchor="middle" class="sm b">Total Tokens Processed</text>
+  <text x="35" y="170" text-anchor="middle" class="sm b" transform="rotate(-90 35,170)">Validation Loss</text>
+
+  <!-- Grid lines -->
+  <line x1="90" y1="215" x2="440" y2="215" class="grid"/>
+  <line x1="90" y1="170" x2="440" y2="170" class="grid"/>
+  <line x1="90" y1="125" x2="440" y2="125" class="grid"/>
+  <line x1="180" y1="260" x2="180" y2="95" class="grid"/>
+  <line x1="290" y1="260" x2="290" y2="95" class="grid"/>
+  <line x1="400" y1="260" x2="400" y2="95" class="grid"/>
+
+  <!-- X-ticks -->
+  <text x="90" y="280" text-anchor="middle" class="sm">0</text>
+  <text x="180" y="280" text-anchor="middle" class="sm">250B</text>
+  <text x="290" y="280" text-anchor="middle" class="sm">500B</text>
+  <text x="400" y="280" text-anchor="middle" class="sm">1,000B</text>
+
+  <!-- Curves ending at x=430 -->
+  <!-- Curve 1: 1 Epoch (Fresh unique data) -> green -->
+  <path d="M 100 240 Q 190 145 430 105" fill="none" stroke="#274e13" stroke-width="2.5"/>
+  <text x="435" y="108" class="sm b" fill="#274e13">1.0x (Unique)</text>
+
+  <!-- Curve 2: 2 Epochs (Repeat 2x) -> blue -->
+  <path d="M 100 240 Q 190 148 430 115" fill="none" stroke="#1c4587" stroke-width="2" stroke-dasharray="6 3"/>
+  <text x="435" y="124" class="sm b" fill="#1c4587">2.0x Epochs</text>
+
+  <!-- Curve 3: 4 Epochs (Repeat 4x) -> orange -->
+  <path d="M 100 240 Q 190 155 430 135" fill="none" stroke="#b45f06" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="435" y="142" class="sm b" fill="#b45f06">4.0x Epochs</text>
+
+  <!-- Curve 4: 8+ Epochs (Heavy repetition) -> red -->
+  <path d="M 100 240 Q 170 165 280 155 Q 360 165 430 185" fill="none" stroke="#c00000" stroke-width="2"/>
+  <text x="435" y="190" class="sm b" fill="#c00000">8.0x+ (Overfit)</text>
+
+  <!-- Side Explanatory Card: starts at x=565 -->
+  <rect x="565" y="70" width="230" height="235" rx="6" class="gray"/>
+  <text x="580" y="95" class="b">Key Scaling Rules</text>
+
+  <rect x="580" y="110" width="200" height="46" rx="4" class="green"/>
+  <text x="590" y="128" class="sm b">1 to 2 Epochs:</text>
+  <text x="590" y="145" class="sm">No perceptible loss gap</text>
+
+  <rect x="580" y="165" width="200" height="46" rx="4" class="orange"/>
+  <text x="590" y="183" class="sm b">Up to 4 Epochs:</text>
+  <text x="590" y="200" class="sm">Negligible decay (&lt; 0.1%)</text>
+
+  <rect x="580" y="220" width="200" height="65" rx="4" class="red"/>
+  <text x="590" y="238" class="sm b">Beyond 4 Epochs:</text>
+  <text x="590" y="255" class="sm">Severe memorization; val</text>
+  <text x="590" y="271" class="sm">loss plateaus or diverges</text>
+</svg>

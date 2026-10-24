@@ -1,0 +1,7 @@
+center: Mixed Precision Training
+branch: Number Formats | fp sixteen narrow dynamic range | bf sixteen matches fp thirty two | fp eight introduces e four m three
+branch: Guardrails In Thirty Two | master weights prevent stagnation | optimizer states preserve variance | reductions avoid overflow
+branch: Loss Scaling Dynamics | fp sixteen underflows small gradients | dynamic grad scaler rescales loss | bf sixteen requires no scaling
+branch: Hopper FP Eight Scaling | per tensor delayed scaling | fine grained tile wise scaling | deepseek eliminates hybrid format
+branch: Realized Speedup Limits | tensor core peaks double compute | non gemm operations remain sixteen | amdahl caps gain under one point five
+branch: Pretraining Decision | pure bf sixteen stable baseline | five point five days for eight b | fp eight essential for frontier

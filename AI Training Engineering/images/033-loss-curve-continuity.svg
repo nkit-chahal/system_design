@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .axis { stroke: #333; stroke-width: 1.5; }
+    .grid { stroke: #eee; stroke-width: 1; }
+    .baseline-curve { stroke: #82b366; stroke-width: 3; fill: none; }
+    .resumed-points { stroke: #2c5d88; stroke-width: 2; stroke-dasharray: 4 3; fill: none; }
+    .flawed-curve { stroke: #b85450; stroke-width: 1.8; stroke-dasharray: 2 2; fill: none; }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Loss Curve Verification: Uninterrupted Run vs Resumed Run (Illustrative)</text>
+  <text x="25" y="42" class="sm" fill="#555">Validating resumption fidelity: verified checkpoints replicate the uninterrupted trajectory within 1e-4 tolerance.</text>
+
+  <!-- Plot Area: Origin (80, 260), Width 480, Height 190. Max Y at Y=70 -->
+  <line x1="80" y1="260" x2="560" y2="260" class="axis"/>
+  <line x1="80" y1="70" x2="80" y2="260" class="axis"/>
+  <text x="35" y="165" class="sm b" transform="rotate(-90 35 165)" text-anchor="middle">Cross-Entropy Loss</text>
+
+  <!-- Y ticks: 2.0, 3.0, 4.0, 5.0, 6.0 -->
+  <line x1="80" y1="260" x2="560" y2="260" class="grid"/>
+  <text x="70" y="264" text-anchor="end" class="sm">2.0</text>
+  <line x1="80" y1="212" x2="560" y2="212" class="grid"/>
+  <text x="70" y="216" text-anchor="end" class="sm">3.0</text>
+  <line x1="80" y1="165" x2="560" y2="165" class="grid"/>
+  <text x="70" y="169" text-anchor="end" class="sm">4.0</text>
+  <line x1="80" y1="117" x2="560" y2="117" class="grid"/>
+  <text x="70" y="121" text-anchor="end" class="sm">5.0</text>
+  <line x1="80" y1="70" x2="560" y2="70" class="grid"/>
+  <text x="70" y="74" text-anchor="end" class="sm">6.0</text>
+
+  <!-- X ticks: 0, 100, 200, 300, 400, 500 -->
+  <!-- X positions: 80, 176, 272, 368, 464, 560 -->
+  <line x1="176" y1="260" x2="176" y2="265" class="axis"/>
+  <text x="176" y="280" text-anchor="middle" class="sm">100</text>
+  <line x1="272" y1="260" x2="272" y2="265" class="axis"/>
+  <text x="272" y="280" text-anchor="middle" class="sm">200</text>
+  <line x1="368" y1="260" x2="368" y2="265" class="axis"/>
+  <text x="368" y="280" text-anchor="middle" class="sm">300</text>
+  <line x1="464" y1="260" x2="464" y2="265" class="axis"/>
+  <text x="464" y="280" text-anchor="middle" class="sm">400</text>
+  <line x1="560" y1="260" x2="560" y2="265" class="axis"/>
+  <text x="560" y="280" text-anchor="middle" class="sm">500</text>
+  <text x="80" y="280" text-anchor="middle" class="sm">0</text>
+  <text x="320" y="302" text-anchor="middle" class="sm b">Training Steps</text>
+
+  <!-- Trace 1: Uninterrupted Reference Run (Green) -->
+  <path d="M80,85 C140,140 220,195 320,225 C400,240 480,248 560,252" class="baseline-curve"/>
+
+  <!-- Trace 2: Resumed Run Overlay (Blue dashed, identical path from step 200 to 500) -->
+  <path d="M272,213 C320,225 400,240 480,248 560,252" class="resumed-points"/>
+
+  <!-- Trace 3: Flawed Resumption (Red dashed: missing optimizer or dataloader state) -->
+  <path d="M272,213 C290,175 320,165 368,185 C420,205 480,220 560,230" class="flawed-curve"/>
+
+  <!-- Failure and Resume annotations on plot -->
+  <!-- Checkpoint 200 point -->
+  <circle cx="272" cy="213" r="4" fill="#2c5d88"/>
+  <text x="272" y="202" text-anchor="middle" class="sm b" fill="#2c5d88">Save #200</text>
+
+  <!-- Kill at 250 point -->
+  <circle cx="320" cy="225" r="4" fill="#b85450"/>
+  <text x="320" y="242" text-anchor="middle" class="sm b" fill="#990000">Kill #250</text>
+
+  <!-- Right side explanation panel -->
+  <rect x="585" y="70" width="230" height="215" rx="5" class="gray"/>
+  <text x="595" y="92" class="b sm">Resumption Diagnostics:</text>
+  <text x="595" y="112" class="sm"><tspan class="b" fill="#274e13">• Uninterrupted Run</tspan>:</text>
+  <text x="605" y="128" class="sm">Continuous gold standard.</text>
+
+  <text x="595" y="152" class="sm"><tspan class="b" fill="#2c5d88">• Verified Resumed Run</tspan>:</text>
+  <text x="605" y="168" class="sm">Restored from #200.</text>
+  <text x="605" y="184" class="sm">Exact match (|Δ| &lt; 10⁻⁴).</text>
+
+  <text x="595" y="208" class="sm"><tspan class="b" fill="#990000">• Flawed Resumption</tspan>:</text>
+  <text x="605" y="224" class="sm">Missing Adam/data state.</text>
+  <text x="605" y="240" class="sm">Loss jumps +0.8 immediately.</text>
+  <text x="605" y="256" class="sm">Never matches baseline.</text>
+
+  <text x="25" y="335" class="sm" fill="#555">Illustrative loss comparison showing verification criteria for lab validation.</text>
+</svg>

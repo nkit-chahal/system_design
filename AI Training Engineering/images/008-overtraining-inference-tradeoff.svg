@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Why Train Past Compute-Optimal? The Serving Cost Trade-Off</text>
+  <text x="25" y="48" class="sm" fill="#555">Comparing two models trained with the exact same 4.8e22 FLOP pretraining budget</text>
+
+  <!-- Left Card: Compute-Optimal 20B on 400B tokens -->
+  <rect x="25" y="70" width="370" height="195" rx="6" class="orange"/>
+  <text x="40" y="96" class="title" fill="#b45f06">Chinchilla-Optimal: 20B Model</text>
+  <text x="40" y="118" class="sm">• Training Tokens: <tspan class="b">400 Billion</tspan> (20 tokens / param)</text>
+  <text x="40" y="136" class="sm">• Pretraining Compute: <tspan class="b">4.8e22 FLOPs</tspan> ($101,000)</text>
+  <text x="40" y="154" class="sm">• Evaluation Cross-Entropy Loss: <tspan class="b">2.049</tspan></text>
+  <rect x="40" y="168" width="340" height="84" rx="4" class="white"/>
+  <text x="50" y="188" class="sm b" fill="#900">Inference Serving Bottlenecks:</text>
+  <text x="50" y="206" class="sm">• Model weights: <tspan class="b">40 GB (BF16)</tspan> leaves little room for KV</text>
+  <text x="50" y="224" class="sm">• Memory bandwidth: Reads 40 GB weights every step</text>
+  <text x="50" y="242" class="sm">• High operational cost per million tokens forever</text>
+
+  <!-- Right Card: Overtrained 8B on 1T tokens -->
+  <rect x="425" y="70" width="370" height="195" rx="6" class="green"/>
+  <text x="440" y="96" class="title" fill="#274e13">Inference-Optimal: 8B Model</text>
+  <text x="440" y="118" class="sm">• Training Tokens: <tspan class="b">1,000 Billion (1T)</tspan> (125 tokens / param)</text>
+  <text x="440" y="136" class="sm">• Pretraining Compute: <tspan class="b">4.8e22 FLOPs</tspan> ($101,000)</text>
+  <text x="440" y="154" class="sm">• Evaluation Cross-Entropy Loss: <tspan class="b">2.044</tspan> (Equal quality)</text>
+  <rect x="440" y="168" width="340" height="84" rx="4" class="white"/>
+  <text x="450" y="188" class="sm b" fill="#274e13">Inference Serving Advantages:</text>
+  <text x="450" y="206" class="sm">• Model weights: <tspan class="b">16 GB (BF16)</tspan> leaves 52 GiB for KV</text>
+  <text x="450" y="224" class="sm">• Memory bandwidth: 2.4× faster decode step time</text>
+  <text x="450" y="242" class="sm">• Over 60% lower cost per million served tokens</text>
+
+  <!-- Bottom Explanatory Banner -->
+  <rect x="25" y="280" width="770" height="55" rx="6" class="gray"/>
+  <text x="40" y="302" class="b">The Golden Rule of LLM Economics:</text>
+  <text x="40" y="322" class="sm">Training compute is paid once. Inference serving compute is paid on every user query forever.</text>
+</svg>

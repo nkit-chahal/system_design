@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.xs{font-size:11px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Trade-Off Landscape: The Four Dimensions of Distributed Training</text>
+  <text x="25" y="44" class="sm" fill="#555">How TP, PP, FSDP/DP, and CP balance memory reduction, communication pattern, and scheduling overhead.</text>
+
+  <!-- 4 Strategy Cards -->
+  <!-- Card 1: Tensor Parallelism (TP) -->
+  <rect x="25" y="65" width="185" height="195" rx="6" class="orange"/>
+  <text x="117" y="88" text-anchor="middle" class="b">Tensor (TP)</text>
+  <rect x="35" y="98" width="165" height="28" rx="3" class="white"/>
+  <text x="117" y="116" text-anchor="middle" class="xs b">Shards Weights &amp; Act.</text>
+  <text x="35" y="145" class="xs"><tspan class="b">Target:</tspan> Fits giant layers</text>
+  <text x="35" y="165" class="xs"><tspan class="b">Comm:</tspan> All-Reduce (2x/layer)</text>
+  <text x="35" y="185" class="xs"><tspan class="b">Fabric:</tspan> NVLink (900 GB/s)</text>
+  <text x="35" y="205" class="xs"><tspan class="b">Bubble:</tspan> 0% (zero bubble)</text>
+  <text x="35" y="225" class="xs"><tspan class="b">Constraint:</tspan> Strictly intra-node</text>
+  <text x="35" y="243" class="xs">  (≤ 8 GPUs per group)</text>
+
+  <!-- Card 2: Pipeline Parallelism (PP) -->
+  <rect x="220" y="65" width="185" height="195" rx="6" class="purple"/>
+  <text x="312" y="88" text-anchor="middle" class="b">Pipeline (PP)</text>
+  <rect x="230" y="98" width="165" height="28" rx="3" class="white"/>
+  <text x="312" y="116" text-anchor="middle" class="xs b">Shards Layer Depth</text>
+  <text x="230" y="145" class="xs"><tspan class="b">Target:</tspan> Crosses nodes</text>
+  <text x="230" y="165" class="xs"><tspan class="b">Comm:</tspan> P2P activations</text>
+  <text x="230" y="185" class="xs"><tspan class="b">Fabric:</tspan> InfiniBand (400 Gb/s)</text>
+  <text x="230" y="205" class="xs"><tspan class="b">Bubble:</tspan> (p − 1)/(m+p−1)</text>
+  <text x="230" y="225" class="xs"><tspan class="b">Constraint:</tspan> Needs m ≥ 4p</text>
+  <text x="230" y="243" class="xs">  (limits min batch size)</text>
+
+  <!-- Card 3: FSDP / DP -->
+  <rect x="415" y="65" width="185" height="195" rx="6" class="blue"/>
+  <text x="507" y="88" text-anchor="middle" class="b">Data / FSDP (DP)</text>
+  <rect x="425" y="98" width="165" height="28" rx="3" class="white"/>
+  <text x="507" y="116" text-anchor="middle" class="xs b">Shards States / Replicas</text>
+  <text x="425" y="145" class="xs"><tspan class="b">Target:</tspan> Maximum throughput</text>
+  <text x="425" y="165" class="xs"><tspan class="b">Comm:</tspan> All-Gather &amp; Scatter</text>
+  <text x="425" y="185" class="xs"><tspan class="b">Fabric:</tspan> Cluster Spine Fabric</text>
+  <text x="425" y="205" class="xs"><tspan class="b">Bubble:</tspan> 0% (zero bubble)</text>
+  <text x="425" y="225" class="xs"><tspan class="b">Constraint:</tspan> Scales with total</text>
+  <text x="425" y="243" class="xs">  available batch size</text>
+
+  <!-- Card 4: Context Parallelism (CP) -->
+  <rect x="610" y="65" width="185" height="195" rx="6" class="green"/>
+  <text x="702" y="88" text-anchor="middle" class="b">Context (CP)</text>
+  <rect x="620" y="98" width="165" height="28" rx="3" class="white"/>
+  <text x="702" y="116" text-anchor="middle" class="xs b">Shards Sequence Length</text>
+  <text x="620" y="145" class="xs"><tspan class="b">Target:</tspan> Long contexts (128K)</text>
+  <text x="620" y="165" class="xs"><tspan class="b">Comm:</tspan> Ring attention P2P</text>
+  <text x="620" y="185" class="xs"><tspan class="b">Fabric:</tspan> NVLink or InfiniBand</text>
+  <text x="620" y="205" class="xs"><tspan class="b">Bubble:</tspan> 0% (pipelined ring)</text>
+  <text x="620" y="225" class="xs"><tspan class="b">Constraint:</tspan> Only needed when</text>
+  <text x="620" y="243" class="xs">  seq len exceeds memory</text>
+
+  <!-- Bottom Synthesis Banner -->
+  <rect x="25" y="270" width="770" height="55" rx="4" class="gray"/>
+  <text x="40" y="292" class="sm"><tspan class="b">Engineering Rule of Thumb:</tspan> Choose the minimum combination needed to fit your model into memory.</text>
+  <text x="40" y="310" class="sm">Every extra dimension adds collective coordination, communication overhead, and potential bubble latency.</text>
+</svg>

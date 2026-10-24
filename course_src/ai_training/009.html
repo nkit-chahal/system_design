@@ -1,0 +1,310 @@
+<h2>Introduction</h2>
+<p>In Lesson 7, Training FLOPs, Time and MFU, we derived the theoretical arithmetic connecting model parameters, token counts, and Model FLOPs Utilization. In Lesson 8, Scaling Laws, we evaluated the trade-offs between compute-optimal frontiers and inference-optimal overtraining. However, a theoretical spreadsheet calculation is not an executable engineering plan. Sizing a production training run requires proving that the model fits within physical GPU High Bandwidth Memory, verifying that inter-node network communication hides behind compute, buffering for real-world cluster hardware failures, and validating assumptions with an empirical calibration trial.</p>
+<p>In this lab, you will size a pretraining run end to end from first principles and then validate your calculations against live hardware telemetry. You will step through the six core engineering stages of cluster sizing: allocating parameters and tokens from a compute budget, modeling wall-clock duration at target MFU, calculating memory consumption under Fully Sharded Data Parallelism (FSDP), verifying collective communication overlap on InfiniBand, budgeting financial contingencies, and executing a 100-step calibration run to adjust your final schedule.</p>
+<fig src="009-lab-workflow.svg" caption="End-to-end pretraining sizing workflow">The six-step engineering workflow for pretraining capacity planning: (1) allocate parameters and tokens from compute budget, (2) calculate FLOPs and wall-clock duration at target MFU, (3) verify memory headroom under FSDP, (4) verify communication overlap on InfiniBand, (5) calculate total financial budget with failure buffers, and (6) execute an empirical calibration trial to calibrate the plan.</fig>
+<p>By the end of this lab, you will possess a verified, production-grade Python calculator that outputs full compute, memory, network, and financial profiles for arbitrary model architectures, along with a benchmark harness that translates live execution timers directly into calibrated cluster commitments.</p>
+
+<h2>What You Need</h2>
+<p>This lab provides two execution paths: a <strong>Small Path</strong> that runs locally on a single consumer or cloud GPU (or free Google Colab instance) with a ~125M parameter model, and a <strong>Full Path</strong> that profiles the production Llama 3.1 8B architecture across an 8×H100 SXM node [1]. Table 1 summarizes the requirements.</p>
+<table>
+<thead><tr><th>Component</th><th>Small Path (Consumer / Colab)</th><th>Full Path (Production Cloud Node)</th></tr></thead>
+<tbody>
+<tr><td>Hardware</td><td>1× GPU with ≥ 8 GB VRAM (RTX 3060/4090, Apple Silicon, T4, L4)</td><td>1× 8×H100 SXM 80 GB node (900 GB/s NVLink, 400 Gb/s InfiniBand)</td></tr>
+<tr><td>Target Architecture</td><td>SmolLM-135M or GPT-2 (124M parameters, 12 layers, hidden 768)</td><td>Llama 3.1 8B (8.03B parameters, 32 layers, hidden 4,096)</td></tr>
+<tr><td>Software Stack</td><td>Python 3.10+, PyTorch 2.2+, Transformers v5, Accelerate</td><td>Python 3.10+, PyTorch 2.2+ (CUDA 12.2+), FlashAttention-2, torchtitan</td></tr>
+<tr><td>Execution Target</td><td>100 steps of single-GPU pretraining with synthetic tokens</td><td>100 steps of PyTorch FSDP across 8 GPUs with BF16 mixed precision</td></tr>
+<tr><td>Cost Assumption</td><td>Free on local hardware or ~$0.20 on a cloud T4/L4 instance</td><td>Assume $24.00 per 8×H100 node-hour ($3.00/GPU-hr) ⇒ ~$4.00 for 10-min trial</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Hardware and software environments for the sizing lab</p>
+
+<h2>Step 1: Pick N and D from a Compute Budget</h2>
+<p>Every pretraining engagement begins with an allocation constraint: either an infrastructure budget in GPU-hours (e.g., 256 H100s for 5.5 days) or a dollar ceiling (e.g., $100,000 at $3.00/GPU-hr). In Lesson 7, Training FLOPs, Time and MFU, we established that 256 H100 SXM GPUs running for 5.51 days at 40% MFU deliver an effective compute budget of [2]:</p>
+<texblock>C_{\text{budget}} \approx 4.818 \times 10^{22}\text{ FLOPs}</texblock>
+<p>To allocate this compute between parameters <tex>N</tex> and tokens <tex>D</tex>, we evaluate the compute-optimal frontier established by Hoffmann et al. in the Chinchilla study [3]:</p>
+<texblock>C \approx 6 \times N \times D \quad \text{with } D \approx 20 \times N</texblock>
+<p>Substituting <tex>D = 20N</tex> into the compute definition yields the optimal parameter count:</p>
+<texblock>N_{\text{opt}} = \sqrt{\frac{C}{120}} = \sqrt{\frac{4.818 \times 10^{22}}{120}} \approx 20.04 \times 10^9\text{ parameters (20B)}</texblock>
+<texblock>D_{\text{opt}} = 20 \times N_{\text{opt}} \approx 400.8 \times 10^9\text{ tokens (400B)}</texblock>
+<p>While a 20B model on 400B tokens minimizes training loss, as established in Lesson 8, Scaling Laws, <strong>pretraining compute is paid once, whereas inference serving memory and bandwidth are paid on every generated token</strong>. An 8.03B model trained on 1.0 trillion tokens consumes the exact same <tex>4.82 \times 10^{22}\text{ FLOPs}</tex> while reducing inference weight memory from 40 GB to 16 GB and cutting token decode latency by 2.4×. We therefore lock our pretraining targets at <tex>N = 8.03 \times 10^9</tex> and <tex>D = 1.0 \times 10^{12}</tex>.</p>
+
+<h2>Step 2: Compute FLOPs, Wall-Clock Time, and GPU-Hours at Planned MFU</h2>
+<p>With <tex>N = 8.03 \times 10^9</tex> and <tex>D = 10^{12}</tex> fixed, we compute total floating-point operations using the 6ND rule [3]:</p>
+<texblock>C_{\text{dense}} = 6 \times (8.03 \times 10^9) \times 10^{12} = 4.818 \times 10^{22}\text{ FLOPs}</texblock>
+<p>Next, we incorporate the quadratic attention term for our pretraining context length of <tex>s = 8,192</tex> tokens across <tex>L = 32</tex> layers and hidden dimension <tex>h = 4,096</tex> [2]:</p>
+<texblock>C_{\text{attn}} = 12 \times L \times s \times h \times D = 12 \times 32 \times 8,192 \times 4,096 \times 10^{12} \approx 1.288 \times 10^{22}\text{ FLOPs}</texblock>
+<p>Attention contributes a 26.7% compute overhead on top of the dense linear GEMMs. For standard capacity planning, we pace our cluster against the dense 6ND baseline at a realistic target of <strong>40% MFU</strong> on NVIDIA H100 SXM GPUs (989 TFLOPS dense BF16 peak) [1]:</p>
+<ul>
+<li><strong>Effective compute per GPU</strong>: <tex>989 \times 10^{12} \times 0.40 = 3.956 \times 10^{14}\text{ FLOPS}</tex></li>
+<li><strong>Total cluster compute (256 GPUs)</strong>: <tex>256 \times 3.956 \times 10^{14} = 1.0127 \times 10^{17}\text{ FLOPS}</tex></li>
+<li><strong>Wall-clock execution time</strong>: <tex>4.818 \times 10^{22} / 1.0127 \times 10^{17} \approx 4.758 \times 10^5\text{ s} \approx 132.16\text{ hours} \approx 5.51\text{ days}</tex></li>
+<li><strong>Hardware usage</strong>: <tex>132.16\text{ hours} \times 256\text{ GPUs} \approx 33,830.5\text{ GPU-hours}</tex></li>
+<li><strong>Telemetry throughput target</strong>: <tex>(0.40 \times 989 \times 10^{12}) / (6 \times 8.03 \times 10^9) \approx 8,211\text{ tokens / sec / GPU}</tex></li>
+</ul>
+
+<h2>Step 3: Check Memory per GPU under Chosen Parallelism</h2>
+<p>Before renting 32 nodes, an engineer must verify that the model, optimizer, activations, and collective buffers physically fit within the GPU's 80 GB High Bandwidth Memory (HBM3) [4].</p>
+<fig src="009-memory-fit-check.svg" caption="Step 3: Memory verification on NVIDIA H100 80 GB">Memory accounting per GPU for Llama 3.1 8B under FSDP-8 intra-node sharding. Model and optimizer states require 16.06 GB (128.5 GB ÷ 8). FlashAttention activations at micro-batch 2 and sequence 8,192 require 13.50 GB. Communication and CUDA scratch buffers consume 4.50 GB, totaling 34.06 GB. This leaves 45.54 GB of safety headroom (57% free memory), ensuring zero risk of out-of-memory crashes.</fig>
+<p>We evaluate memory under <strong>FSDP-8 intra-node sharding</strong> (sharding model and optimizer states across the 8 GPUs inside each node over 900 GB/s NVLink, combined with inter-node data parallelism across the 32 nodes) [4]:</p>
+<ol>
+<li><strong>Sharded Model and Optimizer States (16 bytes/param)</strong>: As derived in Lesson 3, Training Memory, BF16 weights (2B), BF16 gradients (2B), FP32 master weights (4B), and FP32 Adam moments (8B) total 16 bytes per parameter. For 8.03B parameters, baseline unsharded states total 128.48 GB. Sharded across 8 GPUs per node via FSDP, each GPU holds:
+<texblock>\text{State Memory per GPU} = \frac{128.48\text{ GB}}{8} = 16.06\text{ GB}</texblock></li>
+<li><strong>Dynamic Activation Memory</strong>: With FlashAttention-2 and selective activation checkpointing (saving only attention inputs and LayerNorm statistics), activations for micro-batch size <tex>b = 2</tex> and sequence length <tex>s = 8,192</tex> scale linearly [5]:
+<texblock>\text{Activation Memory} \approx 13.50\text{ GB}</texblock></li>
+<li><strong>Communication and CUDA Workspace</strong>: PyTorch NCCL collective ring buffers, caching allocator overhead, and cuBLAS GEMM scratchpad consume approximately:
+<texblock>\text{Workspace & Buffers} \approx 4.50\text{ GB}</texblock></li>
+</ol>
+<p>Summing these components gives a total peak memory footprint of:</p>
+<texblock>\text{Total Memory Allocated} = 16.06 + 13.50 + 4.50 = 34.06\text{ GB}</texblock>
+<p>An NVIDIA H100 SXM 80 GB GPU provides approximately 79.6 GiB (85.5 GB) of visible memory. The total allocation of 34.1 GB consumes only <strong>40% of physical capacity</strong>, leaving an enormous <strong>45.5 GB safety headroom</strong>. This confirms that the model fits comfortably without out-of-memory risk, and provides ample margin to increase micro-batch size if desired.</p>
+
+<h2>Step 4: Check Communication Time per Step for Data-Parallel All-Reduce</h2>
+<p>A training cluster only sustains 40% MFU if inter-node collective communication hides completely behind backward pass computation [4]. If communication takes longer than the backward pass, GPUs stall in idle synchronization barriers, destroying efficiency.</p>
+<fig src="009-compute-comm-overlap.svg" caption="Step 4: Communication overlap verification (compute vs network)">Timeline verification comparing step compute duration (1,995 ms) with inter-node InfiniBand All-Reduce duration (642 ms). Because data-parallel All-Reduce takes only 48% of the 1,330 ms backward pass, bucketing parameter gradients allows the entire network transfer to overlap seamlessly behind matrix multiplications.</fig>
+<p>We verify communication overlap rigorously from network physics:</p>
+<ul>
+<li><strong>Tokens per GPU per step</strong>: The global batch size is 512 sequences of 8,192 tokens (4,194,304 tokens). Distributed across 256 GPUs, each GPU processes exactly:
+<texblock>\text{Tokens / GPU / step} = \frac{512 \times 8,192}{256} = 16,384\text{ tokens (2 sequences of 8,192)}</texblock></li>
+<li><strong>Step compute duration</strong>: Computing 16,384 tokens at 6N FLOPs per token requires <tex>16,384 \times 6 \times 8.03 \times 10^9 \approx 7.893 \times 10^{14}\text{ FLOPs}</tex>. At our sustained effective speed of 395.6 TFLOPS (40% MFU), the step duration is:
+<texblock>t_{\text{step}} = \frac{7.893 \times 10^{14}\text{ FLOPs}}{3.956 \times 10^{14}\text{ FLOPS}} \approx 1.995\text{ seconds (1,995 ms)}</texblock>
+Because the backward pass accounts for two-thirds of dense compute (<tex>4N / 6N</tex>), the backward pass duration is:
+<texblock>t_{\text{backward}} = \frac{2}{3} \times 1,995\text{ ms} \approx 1,330\text{ ms}</texblock></li>
+<li><strong>Inter-node All-Reduce volume</strong>: In pure data parallelism across nodes, GPUs synchronize BF16 gradients (<tex>2\text{ bytes} \times 8.03\text{B} = 16.06\text{ GB}</tex>). In a ring all-reduce across <tex>P = 256</tex> ranks, each GPU sends and receives [4]:
+<texblock>\text{Traffic per GPU} = 2 \times \left(\frac{P - 1}{P}\right) \times 16.06\text{ GB} \approx 2 \times 16.06\text{ GB} = 32.12\text{ GB}</texblock></li>
+<li><strong>Network transfer duration</strong>: Each node connects via 8 InfiniBand NDR NICs offering 400 Gb/s (50 GB/s) per GPU. At 50 GB/s line rate, the all-reduce time is:
+<texblock>t_{\text{comm}} = \frac{32.12\text{ GB}}{50\text{ GB/s}} \approx 0.642\text{ seconds (642 ms)}</texblock></li>
+</ul>
+<p>Comparing durations confirms the overlap: <strong>all-reduce communication (642 ms) takes less than half the time of the backward pass (1,330 ms)</strong>. By configuring PyTorch gradient buckets (typically 25 MB to 50 MB), communication initiates as soon as the first backward layers produce gradients, allowing the network transfer to be 100% hidden behind compute with zero barrier stalls.</p>
+
+<h2>Step 5: Budget Financial Cost with Failure and Evaluation Overhead</h2>
+<p>A common failure in infrastructure engineering is submitting a budget that covers only theoretical FLOP execution. Large training clusters experience periodic hardware anomalies: GPU memory bit-flips, NVLink CRC errors, InfiniBand flap timeouts, and straggler node throttling [6]. Furthermore, periodically serializing checkpoints and evaluating validation sets consumes cluster time.</p>
+<fig src="009-budget-breakdown-stacked.svg" caption="Step 5: Production financial budget breakdown">Stacked financial budget incorporating base compute ($101,491 for 33,830 GPU-hours), a 10% operational failure buffer ($10,149 for 3,383 GPU-hours), and a 5% online evaluation buffer ($5,075 for 1,692 GPU-hours). The total budgeted funding required is $116,715 across 38,905 GPU-hours at $3.00/GPU-hour.</fig>
+<p>To produce a robust engineering budget, we pad the base FLOP hours with two standard industry buffers:</p>
+<ol>
+<li><strong>Failure and Restart Buffer (+10%)</strong>: Accounts for automatic job re-queueing, checkpoint reload overhead, pipeline drain times, and node replacement delays (see Lesson 29, Failures, Restarts and Elastic Training). Adds 3,383.1 GPU-hours ($10,149.14).</li>
+<li><strong>Online Evaluation Buffer (+5%)</strong>: Accounts for evaluating validation perplexity and running zero-shot benchmark probes every 2,000 steps without advancing training tokens (see Lesson 34, Evaluation During Training). Adds 1,691.5 GPU-hours ($5,074.57).</li>
+</ol>
+<p>Summing these components yields the total production commitment:</p>
+<texblock>\text{Total Budgeted Compute} = 33,830.5 \times (1.0 + 0.10 + 0.05) \approx 38,905\text{ GPU-hours}</texblock>
+<texblock>\text{Total Budgeted Expenditure} = 38,905\text{ GPU-hours} \times 3.00\text{ dollars/hour} \approx 116,715\text{ dollars}</texblock>
+<p>Table 2 compares our running scenario against the compute-optimal 20B baseline and a large-scale frontier 70B run using our end-to-end Python calculator.</p>
+<table>
+<thead><tr><th>Metric</th><th>Scenario 1: Running (8B on 1T)</th><th>Scenario 2: Optimal (20B on 400B)</th><th>Scenario 3: Frontier (70B on 2T)</th></tr></thead>
+<tbody>
+<tr><td>Model Parameters (<tex>N</tex>)</td><td>8.03 Billion</td><td>20.04 Billion</td><td>70.60 Billion</td></tr>
+<tr><td>Training Tokens (<tex>D</tex>)</td><td>1,000 Billion (1.0T)</td><td>400.8 Billion (0.4T)</td><td>2,000 Billion (2.0T)</td></tr>
+<tr><td>Hardware Fleet</td><td>256× NVIDIA H100 SXM</td><td>256× NVIDIA H100 SXM</td><td>1,024× NVIDIA H100 SXM</td></tr>
+<tr><td>Dense 6ND Compute</td><td><tex>4.82 \times 10^{22}\text{ FLOPs}</tex></td><td><tex>4.82 \times 10^{22}\text{ FLOPs}</tex></td><td><tex>8.47 \times 10^{23}\text{ FLOPs}</tex></td></tr>
+<tr><td>Target Efficiency</td><td>40.0% MFU</td><td>40.0% MFU</td><td>40.0% MFU</td></tr>
+<tr><td>Wall-Clock Duration</td><td>5.51 days (132.2 hrs)</td><td>5.51 days (132.2 hrs)</td><td>24.21 days (580.9 hrs)</td></tr>
+<tr><td>Base GPU-Hours</td><td>33,830 GPU-hours</td><td>33,856 GPU-hours</td><td>594,877 GPU-hours</td></tr>
+<tr><td>Base Compute Cost ($3.00/hr)</td><td>$101,491</td><td>$101,568</td><td>$1,784,631</td></tr>
+<tr><td>Total Budget (+15% overhead)</td><td><strong>$116,715 (38,905 hrs)</strong></td><td><strong>$116,803 (38,934 hrs)</strong></td><td><strong>$2,052,326 (684,109 hrs)</strong></td></tr>
+<tr><td>Target Telemetry / GPU</td><td>8,211 tokens/s</td><td>3,290 tokens/s</td><td>934 tokens/s</td></tr>
+<tr><td>Serving Weight Footprint</td><td><strong>16.1 GB (Single GPU fit)</strong></td><td>40.1 GB (High memory load)</td><td>141.2 GB (Multi-GPU mandatory)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Sizing results across three architectural scenarios</p>
+
+<h2>Step 6: Empirical Validation (Small Path and Full Path)</h2>
+<p>Now, execute the validation script. The code below contains two tabs: the complete <strong>Capacity Sizer & Budget Calculator</strong>, and the <strong>Empirical Validation Harness</strong> that executes 100 benchmark steps, logs step latency with CUDA synchronization, and prints the exact achieved MFU.</p>
+
+<codetabs>
+<tab label="Capacity Sizer" lang="python">
+import math
+
+def size_training_project(
+    name: str,
+    n_params: float,
+    d_tokens: float,
+    num_gpus: int,
+    peak_tflops: float = 989.0,
+    target_mfu: float = 0.40,
+    hourly_rate: float = 3.00,
+    failure_buffer: float = 0.10,
+    eval_buffer: float = 0.05,
+    seq_len: int = 8192,
+):
+    """
+    Comprehensive end-to-end sizing calculator for distributed LLM pretraining.
+    """
+    # 1. Floating-point operations
+    dense_flops = 6.0 * n_params * d_tokens
+    
+    # 2. Compute throughput
+    peak_flops_gpu = peak_tflops * 1e12
+    eff_flops_gpu = target_mfu * peak_flops_gpu
+    cluster_eff_flops = num_gpus * eff_flops_gpu
+    
+    # 3. Schedule
+    wall_sec = dense_flops / cluster_eff_flops
+    wall_hrs = wall_sec / 3600.0
+    wall_days = wall_hrs / 24.0
+    base_gpu_hrs = wall_hrs * num_gpus
+    
+    # 4. Financials with operational buffers
+    fail_gpu_hrs = base_gpu_hrs * failure_buffer
+    eval_gpu_hrs = base_gpu_hrs * eval_buffer
+    total_gpu_hrs = base_gpu_hrs + fail_gpu_hrs + eval_gpu_hrs
+    base_cost = base_gpu_hrs * hourly_rate
+    total_cost = total_gpu_hrs * hourly_rate
+    
+    # 5. Telemetry
+    tok_s_gpu = eff_flops_gpu / (6.0 * n_params)
+    cluster_tok_s = tok_s_gpu * num_gpus
+
+    return {
+        "name": name,
+        "dense_flops": dense_flops,
+        "wall_days": wall_days,
+        "base_gpu_hrs": base_gpu_hrs,
+        "total_gpu_hrs": total_gpu_hrs,
+        "base_cost": base_cost,
+        "total_cost": total_cost,
+        "tok_s_gpu": tok_s_gpu,
+        "cluster_tok_s": cluster_tok_s,
+    }
+
+# Run sizing for Scenario 1: Running Pretraining Run
+sc1 = size_training_project("Llama 3.1 8B on 1T", 8.03e9, 1e12, 256)
+print(f"=== {sc1['name']} ===")
+print(f"Dense Compute:     {sc1['dense_flops']:.2e} FLOPs")
+print(f"Wall-Clock Time:   {sc1['wall_days']:.2f} days")
+print(f"Base Compute Cost: ${sc1['base_cost']:,.2f}")
+print(f"Total Budget (+15%): ${sc1['total_cost']:,.2f} ({sc1['total_gpu_hrs']:,.0f} GPU-hours)")
+print(f"Target Telemetry:  {sc1['tok_s_gpu']:.1f} tokens/s/GPU ({sc1['cluster_tok_s']:,.0f} cluster tokens/s)")
+</tab>
+<tab label="Validation Harness" lang="python">
+import time
+import torch
+import torch.nn as nn
+
+class BenchmarkToyModel(nn.Module):
+    """
+    Configurable transformer-style projection stack for profiling step latency.
+    Adjustable for Small Path (125M) or Full Path (8B layer slice).
+    """
+    def __init__(self, hidden_dim=4096, ffn_dim=14336, num_layers=4):
+        super().__init__()
+        self.layers = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim, bias=False),
+                nn.Linear(hidden_dim, ffn_dim, bias=False),
+                nn.SiLU(),
+                nn.Linear(ffn_dim, hidden_dim, bias=False),
+            ) for _ in range(num_layers)
+        ])
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = x + layer(x)
+        return x
+
+def run_sizing_calibration(
+    batch_size=2,
+    seq_len=8192,
+    hidden_dim=4096,
+    num_steps=50,
+    warmup_steps=10,
+    peak_tflops=989.0,
+    total_params=8.03e9
+):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Running Calibration on: {device} ({torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'})")
+
+    # If testing on consumer GPU with limited memory, scale down hidden_dim
+    model = BenchmarkToyModel(hidden_dim=hidden_dim, num_layers=2).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+    criterion = nn.MSELoss()
+
+    tokens_per_step = batch_size * seq_len
+    x = torch.randn(batch_size, seq_len, hidden_dim, device=device)
+    target = torch.randn(batch_size, seq_len, hidden_dim, device=device)
+
+    # 1. Warmup steps to prime CUDA kernels and allocator
+    for _ in range(warmup_steps):
+        optimizer.zero_grad()
+        out = model(x)
+        loss = criterion(out, target)
+        loss.backward()
+        optimizer.step()
+
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+    # 2. Timed benchmarking steps
+    step_times = []
+    for step in range(num_steps):
+        t0 = time.perf_counter()
+        optimizer.zero_grad()
+        out = model(x)
+        loss = criterion(out, target)
+        loss.backward()
+        optimizer.step()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        step_times.append(time.perf_counter() - t0)
+
+    avg_step_sec = sum(step_times) / len(step_times)
+    tok_s = tokens_per_step / avg_step_sec
+    achieved_flops = tok_s * (6.0 * total_params)
+    mfu = achieved_flops / (peak_tflops * 1e12)
+
+    print(f"\nCalibration Results ({num_steps} steps):")
+    print(f"  Avg Step Time:      {avg_step_sec * 1000.0:.2f} ms")
+    print(f"  Tokens / sec:       {tok_s:,.1f}")
+    print(f"  Achieved MFU:       {mfu * 100.0:.2f}% (relative to {peak_tflops} TF peak)")
+    return avg_step_sec, tok_s, mfu
+
+if __name__ == "__main__":
+    # Small path demo run: lightweight parameters for fast execution
+    run_sizing_calibration(batch_size=2, seq_len=1024, hidden_dim=768, num_steps=20, warmup_steps=5, peak_tflops=165.0, total_params=1.25e8)
+</tab>
+</codetabs>
+
+<h2>Reading the Results</h2>
+<p>When you execute the calibration benchmark, compare the output against your theoretical plan. Figure 5 diagrams the empirical feedback loop used to recalibrate schedule and budget.</p>
+<fig src="009-empirical-calibration-loop.svg" caption="The empirical recalibration feedback loop">The operational feedback loop connecting theoretical models, short 100-step trial runs, and calibrated cluster execution. Initial estimates assuming 40.0% MFU are adjusted based on physical step timings. If telemetry reveals 38.5% MFU, the project schedule is padded by 0.2 days and cloud budget buffers are confirmed before full-cluster launch.</fig>
+<p>Analyze the calibration output across three critical checkpoints:</p>
+<ol>
+<li><strong>Step Latency and MFU</strong>: If the calibration run on the full path shows an average step time of ~1,995 ms for 16,384 tokens, your cluster is sustaining 8,211 tokens/s/GPU and hitting its 40.0% MFU target. If step time reaches 2,300 ms, achieved MFU drops to 34.7%. Immediately recalibrate the schedule: 5.51 days becomes 6.35 days, requiring an extra $15,500 in cloud compute.</li>
+<li><strong>Peak Memory Cushion</strong>: Inspect <code>torch.cuda.max_memory_allocated()</code>. On an 80 GB GPU with FSDP-8, peak memory should sit comfortably near 34 GB. If peak memory exceeds 70 GB, examine activation tensor sizes: ensure FlashAttention is enabled and verify that attention scores are not being stored in uncheckpointed buffers.</li>
+<li><strong>Communication Overhead vs Backward Compute</strong>: If running multi-GPU calibration, compare step time with and without gradient synchronization. If enabling all-reduce inflates step time by more than 50 ms, your communication is not hiding behind backward compute: increase PyTorch's <code>bucket_cap_mb</code> from 25 MB to 50 MB to facilitate deeper pipelining.</li>
+</ol>
+
+<h2>Common Pitfalls</h2>
+<p>When presenting cluster sizing models to executive leadership, watch for five widespread mistakes:</p>
+<ul>
+<li><strong>Forgetting the 16 Bytes/Parameter Baseline</strong>: Sizing memory solely based on model weights (2 bytes per parameter) is a catastrophic error. A 8B model requires 16 bytes per parameter (128.5 GB) during mixed-precision Adam training before allocating a single activation tensor. Expecting an 8B model to train unsharded on a single 80 GB GPU leads to immediate out-of-memory crashes.</li>
+<li><strong>Omitting Quadratic Attention at Long Sequences</strong>: Applying the dense 6ND rule to long context lengths without the <tex>12LshD</tex> term leads to severe compute deficits. At <tex>s = 8,192</tex>, attention adds 26.7% to the compute budget. At <tex>s = 32,768</tex>, attention adds 107%, doubling total training duration.</li>
+<li><strong>Planning for Theoretical Benchmark MFU</strong>: Assuming 55% or 60% MFU for a standard dense pretraining run on a newly provisioned cluster will cause you to miss schedule deadlines by weeks. Unless you are running highly tuned Megatron-LM pipelines with zero pipeline bubbles and customized communication overlaps, plan for 38% to 42% MFU.</li>
+<li><strong>Omitting Operational Failure Buffers</strong>: Hardware fails at scale. In a 256-GPU cluster operating over 5.5 days, optical transceivers disconnect, GPUs encounter uncorrectable ECC errors, and nodes reboot. Failing to include a 10% failure buffer and a 5% evaluation buffer will result in budget exhaustion before pretraining completes.</li>
+<li><strong>Hardcoding Batch Sizes that Starve Silicon</strong>: Setting micro-batch sizes too small (e.g., 1 sequence of 512 tokens) starves NVIDIA Tensor Cores, dropping arithmetic intensity below 100 FLOPs/byte and reducing achieved MFU below 25%. Always size micro-batches to maximize arithmetic intensity while respecting memory headroom.</li>
+</ul>
+
+<h2>Stretch Goals</h2>
+<p>If you finish the core sizing exercises early, explore these three advanced engineering extensions:</p>
+<ul>
+<li><strong>Scale Context Length to 32K with Context Parallelism</strong>: Extend the calculator to model an 8B pretraining run at 32,768 tokens. Calculate the quadratic attention FLOPs overhead and compute the ring all-to-all communication bandwidth required to shard the sequence across 4 GPUs via Context Parallelism (see Lesson 12, Tensor, Sequence and Context Parallelism).</li>
+<li><strong>Model FP8 Mixed Precision Economics</strong>: NVIDIA H100 GPUs offer 1,979 TFLOPS of peak FP8 compute—exactly double dense BF16 throughput. Modify the sizing calculator to model pretraining in FP8 at 35% FP8 MFU. Calculate how many days and dollars the organization saves, and discuss the numerical stability trade-offs (see Lesson 5, Mixed Precision Training - BF16 and FP8).</li>
+<li><strong>Size a 405B Frontier Run with 4D Parallelism</strong>: Model the cluster requirements for training a 405B-parameter model on 15 trillion tokens across 16,384 H100 GPUs (matching Llama 3 [1]). Calculate total FLOPs (<tex>\approx 3.6 \times 10^{25}</tex>), estimate wall-clock duration at 41% MFU, and quantify the multi-million-dollar financial commitment.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="009-summary.png" caption="Lab - Size a Training Run summary" optional="1">Mind map summarizing the sizing lab: compute budget allocation, 6ND and attention FLOP calculations, FSDP memory verification, InfiniBand communication overlap, financial failure buffering, and empirical calibration.</fig>
+<ul>
+<li>Sizing a pretraining run requires a 6-step engineering pipeline: budget allocation, FLOP modeling, memory verification, network overlap checking, financial buffering, and live telemetry calibration.</li>
+<li>For a compute budget of <tex>4.82 \times 10^{22}</tex> FLOPs, Chinchilla optimality prescribes a 20B model on 400B tokens. Overtraining an 8.03B model on 1T tokens consumes identical compute and achieves nearly identical validation loss (+0.0057), but slashes inference memory from 40 GB to 16 GB and cuts serving costs by over 60%.</li>
+<li>Under FSDP-8 intra-node sharding, Llama 3.1 8B requires 16.06 GB for model and optimizer states. Combined with 13.50 GB for FlashAttention activations and 4.50 GB for workspace buffers, total memory is 34.06 GB—consuming only 42.8% of the H100's 79.6 GiB capacity and leaving 45.54 GB of safety headroom.</li>
+<li>Data-parallel All-Reduce across 256 GPUs at 4M tokens/step transfers 32.12 GB per GPU over 400 Gb/s InfiniBand, taking 642 ms. Because backward pass computation takes 1,330 ms, collective communication hides 100% behind math.</li>
+<li>Production budgets must pad base compute by 10% for hardware failures and restarts and 5% for online evaluations. Sizing our pretraining run yields 33,830 base GPU-hours ($101,491) and a total production commitment of 38,905 GPU-hours ($116,715).</li>
+<li>Always execute a 100-step calibration trial before committing cluster spend. Measuring physical step time validates achieved MFU and prevents discovering a 30% MFU bottleneck on day three of a 256-GPU run.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Dubey et al. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[2] Chowdhery et al. PaLM: Scaling Language Modeling with Pathways. <a href="https://arxiv.org/abs/2204.02311" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2204.02311</a>.<br>
+[3] Hoffmann et al. Training Compute-Optimal Large Language Models. <a href="https://arxiv.org/abs/2203.15556" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2203.15556</a>.<br>
+[4] Zhao et al. PyTorch FSDP: Experiences on Scaling Fully Sharded Data Parallel. <a href="https://arxiv.org/abs/2304.11277" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2304.11277</a>.<br>
+[5] Dao. FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. <a href="https://arxiv.org/abs/2307.08691" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2307.08691</a>.<br>
+[6] Jiang et al. MegaScale: Scaling Large Language Model Training to More Than 10,000 GPUs. <a href="https://arxiv.org/abs/2402.15627" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2402.15627</a>.</p>

@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="280" viewBox="0 0 820 280" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">The Four Phases of One Training Step</text>
+  <text x="25" y="48" class="sm" fill="#555">Data, tensor transformations, and state updates during a single optimization iteration</text>
+
+  <!-- Step 1: Forward Pass -->
+  <rect x="25" y="75" width="165" height="110" rx="6" class="blue"/>
+  <text x="107" y="100" text-anchor="middle" class="b">1. Forward Pass</text>
+  <text x="107" y="122" text-anchor="middle" class="sm">Inputs: tokens X, weights W</text>
+  <text x="107" y="142" text-anchor="middle" class="sm">Computes activations Y = XW</text>
+  <text x="107" y="162" text-anchor="middle" class="sm">Saves tensors for backward</text>
+  <text x="107" y="177" text-anchor="middle" class="sm b" fill="#005cc5">Cost: 2ND FLOPs</text>
+
+  <!-- Arrow 1 -> 2 -->
+  <path d="M 190 130 L 223 130" class="edge"/>
+
+  <!-- Step 2: Loss Computation -->
+  <rect x="225" y="75" width="165" height="110" rx="6" class="yellow"/>
+  <text x="307" y="100" text-anchor="middle" class="b">2. Loss Evaluation</text>
+  <text x="307" y="122" text-anchor="middle" class="sm">Logits to probabilities</text>
+  <text x="307" y="142" text-anchor="middle" class="sm">Softmax cross-entropy</text>
+  <text x="307" y="162" text-anchor="middle" class="sm">Produces scalar loss L</text>
+  <text x="307" y="177" text-anchor="middle" class="sm b" fill="#d79b00">Seed: dL/dL = 1.0</text>
+
+  <!-- Arrow 2 -> 3 -->
+  <path d="M 390 130 L 423 130" class="edge"/>
+
+  <!-- Step 3: Backward Pass -->
+  <rect x="425" y="75" width="170" height="110" rx="6" class="orange"/>
+  <text x="510" y="100" text-anchor="middle" class="b">3. Backward Pass</text>
+  <text x="510" y="122" text-anchor="middle" class="sm">Chain rule in reverse</text>
+  <text x="510" y="142" text-anchor="middle" class="sm">dL/dX (propagate to input)</text>
+  <text x="510" y="162" text-anchor="middle" class="sm">dL/dW (weight gradients)</text>
+  <text x="510" y="177" text-anchor="middle" class="sm b" fill="#b85450">Cost: 4ND FLOPs (2x)</text>
+
+  <!-- Arrow 3 -> 4 -->
+  <path d="M 595 130 L 628 130" class="edge"/>
+
+  <!-- Step 4: Optimizer Step -->
+  <rect x="630" y="75" width="165" height="110" rx="6" class="green"/>
+  <text x="712" y="100" text-anchor="middle" class="b">4. Optimizer Step</text>
+  <text x="712" y="122" text-anchor="middle" class="sm">Clip gradient norms</text>
+  <text x="712" y="142" text-anchor="middle" class="sm">AdamW state updates (m, v)</text>
+  <text x="712" y="162" text-anchor="middle" class="sm">Weight update: W = W - n m</text>
+  <text x="712" y="177" text-anchor="middle" class="sm b" fill="#05673d">zero_grad() clears memory</text>
+
+  <!-- Recirculation arrow from 4 back to 1 -->
+  <path d="M 712 185 L 712 225 L 107 225 L 107 187" class="edge"/>
+  <text x="410" y="243" text-anchor="middle" class="sm b">Updated weights W load into next step's forward pass (Loop repeats for next batch)</text>
+</svg>

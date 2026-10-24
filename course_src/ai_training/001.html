@@ -1,0 +1,400 @@
+<h2>Introduction</h2>
+<p>Training a large language model is where intelligence is created; serving it is where it is applied. Serving takes trained model weights and evaluates them for user requests (see Inference Lesson 1, Introduction and Overview). But before a single user prompt can be decoded, an infrastructure team must spend weeks or months orchestrating thousands of specialized accelerators, managing gigabytes of high-bandwidth memory per chip, moving petabytes of curated text, and burning millions of dollars of compute without crashing.</p>
+<p>Training engineering matters because modern frontier models are among the most capital-intensive and computationally demanding artifacts humanity has ever constructed. When Meta trained the flagship Llama 3 405B dense transformer, they orchestrated <strong>16,384 NVIDIA H100 80GB GPUs</strong> across 15.6 trillion tokens, consuming approximately <strong>30.84 million GPU-hours</strong> [1]. Across the entire Llama 3.1 family (8B, 70B, and 405B), training compute exceeded 39.3 million GPU-hours [1]. At current cloud market rates of $3.00 per H100-hour, a single flagship training run represents roughly $100 million in raw compute alone. At this scale, hardware failures are not rare events—they are hourly occurrences. Meta reported hundreds of unexpected interruptions during the 405B training run, driven primarily by GPU hardware faults and host network drops [1].</p>
+<p><strong>Training engineering</strong> is the discipline of designing, running, and debugging these large-scale distributed runs. It sits at the convergence of machine learning algorithms, distributed systems, high-performance networking, and low-level GPU kernel mechanics. A training engineer must understand the calculus of backpropagation, the arithmetic of floating-point operations, how optimizer states partition across collective communications, how InfiniBand switches route traffic across hundreds of servers, and how silent data corruption causes sudden loss divergence.</p>
+<fig src="001-training-lifecycle.svg" caption="The end-to-end lifecycle of an LLM training run, mapped to the lessons in this course">Raw crawl data is filtered, deduplicated, and mixed in the data pipeline (Lessons 17, 18, 20) and tokenized into sequences (Lesson 19). Batches enter a distributed cluster of GPUs running forward and backward passes (Lessons 2, 3, 5) and optimizer updates (Lessons 4, 11) coordinated via collective communications (Lessons 10 to 16, 30). Training is safeguarded by checkpoint storage (Lessons 28, 29, 33) and monitored for stability and loss spikes (Lessons 31, 32). In-flight evaluations track progress (Lessons 34, 35) before weights undergo post-training alignment (Lessons 22 to 27) and handoff to inference serving.</fig>
+<p>Figure 1 illustrates the complete lifecycle of a modern language model. Every block in this pipeline corresponds to dedicated lessons in this course. In this opening lesson, we establish the core vocabulary of training, the whiteboard arithmetic that bounds every pretraining run, a systems framework for tackling training design challenges, the full course map across seven stages, and the architectural bridge that connects training decisions directly to downstream inference serving.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In infrastructure design reviews and systems engineering interviews, training discussions often begin from an open-ended brief such as "we need to train our own 8B foundation model". Here is how an engineer and an interviewer establish the exact technical boundary conditions:</p>
+<p><strong>Candidate</strong>: What model architecture, parameter count, and context length are we targeting for this run?<br>
+<strong>Interviewer</strong>: We are pretraining a model based on the Llama 3.1 8B architecture: 8.03 billion parameters across 32 transformer layers, hidden dimension 4,096, 32 query heads, 8 key-value heads, and a vocabulary size of 128,256. The training context length is 8,192 tokens.</p>
+<p><strong>Candidate</strong>: What is the training data volume, and what precision format will we use?<br>
+<strong>Interviewer</strong>: We have curated a pretraining dataset of exactly 1 trillion tokens (1e12 tokens). All matrix multiplications and activations run in 16-bit brain floating point (BF16), and we optimize using AdamW.</p>
+<p><strong>Candidate</strong>: What hardware cluster and network topology do we have provisioned?<br>
+<strong>Interviewer</strong>: A dedicated cluster of 256 NVIDIA H100 80 GB SXM GPUs arranged across 32 nodes (8 GPUs per node). Inside each node, GPUs communicate over NVLink at 900 GB/s per GPU. Across nodes, each node connects through 8 InfiniBand NDR NICs offering 400 Gb/s (50 GB/s) per GPU.</p>
+<p><strong>Candidate</strong>: What target efficiency and global batch size are planned?<br>
+<strong>Interviewer</strong>: We target a global batch size of approximately 4 million tokens (512 sequences of 8,192 tokens) and require at least 40% Model FLOPs Utilization (MFU). We assume an infrastructure cost of $3.00 per H100-hour.</p>
+<p><strong>Candidate</strong>: Are we also responsible for post-training alignment after pretraining concludes?<br>
+<strong>Interviewer</strong>: Yes. In Stage 5, we take the pretrained 8B base checkpoint and fine-tune it for a customer-support assistant on a single 8×H100 node using 50,000 multi-turn conversations for SFT and 20,000 pairs for DPO.</p>
+<p>This pretraining configuration serves as the primary <strong>running scenario</strong> across Stages 1 to 4, 6, and 7 of this course. The underlying question we must answer is: <em>how do we partition this 8.03-billion parameter model and 1-trillion token budget across 256 GPUs without running out of memory or stalling on network collectives, sustain 40% MFU over 5.5 days, survive inevitable hardware interruptions, and evaluate and align the resulting weights at minimum cloud cost?</em></p>
+
+<h2>The Vocabulary of Training</h2>
+<p>To analyze training systems rigorously, we must distinguish between several related terms that describe batches, steps, compute, and hardware efficiency. Figure 2 visualizes how these concepts nest within a single distributed training step.</p>
+<fig src="001-batch-anatomy.svg" caption="Anatomy of a distributed training step and batch hierarchy">Each of the 256 GPUs processes a local micro-batch of one 8,192-token sequence. Over G = 2 gradient accumulation steps, each GPU computes forward and backward passes and accumulates gradients locally. GPUs then execute an all-reduce or reduce-scatter collective to synchronize gradients across all 256 workers, forming a global batch of 512 sequences (4.19M tokens). The AdamW optimizer executes one parameter update on FP32 master weights, taking approximately 2.0 seconds.</fig>
+
+<h3>Micro-batches, accumulation, and global batches</h3>
+<p>The <strong>global batch size</strong> (<tex>B</tex>) is the total number of tokens processed between consecutive optimizer parameter updates. In modern LLM pretraining, stability and throughput require massive global batches: our scenario uses approximately 4 million tokens per step (specifically, <tex>512 \text{ sequences} \times 8,192 \text{ tokens} = 4,194,304\text{ tokens}</tex>). Training with small batches causes noisy gradient estimates and forces frequent, expensive optimizer updates [2].</p>
+<p>However, no single GPU can execute a forward and backward pass on 4 million tokens at once; intermediate activation memory would cause an immediate Out-Of-Memory (OOM) error (Lesson 3, Training Memory). Instead, each GPU processes a small <strong>micro-batch</strong> of <tex>b</tex> sequences (in our run, <tex>b = 1\text{ sequence} = 8,192\text{ tokens}</tex>). Across our 256 GPUs, one forward and backward execution handles <tex>256 \times 8,192 = 2,097,152\text{ tokens}</tex>.</p>
+<p>To reach the target 4.19-million-token global batch, the cluster executes <strong>gradient accumulation</strong>. Each GPU runs <tex>G = 2</tex> consecutive micro-batches, summing the resulting parameter gradients into a local accumulation buffer without updating weights. Only after all <tex>G</tex> micro-batches complete do the GPUs communicate gradients and trigger an optimizer update:</p>
+<texblock>B_{\text{global}} = N_{\text{GPUs}} \times b \times s \times G</texblock>
+<p>where <tex>N_{\text{GPUs}} = 256</tex>, <tex>b = 1</tex>, <tex>s = 8,192</tex>, and <tex>G = 2</tex>, yielding exactly <tex>4,194,304\text{ tokens}</tex>.</p>
+
+<h3>Steps, tokens, and epochs</h3>
+<p>An <strong>optimizer step</strong> (or global step) is a single execution of the optimizer update rule (such as AdamW), where accumulated gradients update the model parameters. In our pretraining run over <tex>D = 10^{12}\text{ tokens}</tex>, the total number of optimizer steps is:</p>
+<texblock>\text{Total Steps} = \frac{D}{B_{\text{global}}} = \frac{10^{12}}{4,194,304} \approx 238,419\text{ steps}</texblock>
+<p>An <strong>epoch</strong> represents one complete pass through the entire training dataset. In foundation model pretraining, training almost always runs for <strong>one single epoch</strong> [1, 3]. Passing over internet text multiple times risks overfitting and memorization of low-quality web artifacts. In contrast, post-training (Stage 5) operates on curated instruction and preference datasets of millions of tokens and typically trains for 2 to 5 epochs.</p>
+
+<h3>FLOPs versus FLOPS</h3>
+<p>Engineers frequently confuse FLOPs and FLOPS. <strong>FLOPs</strong> (capitalized with lowercase 's') stands for <em>Floating-Point Operations</em>, a measure of total computational work (like kilowatt-hours). <strong>FLOPS</strong> (all capitals) stands for <em>Floating-Point Operations Per Second</em>, a measure of compute rate or throughput (like kilowatts).</p>
+
+<h3>MFU versus HFU</h3>
+<p>When vendors benchmark training, they often report <strong>Hardware FLOPs Utilization (HFU)</strong>: the total floating-point operations executed by the silicon divided by theoretical peak hardware capacity. However, HFU has a fatal flaw: it rewards algorithmic inefficiency. If an engineer enables activation recomputation, the GPU executes 33% more matrix multiplications to redo forward passes during backpropagation. HFU rises, even though the model learns nothing new [1].</p>
+<p>To prevent this distortion, Chowdhery et al. introduced <strong>Model FLOPs Utilization (MFU)</strong> [1]:</p>
+<texblock>\text{MFU} = \frac{\text{Theoretical Minimum Algorithmic FLOPs per Step}}{\text{Wall-Clock Step Time} \times \text{Cluster Theoretical Peak FLOPS}}</texblock>
+<p>MFU counts only the minimum operations theoretically required to evaluate forward and backward passes (the 6ND baseline). It treats activation recomputation, collective communication stalls, and memory bandwidth bubbles as overhead. A well-engineered pretraining stack achieves <strong>38% to 45% MFU</strong> on H100 clusters [1]. Table 1 compiles the complete set of core metrics used throughout this course.</p>
+
+<table>
+<thead><tr><th>Term / Metric</th><th>What it measures</th><th>Value in our pretraining run</th><th>Lesson</th></tr></thead>
+<tbody>
+<tr><td>Sequence length (<tex>s</tex>)</td><td>Tokens per individual packed training sequence</td><td>8,192 tokens</td><td>17, 19</td></tr>
+<tr><td>Micro-batch size (<tex>b</tex>)</td><td>Sequences processed per GPU in one forward-backward pass</td><td>1 sequence (8,192 tokens)</td><td>2, 3</td></tr>
+<tr><td>Gradient accumulation (<tex>G</tex>)</td><td>Number of micro-batches evaluated before an optimizer step</td><td>2 accumulation cycles</td><td>2, 10</td></tr>
+<tr><td>Global batch size (<tex>B</tex>)</td><td>Total tokens updated per optimizer step across all ranks</td><td>512 sequences (4,194,304 tokens)</td><td>7, 10</td></tr>
+<tr><td>Optimizer step</td><td>One full parameter update of master weights</td><td>238,419 steps total (~2.0 s each)</td><td>4, 11</td></tr>
+<tr><td>Dataset volume (<tex>D</tex>)</td><td>Total pretraining token budget</td><td>1 trillion tokens (<tex>10^{12}</tex>)</td><td>7, 8</td></tr>
+<tr><td>Epoch</td><td>One full pass over the entire training corpus</td><td>1 epoch (no repeated tokens)</td><td>20</td></tr>
+<tr><td>Algorithmic work</td><td>Total theoretical compute under 6ND rule</td><td><tex>4.82 \times 10^{22}\text{ FLOPs}</tex></td><td>7, 9</td></tr>
+<tr><td>Cluster peak throughput</td><td>Combined theoretical dense BF16 tensor core rate</td><td><tex>2.53 \times 10^{17}\text{ FLOPS}\ (256 \times 989\text{ TF})</tex></td><td>7, 30</td></tr>
+<tr><td>Model FLOPs Utilization (MFU)</td><td>Ratio of delivered algorithmic compute to cluster peak</td><td>40.0% target (1.01e17 effective FLOPS)</td><td>7, 14</td></tr>
+<tr><td>Cluster wall time</td><td>Total elapsed time from launch to final checkpoint</td><td>475,741 seconds ≈ 5.51 days</td><td>7, 31</td></tr>
+<tr><td>Cluster compute cost</td><td>Total cloud expenditure at $3.00/GPU-hour assumption</td><td>33,830 GPU-hours ≈ $101,490 ($101,000)</td><td>7, 9</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: The vocabulary and engineering metrics of AI training</p>
+
+<h2>The Numbers That Bound Every Run</h2>
+<p>Just as inference engineering is bounded by weight read bandwidth and KV cache capacity (Inference Lesson 1, Introduction and Overview), distributed training is strictly bounded by four quantitative pillars. You should be able to derive them on a whiteboard from first principles for any model architecture and cluster. Figure 3 summarizes these four pillars for our 8.03-billion parameter model.</p>
+<fig src="001-bounding-numbers.svg" caption="The four quantitative pillars bounding the pretraining scenario">Four panels summarize the pretraining bounds: static memory (16 bytes/param = 128.5 GB, exceeding an 80 GB GPU); compute budget (6ND = 4.82e22 FLOPs, or 8ND with recomputation); cluster throughput (256 H100s at 40% MFU = 1.01e17 FLOPS across 5.5 days and 33,830 GPU-hours); and financial cost ($101,000 at $3/hour, expanding to $162,000 if MFU drops to 25%).</fig>
+
+<h3>1. Static memory: the 16-byte rule</h3>
+<p>In standard mixed-precision training with the AdamW optimizer, matrix multiplications execute in 16-bit BF16 to maximize tensor core throughput, while weight updates occur in full 32-bit FP32 precision to prevent numerical stagnation [4]. For every parameter in the model, the system stores five distinct values in GPU High Bandwidth Memory (HBM):</p>
+<ul>
+<li><strong>BF16 model weight (2 bytes)</strong>: Evaluated during forward and backward passes.</li>
+<li><strong>BF16 gradient (2 bytes)</strong>: Accumulated during backpropagation.</li>
+<li><strong>FP32 master weight (4 bytes)</strong>: High-precision reference copy updated by the optimizer.</li>
+<li><strong>FP32 Adam momentum <tex>m</tex> (4 bytes)</strong>: First-moment moving average of past gradients.</li>
+<li><strong>FP32 Adam variance <tex>v</tex> (4 bytes)</strong>: Second-moment moving average of past squared gradients.</li>
+</ul>
+<p>Summing these components gives the canonical <strong>16 bytes per parameter</strong> rule [4]:</p>
+<texblock>\text{Static Memory per Parameter} = 2 + 2 + 4 + 4 + 4 = 16\text{ bytes}</texblock>
+<p>Notice that <strong>12 of the 16 bytes (75%) belong entirely to the optimizer states</strong>. Active neural network weights and gradients require only 4 bytes (25%). For our model with <tex>N = 8.03 \times 10^9\text{ parameters}</tex>:</p>
+<texblock>\text{Static Footprint} = 8.03 \times 10^9 \times 16\text{ bytes} \approx 128.48\text{ GB}\ (119.66\text{ GiB})</texblock>
+<p>An NVIDIA H100 SXM 80 GB GPU provides approximately 79.6 GiB of driver-visible memory. Static state alone exceeds physical device capacity by 48.5 GB (1.61× physical memory) before allocating a single activation tensor or communication buffer! Unsharded training of an 8B model on a single 80 GB GPU is physically impossible, regardless of gradient accumulation. Training requires sharding optimizer states across multiple GPUs using ZeRO-3 or Fully Sharded Data Parallel (FSDP). Sharded across an 8-GPU node, static states consume <tex>128.5 / 8 \approx 16.06\text{ GB per GPU}</tex>, comfortably fitting within HBM (Lesson 11, ZeRO and FSDP).</p>
+
+<h3>2. Compute budget: the 6ND rule</h3>
+<p>To compute the total floating-point operations needed to train a transformer with <tex>N</tex> parameters on <tex>D</tex> tokens, we analyze linear projection matrix multiplications [2]:</p>
+<ul>
+<li><strong>Forward pass (<tex>2ND\text{ FLOPs}</tex>)</strong>: Multiplying hidden states by weight matrices requires 1 multiply and 1 accumulate per parameter per token, totaling <tex>2ND</tex> operations.</li>
+<li><strong>Backward pass (<tex>4ND\text{ FLOPs}</tex>)</strong>: Backpropagation evaluates two matrix multiplications per linear layer: multiplying upstream gradients by transposed weights to compute input activation gradients (<tex>\partial \mathcal{L} / \partial X</tex>, costing <tex>2ND</tex>), and multiplying input activations by upstream gradients to compute weight parameter gradients (<tex>\partial \mathcal{L} / \partial W</tex>, costing <tex>2ND</tex>). Backpropagation requires exactly twice the compute of the forward pass [5].</li>
+</ul>
+<p>Combining forward and backward passes establishes the foundational <strong>6ND rule</strong> [2]:</p>
+<texblock>C_{\text{pretrain}} \approx 6 \times N \times D</texblock>
+<p>For our running pretraining scenario:</p>
+<texblock>C_{\text{pretrain}} \approx 6 \times (8.03 \times 10^9) \times (1.0 \times 10^{12}) = 4.818 \times 10^{22}\text{ FLOPs} \approx 4.8 \times 10^{22}\text{ FLOPs}</texblock>
+<p>When full activation checkpointing is enabled to discard intermediate activations and avoid OOM errors, the forward pass is recomputed during backpropagation (adding another <tex>2ND</tex> operations). This expands total compute to the <strong>8ND rule</strong> (<tex>6.42 \times 10^{22}\text{ FLOPs}</tex>), representing a 33.3% compute overhead in exchange for slashing activation memory by up to 90% [5].</p>
+
+<h3>3. Cluster duration and wall-clock scheduling</h3>
+<p>Each NVIDIA H100 SXM GPU provides a peak theoretical dense BF16 tensor core throughput of <strong>989 TFLOPS</strong> (<tex>989 \times 10^{12}\text{ FLOPS}</tex>) [7]. Across our cluster of 256 GPUs, total theoretical peak compute is:</p>
+<texblock>R_{\text{peak}} = 256 \times (989 \times 10^{12}\text{ FLOPS}) = 2.53184 \times 10^{17}\text{ FLOPS}</texblock>
+<p>At our target <strong>40% MFU</strong>, the cluster delivers sustained algorithmic compute of:</p>
+<texblock>R_{\text{effective}} = 2.53184 \times 10^{17} \times 0.40 \approx 1.0127 \times 10^{17}\text{ FLOPS} \approx 1.01 \times 10^{17}\text{ FLOPS}</texblock>
+<p>Dividing the 6ND compute budget by this effective compute rate yields total wall-clock execution time:</p>
+<texblock>T_{\text{wall}} = \frac{4.818 \times 10^{22}\text{ FLOPs}}{1.0127 \times 10^{17}\text{ FLOPS}} \approx 475,741\text{ seconds} \approx 132.15\text{ hours} \approx 5.51\text{ days}</texblock>
+<p>Converting this duration into total GPU-hours across the 256 accelerators:</p>
+<texblock>\text{GPU-Hours} = 256 \times 132.15\text{ hours} \approx 33,830\text{ GPU-hours} \approx 33,800\text{ GPU-hours}</texblock>
+
+<h3>4. Financial cost and the penalty of low MFU</h3>
+<p>Using our consistent cloud pricing baseline of <strong>$3.00 per H100-hour</strong>, the direct compute cost of this pretraining run is:</p>
+<texblock>\text{Total Cost} = 33,830.5\text{ GPU-hours} \times \$3.00 = \$101,491 \approx \$101,000</texblock>
+<p>This translates to an amortized cost of approximately <strong>$0.101 per million pretraining tokens</strong>.</p>
+<p>Consider the severe financial penalty of poor systems engineering. If unoptimized collective communications, unbalanced pipeline bubbles, or memory fragmentation cause cluster efficiency to drop from 40% MFU to 25% MFU, effective throughput falls to <tex>6.33 \times 10^{16}\text{ FLOPS}</texblock>
+<p>At 25% MFU, the exact same 1-trillion token run requires <strong>8.81 days</strong> (211.4 hours) and consumes <strong>54,129 GPU-hours</strong>. Cloud cost balloons to <strong>$162,386</strong>. Suboptimal engineering wastes <strong>$61,000</strong> and delays model delivery by more than three full days on a modest 8B pretraining run. On a 70B or 405B training run, that same efficiency gap wastes millions of dollars (Lesson 7, Training FLOPs, Time and MFU).</p>
+
+<h3>5. Collective communication volume</h3>
+<p>In standard data-parallel training, GPUs must synchronize parameter gradients at every optimizer step using a <strong>ring all-reduce</strong> or <strong>reduce-scatter</strong> collective. In a ring all-reduce over <tex>N_d</tex> data-parallel workers, each GPU sends and receives [4]:</p>
+<texblock>\text{Traffic Volume per GPU} = 2 \left(\frac{N_d - 1}{N_d}\right) \times \text{Grad Size}</texblock>
+<p>For our 8.03B model, BF16 gradients occupy <tex>8.03 \times 10^9 \times 2\text{ bytes} \approx 16.06\text{ GB}</tex>. In a large cluster where <tex>N_d = 256</tex>, <tex>2(255/256) \approx 1.992</tex>, so each GPU transfers approximately <strong>32 GB of data per step</strong>. Over 238,419 optimizer steps, the inter-GPU network transfers over 7.6 petabytes of gradient telemetry per GPU (Lesson 10, Data Parallelism and All-Reduce, and Lesson 30, Cluster Networking and Collectives).</p>
+
+<callout kind="tip" title="Interview tip">Always write down the 16-byte memory rule, the 6ND compute rule, and the accelerator peak FLOPS (989 TFLOPS for H100 SXM, 312 TFLOPS for A100 SXM) at the start of any training design interview. Deriving static state, total FLOPs, wall-clock days, and dollar cost in two minutes proves you understand foundational systems mechanics.</callout>
+
+<table>
+<thead><tr><th>Scenario Parameter</th><th>Mathematical Formula</th><th>Numerical Result</th></tr></thead>
+<tbody>
+<tr><td>Model parameter count (<tex>N</tex>)</td><td>Llama 3.1 8B architecture</td><td><tex>8.03 \times 10^9\text{ params}</tex></td></tr>
+<tr><td>Pretraining token budget (<tex>D</tex>)</td><td>Specified training corpus</td><td><tex>1.00 \times 10^{12}\text{ tokens}</tex></td></tr>
+<tr><td>Static memory per parameter</td><td><tex>2\text{ (w)} + 2\text{ (g)} + 4\text{ (master)} + 8\text{ (opt)}</tex></td><td>16 bytes / parameter</td></tr>
+<tr><td>Total static state memory</td><td><tex>N \times 16\text{ bytes}</tex></td><td>128.5 GB (exceeds single 80 GB GPU)</td></tr>
+<tr><td>Static state sharded over 8 GPUs</td><td><tex>128.5\text{ GB} / 8</tex> (FSDP / ZeRO-3)</td><td>16.06 GB per GPU</td></tr>
+<tr><td>Total training compute</td><td><tex>6 \times N \times D</tex></td><td><tex>4.82 \times 10^{22}\text{ FLOPs}</tex></td></tr>
+<tr><td>Cluster hardware capacity</td><td>256 × 989 TFLOPS (dense BF16)</td><td><tex>2.53 \times 10^{17}\text{ FLOPS}</tex></td></tr>
+<tr><td>Target cluster efficiency (MFU)</td><td>Algorithmic FLOPS ÷ Peak FLOPS</td><td>40.0%</td></tr>
+<tr><td>Effective cluster throughput</td><td><tex>2.53 \times 10^{17} \times 0.40</tex></td><td><tex>1.01 \times 10^{17}\text{ FLOPS}</text></td></tr>
+<tr><td>Total wall-clock duration</td><td><tex>4.82 \times 10^{22} / 1.01 \times 10^{17}</tex></td><td>475,741 seconds (5.51 days)</td></tr>
+<tr><td>Total cluster GPU-hours</td><td>256 GPUs × 132.15 hours</td><td>33,830 GPU-hours</td></tr>
+<tr><td>Estimated cloud cost</td><td>33,830 GPU-hours × $3.00/hour</td><td>$101,490 (~$101,000)</td></tr>
+<tr><td>Global batch token volume</td><td>512 sequences × 8,192 tokens</td><td>4,194,304 tokens per step</td></tr>
+<tr><td>Total optimizer updates</td><td><tex>10^{12} / 4,194,304</tex></td><td>238,419 steps</td></tr>
+<tr><td>Average step execution time</td><td>475,741 seconds ÷ 238,419 steps</td><td>1.995 seconds (~2.0 s)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Sizing summary for the Llama 3.1 8B pretraining scenario</p>
+
+<h2>A Framework for Training Design Questions</h2>
+<p>Just as inference design questions follow a structured seven-step framework (Inference Lesson 1), training design problems in production and interviews adhere to a repeatable eight-step sequence. Figure 4 outlines this systems workflow.</p>
+<fig src="001-design-framework.svg" caption="A systems framework for answering AI training design questions">Eight sequential steps: clarify requirements, model size and data budget, memory and parallelism, cluster and cost, data pipeline, reliability and restarts, in-flight evaluation, and post-training alignment. A feedback loop connects in-flight evaluation telemetry back to data mixture adjustments.</fig>
+
+<h4>1. Clarify requirements</h4>
+<p>Determine the primary objective: Are we pretraining a foundational base model from scratch, or fine-tuning an existing checkpoint (SFT/LoRA)? Define target capabilities, evaluation benchmarks, hard deadlines, cloud budget caps, and physical hardware constraints. A vague request like "train a domain model" must be sharpened into "train an 8B model on 1T tokens within 7 days under a $120,000 budget."</p>
+
+<h4>2. Size the model and data budget</h4>
+<p>Apply scaling laws to balance parameter count and token volume. Hoffmann et al.'s <strong>Chinchilla scaling laws</strong> demonstrate that compute-optimal training allocates equal budget growth to parameters and tokens, prescribing approximately <strong>20 tokens per parameter</strong> (Lesson 8, Scaling Laws) [3]. For an 8B model, Chinchilla optimality suggests ~160 billion tokens. However, production foundation models are intentionally <strong>overtrained</strong> far past the Chinchilla frontier—Llama 3 8B was trained on 15 trillion tokens (nearly 1,900 tokens per parameter) [1]. Overtraining spends more compute during training to produce a smaller, faster model that is drastically cheaper to serve millions of times during inference.</p>
+
+<h4>3. Design memory and parallelism strategy</h4>
+<p>Account for every byte of GPU memory: 16 bytes per parameter for model and optimizer states, dynamic activation memory, collective communication buffers, and workspace headroom (Lesson 3, Training Memory). If the model exceeds single-GPU memory, select the appropriate distributed strategy: FSDP/ZeRO for state sharding (Lesson 11), Tensor Parallelism for intra-node hidden-state splitting (Lesson 12), Pipeline Parallelism for inter-node layer partitioning (Lesson 13), and Context Parallelism for long 8K+ sequences (Lesson 12).</p>
+
+<h4>4. Size the cluster and compute budget</h4>
+<p>Calculate total FLOPs using the 6ND rule (or 8ND with activation recomputation). Divide by cluster peak theoretical compute multiplied by target MFU (typically 38%–45%) to establish wall-clock duration and GPU-hours (Lesson 7, Training FLOPs, Time and MFU). Verify that inter-node networking (e.g. 400 Gb/s InfiniBand NDR) provides sufficient collective all-reduce bandwidth to prevent GPU execution starvation (Lesson 30, Cluster Networking and Collectives).</p>
+
+<h4>5. Construct the data pipeline and tokenizer</h4>
+<p>Ingesting trillions of tokens requires a high-throughput, fault-tolerant data architecture. Build a pipeline for document extraction, MinHash LSH deduplication, heuristic and classifier-based quality filtering, and sequence packing to eliminate padding tokens (Lessons 17, 18, 21). Train a Byte-Pair Encoding (BPE) tokenizer with sufficient vocabulary (e.g. 128,256 tokens) to maximize compression across languages and code (Lesson 19, Tokenizers). Define data mixtures and curriculum annealing schedules (Lesson 20, Data Mixtures and Curriculum).</p>
+
+<h4>6. Engineer reliability and fault tolerance</h4>
+<p>At cluster scale, hardware failure is inevitable. Sizing a 16K-GPU run with a Mean Time Between Failures (MTBF) of 3 hours requires sub-minute asynchronous checkpointing to high-performance distributed storage (Lesson 28, Checkpointing). Configure elastic job controllers (Slurm or Kubernetes) with automatic health probes and bad-node drain capabilities to resume crashed jobs without human intervention (Lesson 29, Failures, Restarts and Elastic Training, and Lesson 31, Job Scheduling - Slurm and Kubernetes). Implement gradient clipping and learning rate warmups to prevent catastrophic loss spikes (Lesson 32, Training Stability - Loss Spikes and Divergence).</p>
+
+<h4>7. Conduct in-flight evaluation and auditing</h4>
+<p>Track validation loss across curated held-out slices during training to catch data distribution shifts or regressions early (Lesson 34, Evaluation During Training). Continuously benchmark zero-shot and few-shot performance on standardized tasks (MMLU, GSM8K, HumanEval), while rigorously screening pretraining data against benchmark contamination to ensure reported gains reflect genuine reasoning rather than memorization (Lesson 35, Benchmarks and Contamination).</p>
+
+<h4>8. Execute post-training alignment</h4>
+<p>A pretrained foundation model is a document continuator, not an interactive assistant. In post-training, apply Supervised Fine-Tuning (SFT) with assistant-only loss masking to teach conversation structure and tool calling (Lesson 22, Supervised Fine-Tuning). Deploy LoRA/QLoRA for rapid adapter iteration on limited compute (Lesson 23, LoRA and QLoRA). Align outputs to human preferences using Direct Preference Optimization (DPO) (Lesson 25, DPO and Preference Optimization) or Group Relative Policy Optimization (GRPO) for verifiable multi-step mathematical reasoning (Lesson 26, RL with Verifiable Rewards - GRPO).</p>
+
+<h2>How the Course Is Organized</h2>
+<p>The course curriculum is structured into seven sequential stages comprising 35 in-depth lessons, illustrated in Figure 5. Stages 1 through 6 each culminate in an end-to-end, hands-on engineering lab.</p>
+<fig src="001-roadmap.svg" caption="Course roadmap across seven stages and six practical labs">Seven columns display the stages of the curriculum: Stage 1 covers single-GPU training mechanics and memory accounting; Stage 2 addresses compute, scaling laws, and sizing; Stage 3 details distributed parallelism and collectives; Stage 4 focuses on pretraining data pipelines and tokenization; Stage 5 teaches post-training alignment (SFT, LoRA, DPO, GRPO); Stage 6 tackles production scaling, checkpointing, and cluster health; Stage 7 establishes in-flight evaluation and benchmark contamination auditing.</fig>
+
+<table>
+<thead><tr><th>Stage</th><th>Core Question Answered</th><th>Hands-On Lab</th></tr></thead>
+<tbody>
+<tr><td>1. How Training Works</td><td>Where do memory and compute go during a single training step?</td><td>Lab 6: Train a small GPT and account for every gigabyte of HBM</td></tr>
+<tr><td>2. Compute and Scaling</td><td>How do model size, token budget, and silicon limits dictate run duration?</td><td>Lab 9: Size a training run from first principles on a cloud cluster</td></tr>
+<tr><td>3. Distributed Training</td><td>How do we shard states and tensors across hundreds of GPUs?</td><td>Lab 16: Benchmark DDP vs FSDP communication efficiency</td></tr>
+<tr><td>4. Pretraining Data</td><td>How do we process petabytes of raw web text into clean tokens?</td><td>Lab 21: Build a high-throughput MinHash dedup and filtering pipeline</td></tr>
+<tr><td>5. Post-Training</td><td>How do we transform a base continuator into an aligned assistant?</td><td>Lab 27: Fine-tune an 8B model with LoRA and align with DPO</td></tr>
+<tr><td>6. Training at Scale</td><td>How do we keep a cluster of hundreds of GPUs healthy and resilient?</td><td>Lab 33: Recover a crashed distributed run from an async checkpoint</td></tr>
+<tr><td>7. Model Evaluation</td><td>How do we measure capability and guard against data contamination?</td><td>None; lessons conclude with architectural design decisions</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Course stages, core engineering questions, and practical labs</p>
+
+<h3>How to use the labs</h3>
+<p>Every hands-on lab in this course provides two parallel execution tracks:</p>
+<ul>
+<li><strong>Small Path</strong>: Runs on a local workstation, consumer GPU (such as an RTX 4090), or a free cloud environment (e.g. Google Colab). It uses compact models (~125M parameters) or parameter-efficient adapters (LoRA on 0.5B–1.5B models). The small path demonstrates identical systems mechanisms—activation memory scaling, communication collectives, and loss dynamics—without requiring enterprise hardware.</li>
+<li><strong>Full Path</strong>: Uses one or more cloud 8×H100 GPU nodes matching our pretraining and post-training running scenarios. All full paths explicitly state runtime duration and cloud cost assumptions.</li>
+</ul>
+
+<h3>Connecting Training to Inference</h3>
+<p>Training engineering does not exist in a vacuum; it directly dictates the performance, latency, and operational cost of downstream inference serving (cross-referenced throughout this course and our companion text, <em>AI Inference Engineering</em>). Figure 6 contrasts their architectural profiles.</p>
+<fig src="001-training-vs-inference.svg" caption="Comparative architectural profile: AI Training Engineering versus AI Inference Engineering">Training demands 16 bytes per parameter, 6ND compute, forward and backward passes, massive tightly coupled clusters, and sustained MFU throughput. Inference requires 2 bytes per parameter (weights only) plus dynamic KV cache, memory-bandwidth-bound decode steps, independent replicas, and strict p95 latency targets. Architectural decisions made during training directly dictate serving economics.</fig>
+<p>Every major transformer architectural choice made during pretraining leaves an indelible mark on inference serving:</p>
+<ul>
+<li><strong>Grouped-Query Attention (GQA)</strong>: Pretraining with 8 key-value heads instead of 32 query heads (as in Llama 3.1 8B) slightly alters attention projection geometry, but slashes the serving <strong>KV cache footprint by 75%</strong> (from 512 KiB down to 128 KiB per token in BF16; see Inference Lesson 3, KV Cache). This allows a single H100 GPU to serve 170 concurrent chat users instead of 42.</li>
+<li><strong>Vocabulary Size</strong>: Adopting a large 128,256 BPE vocabulary (Lesson 19, Tokenizers) expands embedding weights to ~1.05 GB (taking memory during both training and serving), but compresses English text by ~15% compared to older 32k tokenizers. A 15% reduction in token count directly translates to 15% fewer auto-regressive decode steps during inference, cutting per-request generation latency.</li>
+<li><strong>Chinchilla Overtraining</strong>: Pretraining an 8B model on 15 trillion tokens (Meta's strategy for Llama 3) requires nearly 15× more training FLOPs than Chinchilla compute optimality prescribes. However, this upfront training investment yields a model that performs at the level of older 70B models while fitting within a single 16 GB memory footprint. Because serving costs accumulate indefinitely across billions of inference calls, <strong>paying an upfront pretraining premium to overtrain a smaller model dramatically minimizes total corporate expenditure</strong> (Inference Lesson 20, Cost per Million Tokens).</li>
+<li><strong>Numerical Stability and Quantization</strong>: Maintaining clean master weights in FP32 during training and training with low-variance optimizers ensures weights exhibit narrow dynamic ranges, enabling near-lossless post-training quantization to FP8 (Inference Lesson 13, Quantization) or INT4 for high-throughput serving.</li>
+</ul>
+
+<h2>In Practice</h2>
+<p>To put these principles into immediate practice, the two tabs below provide production-grade infrastructure code. Tab 1 contains a complete Python sizing engine (<code>pretraining_budget.py</code>) that computes static memory, 6ND compute, cluster duration, GPU-hours, financial cost, and step metrics from first principles. Tab 2 contains an enterprise Slurm and PyTorch FSDP2 cluster launch script (<code>launch_fsdp_pretraining.sh</code>) configured for our 32-node, 256-H100 cluster.</p>
+
+<codetabs>
+<tab label="pretraining_budget.py" lang="python">
+import argparse
+
+
+def calculate_pretraining_budget(
+    params: float = 8.03e9,
+    tokens: float = 1.0e12,
+    num_gpus: int = 256,
+    gpu_tflops_dense_bf16: float = 989.0,
+    target_mfu: float = 0.40,
+    hourly_gpu_rate: float = 3.00,
+    seq_len: int = 8192,
+    global_batch_seqs: int = 512,
+):
+    """
+    Computes analytical hardware, compute, memory, and financial bounds
+    for a transformer pretraining run from first principles.
+    """
+    # 1. Memory Accounting (16 bytes per parameter baseline)
+    bytes_per_param = 16
+    static_mem_gb = (params * bytes_per_param) / 1e9
+    static_mem_gib = (params * bytes_per_param) / (1024**3)
+    sharded_mem_8gpu_gb = static_mem_gb / 8.0
+
+    # 2. Compute Accounting (6ND Rule)
+    flops_dense = 6.0 * params * tokens
+    flops_recompute = 8.0 * params * tokens
+
+    # 3. Cluster Compute Rate & Duration
+    cluster_peak_flops = num_gpus * (gpu_tflops_dense_bf16 * 1e12)
+    effective_flops = cluster_peak_flops * target_mfu
+
+    wall_time_seconds = flops_dense / effective_flops
+    wall_time_hours = wall_time_seconds / 3600.0
+    wall_time_days = wall_time_seconds / 86400.0
+
+    # 4. Financial Cost
+    total_gpu_hours = num_gpus * wall_time_hours
+    total_cost_usd = total_gpu_hours * hourly_gpu_rate
+    cost_per_million_tokens = total_cost_usd / (tokens / 1e6)
+
+    # 5. Batch & Step Metrics
+    global_batch_tokens = global_batch_seqs * seq_len
+    total_optimizer_steps = int(tokens / global_batch_tokens)
+    step_duration_seconds = wall_time_seconds / total_optimizer_steps
+    tokens_per_second = tokens / wall_time_seconds
+
+    print("=" * 70)
+    print("AI TRAINING ENGINEERING: PRETRAINING BUDGET & SIZING REPORT")
+    print("=" * 70)
+    print(f"Model Parameters (N):            {params / 1e9:.2f} Billion")
+    print(f"Pretraining Tokens (D):          {tokens / 1e12:.2f} Trillion")
+    print(f"Sequence Context Length (s):     {seq_len:,} tokens")
+    print("-" * 70)
+    print("MEMORY ACCOUNTING (16 Bytes / Parameter)")
+    print(f"Unsharded Static State:          {static_mem_gb:.2f} GB ({static_mem_gib:.2f} GiB)")
+    print("  - BF16 Weights:                {:.2f} GB (2 bytes/param)".format((params * 2) / 1e9))
+    print("  - BF16 Gradients:              {:.2f} GB (2 bytes/param)".format((params * 2) / 1e9))
+    print("  - FP32 Master Weights:         {:.2f} GB (4 bytes/param)".format((params * 4) / 1e9))
+    print("  - FP32 Adam Moments (m + v):   {:.2f} GB (8 bytes/param)".format((params * 8) / 1e9))
+    print(f"FSDP Sharded State (8 GPUs/node):{sharded_mem_8gpu_gb:.2f} GB / GPU")
+    print("-" * 70)
+    print("COMPUTE & CLUSTER SCHEDULE")
+    print(f"Algorithmic Work (6ND):          {flops_dense:.3e} FLOPs")
+    print(f"Recompute Work (8ND):            {flops_recompute:.3e} FLOPs")
+    print(f"Cluster Peak Compute (256 H100): {cluster_peak_flops:.3e} FLOPS")
+    print(f"Effective Compute ({target_mfu*100:.0f}% MFU):     {effective_flops:.3e} FLOPS")
+    print(f"Wall-Clock Duration:             {wall_time_days:.2f} days ({wall_time_hours:.1f} hours)")
+    print(f"Cluster GPU-Hours:               {total_gpu_hours:,.0f} GPU-hours")
+    print(f"Estimated Cloud Cost ($3.00/hr): ${total_cost_usd:,.2f}")
+    print(f"Cost per 1M Tokens:              ${cost_per_million_tokens:.4f}")
+    print("-" * 70)
+    print("BATCH & TELEMETRY PROFILE")
+    print(f"Global Batch Size:               {global_batch_tokens:,} tokens ({global_batch_seqs} sequences)")
+    print(f"Total Optimizer Steps:           {total_optimizer_steps:,} updates")
+    print(f"Average Step Execution Time:     {step_duration_seconds:.3f} seconds")
+    print(f"Sustained Throughput:            {tokens_per_second:,.0f} tokens / second")
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Pretraining run sizing calculator")
+    parser.add_argument("--params", type=float, default=8.03e9, help="Model parameters")
+    parser.add_argument("--tokens", type=float, default=1.0e12, help="Training tokens")
+    parser.add_argument("--gpus", type=int, default=256, help="GPU count")
+    parser.add_argument("--mfu", type=float, default=0.40, help="Target MFU (0.0 to 1.0)")
+    args = parser.parse_args()
+
+    calculate_pretraining_budget(
+        params=args.params,
+        tokens=args.tokens,
+        num_gpus=args.gpus,
+        target_mfu=args.mfu,
+    )
+</tab>
+<tab label="launch_fsdp_pretraining.sh" lang="bash">
+#!/bin/bash
+#SBATCH --job-name=llama3-8b-pretrain
+#SBATCH --nodes=32
+#SBATCH --ntasks-per-node=8
+#SBATCH --gpus-per-node=8
+#SBATCH --cpus-per-task=12
+#SBATCH --exclusive
+#SBATCH --partition=gpu-h100
+#SBATCH --time=168:00:00
+#SBATCH --output=logs/%x-%j.out
+#SBATCH --error=logs/%x-%j.err
+
+# Strict error handling
+set -euo pipefail
+
+# High-performance networking settings for 8x InfiniBand NDR (400 Gb/s) per node
+export NCCL_DEBUG=INFO
+export NCCL_DEBUG_SUBSYS=INIT,COLL
+export NCCL_IB_DISABLE=0
+export NCCL_IB_HCA=mlx5_0,mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_7
+export NCCL_IB_GID_INDEX=3
+export NCCL_NET_GDR_LEVEL=5
+export NCCL_CROSS_NIC=1
+
+# CUDA memory & kernel launch optimization
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+
+# Slurm rendezvous coordinator
+MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+MASTER_PORT=29500
+NNODES=$SLURM_JOB_NUM_NODES
+NODE_RANK=$SLURM_NODEID
+
+echo "Launching distributed pretraining on $NNODES nodes ($(( NNODES * 8 )) GPUs)..."
+echo "Master node: $MASTER_ADDR:$MASTER_PORT, Local node rank: $NODE_RANK"
+
+# Launch torchrun per node
+srun --kill-on-bad-exit=1 \
+    torchrun \
+    --nnodes="$NNODES" \
+    --nproc_per_node=8 \
+    --rdzv_id="$SLURM_JOB_ID" \
+    --rdzv_backend=c10d \
+    --rdzv_endpoint="$MASTER_ADDR:$MASTER_PORT" \
+    pretrain_fsdp2.py \
+    --model_config="configs/llama3_1_8b.json" \
+    --data_dir="/datasets/pretrain_1t_packed" \
+    --seq_len=8192 \
+    --micro_batch_size=1 \
+    --gradient_accumulation_steps=2 \
+    --lr=3.0e-4 \
+    --min_lr=3.0e-5 \
+    --warmup_steps=2000 \
+    --total_steps=238419 \
+    --mixed_precision=bf16 \
+    --sharding_strategy=FULL_SHARD \
+    --activation_checkpointing=selective \
+    --checkpoint_interval=1000 \
+    --checkpoint_dir="/checkpoints/llama3_1_8b"
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Chinchilla optimality versus inference-optimal overtraining</strong>: Hoffmann et al. demonstrated that for a fixed compute budget during training, optimal loss requires scaling parameters and tokens in equal 1:1 proportion (approximately 20 tokens per parameter) [3]. However, foundation model builders intentionally overtrain models past this frontier—Llama 3 8B was trained on over 15 trillion tokens (1,875 tokens per parameter) [1]. Overtraining spends more training FLOPs upfront to produce an 8B model that matches older 70B models, drastically cutting downstream inference serving costs (Lesson 8, Scaling Laws).</li>
+<li><strong>FP8 mixed-precision training on Hopper</strong>: While our baseline scenario runs in BF16 (989 TFLOPS), NVIDIA H100 GPUs provide 1,979 TFLOPS of dense FP8 compute [7]. FP8 training uses E4M3 for forward activations and weights and E5M2 for backward gradients, requiring dynamic delayed scaling factors to prevent underflow [6]. Adopting FP8 can push pretraining MFU even higher while cutting execution time nearly in half (Lesson 5, Mixed Precision Training - BF16 and FP8).</li>
+<li><strong>Hierarchical network topologies</strong>: High-performance clusters feature stark bandwidth asymmetry: intra-node NVLink delivers 900 GB/s per GPU, whereas inter-node InfiniBand NDR delivers 50 GB/s (400 Gb/s) [7]. 3D and 4D parallel strategies map high-traffic Tensor Parallelism strictly within a single node over NVLink, while mapping lower-bandwidth Data Parallelism and Pipeline Parallelism across nodes over InfiniBand (Lesson 14, Combining Parallelism - 3D and 4D).</li>
+<li><strong>Mean Time Between Failures (MTBF) at 16K scale</strong>: In a cluster of 16,384 GPUs, hardware interruptions occur every few hours [1]. If saving a checkpoint takes 15 minutes, the cluster spends more time writing to disk than computing gradients. Frontier runs rely on asynchronous checkpointing to high-speed NVMe burst buffers to commit state in under 30 seconds (Lesson 28, Checkpointing, and Lesson 29, Failures, Restarts and Elastic Training).</li>
+<li><strong>Data quality, deduplication, and decay curricula</strong>: Data quality dictates downstream reasoning more than raw web volume. Modern pipelines use MinHash deduplication to eliminate repeated pages, classifier filters to purge spam, and late-stage annealing curricula that blend synthetic textbook and mathematical tokens into the final 10% of the run to boost benchmark reasoning (Lessons 18, 20).</li>
+<li><strong>Test-time compute and verifiable post-training (GRPO)</strong>: Recent reasoning models (such as DeepSeek-R1) shift computational investment from pretraining to post-training reinforcement learning. Using Group Relative Policy Optimization (GRPO) with rule-based reward verifiers (e.g. unit tests or math checkers), models develop self-correction and reasoning search behaviors without requiring human preference labeling (Lesson 26, RL with Verifiable Rewards - GRPO).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="001-summary.png" caption="Introduction and overview summary" optional="1">Mind map summarizing the AI Training Engineering introduction: the training lifecycle, core vocabulary, bounding arithmetic, design framework, seven stages, and inference bridge.</fig>
+<ul>
+<li>Training engineering is the systems discipline of coordinating thousands of accelerators, memory hierarchies, and petabytes of text to train and align foundation models efficiently and reliably without stalling or crashing.</li>
+<li>Modern frontier training operates at unprecedented scale: Meta's Llama 3 405B required 16,384 H100 GPUs and 30.84 million GPU-hours, achieving 38% to 41% MFU across 15.6 trillion tokens.</li>
+<li>Static memory is governed by the 16 bytes per parameter rule in mixed-precision AdamW: 2 bytes BF16 weight + 2 bytes BF16 gradient + 4 bytes FP32 master weight + 8 bytes FP32 moments. An 8.03B model requires 128.5 GB, exceeding an 80 GB H100 by 61% and requiring ZeRO-3 / FSDP state sharding.</li>
+<li>Compute is bounded by the 6ND rule (2ND forward + 4ND backward). Pretraining Llama 3.1 8B on 1T tokens requires <tex>4.82 \times 10^{22}\text{ FLOPs}</tex>, taking 5.5 days (33,830 GPU-hours) on 256 H100s at 40% MFU, costing approximately $101,000 at $3.00/GPU-hour.</li>
+<li>System design questions follow an eight-step pipeline: clarify requirements, size model and data budget, choose memory and parallelism, size cluster and cost, build data pipeline, ensure reliability and restarts, run in-flight evaluation, and execute post-training alignment.</li>
+<li>Training choices dictate inference economics: GQA slashes the serving KV cache by 75%, large vocabularies reduce decode steps, and overtraining past Chinchilla pays an upfront training premium to permanently lower serving costs.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Llama Team, AI @ Meta. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[2] Kaplan et al. Scaling Laws for Neural Language Models. <a href="https://arxiv.org/abs/2001.08361" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2001.08361</a>.<br>
+[3] Hoffmann et al. Training Compute-Optimal Large Language Models. <a href="https://arxiv.org/abs/2203.15556" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2203.15556</a>.<br>
+[4] Rajbhandari et al. ZeRO: Memory Optimizations Toward Training Trillion Parameter Models. SC20. <a href="https://arxiv.org/abs/1910.02054" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1910.02054</a>.<br>
+[5] Korthikanti et al. Reducing Activation Recomputation in Large Transformer Models. <a href="https://arxiv.org/abs/2205.05198" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2205.05198</a>.<br>
+[6] Micikevicius et al. FP8 Formats for Deep Learning. <a href="https://arxiv.org/abs/2209.05433" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2209.05433</a>.<br>
+[7] NVIDIA H100 Tensor Core GPU Architecture. <a href="https://www.nvidia.com/en-us/data-center/h100/" rel="noopener noreferrer" target="_blank">https://www.nvidia.com/en-us/data-center/h100/</a>.</p>

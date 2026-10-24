@@ -6,6 +6,7 @@ import json
 DIRS = [
     'Python Course',
     'AI Inference Engineering',
+    'AI Training Engineering',
     'Behavioral Interview',
     'Coding Interview Patterns',
     'Generative AI System Design Interview',
@@ -19,6 +20,7 @@ DIRS = [
 CATEGORY_META = {
     'Python Course': {'name': 'Python Masterclass', 'icon': '🐍', 'color': '#05673d'},
     'AI Inference Engineering': {'name': 'AI Inference Engineering', 'icon': '🚀', 'color': '#0ea5e9'},
+    'AI Training Engineering': {'name': 'AI Training Engineering', 'icon': '🧠', 'color': '#f97316'},
     'Behavioral Interview': {'name': 'Behavioral Interview', 'icon': '👥', 'color': '#f59e0b'},
     'Coding Interview Patterns': {'name': 'Coding Interview Patterns', 'icon': '⚡', 'color': '#3b82f6'},
     'Generative AI System Design Interview': {'name': 'Generative AI System Design', 'icon': '🤖', 'color': '#8b5cf6'},

@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="380" viewBox="0 0 820 380" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .lg { font-size: 16px; }
+    .b { font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .yellow { fill: #fff2cc; stroke: #d6b656; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #000; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Left: Phase 1 Reduce-Scatter -->
+  <rect x="20" y="15" width="375" height="300" rx="6" class="gray"/>
+  <text x="207" y="40" text-anchor="middle" class="b">Phase 1: Reduce-Scatter (N-1 steps)</text>
+
+  <!-- 4 GPUs in a circle/ring -->
+  <!-- GPU 0 top -->
+  <rect x="150" y="55" width="115" height="42" rx="4" class="white"/>
+  <text x="207" y="73" text-anchor="middle" class="sm b">Rank 0</text>
+  <text x="207" y="90" text-anchor="middle" class="sm">Chunks: [a0, b0, c0, d0]</text>
+
+  <!-- GPU 1 right -->
+  <rect x="270" y="140" width="115" height="42" rx="4" class="white"/>
+  <text x="327" y="158" text-anchor="middle" class="sm b">Rank 1</text>
+  <text x="327" y="175" text-anchor="middle" class="sm">Chunks: [a1, b1, c1, d1]</text>
+
+  <!-- GPU 2 bottom -->
+  <rect x="150" y="225" width="115" height="42" rx="4" class="white"/>
+  <text x="207" y="243" text-anchor="middle" class="sm b">Rank 2</text>
+  <text x="207" y="260" text-anchor="middle" class="sm">Chunks: [a2, b2, c2, d2]</text>
+
+  <!-- GPU 3 left -->
+  <rect x="30" y="140" width="115" height="42" rx="4" class="white"/>
+  <text x="87" y="158" text-anchor="middle" class="sm b">Rank 3</text>
+  <text x="87" y="175" text-anchor="middle" class="sm">Chunks: [a3, b3, c3, d3]</text>
+
+  <!-- Ring arrows for Reduce-Scatter -->
+  <path d="M 265 80 Q 320 80 327 135" class="edge"/>
+  <path d="M 327 185 Q 320 240 265 245" class="edge"/>
+  <path d="M 150 245 Q 95 240 87 185" class="edge"/>
+  <path d="M 87 135 Q 95 80 150 80" class="edge"/>
+
+  <text x="207" y="295" text-anchor="middle" class="sm b">Sent: (N - 1) * (S / N) bytes</text>
+  <text x="207" y="310" text-anchor="middle" class="sm">Each GPU holds 1 fully reduced chunk</text>
+
+  <!-- Right: Phase 2 All-Gather -->
+  <rect x="425" y="15" width="375" height="300" rx="6" class="gray"/>
+  <text x="612" y="40" text-anchor="middle" class="b">Phase 2: All-Gather (N-1 steps)</text>
+
+  <!-- 4 GPUs in a circle/ring -->
+  <!-- GPU 0 top -->
+  <rect x="555" y="55" width="115" height="42" rx="4" class="green"/>
+  <text x="612" y="73" text-anchor="middle" class="sm b">Rank 0</text>
+  <text x="612" y="90" text-anchor="middle" class="sm">Has: Sum(a)</text>
+
+  <!-- GPU 1 right -->
+  <rect x="675" y="140" width="115" height="42" rx="4" class="green"/>
+  <text x="732" y="158" text-anchor="middle" class="sm b">Rank 1</text>
+  <text x="732" y="175" text-anchor="middle" class="sm">Has: Sum(b)</text>
+
+  <!-- GPU 2 bottom -->
+  <rect x="555" y="225" width="115" height="42" rx="4" class="green"/>
+  <text x="612" y="243" text-anchor="middle" class="sm b">Rank 2</text>
+  <text x="612" y="260" text-anchor="middle" class="sm">Has: Sum(c)</text>
+
+  <!-- GPU 3 left -->
+  <rect x="435" y="140" width="115" height="42" rx="4" class="green"/>
+  <text x="492" y="158" text-anchor="middle" class="sm b">Rank 3</text>
+  <text x="492" y="175" text-anchor="middle" class="sm">Has: Sum(d)</text>
+
+  <!-- Ring arrows for All-Gather -->
+  <path d="M 670 80 Q 725 80 732 135" class="edge"/>
+  <path d="M 732 185 Q 725 240 670 245" class="edge"/>
+  <path d="M 555 245 Q 500 240 492 185" class="edge"/>
+  <path d="M 492 135 Q 500 80 555 80" class="edge"/>
+
+  <text x="612" y="295" text-anchor="middle" class="sm b">Sent: (N - 1) * (S / N) bytes</text>
+  <text x="612" y="310" text-anchor="middle" class="sm">All GPUs receive all reduced chunks</text>
+
+  <!-- Formula Summary Box -->
+  <rect x="140" y="328" width="540" height="42" rx="4" class="yellow"/>
+  <text x="410" y="347" text-anchor="middle" class="b">Total Data Transferred per GPU = 2 * (N - 1) / N * S  (approaches 2S as N grows)</text>
+  <text x="410" y="363" text-anchor="middle" class="sm">For 8B model (S = 16.06 GB BF16 grads): N=8 sends 28.1 GB; N=256 sends 32.0 GB</text>
+</svg>

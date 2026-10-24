@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Heuristic Quality Filters and Decision Thresholds</text>
+  <text x="25" y="48" class="sm" fill="#555">Rule-based filtering criteria adapted from MassiveWeb, RefinedWeb, and FineWeb pipelines</text>
+
+  <!-- Filter 1: Document & Word Length -->
+  <rect x="25" y="70" width="245" height="110" rx="6" class="gray"/>
+  <text x="35" y="93" class="b">1. Length Bounds</text>
+  <text x="35" y="112" class="sm">• Word count: 50 ≤ words ≤ 100,000</text>
+  <text x="35" y="130" class="sm">• Mean word length: 3.0 to 10.0 chars</text>
+  <text x="35" y="148" class="sm">• Filters SEO snippets and machine</text>
+  <text x="35" y="164" class="sm">  dumps with no sentence structure</text>
+
+  <!-- Filter 2: Symbol to Word Ratio -->
+  <rect x="285" y="70" width="245" height="110" rx="6" class="gray"/>
+  <text x="295" y="93" class="b">2. Symbol Ratios</text>
+  <text x="295" y="112" class="sm">• Symbol-to-word ratio &lt; 0.15</text>
+  <text x="295" y="130" class="sm">• Ellipsis line ratio &lt; 0.30</text>
+  <text x="295" y="148" class="sm">• Bullet point line ratio &lt; 0.80</text>
+  <text x="295" y="164" class="sm">• Drops navigation menus &amp; logs</text>
+
+  <!-- Filter 3: Repetition Filters -->
+  <rect x="545" y="70" width="250" height="110" rx="6" class="gray"/>
+  <text x="555" y="93" class="b">3. Repetition Detection</text>
+  <text x="555" y="112" class="sm">• Top char 2-gram ratio &lt; 0.20</text>
+  <text x="555" y="130" class="sm">• Top char 3-gram ratio &lt; 0.18</text>
+  <text x="555" y="148" class="sm">• Duplicate line char fraction &lt; 0.30</text>
+  <text x="555" y="164" class="sm">• Eliminates scraping loops</text>
+
+  <!-- Filter 4: Language & Stopwords -->
+  <rect x="25" y="195" width="245" height="105" rx="6" class="gray"/>
+  <text x="35" y="218" class="b">4. Stopword Density</text>
+  <text x="35" y="237" class="sm">• Stopword count ≥ 2 unique words</text>
+  <text x="35" y="255" class="sm">• At least 5% stopword tokens</text>
+  <text x="35" y="273" class="sm">• Rejects raw keyword lists &amp;</text>
+  <text x="35" y="289" class="sm">  cryptographic hash dumps</text>
+
+  <!-- Filter 5: Formatting & Boilerplate -->
+  <rect x="285" y="195" width="245" height="105" rx="6" class="gray"/>
+  <text x="295" y="218" class="b">5. Terminal Punctuation</text>
+  <text x="295" y="237" class="sm">• Lines ending in punct ≥ 30%</text>
+  <text x="295" y="255" class="sm">• Uppercase character ratio &lt; 0.40</text>
+  <text x="295" y="273" class="sm">• Removes screaming titles, table of</text>
+  <text x="295" y="289" class="sm">  contents, and URL lists</text>
+
+  <!-- Summary Card -->
+  <rect x="545" y="195" width="250" height="105" rx="6" class="orange"/>
+  <text x="555" y="218" class="b">Filter Execution Order</text>
+  <text x="555" y="237" class="sm">• Fast checks first (length, symbols)</text>
+  <text x="555" y="255" class="sm">• Heavy checks later (n-grams, LSH)</text>
+  <text x="555" y="273" class="sm">• Drops 40%–50% of noisy web docs</text>
+  <text x="555" y="289" class="sm">• Protects valid code and LaTeX</text>
+</svg>

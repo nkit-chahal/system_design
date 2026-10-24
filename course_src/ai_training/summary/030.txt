@@ -1,0 +1,7 @@
+center: Cluster Networking
+branch: Node vs Network | intra node nvlink mesh | inter node infiniband rdma | gpudirect bypasses host memory
+branch: NCCL Collectives | all reduce and all gather | reduce scatter and all to all | ring traffic scales two x
+branch: Benchmark Metrics | algorithm perceived throughput | bus normalized link utilization | saturation above sixty four mb
+branch: Sizing And Latency | layer weight all gather | one millisecond on nvlink | ten milliseconds on infiniband
+branch: Stragglers And Tuning | synchronous collective barrier stalls | tail latency hurts utilization | nccl debug env variables
+branch: Topology Decision | hybrid sharded data parallelism | intra node fsdp sharding | inter node gradient reduction

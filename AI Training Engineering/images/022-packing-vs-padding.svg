@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <pattern id="padHatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="8" stroke="#aaa" stroke-width="1.5"/>
+    </pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .pad{fill:url(#padHatch);stroke:#999;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Batch Formatting: Sequence Padding versus Sequence Packing</text>
+  <text x="25" y="48" class="sm" fill="#555">Padding wastes compute on pad tokens; packing concatenates dialogues with attention boundary masks</text>
+
+  <!-- Panel 1: Sequence Padding (Wasted Compute) -->
+  <rect x="25" y="70" width="770" height="110" rx="6" class="gray"/>
+  <text x="40" y="93" class="b">1. Standard Padding: Fixed Context Matrix (e.g., 4,096 tokens)</text>
+
+  <!-- Seq 1: 1200 real, rest pad -->
+  <text x="40" y="120" class="sm b">Seq 1:</text>
+  <rect x="90" y="106" width="180" height="20" class="blue"/>
+  <text x="180" y="121" text-anchor="middle" class="sm">Real Tokens (1,200)</text>
+  <rect x="270" y="106" width="420" height="20" class="pad"/>
+  <text x="480" y="121" text-anchor="middle" class="sm" fill="#555">[PAD] Tokens (2,896) — Wasted FLOPs</text>
+
+  <!-- Seq 2: 2800 real, rest pad -->
+  <text x="40" y="152" class="sm b">Seq 2:</text>
+  <rect x="90" y="138" width="380" height="20" class="orange"/>
+  <text x="280" y="153" text-anchor="middle" class="sm">Real Tokens (2,800)</text>
+  <rect x="470" y="138" width="220" height="20" class="pad"/>
+  <text x="580" y="153" text-anchor="middle" class="sm" fill="#555">[PAD] (1,296)</text>
+
+  <text x="700" y="136" class="sm b" fill="#c00000">45% Wasted</text>
+
+  <!-- Panel 2: Sequence Packing (Zero Waste) -->
+  <rect x="25" y="195" width="770" height="125" rx="6" class="gray"/>
+  <text x="40" y="218" class="b">2. Sequence Packing: Continuous Concatenation with Boundary Mask</text>
+
+  <!-- Packed buffer -->
+  <text x="40" y="252" class="sm b">Packed:</text>
+  <rect x="90" y="238" width="160" height="24" class="blue"/>
+  <text x="170" y="255" text-anchor="middle" class="sm">Conv A (1,100)</text>
+
+  <rect x="250" y="238" width="4" height="24" fill="#000"/>
+
+  <rect x="254" y="238" width="210" height="24" class="orange"/>
+  <text x="359" y="255" text-anchor="middle" class="sm">Conv B (1,500)</text>
+
+  <rect x="464" y="238" width="4" height="24" fill="#000"/>
+
+  <rect x="468" y="238" width="222" height="24" class="green"/>
+  <text x="579" y="255" text-anchor="middle" class="sm">Conv C (1,496)</text>
+
+  <text x="700" y="255" class="sm b" fill="#274e13">100% Utilized</text>
+
+  <!-- Callout note on block attention -->
+  <text x="40" y="286" class="sm b">Implementation Requirement:</text>
+  <text x="40" y="304" class="sm">Must supply cumulative sequence lengths (<tspan class="b">cu_seqlens</tspan>) or 2D block attention masks to FlashAttention</text>
+  <text x="40" y="320" class="sm">to prevent tokens in Conversation B from attending to tokens in Conversation A.</text>
+</svg>

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Adapter Lifecycle: Training to Serving (Merged vs Multi-Tenant)</text>
+  <text x="25" y="48" class="sm" fill="#555">Bridging post-training artifacts to production inference engines (link to Inference Lesson 37)</text>
+
+  <!-- Left: Training Output -->
+  <rect x="25" y="70" width="220" height="180" rx="6" class="gray"/>
+  <text x="135" y="94" text-anchor="middle" class="b">Training Output (PEFT)</text>
+  <rect x="40" y="108" width="190" height="40" rx="4" class="blue"/>
+  <text x="135" y="133" text-anchor="middle" class="sm">Base Model (16 GB BF16)</text>
+  <rect x="40" y="156" width="190" height="40" rx="4" class="orange"/>
+  <text x="135" y="176" text-anchor="middle" class="b sm">Adapter Weights (80 MiB)</text>
+  <text x="135" y="191" text-anchor="middle" class="sm">adapter_model.safetensors</text>
+  <text x="135" y="235" text-anchor="middle" class="sm">Lightweight artifact (42M params)</text>
+
+  <!-- Arrow Fork -->
+  <path d="M245 160 L310 160 L310 115 L360 115" class="edge"/>
+  <path d="M245 160 L310 160 L310 205 L360 205" class="edge"/>
+
+  <!-- Right Top: Merged Single-Tenant Serving -->
+  <rect x="360" y="70" width="435" height="90" rx="6" class="green"/>
+  <text x="375" y="93" class="b">Option A: Merged Single-Tenant Serving</text>
+  <text x="375" y="113" class="sm">• Fold weights offline: W = W0 + (alpha/r)*B*A</text>
+  <text x="375" y="131" class="sm">• Zero runtime latency overhead; standard vLLM / SGLang deployment</text>
+  <text x="375" y="149" class="sm">• Drawback: requires 1 full 16 GB model replica per customer/task</text>
+
+  <!-- Right Bottom: Unmerged Multi-Tenant Serving -->
+  <rect x="360" y="170" width="435" height="95" rx="6" class="purple"/>
+  <text x="375" y="193" class="b">Option B: Unmerged Multi-LoRA Serving (Inference Lesson 37)</text>
+  <text x="375" y="213" class="sm">• Keep 1 base model in memory; dynamically activate adapters per request</text>
+  <text x="375" y="231" class="sm">• Uses specialized kernels (Punica SGMV, S-LoRA) to batch multiple adapters</text>
+  <text x="375" y="249" class="sm">• Result: 1 GPU serves 500 customer adapters instead of 500 GPUs</text>
+
+  <!-- Bottom Banner -->
+  <rect x="25" y="280" width="770" height="52" rx="4" class="gray"/>
+  <text x="40" y="301" class="sm b">Engineering Decision Rule:</text>
+  <text x="40" y="321" class="sm">Merge adapters for dedicated high-traffic models; keep unmerged for multi-tenant fleets with long-tail traffic.</text>
+</svg>

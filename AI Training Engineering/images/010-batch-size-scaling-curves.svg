@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="320" viewBox="0 0 800 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .lg { font-size: 16px; }
+    .b { font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .yellow { fill: #fff2cc; stroke: #d6b656; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #000; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Main Title with Illustrative tag -->
+  <text x="400" y="24" text-anchor="middle" class="lg b">Optimization Dynamics: Critical Batch Size and Scaling Limits (Illustrative)</text>
+
+  <!-- Left Plot: Step Throughput vs Batch Size -->
+  <rect x="40" y="45" width="345" height="235" rx="5" class="gray"/>
+  <text x="212" y="68" text-anchor="middle" class="b">Training Speedup vs Batch Size</text>
+
+  <!-- Axes -->
+  <path d="M 85 235 L 355 235" class="edge"/>
+  <path d="M 85 235 L 85 85" class="edge"/>
+  <text x="355" y="270" text-anchor="end" class="sm">Global Batch Size B</text>
+  <text x="75" y="90" text-anchor="end" class="sm">Speedup</text>
+
+  <!-- Ideal vs Actual Curve -->
+  <!-- Ideal linear dashed line -->
+  <path d="M 85 235 L 220 120" stroke="#888" stroke-width="1.5" stroke-dasharray="4 4" fill="none"/>
+  <text x="145" y="165" class="sm" fill="#666">Ideal linear</text>
+
+  <!-- Real curve bending at Bcrit -->
+  <path d="M 85 235 Q 180 145 220 135 T 340 125" stroke="#d79b00" stroke-width="2.5" fill="none"/>
+
+  <!-- Critical batch marker -->
+  <path d="M 220 235 L 220 135" stroke="#b85450" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <circle cx="220" cy="135" r="4" fill="#b85450"/>
+  <text x="220" y="250" text-anchor="middle" class="sm b" fill="#b85450">B_crit (~4M tokens)</text>
+
+  <rect x="90" y="100" width="100" height="24" rx="3" class="green"/>
+  <text x="140" y="116" text-anchor="middle" class="sm">Linear scaling</text>
+
+  <rect x="235" y="95" width="135" height="24" rx="3" class="red"/>
+  <text x="302" y="111" text-anchor="middle" class="sm">Diminishing returns</text>
+
+  <!-- Right Plot: Optimization Steps to Convergence -->
+  <rect x="415" y="45" width="345" height="235" rx="5" class="gray"/>
+  <text x="587" y="68" text-anchor="middle" class="b">Total Optimizer Steps to Converge</text>
+
+  <!-- Axes -->
+  <path d="M 460 235 L 730 235" class="edge"/>
+  <path d="M 460 235 L 460 85" class="edge"/>
+  <text x="730" y="270" text-anchor="end" class="sm">Global Batch Size B</text>
+  <text x="450" y="90" text-anchor="end" class="sm">Steps</text>
+
+  <!-- Steps curve: 1/B curve dropping then flattening -->
+  <path d="M 475 95 Q 520 180 595 210 T 720 220" stroke="#6c8ebf" stroke-width="2.5" fill="none"/>
+
+  <!-- Critical batch marker -->
+  <path d="M 595 235 L 595 210" stroke="#b85450" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <circle cx="595" cy="210" r="4" fill="#b85450"/>
+  <text x="595" y="250" text-anchor="middle" class="sm b" fill="#b85450">B_crit (~4M tokens)</text>
+
+  <text x="500" y="135" class="sm b" fill="#2b5797">Steps decrease 1/B</text>
+  <text x="615" y="185" class="sm b" fill="#666">Minimum steps floor</text>
+
+  <!-- Bottom note -->
+  <rect x="40" y="290" width="720" height="24" rx="3" class="white"/>
+  <text x="400" y="306" text-anchor="middle" class="sm">McCandlish et al. (2018): Past B_crit, gradient noise is eliminated and sample efficiency drops</text>
+</svg>

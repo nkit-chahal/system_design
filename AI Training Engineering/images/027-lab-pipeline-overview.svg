@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Step 1: Base Model & Eval -->
+  <rect x="25" y="40" width="105" height="110" rx="6" class="purple"/>
+  <text x="35" y="65" class="b">Base Model</text>
+  <text x="35" y="85" class="sm">Qwen / Llama</text>
+  <rect x="35" y="100" width="85" height="35" rx="4" class="white"/>
+  <text x="40" y="122" class="sm">Step 1: Eval</text>
+  <path d="M130,95 L155,95" class="edge"/>
+
+  <!-- Step 2: LoRA SFT -->
+  <rect x="160" y="40" width="135" height="110" rx="6" class="orange"/>
+  <text x="175" y="65" class="b">Step 2: LoRA SFT</text>
+  <text x="175" y="85" class="sm">Assistant-only loss</text>
+  <text x="175" y="103" class="sm">SmolTalk / 50k conv</text>
+  <rect x="175" y="115" width="105" height="25" rx="3" class="white"/>
+  <text x="182" y="132" class="sm">Rank r=16, alpha=32</text>
+  <path d="M295,95 L320,95" class="edge"/>
+
+  <!-- Step 3: SFT Eval -->
+  <rect x="325" y="40" width="115" height="110" rx="6" class="yellow"/>
+  <text x="335" y="65" class="b">Step 3: Eval</text>
+  <text x="335" y="85" class="sm">Verify formatting</text>
+  <text x="335" y="103" class="sm">Test set accuracy</text>
+  <rect x="335" y="115" width="95" height="25" rx="3" class="white"/>
+  <text x="340" y="132" class="sm">Check baseline</text>
+  <path d="M440,95 L465,95" class="edge"/>
+
+  <!-- Step 4: LoRA DPO -->
+  <rect x="470" y="40" width="140" height="110" rx="6" class="blue"/>
+  <text x="485" y="65" class="b">Step 4: LoRA DPO</text>
+  <text x="485" y="85" class="sm">Implicit ref model</text>
+  <text x="485" y="103" class="sm">UltraFeedback pairs</text>
+  <rect x="485" y="115" width="110" height="25" rx="3" class="white"/>
+  <text x="495" y="132" class="sm">beta=0.1, lr=5e-6</text>
+  <path d="M610,95 L635,95" class="edge"/>
+
+  <!-- Step 5 & 6: Eval & Serving -->
+  <rect x="640" y="40" width="155" height="110" rx="6" class="green"/>
+  <text x="650" y="65" class="b">Step 5 &amp; 6: Merge</text>
+  <text x="650" y="85" class="sm">Win-rate judge eval</text>
+  <text x="650" y="103" class="sm">merge_and_unload()</text>
+  <rect x="650" y="115" width="135" height="25" rx="3" class="white"/>
+  <text x="655" y="132" class="sm">Serve with vLLM</text>
+
+  <!-- Bottom: Hardware path box -->
+  <rect x="25" y="180" width="370" height="115" rx="6" class="gray"/>
+  <text x="40" y="205" class="b">Small Path (Single Consumer GPU / Colab):</text>
+  <text x="40" y="225" class="sm">• Model: Qwen2.5-0.5B-Instruct or 1.5B-Instruct (BF16 / FP16)</text>
+  <text x="40" y="245" class="sm">• Dataset: 5,000 SmolTalk SFT + 2,500 UltraFeedback DPO</text>
+  <text x="40" y="265" class="sm">• Fits within 8 GB to 16 GB VRAM; zero cloud cost</text>
+
+  <rect x="425" y="180" width="370" height="115" rx="6" class="gray"/>
+  <text x="440" y="205" class="b">Full Path (Enterprise 8x H100 Node):</text>
+  <text x="440" y="225" class="sm">• Model: Llama 3.1 8B Instruct (BF16)</text>
+  <text x="440" y="245" class="sm">• Dataset: 50,000 conversations SFT + 20,000 preference pairs</text>
+  <text x="440" y="265" class="sm">• Run time: ~3.5 hours; cost: ~$84 (assume $3.00/H100-hour)</text>
+</svg>

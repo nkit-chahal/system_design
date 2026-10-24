@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="340" viewBox="0 0 800 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .lg { font-size: 16px; }
+    .b { font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .yellow { fill: #fff2cc; stroke: #d6b656; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #000; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Global Batch -->
+  <rect x="250" y="15" width="300" height="40" rx="5" class="purple"/>
+  <text x="400" y="40" text-anchor="middle" class="b">Global Batch B (512 sequences)</text>
+
+  <!-- Split arrows -->
+  <path d="M 300 55 L 120 90" class="edge"/>
+  <path d="M 370 55 L 300 90" class="edge"/>
+  <path d="M 430 55 L 500 90" class="edge"/>
+  <path d="M 500 55 L 680 90" class="edge"/>
+
+  <!-- GPU 0 -->
+  <rect x="30" y="95" width="170" height="135" rx="5" class="gray"/>
+  <text x="115" y="115" text-anchor="middle" class="b">GPU 0 (Rank 0)</text>
+  <rect x="45" y="125" width="140" height="24" rx="3" class="blue"/>
+  <text x="115" y="141" text-anchor="middle" class="sm">Micro-batch B_0</text>
+  <rect x="45" y="155" width="140" height="24" rx="3" class="orange"/>
+  <text x="115" y="171" text-anchor="middle" class="sm">Model Replica W</text>
+  <rect x="45" y="185" width="140" height="24" rx="3" class="yellow"/>
+  <text x="115" y="201" text-anchor="middle" class="sm">Local Grad g_0</text>
+
+  <!-- GPU 1 -->
+  <rect x="220" y="95" width="170" height="135" rx="5" class="gray"/>
+  <text x="305" y="115" text-anchor="middle" class="b">GPU 1 (Rank 1)</text>
+  <rect x="235" y="125" width="140" height="24" rx="3" class="blue"/>
+  <text x="305" y="141" text-anchor="middle" class="sm">Micro-batch B_1</text>
+  <rect x="235" y="155" width="140" height="24" rx="3" class="orange"/>
+  <text x="305" y="171" text-anchor="middle" class="sm">Model Replica W</text>
+  <rect x="235" y="185" width="140" height="24" rx="3" class="yellow"/>
+  <text x="305" y="201" text-anchor="middle" class="sm">Local Grad g_1</text>
+
+  <!-- GPU 2 -->
+  <rect x="410" y="95" width="170" height="135" rx="5" class="gray"/>
+  <text x="495" y="115" text-anchor="middle" class="b">GPU 2 (Rank 2)</text>
+  <rect x="425" y="125" width="140" height="24" rx="3" class="blue"/>
+  <text x="495" y="141" text-anchor="middle" class="sm">Micro-batch B_2</text>
+  <rect x="425" y="155" width="140" height="24" rx="3" class="orange"/>
+  <text x="495" y="171" text-anchor="middle" class="sm">Model Replica W</text>
+  <rect x="425" y="185" width="140" height="24" rx="3" class="yellow"/>
+  <text x="495" y="201" text-anchor="middle" class="sm">Local Grad g_2</text>
+
+  <!-- GPU 3 -->
+  <rect x="600" y="95" width="170" height="135" rx="5" class="gray"/>
+  <text x="685" y="115" text-anchor="middle" class="b">GPU 3 (Rank 3)</text>
+  <rect x="615" y="125" width="140" height="24" rx="3" class="blue"/>
+  <text x="685" y="141" text-anchor="middle" class="sm">Micro-batch B_3</text>
+  <rect x="615" y="155" width="140" height="24" rx="3" class="orange"/>
+  <text x="685" y="171" text-anchor="middle" class="sm">Model Replica W</text>
+  <rect x="615" y="185" width="140" height="24" rx="3" class="yellow"/>
+  <text x="685" y="201" text-anchor="middle" class="sm">Local Grad g_3</text>
+
+  <!-- Arrows to All-Reduce -->
+  <path d="M 115 230 L 115 255 L 230 255" class="edge"/>
+  <path d="M 305 230 L 305 250" class="edge"/>
+  <path d="M 495 230 L 495 250" class="edge"/>
+  <path d="M 685 230 L 685 255 L 570 255" class="edge"/>
+
+  <!-- All-Reduce collective -->
+  <rect x="240" y="245" width="320" height="36" rx="5" class="purple"/>
+  <text x="400" y="268" text-anchor="middle" class="b">All-Reduce (Average Gradients: g_avg)</text>
+
+  <!-- Update arrows back to weights -->
+  <path d="M 270 281 L 115 305 L 115 235" class="edge"/>
+  <path d="M 360 281 L 305 305 L 305 235" class="edge"/>
+  <path d="M 440 281 L 495 305 L 495 235" class="edge"/>
+  <path d="M 530 281 L 685 305 L 685 235" class="edge"/>
+
+  <!-- Legend -->
+  <rect x="50" y="318" width="14" height="14" rx="2" class="blue"/>
+  <text x="70" y="330" class="sm">Data slice</text>
+  <rect x="180" y="318" width="14" height="14" rx="2" class="orange"/>
+  <text x="200" y="330" class="sm">Model parameters</text>
+  <rect x="340" y="318" width="14" height="14" rx="2" class="yellow"/>
+  <text x="360" y="330" class="sm">Local gradients</text>
+  <rect x="490" y="318" width="14" height="14" rx="2" class="purple"/>
+  <text x="510" y="330" class="sm">Collective sync</text>
+  <rect x="640" y="318" width="14" height="14" rx="2" class="green"/>
+  <text x="660" y="330" class="sm">Identical step</text>
+</svg>

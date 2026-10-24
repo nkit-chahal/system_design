@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="360" viewBox="0 0 840 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Training Actor Worker (PyTorch) -->
+  <rect x="30" y="80" width="220" height="230" rx="8" class="orange"/>
+  <text x="45" y="108" class="b">Training Engine</text>
+  <text x="45" y="128" class="sm">PyTorch FSDP / Megatron</text>
+  <rect x="45" y="145" width="190" height="40" rx="4" class="white"/>
+  <text x="55" y="170" class="sm">Forward &amp; Backward Pass</text>
+  <rect x="45" y="195" width="190" height="40" rx="4" class="white"/>
+  <text x="55" y="220" class="sm">Optimizer Update (AdamW)</text>
+  <rect x="45" y="245" width="190" height="50" rx="4" class="gray"/>
+  <text x="55" y="265" class="sm">MFU: 35-45%</text>
+  <text x="55" y="285" class="sm">Compute-bound phase</text>
+
+  <!-- Weight Sync Arrow at Top -->
+  <path d="M250,115 L325,115" class="edge"/>
+  <rect x="250" y="70" width="75" height="38" rx="4" class="yellow"/>
+  <text x="255" y="86" class="sm b">Sync</text>
+  <text x="255" y="101" class="sm">18ms NVLink</text>
+
+  <!-- Generation Worker (vLLM Engine) -->
+  <rect x="330" y="80" width="230" height="230" rx="8" class="blue"/>
+  <text x="345" y="108" class="b">Rollout Engine (vLLM)</text>
+  <text x="345" y="128" class="sm">PagedAttention + Continuous Batch</text>
+  <rect x="345" y="145" width="200" height="40" rx="4" class="white"/>
+  <text x="355" y="170" class="sm">Generate G=8 per prompt</text>
+  <rect x="345" y="195" width="200" height="40" rx="4" class="white"/>
+  <text x="355" y="220" class="sm">KV Cache Management</text>
+  <rect x="345" y="245" width="200" height="50" rx="4" class="red"/>
+  <text x="355" y="265" class="sm b">Bottleneck: &gt;80% Wall Time</text>
+  <text x="355" y="285" class="sm">Memory-bandwidth bound decode</text>
+
+  <!-- Rollout Completions to Verifier -->
+  <path d="M560,195 L595,195" class="edge"/>
+  <rect x="562" y="165" width="30" height="25" rx="3" class="purple"/>
+  <text x="566" y="182" class="sm">o_i</text>
+
+  <!-- Verifiable Evaluation Environment -->
+  <rect x="600" y="80" width="210" height="230" rx="8" class="green"/>
+  <text x="615" y="108" class="b">Reward Verifiers</text>
+  <text x="615" y="128" class="sm">Isolated CPU Sandbox</text>
+  <rect x="615" y="145" width="180" height="40" rx="4" class="white"/>
+  <text x="625" y="168" class="sm">Python / SymPy Math</text>
+  <rect x="615" y="195" width="180" height="40" rx="4" class="white"/>
+  <text x="625" y="218" class="sm">Unit Tests Execution</text>
+  <rect x="615" y="245" width="180" height="50" rx="4" class="white"/>
+  <text x="625" y="265" class="sm b">Group Advantage A_i</text>
+  <text x="625" y="285" class="sm">A_i = (r_i - mean)/std</text>
+
+  <!-- Feedback Arrow from Verifier to Training Engine -->
+  <path d="M705,310 L705,335 L140,335 L140,310" class="edge"/>
+  <rect x="370" y="322" width="150" height="26" rx="4" class="purple"/>
+  <text x="380" y="340" class="sm">Group Advantages {A_i}</text>
+</svg>

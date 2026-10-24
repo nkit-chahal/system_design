@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="25" y="30" class="lg b">The Quality Filtering Spectrum: Heuristics to Neural Classifiers</text>
+  <text x="25" y="52" class="sm" fill="#555">Balancing throughput, semantic precision, and compute cost across three filtering tiers</text>
+
+  <!-- Tier 1: Heuristic Filters -->
+  <rect x="25" y="80" width="240" height="225" rx="5" class="blue"/>
+  <text x="145" y="105" class="b mid">Tier 1: Heuristic Rules</text>
+  <text x="40" y="132" class="sm">• Gopher bounds (50–100k words)</text>
+  <text x="40" y="152" class="sm">• Mean word length (3–10 chars)</text>
+  <text x="40" y="172" class="sm">• Symbol ratio &lt; 0.10</text>
+  <text x="40" y="192" class="sm">• Common stopword presence</text>
+  <text x="40" y="212" class="sm">• Line-start bullet filters</text>
+  <rect x="40" y="235" width="210" height="50" rx="3" class="white"/>
+  <text x="145" y="255" class="sm b mid" fill="#1b3e6b">Throughput: &gt;500 MB/s / core</text>
+  <text x="145" y="273" class="sm mid" fill="#555">Prunes 40–50% of raw crawl</text>
+
+  <line x1="265" y1="192" x2="295" y2="192" class="edge"/>
+
+  <!-- Tier 2: Perplexity Filters -->
+  <rect x="300" y="80" width="240" height="225" rx="5" class="orange"/>
+  <text x="420" y="105" class="b mid">Tier 2: Perplexity Filters</text>
+  <text x="315" y="132" class="sm">• KenLM 5-gram language model</text>
+  <text x="315" y="152" class="sm">• Trained on clean target corpus</text>
+  <text x="315" y="172" class="sm">  (e.g., curated Wikipedia)</text>
+  <text x="315" y="192" class="sm">• Scores cross-entropy perplexity</text>
+  <text x="315" y="212" class="sm">• Rejects machine-translated junk</text>
+  <rect x="315" y="235" width="210" height="50" rx="3" class="white"/>
+  <text x="420" y="255" class="sm b mid" fill="#7d4b00">Throughput: ~80 MB/s / core</text>
+  <text x="420" y="273" class="sm mid" fill="#555">CCNet style line/doc scoring</text>
+
+  <line x1="540" y1="192" x2="570" y2="192" class="edge"/>
+
+  <!-- Tier 3: Model-Based Classifiers -->
+  <rect x="575" y="80" width="220" height="225" rx="5" class="green"/>
+  <text x="685" y="105" class="b mid">Tier 3: Edu Classifiers</text>
+  <text x="590" y="132" class="sm">• FineWeb-Edu classifier</text>
+  <text x="590" y="152" class="sm">• Llama-3-70B synthetic score</text>
+  <text x="590" y="172" class="sm">  (0 to 5 educational quality)</text>
+  <text x="590" y="192" class="sm">• Distilled to Snowflake-arctic</text>
+  <text x="590" y="212" class="sm">• Keeps high-reasoning text</text>
+  <rect x="590" y="235" width="190" height="50" rx="3" class="white"/>
+  <text x="685" y="255" class="sm b mid" fill="#2d572c">GPU-accelerated inference</text>
+  <text x="685" y="273" class="sm mid" fill="#555">Scores &gt;= 3 yield top evals</text>
+</svg>

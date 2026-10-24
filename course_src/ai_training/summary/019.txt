@@ -1,0 +1,7 @@
+center: Tokenizers
+branch: Subword Tokenization Algorithms | byte pair encoding | byte level bpe | unigram and wordpiece
+branch: Pre Tokenization Regex | isolates punctuation marks | groups digits uniformly | prevents degenerate merges
+branch: Vocabulary Size Tradeoffs | compression saves context length | embedding matrix parameter tax | unchunked logits memory spike
+branch: Multilingual Fertility | closing non latin disparity | tokens per word equity | lower serving latency
+branch: Chat Templates And Roles | begin of text token | structured header ids | end of turn delimiters
+branch: Architecture Selection | reuse llama three tokenizer | ecosystem tool compatibility | optimal pretraining choice

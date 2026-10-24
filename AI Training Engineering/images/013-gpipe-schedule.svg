@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="390" viewBox="0 0 820 390" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.xs{font-size:11px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .fwd{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .bwd{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .bubble{fill:#fafafa;stroke:#ddd;stroke-width:1;stroke-dasharray:3 3}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">GPipe Schedule: Forward Sweep, Pipeline Flush, and Backward Sweep</text>
+  <text x="25" y="44" class="sm" fill="#555">p = 4 stages, m = 8 micro-batches. Bubble fraction = (p − 1) / (m + p − 1) ≈ 27.3%. Peak activation memory: O(m) = 8.</text>
+
+  <!-- Left stage labels -->
+  <text x="25" y="100" class="b">Stage 0</text>
+  <text x="25" y="140" class="b">Stage 1</text>
+  <text x="25" y="180" class="b">Stage 2</text>
+  <text x="25" y="220" class="b">Stage 3</text>
+
+  <!-- Memory highlight bracket for Stage 0 -->
+  <path d="M 110 78 L 110 70 L 616 70 L 616 78" fill="none" stroke="#d79b00" stroke-width="1.5"/>
+  <text x="363" y="65" text-anchor="middle" class="xs" fill="#b45f06"><tspan class="b">Activation Retention Window:</tspan> Stage 0 must hold all m = 8 micro-batch activations until B8 starts</text>
+
+  <!-- Stage 0 -->
+  <rect x="110" y="82" width="44" height="28" rx="3" class="fwd"/><text x="132" y="101" text-anchor="middle" class="xs">F1</text>
+  <rect x="156" y="82" width="44" height="28" rx="3" class="fwd"/><text x="178" y="101" text-anchor="middle" class="xs">F2</text>
+  <rect x="202" y="82" width="44" height="28" rx="3" class="fwd"/><text x="224" y="101" text-anchor="middle" class="xs">F3</text>
+  <rect x="248" y="82" width="44" height="28" rx="3" class="fwd"/><text x="270" y="101" text-anchor="middle" class="xs">F4</text>
+  <rect x="294" y="82" width="44" height="28" rx="3" class="fwd"/><text x="316" y="101" text-anchor="middle" class="xs">F5</text>
+  <rect x="340" y="82" width="44" height="28" rx="3" class="fwd"/><text x="362" y="101" text-anchor="middle" class="xs">F6</text>
+  <rect x="386" y="82" width="44" height="28" rx="3" class="fwd"/><text x="408" y="101" text-anchor="middle" class="xs">F7</text>
+  <rect x="432" y="82" width="44" height="28" rx="3" class="fwd"/><text x="454" y="101" text-anchor="middle" class="xs">F8</text>
+  <!-- Stage 0 Idle: 3 slots -->
+  <rect x="478" y="82" width="136" height="28" rx="3" class="bubble"/>
+  <text x="546" y="100" text-anchor="middle" class="xs" fill="#888">Idle (Bubble)</text>
+  <rect x="616" y="82" width="44" height="28" rx="3" class="bwd"/><text x="638" y="101" text-anchor="middle" class="xs">B8</text>
+  <rect x="662" y="82" width="44" height="28" rx="3" class="bwd"/><text x="684" y="101" text-anchor="middle" class="xs">B7</text>
+  <rect x="708" y="82" width="44" height="28" rx="3" class="bwd"/><text x="730" y="101" text-anchor="middle" class="xs">B6</text>
+  <rect x="754" y="82" width="44" height="28" rx="3" class="bwd"/><text x="776" y="101" text-anchor="middle" class="xs">...</text>
+
+  <!-- Stage 1 -->
+  <rect x="110" y="122" width="44" height="28" rx="3" class="bubble"/><text x="132" y="140" text-anchor="middle" class="xs" fill="#888">Idle</text>
+  <rect x="156" y="122" width="44" height="28" rx="3" class="fwd"/><text x="178" y="141" text-anchor="middle" class="xs">F1</text>
+  <rect x="202" y="122" width="44" height="28" rx="3" class="fwd"/><text x="224" y="141" text-anchor="middle" class="xs">F2</text>
+  <rect x="248" y="122" width="44" height="28" rx="3" class="fwd"/><text x="270" y="141" text-anchor="middle" class="xs">F3</text>
+  <rect x="294" y="122" width="44" height="28" rx="3" class="fwd"/><text x="316" y="141" text-anchor="middle" class="xs">F4</text>
+  <rect x="340" y="122" width="44" height="28" rx="3" class="fwd"/><text x="362" y="141" text-anchor="middle" class="xs">F5</text>
+  <rect x="386" y="122" width="44" height="28" rx="3" class="fwd"/><text x="408" y="141" text-anchor="middle" class="xs">F6</text>
+  <rect x="432" y="122" width="44" height="28" rx="3" class="fwd"/><text x="454" y="141" text-anchor="middle" class="xs">F7</text>
+  <rect x="478" y="122" width="44" height="28" rx="3" class="fwd"/><text x="500" y="141" text-anchor="middle" class="xs">F8</text>
+  <rect x="524" y="122" width="44" height="28" rx="3" class="bubble"/><text x="546" y="140" text-anchor="middle" class="xs" fill="#888">Idle</text>
+  <rect x="570" y="122" width="44" height="28" rx="3" class="bwd"/><text x="592" y="141" text-anchor="middle" class="xs">B8</text>
+  <rect x="616" y="122" width="44" height="28" rx="3" class="bwd"/><text x="638" y="141" text-anchor="middle" class="xs">B7</text>
+  <rect x="662" y="122" width="44" height="28" rx="3" class="bwd"/><text x="684" y="141" text-anchor="middle" class="xs">B6</text>
+  <rect x="708" y="122" width="44" height="28" rx="3" class="bwd"/><text x="730" y="141" text-anchor="middle" class="xs">B5</text>
+
+  <!-- Stage 2 -->
+  <rect x="110" y="162" width="90" height="28" rx="3" class="bubble"/><text x="155" y="180" text-anchor="middle" class="xs" fill="#888">Idle</text>
+  <rect x="202" y="162" width="44" height="28" rx="3" class="fwd"/><text x="224" y="181" text-anchor="middle" class="xs">F1</text>
+  <rect x="248" y="162" width="44" height="28" rx="3" class="fwd"/><text x="270" y="181" text-anchor="middle" class="xs">F2</text>
+  <rect x="294" y="162" width="44" height="28" rx="3" class="fwd"/><text x="316" y="181" text-anchor="middle" class="xs">F3</text>
+  <rect x="340" y="162" width="44" height="28" rx="3" class="fwd"/><text x="362" y="181" text-anchor="middle" class="xs">F4</text>
+  <rect x="386" y="162" width="44" height="28" rx="3" class="fwd"/><text x="408" y="181" text-anchor="middle" class="xs">F5</text>
+  <rect x="432" y="162" width="44" height="28" rx="3" class="fwd"/><text x="454" y="181" text-anchor="middle" class="xs">F6</text>
+  <rect x="478" y="162" width="44" height="28" rx="3" class="fwd"/><text x="500" y="181" text-anchor="middle" class="xs">F7</text>
+  <rect x="524" y="162" width="44" height="28" rx="3" class="bwd"/><text x="546" y="181" text-anchor="middle" class="xs">B8</text>
+  <rect x="570" y="162" width="44" height="28" rx="3" class="bwd"/><text x="592" y="181" text-anchor="middle" class="xs">B7</text>
+  <rect x="616" y="162" width="44" height="28" rx="3" class="bwd"/><text x="638" y="181" text-anchor="middle" class="xs">B6</text>
+  <rect x="662" y="162" width="44" height="28" rx="3" class="bwd"/><text x="684" y="181" text-anchor="middle" class="xs">B5</text>
+  <rect x="708" y="162" width="44" height="28" rx="3" class="bwd"/><text x="730" y="181" text-anchor="middle" class="xs">B4</text>
+
+  <!-- Stage 3 -->
+  <rect x="110" y="202" width="136" height="28" rx="3" class="bubble"/><text x="178" y="220" text-anchor="middle" class="xs" fill="#888">Idle (Bubble)</text>
+  <rect x="248" y="202" width="44" height="28" rx="3" class="fwd"/><text x="270" y="221" text-anchor="middle" class="xs">F1</text>
+  <rect x="294" y="202" width="44" height="28" rx="3" class="fwd"/><text x="316" y="221" text-anchor="middle" class="xs">F2</text>
+  <rect x="340" y="202" width="44" height="28" rx="3" class="fwd"/><text x="362" y="221" text-anchor="middle" class="xs">F3</text>
+  <rect x="386" y="202" width="44" height="28" rx="3" class="fwd"/><text x="408" y="221" text-anchor="middle" class="xs">F4</text>
+  <rect x="432" y="202" width="44" height="28" rx="3" class="fwd"/><text x="454" y="221" text-anchor="middle" class="xs">F5</text>
+  <rect x="478" y="202" width="44" height="28" rx="3" class="bwd"/><text x="500" y="221" text-anchor="middle" class="xs">B8</text>
+  <rect x="524" y="202" width="44" height="28" rx="3" class="bwd"/><text x="546" y="221" text-anchor="middle" class="xs">B7</text>
+  <rect x="570" y="202" width="44" height="28" rx="3" class="bwd"/><text x="592" y="221" text-anchor="middle" class="xs">B6</text>
+  <rect x="616" y="202" width="44" height="28" rx="3" class="bwd"/><text x="638" y="221" text-anchor="middle" class="xs">B5</text>
+  <rect x="662" y="202" width="44" height="28" rx="3" class="bwd"/><text x="684" y="221" text-anchor="middle" class="xs">B4</text>
+  <rect x="708" y="202" width="44" height="28" rx="3" class="bwd"/><text x="730" y="221" text-anchor="middle" class="xs">B3</text>
+
+  <!-- Bottom Explanatory Boxes -->
+  <rect x="25" y="248" width="375" height="125" rx="4" class="gray"/>
+  <text x="35" y="270" class="b">GPipe Pipeline Bubble:</text>
+  <text x="35" y="292" class="sm">• Startup bubble: (p − 1) forward steps</text>
+  <text x="35" y="312" class="sm">• Drain bubble: (p − 1) backward steps</text>
+  <text x="35" y="332" class="sm">• Total bubble time: (p − 1) × (tF + tB)</text>
+  <text x="35" y="352" class="sm">• Fraction: <tspan class="b">(p − 1) / (m + p − 1)</tspan></text>
+
+  <rect x="420" y="248" width="380" height="125" rx="4" class="gray"/>
+  <text x="430" y="270" class="b">The GPipe Memory Bottleneck:</text>
+  <text x="430" y="292" class="sm">• Forward micro-batches all complete before any</text>
+  <text x="430" y="310" class="sm">  backward step can free them.</text>
+  <text x="430" y="332" class="sm">• Stage 0 peak activation footprint scales as <tspan class="b">O(m)</tspan>.</text>
+  <text x="430" y="352" class="sm">• Increasing m cuts bubble, but causes OOM.</text>
+</svg>

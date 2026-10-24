@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Step Progression across training steps -->
+  <!-- Phase 1: Early RL -->
+  <rect x="30" y="40" width="220" height="240" rx="8" class="gray"/>
+  <text x="45" y="68" class="b">Step 0 - 200: Direct Guess</text>
+  <rect x="45" y="85" width="190" height="60" rx="4" class="red"/>
+  <text x="55" y="108" class="sm">Short outputs (~300 tokens)</text>
+  <text x="55" y="128" class="sm">Fails complex multi-step math</text>
+  <text x="55" y="170" class="sm">• Accuracy: Low (15% AIME)</text>
+  <text x="55" y="195" class="sm">• Fast rollout generation</text>
+  <text x="55" y="220" class="sm">• Minimal test-time compute</text>
+  <rect x="45" y="245" width="190" height="25" rx="3" class="white"/>
+  <text x="60" y="262" class="sm">Output length: ~300 tok</text>
+
+  <!-- Arrow 1 to 2 -->
+  <path d="M255,160 L285,160" class="edge"/>
+
+  <!-- Phase 2: Mid RL -->
+  <rect x="290" y="40" width="230" height="240" rx="8" class="yellow"/>
+  <text x="305" y="68" class="b">Step 500 - 1500: Chain-of-Thought</text>
+  <rect x="305" y="85" width="200" height="60" rx="4" class="purple"/>
+  <text x="315" y="108" class="sm">Exploration of &lt;think&gt; tags</text>
+  <text x="315" y="128" class="sm">Step-by-step reasoning unfolds</text>
+  <text x="315" y="170" class="sm">• Accuracy jumps (40-50%)</text>
+  <text x="315" y="195" class="sm">• Output lengths grow 4x</text>
+  <text x="315" y="220" class="sm">• Rollout phase slows down</text>
+  <rect x="305" y="245" width="200" height="25" rx="3" class="white"/>
+  <text x="320" y="262" class="sm">Output length: ~1,500 tok</text>
+
+  <!-- Arrow 2 to 3 -->
+  <path d="M525,160 L555,160" class="edge"/>
+
+  <!-- Phase 3: Late RL / Aha Moment -->
+  <rect x="560" y="40" width="230" height="240" rx="8" class="green"/>
+  <text x="575" y="68" class="b">Step 2000+: "Aha Moment"</text>
+  <rect x="575" y="85" width="200" height="60" rx="4" class="orange"/>
+  <text x="585" y="108" class="sm b">"Wait, let me rethink..."</text>
+  <text x="585" y="128" class="sm">Autonomous error-correction</text>
+  <text x="585" y="170" class="sm">• Accuracy reaches &gt;70%</text>
+  <text x="585" y="195" class="sm">• Outputs reach 4k-10k+ tok</text>
+  <text x="585" y="220" class="sm">• Rollouts dominate 90% time</text>
+  <rect x="575" y="245" width="200" height="25" rx="3" class="white"/>
+  <text x="590" y="262" class="sm b">Output length: 4,000-8,000 tok</text>
+</svg>

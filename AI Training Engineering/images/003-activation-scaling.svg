@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="355" viewBox="0 0 820 355" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .red-line{stroke:#b85450;stroke-width:2.5;fill:none}
+    .orange-line{stroke:#d79b00;stroke-width:2.5;fill:none}
+    .green-line{stroke:#82b366;stroke-width:2.5;fill:none}
+    .axis{stroke:#333;stroke-width:1.2;fill:none}
+    .grid{stroke:#eee;stroke-width:1;stroke-dasharray:3 3}
+    .limit{stroke:#cc0000;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Activation Memory vs Sequence Length (Llama 3.1 8B, b=1, 32 Layers)</text>
+  <text x="25" y="44" class="sm" fill="#555">Analytical model based on Megatron-LM formulation (illustrative chart)</text>
+
+  <!-- Legend -->
+  <g transform="translate(95, 78)">
+    <rect x="-6" y="-3" width="242" height="58" fill="#fff" fill-opacity="0.92" stroke="#e0e0e0" stroke-width="1" rx="4"/>
+    <line x1="0" y1="10" x2="24" y2="10" class="red-line"/>
+    <text x="30" y="14" class="sm">Standard Attention (34sbh + 5as²b)</text>
+
+    <line x1="0" y1="27" x2="24" y2="27" class="orange-line"/>
+    <text x="30" y="31" class="sm">FlashAttention (34sbh, no s² term)</text>
+
+    <line x1="0" y1="44" x2="24" y2="44" class="green-line"/>
+    <text x="30" y="48" class="sm">Full Checkpointing + FlashAttn (2sbh)</text>
+  </g>
+
+  <!-- Chart area: x from 80 to 520 (width 440), y from 70 to 280 (height 210) -->
+  <!-- Y mapping: 0 GB = y 280, 100 GB = y 227.5, 200 GB = y 175, 300 GB = y 122.5, 400 GB = y 70 -->
+  <!-- Scale: 210 px / 400 GB = 0.525 px per GB -->
+  <!-- X mapping: s=0 -> x 80, s=2048 -> x 190, s=4096 -> x 300, s=8192 -> x 520 -->
+  <!-- Scale: x = 80 + (s / 8192) * 440 -->
+
+  <!-- Horizontal Grid Lines & Y Ticks -->
+  <line x1="80" y1="280" x2="520" y2="280" class="axis"/>
+  <text x="70" y="284" text-anchor="end" class="sm">0 GB</text>
+
+  <line x1="80" y1="228" x2="520" y2="228" class="grid"/>
+  <text x="70" y="232" text-anchor="end" class="sm">100 GB</text>
+
+  <line x1="80" y1="175" x2="520" y2="175" class="grid"/>
+  <text x="70" y="179" text-anchor="end" class="sm">200 GB</text>
+
+  <line x1="80" y1="123" x2="520" y2="123" class="grid"/>
+  <text x="70" y="127" text-anchor="end" class="sm">300 GB</text>
+
+  <line x1="80" y1="70" x2="520" y2="70" class="grid"/>
+  <text x="70" y="74" text-anchor="end" class="sm">400 GB</text>
+
+  <!-- H100 80 GB limit line: y = 280 - (80 * 0.525) = 280 - 42 = 238 -->
+  <line x1="80" y1="238" x2="520" y2="238" class="limit"/>
+  <text x="525" y="242" class="sm" fill="#c00" font-weight="bold">80 GB (Total H100 VRAM)</text>
+
+  <!-- Vertical Ticks & X Labels -->
+  <line x1="80" y1="70" x2="80" y2="280" class="axis"/>
+
+  <line x1="190" y1="280" x2="190" y2="285" class="axis"/>
+  <text x="190" y="302" text-anchor="middle" class="sm">2,048</text>
+
+  <line x1="300" y1="280" x2="300" y2="285" class="axis"/>
+  <text x="300" y="302" text-anchor="middle" class="sm">4,096</text>
+
+  <line x1="520" y1="280" x2="520" y2="285" class="axis"/>
+  <text x="520" y="302" text-anchor="middle" class="sm">8,192 tokens</text>
+
+  <!-- Curve 1: Standard Attention (Red, quadratic blowup) -->
+  <!-- s=0: (80, 280); s=2048: (190, 264) [30.6GB]; s=4096: (300, 225) [104.2GB]; s=8192: (520, 80) [380.1GB] -->
+  <path d="M80,280 Q190,270 300,225 T520,80" class="red-line"/>
+  <circle cx="520" cy="80" r="4" fill="#b85450"/>
+  <text x="528" y="75" class="sm b" fill="#900">380.1 GB</text>
+
+  <!-- Curve 2: FlashAttention (Orange, linear) -->
+  <!-- s=0: (80, 280); s=8192: (520, 261) [36.5GB] -->
+  <line x1="80" y1="280" x2="520" y2="261" class="orange-line"/>
+  <circle cx="520" cy="261" r="4" fill="#d79b00"/>
+  <text x="528" y="265" class="sm b" fill="#b45f06">36.5 GB</text>
+
+  <!-- Curve 3: Full Checkpointing (Green, tiny linear) -->
+  <!-- s=0: (80, 280); s=8192: (520, 279) [2.15GB] -->
+  <line x1="80" y1="280" x2="520" y2="279" class="green-line"/>
+  <circle cx="520" cy="279" r="4" fill="#82b366"/>
+  <text x="528" y="285" class="sm b" fill="#274e13">2.15 GB</text>
+
+  <!-- Callout box on right side -->
+  <rect x="580" y="90" width="225" height="135" rx="6" fill="#f5f5f5" stroke="#ccc" stroke-width="1"/>
+  <text x="590" y="112" class="b">At s = 8,192 tokens:</text>
+  <text x="590" y="132" class="sm">• <tspan class="b">Standard</tspan>: 380 GB (OOM!)</text>
+  <text x="600" y="148" class="sm" fill="#666">Quadratic 5as²b dominates</text>
+  <text x="590" y="168" class="sm">• <tspan class="b">FlashAttn</tspan>: 36.5 GB (cuts 90%)</text>
+  <text x="600" y="184" class="sm" fill="#666">SRAM tiling drops s² tensor</text>
+  <text x="590" y="204" class="sm">• <tspan class="b">Checkpointing</tspan>: 2.15 GB</text>
+  <text x="600" y="220" class="sm" fill="#666">Saves only layer boundaries</text>
+
+  <!-- Bottom note -->
+  <text x="80" y="326" class="sm" fill="#555">Without FlashAttention and recomputation, pretraining with 8,192-token context</text>
+  <text x="80" y="342" class="sm" fill="#555">requires more memory for activations alone than 4× H100 GPUs possess.</text>
+</svg>

@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .masked{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Token-Level Assistant-Only Loss Masking</text>
+  <text x="25" y="48" class="sm" fill="#555">PyTorch CrossEntropyLoss ignores prompt tokens assigned label = -100</text>
+
+  <!-- Section 1: User Prompt Region (Masked) -->
+  <rect x="25" y="70" width="370" height="155" rx="6" class="gray"/>
+  <text x="210" y="93" text-anchor="middle" class="b">User Prompt &amp; System Context (Masked)</text>
+
+  <!-- Token row -->
+  <rect x="40" y="105" width="60" height="30" class="white"/>
+  <text x="70" y="125" text-anchor="middle" class="sm">&lt;|user|&gt;</text>
+
+  <rect x="105" y="105" width="70" height="30" class="white"/>
+  <text x="140" y="125" text-anchor="middle" class="sm">Reset</text>
+
+  <rect x="180" y="105" width="55" height="30" class="white"/>
+  <text x="207" y="125" text-anchor="middle" class="sm">my</text>
+
+  <rect x="240" y="105" width="75" height="30" class="white"/>
+  <text x="277" y="125" text-anchor="middle" class="sm">password</text>
+
+  <rect x="320" y="105" width="60" height="30" class="white"/>
+  <text x="350" y="125" text-anchor="middle" class="sm">&lt;|eot|&gt;</text>
+
+  <!-- Labels row -->
+  <text x="40" y="162" class="sm b">Labels:</text>
+  <rect x="90" y="148" width="50" height="24" class="masked"/>
+  <text x="115" y="164" text-anchor="middle" class="sm b">-100</text>
+  <rect x="145" y="148" width="50" height="24" class="masked"/>
+  <text x="170" y="164" text-anchor="middle" class="sm b">-100</text>
+  <rect x="200" y="148" width="50" height="24" class="masked"/>
+  <text x="225" y="164" text-anchor="middle" class="sm b">-100</text>
+  <rect x="255" y="148" width="50" height="24" class="masked"/>
+  <text x="280" y="164" text-anchor="middle" class="sm b">-100</text>
+  <rect x="310" y="148" width="50" height="24" class="masked"/>
+  <text x="335" y="164" text-anchor="middle" class="sm b">-100</text>
+
+  <!-- Loss status -->
+  <rect x="40" y="182" width="340" height="32" rx="4" class="white"/>
+  <text x="210" y="202" text-anchor="middle" class="sm b" fill="#b85450">Loss = 0.0 · Gradients Skipped (No Backprop)</text>
+
+  <!-- Section 2: Assistant Completion Region (Trained) -->
+  <rect x="415" y="70" width="380" height="155" rx="6" class="gray"/>
+  <text x="605" y="93" text-anchor="middle" class="b">Assistant Response (Active Training)</text>
+
+  <!-- Token row -->
+  <rect x="430" y="105" width="80" height="30" class="white"/>
+  <text x="470" y="125" text-anchor="middle" class="sm">&lt;|assistant|&gt;</text>
+
+  <rect x="515" y="105" width="45" height="30" class="white"/>
+  <text x="537" y="125" text-anchor="middle" class="sm">To</text>
+
+  <rect x="565" y="105" width="50" height="30" class="white"/>
+  <text x="590" y="125" text-anchor="middle" class="sm">reset</text>
+
+  <rect x="620" y="105" width="65" height="30" class="white"/>
+  <text x="652" y="125" text-anchor="middle" class="sm">visit</text>
+
+  <rect x="690" y="105" width="90" height="30" class="white"/>
+  <text x="735" y="125" text-anchor="middle" class="sm">settings&lt;|eot|&gt;</text>
+
+  <!-- Labels row -->
+  <text x="430" y="162" class="sm b">Labels:</text>
+  <rect x="480" y="148" width="55" height="24" class="green"/>
+  <text x="507" y="164" text-anchor="middle" class="sm b">ID: 2841</text>
+  <rect x="540" y="148" width="55" height="24" class="green"/>
+  <text x="567" y="164" text-anchor="middle" class="sm b">ID: 5932</text>
+  <rect x="600" y="148" width="55" height="24" class="green"/>
+  <text x="627" y="164" text-anchor="middle" class="sm b">ID: 1042</text>
+  <rect x="660" y="148" width="60" height="24" class="green"/>
+  <text x="690" y="164" text-anchor="middle" class="sm b">ID: 128009</text>
+
+  <!-- Loss status -->
+  <rect x="430" y="182" width="350" height="32" rx="4" class="white"/>
+  <text x="605" y="202" text-anchor="middle" class="sm b" fill="#274e13">CrossEntropyLoss Evaluated · Gradients Updated</text>
+
+  <!-- Bottom Panel: Why Loss Masking Matters -->
+  <rect x="25" y="240" width="770" height="80" rx="4" class="gray"/>
+  <text x="40" y="262" class="b">Why Masking Prompt Tokens is Essential in SFT</text>
+  <text x="40" y="282" class="sm">1. Prevents the model from learning to predict or memorize user queries (which harms instruction generalization).</text>
+  <text x="40" y="300" class="sm">2. Focuses 100% of gradient updates on assistant formatting, conversational guidelines, and concise output delivery.</text>
+</svg>

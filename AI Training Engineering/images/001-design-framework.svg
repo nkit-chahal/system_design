@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="340" viewBox="0 0 900 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:13px;fill:#000}
+    .sm{font-size:11px}.lg{font-size:15px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Top Title -->
+  <text x="20" y="24" class="lg b">A Systems Framework for AI Training Design Questions</text>
+
+  <!-- Top row: Steps 1 to 4 -->
+
+  <!-- Step 1 -->
+  <rect x="15" y="38" width="195" height="105" rx="6" class="purple"/>
+  <text x="25" y="58" class="b">1. Clarify Requirements</text>
+  <text x="25" y="76" class="sm">• Target task &amp; quality bar</text>
+  <text x="25" y="94" class="sm">• Pretrain vs post-train</text>
+  <text x="25" y="112" class="sm">• Hardware &amp; cloud budget</text>
+  <text x="25" y="130" class="sm">• Context length &amp; SLA</text>
+  <path d="M210,90 L238,90" class="edge"/>
+
+  <!-- Step 2 -->
+  <rect x="240" y="38" width="195" height="105" rx="6" class="blue"/>
+  <text x="250" y="58" class="b">2. Model &amp; Data Budget</text>
+  <text x="250" y="76" class="sm">• Chinchilla compute-optimal</text>
+  <text x="250" y="94" class="sm">• Overtraining for serving</text>
+  <text x="250" y="112" class="sm">• 8.03B params, 1T tokens</text>
+  <text x="250" y="130" class="sm">• Lessons 7, 8, 9</text>
+  <path d="M435,90 L463,90" class="edge"/>
+
+  <!-- Step 3 -->
+  <rect x="465" y="38" width="195" height="105" rx="6" class="orange"/>
+  <text x="475" y="58" class="b">3. Memory &amp; Parallelism</text>
+  <text x="475" y="76" class="sm">• 16 B/param = 128.5 GB</text>
+  <text x="475" y="94" class="sm">• FSDP, ZeRO-3, TP, PP</text>
+  <text x="475" y="112" class="sm">• Activation rematerialization</text>
+  <text x="475" y="130" class="sm">• Lessons 3, 10–16</text>
+  <path d="M660,90 L688,90" class="edge"/>
+
+  <!-- Step 4 -->
+  <rect x="690" y="38" width="195" height="105" rx="6" class="orange"/>
+  <text x="700" y="58" class="b">4. Cluster &amp; Cost</text>
+  <text x="700" y="76" class="sm">• 256 H100s, 40% target MFU</text>
+  <text x="700" y="94" class="sm">• NVLink + InfiniBand NDR</text>
+  <text x="700" y="112" class="sm">• 5.5 days, 33.8k GPU-hrs</text>
+  <text x="700" y="130" class="sm">• Cost: $101,000 ($3/GPU-hr)</text>
+
+  <!-- Turn from row 1 to row 2 -->
+  <path d="M787,143 L787,178" class="edge"/>
+
+  <!-- Bottom row: Steps 8 to 5 (right to left) -->
+
+  <!-- Step 5 -->
+  <rect x="690" y="180" width="195" height="105" rx="6" class="blue"/>
+  <text x="700" y="200" class="b">5. Data Pipeline</text>
+  <text x="700" y="218" class="sm">• Deduplication &amp; filtering</text>
+  <text x="700" y="236" class="sm">• BPE 128k tokenizer</text>
+  <text x="700" y="254" class="sm">• Sequence packing to 8K</text>
+  <text x="700" y="272" class="sm">• Lessons 17–21</text>
+  <path d="M690,232 L662,232" class="edge"/>
+
+  <!-- Step 6 -->
+  <rect x="465" y="180" width="195" height="105" rx="6" class="gray"/>
+  <text x="475" y="200" class="b">6. Reliability &amp; Restarts</text>
+  <text x="475" y="218" class="sm">• Sub-minute checkpoints</text>
+  <text x="475" y="236" class="sm">• MTBF &amp; node drain</text>
+  <text x="475" y="254" class="sm">• Elastic Slurm recovery</text>
+  <text x="475" y="272" class="sm">• Lessons 28, 29, 31, 33</text>
+  <path d="M465,232 L437,232" class="edge"/>
+
+  <!-- Step 7 -->
+  <rect x="240" y="180" width="195" height="105" rx="6" class="green"/>
+  <text x="250" y="200" class="b">7. In-Flight Evaluation</text>
+  <text x="250" y="218" class="sm">• Validation loss &amp; drift</text>
+  <text x="250" y="236" class="sm">• Downstream benchmark suite</text>
+  <text x="250" y="254" class="sm">• Contamination auditing</text>
+  <text x="250" y="272" class="sm">• Lessons 34, 35</text>
+  <path d="M240,232 L212,232" class="edge"/>
+
+  <!-- Step 8 -->
+  <rect x="15" y="180" width="195" height="105" rx="6" class="green"/>
+  <text x="25" y="200" class="b">8. Post-Training Align</text>
+  <text x="25" y="218" class="sm">• SFT with assistant masking</text>
+  <text x="25" y="236" class="sm">• LoRA / QLoRA adapters</text>
+  <text x="25" y="254" class="sm">• DPO &amp; verifiable GRPO</text>
+  <text x="25" y="272" class="sm">• Lessons 22–27</text>
+
+  <!-- Feedback line from Eval to Data -->
+  <path d="M337,285 L337,315 L787,315 L787,287" class="dash"/>
+  <text x="562" y="310" class="mid sm">eval telemetry tunes data mixture &amp; decay curriculum (Lessons 20, 34)</text>
+</svg>

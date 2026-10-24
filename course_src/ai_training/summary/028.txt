@@ -1,0 +1,6 @@
+center: Training Checkpointing
+branch: Exact Resumption | weights master weights and optimizer | lr scheduler and dataloader offset | rng states across all devices
+branch: Distributed Checkpointing | pytorch distributed checkpoint dcp | independent rank local shards | eliminates rank zero bottleneck
+branch: Asynchronous Saving | fast gpu to host staging | non blocking background disk flush | zero gpu compute stalls
+branch: Optimal Frequency | young daly optimal interval formula | balances save overhead and rework | square root of failure product
+branch: Storage Pipeline | fast local nvme staging | shared parallel cluster storage | rolling window and cloud archive

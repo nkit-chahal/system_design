@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Why Inference Memory is Radically Smaller than Training Memory</text>
+  <text x="25" y="44" class="sm" fill="#555">Comparing Llama 3.1 8B memory allocation on an 80 GB GPU (see Inference Lesson 17, VRAM Budgeting)</text>
+
+  <!-- Panel 1: Training Memory (Top Bar) -->
+  <text x="25" y="74" class="b">Training (Unsharded Adam): 128.5 GB Base States</text>
+  <!-- Full bar represents 140 GB; scale: 768 px / 140 GB = 5.48 px per GB -->
+  <!-- Weights (16.1 GB) = 88px, Grads (16.1 GB) = 88px, Master (32.1 GB) = 176px, Adam m,v (64.2 GB) = 352px -->
+  <rect x="25" y="84" width="88" height="42" class="orange"/>
+  <text x="69" y="105" text-anchor="middle" class="sm b">Weights</text>
+  <text x="69" y="119" text-anchor="middle" class="sm">16.1 GB</text>
+
+  <rect x="113" y="84" width="88" height="42" class="orange"/>
+  <text x="157" y="105" text-anchor="middle" class="sm b">Grads</text>
+  <text x="157" y="119" text-anchor="middle" class="sm">16.1 GB</text>
+
+  <rect x="201" y="84" width="176" height="42" class="blue"/>
+  <text x="289" y="105" text-anchor="middle" class="sm b">FP32 Master Weights</text>
+  <text x="289" y="119" text-anchor="middle" class="sm">32.1 GB</text>
+
+  <rect x="377" y="84" width="352" height="42" class="purple"/>
+  <text x="553" y="105" text-anchor="middle" class="sm b">Adam Moments (m and v)</text>
+  <text x="553" y="119" text-anchor="middle" class="sm">64.2 GB (FP32)</text>
+
+  <!-- 80 GB line indicator -->
+  <!-- 80 GB * 5.48 = 438 px from x=25 -> x = 463 -->
+  <line x1="463" y1="78" x2="463" y2="132" stroke="#c00" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="468" y="76" class="sm b" fill="#c00">80 GB H100 Limit</text>
+
+  <text x="735" y="110" class="b" fill="#c00">OOM!</text>
+
+  <!-- Panel 2: Inference Memory (Bottom Bar) -->
+  <text x="25" y="160" class="b">Inference (vLLM serving Llama 3.1 8B): 15 GiB weights + KV Cache Pool</text>
+  <!-- Scale for 80 GB total width 768 px: 9.6 px per GB -->
+  <!-- Weights 15 GiB (16.1 GB) = 154 px -->
+  <!-- Runtime & single-step activations = 44 px -->
+  <!-- KV Cache pool = 52 GiB (55.8 GB) = 536 px -->
+  <!-- Headroom 8 GB = 77 px -->
+  <rect x="25" y="170" width="154" height="42" class="orange"/>
+  <text x="102" y="191" text-anchor="middle" class="sm b">Weights</text>
+  <text x="102" y="205" text-anchor="middle" class="sm">15 GiB (BF16)</text>
+
+  <rect x="179" y="170" width="44" height="42" class="gray"/>
+  <text x="201" y="191" text-anchor="middle" class="sm b">CUDA</text>
+  <text x="201" y="205" text-anchor="middle" class="sm">4.6 GiB</text>
+
+  <rect x="223" y="170" width="497" height="42" class="green"/>
+  <text x="471" y="191" text-anchor="middle" class="b">Dynamic KV Cache Pool</text>
+  <text x="471" y="205" text-anchor="middle" class="sm">≈ 52 GiB (holds ~426,000 cached tokens / ~170 concurrent users)</text>
+
+  <rect x="720" y="170" width="73" height="42" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <text x="756" y="196" text-anchor="middle" class="sm">8 GiB</text>
+
+  <!-- Comparison Summary Box -->
+  <rect x="25" y="230" width="768" height="85" rx="6" class="gray"/>
+  <text x="40" y="252" class="b">Key Differences That Explain the Gap:</text>
+  <text x="40" y="272" class="sm">1. <tspan class="b">Zero Optimizer States</tspan>: Inference has no master weights, no momentum, and no variance (saves 12 bytes/param).</text>
+  <text x="40" y="290" class="sm">2. <tspan class="b">Zero Gradients</tspan>: No backward pass means zero gradient buffers and no full backward computation graph.</text>
+  <text x="40" y="308" class="sm">3. <tspan class="b">Minimal Activations</tspan>: Decode generates 1 token at a time; free memory is repurposed entirely for KV cache capacity.</text>
+</svg>

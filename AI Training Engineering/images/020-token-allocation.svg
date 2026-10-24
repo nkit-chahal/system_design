@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <pattern id="repeatPattern" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="8" stroke="#888" stroke-width="2"/>
+    </pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .hatched{fill:url(#repeatPattern);stroke:#555;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">1T-Token Pretraining Mixture Budget (Llama 3.1 8B Run)</text>
+  <text x="25" y="48" class="sm" fill="#555">Allocation of total training tokens vs unique dataset tokens across 1,000 billion tokens</text>
+
+  <!-- Legend positioned at x=530 and x=660 -->
+  <rect x="525" y="19" width="14" height="12" class="blue"/>
+  <text x="545" y="30" class="sm">Unique Data</text>
+  <rect x="650" y="19" width="14" height="12" class="hatched"/>
+  <text x="670" y="30" class="sm">Repeated Data (&gt;1 ep)</text>
+
+  <!-- Bar 1: Curated Web (55% = 550B) -->
+  <text x="25" y="90" class="sm b">Curated Web (55%)</text>
+  <rect x="180" y="74" width="385" height="24" class="blue"/>
+  <text x="575" y="91" class="sm b">550B total (550B unique, 1.0 ep)</text>
+
+  <!-- Bar 2: Code (20% = 200B) -->
+  <text x="25" y="130" class="sm b">Source Code (20%)</text>
+  <rect x="180" y="114" width="70" height="24" class="orange"/>
+  <rect x="250" y="114" width="70" height="24" class="hatched"/>
+  <text x="330" y="131" class="sm b">200B total (100B unique, 2.0 ep)</text>
+
+  <!-- Bar 3: Math & Science (12% = 120B) -->
+  <text x="25" y="170" class="sm b">Math &amp; Science (12%)</text>
+  <rect x="180" y="154" width="28" height="24" class="green"/>
+  <rect x="208" y="154" width="56" height="24" class="hatched"/>
+  <text x="274" y="171" class="sm b">120B total (40B unique, 3.0 ep)</text>
+
+  <!-- Bar 4: Multilingual (8% = 80B) -->
+  <text x="25" y="210" class="sm b">Multilingual (8%)</text>
+  <rect x="180" y="194" width="56" height="24" class="purple"/>
+  <text x="246" y="211" class="sm b">80B total (80B unique, 1.0 ep)</text>
+
+  <!-- Bar 5: Books & Prose (5% = 50B) -->
+  <text x="25" y="250" class="sm b">Books &amp; Prose (5%)</text>
+  <rect x="180" y="234" width="35" height="24" class="yellow"/>
+  <text x="225" y="251" class="sm b">50B total (50B unique, 1.0 ep)</text>
+
+  <!-- Bottom Total Card -->
+  <rect x="25" y="270" width="770" height="40" rx="4" class="gray"/>
+  <text x="40" y="295" class="b">Total Pretraining Volume: 1,000 Billion Tokens</text>
+  <text x="410" y="295" class="sm">Requires <tspan class="b">820 Billion unique tokens</tspan> · Saves 180B tokens via repetition</text>
+</svg>

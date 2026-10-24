@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="25" y="30" class="lg b">Embedding &amp; LM-Head Anatomy in Llama 3.1 8B</text>
+  <text x="25" y="52" class="sm" fill="#555">How a 128,256 vocabulary allocates 1.05 billion parameters and 16.8 GB of optimizer states</text>
+
+  <!-- Left: Matrix Dimensions -->
+  <rect x="25" y="80" width="370" height="235" rx="5" class="blue"/>
+  <text x="210" y="105" class="b mid">Untied Architecture (V = 128,256 · d = 4,096)</text>
+
+  <!-- Input Embedding Table -->
+  <rect x="40" y="125" width="340" height="65" rx="3" class="white"/>
+  <text x="50" y="145" class="sm b">Input Embedding Table (tok_embeddings)</text>
+  <text x="50" y="163" class="sm">• Shape: [128,256, 4,096] = 525,336,576 params</text>
+  <text x="50" y="180" class="sm" fill="#1b3e6b">• BF16 Weights: 1.05 GB · Adam States: 8.41 GB</text>
+
+  <!-- Output LM Head Table -->
+  <rect x="40" y="200" width="340" height="65" rx="3" class="white"/>
+  <text x="50" y="220" class="sm b">Output Unembedding Head (lm_head)</text>
+  <text x="50" y="238" class="sm">• Shape: [128,256, 4,096] = 525,336,576 params</text>
+  <text x="50" y="255" class="sm" fill="#1b3e6b">• BF16 Weights: 1.05 GB · Adam States: 8.41 GB</text>
+
+  <text x="210" y="295" class="sm b mid" fill="#1b3e6b">Combined: 1,050,673,152 parameters (13.08% of model)</text>
+
+  <!-- Right: Memory & Compute Implications -->
+  <rect x="415" y="80" width="380" height="235" rx="5" class="orange"/>
+  <text x="605" y="105" class="b mid">Training Memory &amp; Softmax Spikes</text>
+
+  <rect x="430" y="125" width="350" height="50" rx="3" class="white"/>
+  <text x="440" y="145" class="sm b">Total Static Footprint (16 bytes/param):</text>
+  <text x="440" y="163" class="sm b" fill="#7d4b00">16.81 GB across input and output matrices</text>
+
+  <rect x="430" y="185" width="350" height="55" rx="3" class="red"/>
+  <text x="440" y="205" class="sm b" fill="#900">Unchunked Logits Activation Spike:</text>
+  <text x="440" y="222" class="sm">• Shape [8192, 128256] FP32 = 4.20 GB</text>
+  <text x="440" y="236" class="sm" fill="#900">• Materializing full logits risks CUDA OOM</text>
+
+  <rect x="430" y="250" width="350" height="50" rx="3" class="green"/>
+  <text x="440" y="270" class="sm b" fill="#2d572c">Solution: Fused Chunked Cross-Entropy</text>
+  <text x="440" y="288" class="sm" fill="#2d572c">Computes loss in-kernel without storing 4.2 GB logits</text>
+</svg>

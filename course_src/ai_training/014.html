@@ -1,0 +1,270 @@
+<h2>Introduction</h2>
+<p>No single parallelization strategy can scale large language model pretraining across thousands of GPUs. In previous lessons, we examined the primary distributed primitives in isolation: Data Parallelism and FSDP replicate or shard parameters across data streams (see Lesson 10, Data Parallelism and All-Reduce, and Lesson 11, ZeRO and FSDP); Tensor Parallelism shards weight matrices inside individual transformer layers (see Lesson 12, Tensor, Sequence and Context Parallelism); and Pipeline Parallelism partitions layers vertically across sequential stages (see Lesson 13, Pipeline Parallelism). Each technique solves a specific bottleneck, but each also introduces a distinct failure mode when pushed beyond its natural boundary.</p>
+<p>Tensor Parallelism requires two collective All-Reduce communications inside every transformer block, generating hundreds of high-frequency synchronizations per step. Pushing TP across high-latency inter-node networks stalls tensor cores. Pipeline Parallelism avoids high-frequency communication by transferring point-to-point activations only at stage boundaries, but it introduces an idle pipeline bubble that wastes compute unless the micro-batch count is large. Fully Sharded Data Parallelism (FSDP) scales compute linearly, but sharding parameters across thousands of nodes floods the cluster spine with all-gather communication traffic. Context Parallelism (CP) shards the sequence length via ring attention, but adds communication overhead unnecessary for short contexts [6].</p>
+<p>To train frontier models efficiently, engineers combine these dimensions into a unified <strong>multi-dimensional device mesh</strong>: <strong>3D Parallelism</strong> (composing TP, PP, and DP) and <strong>4D Parallelism</strong> (adding CP for ultra-long context windows) [3], [7].</p>
+<fig src="014-device-mesh-hierarchy.svg" caption="Mapping 4D parallelism dimensions to cluster hardware hierarchy">Hierarchical mapping of parallelism strategies to physical interconnect tiers. Tensor Parallelism is confined strictly to intra-node NVLink (900 GB/s, &lt; 1 µs latency). Pipeline and Context Parallelism span inter-node leaf switches (400 Gb/s InfiniBand). Data Parallelism (FSDP) forms the outermost dimension across the cluster spine.</fig>
+<p>The central art of large-scale distributed systems design lies in <strong>mapping each mathematical dimension of parallelism to the physical interconnect tier that can support its communication pattern</strong>. When orchestrated correctly, a 4D mesh allows training models with hundreds of billions of parameters across tens of thousands of GPUs while maintaining a Model FLOPs Utilization (MFU) between 38% and 43% [7]. In this lesson, we examine how the four dimensions compose, derive the global batch arithmetic governing the cluster, analyze worked configurations for 8B, 70B, and 405B models, examine PyTorch's <code>DeviceMesh</code> API, and determine the optimal layout for our pretraining cluster.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In distributed training systems interviews, multi-dimensional parallelism questions focus on topology mapping, dimension sizing, memory budgets, and MFU trade-offs. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: What model scale and context length are we targeting for this training layout, and what cluster hardware do we have?<br>
+<strong>Interviewer</strong>: We have two primary targets. First, our baseline pretraining run: an 8-billion parameter model (Llama 3.1 8B, 32 layers, hidden dimension 4,096) on 256 NVIDIA H100 80 GB GPUs across 32 nodes, with sequence length 8,192 and global batch size 4 million tokens. Second, we want to know how our parallel layout strategy changes if we scale to a 70B model or a 405B flagship model.</p>
+<p><strong>Candidate</strong>: What interconnects connect the GPUs within each node and across nodes?<br>
+<strong>Interviewer</strong>: Within each 8-GPU node, GPUs connect via NVLink 4 delivering 900 GB/s per GPU in each direction with sub-microsecond latency. Across nodes, each node connects through 8 InfiniBand NDR NICs offering 400 Gb/s (50 GB/s) per GPU across a non-blocking fat-tree network.</p>
+<p><strong>Candidate</strong>: What is our primary optimization objective—minimizing memory footprint to allow larger batches, or maximizing throughput and MFU?<br>
+<strong>Interviewer</strong>: We need to achieve at least 40% Model FLOPs Utilization (MFU) on our 8B pretraining run. The layout must eliminate communication bottlenecks and avoid pipeline bubbles that waste expensive GPU-hours.</p>
+<p><strong>Candidate</strong>: Should we use a 3D layout (TP + PP + DP) for the 8B model?<br>
+<strong>Interviewer</strong>: You tell me. Does an 8B model on 256 GPUs benefit from Tensor or Pipeline Parallelism, or does adding dimensions degrade efficiency?</p>
+<p>The fundamental question underneath is: <em>How do we compose TP, PP, CP, and DP into a coherent device mesh that respects physical bandwidth limits, satisfies global batch constraints, and maximizes hardware compute utilization?</em> To answer it, we begin by mapping the four dimensions to cluster topology.</p>
+
+<h2>The Four Dimensions and Hardware Topology</h2>
+<h3>The Golden Rules of Distributed Parallelism</h3>
+<p>Every distributed training run maps four mathematical dimensions of parallelism to a physical cluster of <tex>N_{\text{gpus}}</tex> devices. The total GPU count is the product of the individual degrees:</p>
+<texblock>N_{\text{gpus}} = \text{TP} \times \text{CP} \times \text{PP} \times \text{DP}</texblock>
+<p>Each dimension imposes distinct communication volumes, synchronization frequencies, and latency sensitivities. Successful cluster design adheres to four foundational engineering rules:</p>
+<ol>
+<li><strong>Tensor Parallelism (TP) must stay inside a single node (<tex>\text{TP} \le 8</tex>)</strong>: Because TP splits matrix multiplications within attention and MLP blocks, it requires two All-Reduce collectives in <em>every single transformer layer</em>. Over a 32-layer model, that represents 64 barrier synchronizations per micro-batch. Only intra-node NVLink (900 GB/s per GPU, sub-microsecond latency) can execute these collectives without stalling GPU tensor cores. Crossing nodes with TP degrades MFU precipitously [1], [3].</li>
+<li><strong>Pipeline Parallelism (PP) crosses nodes across layer depth (<tex>\text{PP} \ge 1</tex>)</strong>: When a model exceeds the memory capacity of a single 8-GPU node (such as 70B or 405B models), layers must be partitioned across nodes. Pipeline parallelism transmits point-to-point activations only at stage boundaries (e.g., 3 boundaries for <tex>p = 4</tex>), generating minimal network traffic (67–134 MB per micro-batch) that transfers in 1.3–2.7 ms over 400 Gb/s InfiniBand. This transfer time easily hides behind the 30–50 ms forward compute of an entire stage [2].</li>
+<li><strong>Context Parallelism (CP) scales sequence length beyond memory limits (<tex>\text{CP} \ge 1</tex>)</strong>: Standard self-attention memory scales quadratically with sequence length (<tex>\mathcal{O}(s^2)</tex>). When context length expands from 8,192 to 65,536 or 131,072 tokens, key and value tensors exceed GPU memory even with FlashAttention (see Inference Lesson 33, GPU Architecture and Attention Kernels). Context Parallelism shards tokens along the sequence dimension using Ring Attention, passing key-value chunks in a circular peer-to-peer ring that overlaps with local attention compute [6].</li>
+<li><strong>Data Parallelism / FSDP forms the outermost dimension across the cluster</strong>: Once model states and activations fit within the combined memory of a <tex>(\text{TP} \times \text{PP} \times \text{CP})</tex> model replica, the remaining cluster scale is dedicated to Data Parallelism. Data-parallel replicas process distinct batches concurrently. FSDP all-gathers model weights on demand during the forward pass and reduce-scatters gradients during the backward pass. Because all-gathers can be prefetched asynchronously via CUDA streams, DP communication tolerates multi-hop cluster network latency better than any other dimension [4], [5].</li>
+</ol>
+
+<h3>The PyTorch DeviceMesh abstraction</h3>
+<p>Historically, configuring multi-dimensional parallelism required manually allocating nested NCCL process groups using <code>torch.distributed.new_group()</code>, tracking multi-dimensional rank strides by hand, and managing communication barriers. PyTorch 2.x standardizes multi-dimensional communication through the <strong><code>DeviceMesh</code></strong> abstraction (<code>torch.distributed.device_mesh</code>) [8].</p>
+<fig src="014-2d-3d-mesh-grid.svg" caption="PyTorch 3D DeviceMesh: coordinate grids and communicator submeshes">A 16-GPU cluster organized into a 3D DeviceMesh of shape (dp=2, pp=2, tp=4). Each GPU receives a unique coordinate tuple (dp, pp, tp). Slicing along named dimensions automatically creates orthogonal process groups: rows form TP communicators, columns form PP communicators, and depth slices form DP communicators.</fig>
+<p>A <code>DeviceMesh</code> organizes the flat list of cluster ranks into an <tex>n</tex>-dimensional Cartesian coordinate tensor with named dimensions. For example, a 3D mesh of 16 GPUs with 2 data-parallel replicas, 2 pipeline stages, and 4-way tensor parallelism is initialized with:</p>
+<texblock>\text{mesh\_shape} = (2, 2, 4), \quad \text{mesh\_dim\_names} = (\text{"dp"}, \text{"pp"}, \text{"tp"})</texblock>
+<p>Each GPU rank is assigned an <tex>(i, j, k)</tex> coordinate. PyTorch automatically instantiates orthogonal communication submeshes along each axis:</p>
+<ul>
+<li><code>mesh["tp"]</code>: Isolates GPUs sharing the same <tex>(\text{dp}, \text{pp})</tex> coordinates (e.g., ranks <tex>[0, 1, 2, 3]</tex>), binding them to an intra-node NCCL communicator for high-speed tensor parallel All-Reduce operations.</li>
+<li><code>mesh["pp"]</code>: Isolates GPUs sharing the same <tex>(\text{dp}, \text{tp})</tex> coordinates across pipeline stages (e.g., ranks <tex>0</tex> and <tex>4</tex>), managing peer-to-peer point-to-point activation transfers.</li>
+<li><code>mesh["dp"]</code>: Isolates corresponding GPUs across data-parallel replicas (e.g., ranks <tex>0</tex> and <tex>8</tex>), handling FSDP all-gather and gradient reduce-scatter operations.</li>
+</ul>
+<p>By decoupling parallel layout from model definition, modern frameworks such as <code>torchtitan</code> allow engineers to alter parallel topologies simply by changing configuration parameters without rewriting layer forward functions [9].</p>
+
+<h2>Global Batch Arithmetic and Scaling Constraints</h2>
+<h3>The four-factor batch size equation</h3>
+<p>In distributed training, the <strong>global batch size in tokens</strong> (<tex>B_{\text{tokens}}</tex>) represents the total volume of data consumed across all devices to perform a single parameter update. It is governed by four multiplicative factors:</p>
+<texblock>B_{\text{tokens}} = \text{DP} \times m \times b \times s</texblock>
+<p>Where:</p>
+<ul>
+<li><tex>\text{DP}</tex> is the number of independent data-parallel model replicas (<tex>\text{DP} = N_{\text{gpus}} / (\text{TP} \times \text{PP} \times \text{CP})</tex>).</li>
+<li><tex>m</tex> is the number of <strong>gradient accumulation steps</strong> (or micro-batches per pipeline step).</li>
+<li><tex>b</tex> is the <strong>micro-batch size</strong> in sequences processed locally by a GPU during one forward/backward cycle.</li>
+<li><tex>s</tex> is the <strong>sequence length</strong> in tokens (e.g., 8,192).</li>
+</ul>
+<fig src="014-batch-size-arithmetic.svg" caption="Global batch arithmetic and the DP-PP scaling tension">The four components of global batch size: DP replicas, accumulation steps m, micro-batch size b, and sequence length s. Increasing DP to scale the cluster forces accumulation steps m to shrink under a fixed global batch, causing the pipeline bubble fraction (p − 1)/(m + p − 1) to explode.</fig>
+
+<h3>The DP-PP scaling tension: Why PP caps cluster growth</h3>
+<p>The global batch equation exposes a critical structural tension between Data Parallelism and Pipeline Parallelism. Machine learning theory establishes that for any model and dataset, there exists a <strong>critical batch size</strong> beyond which increasing batch size yields diminishing returns in sample efficiency, slowing convergence and wasting compute [7]. For 8B to 70B models, the critical batch size during early pretraining is typically between 2 million and 4 million tokens (256 to 512 sequences of 8,192 tokens).</p>
+<p>Suppose our target global batch size is fixed at <tex>B_{\text{tokens}} = 4,194,304\text{ tokens}</tex> (512 sequences of <tex>s = 8,192</tex>), and we fix micro-batch size <tex>b = 1</tex> to minimize activation memory. Rearranging the batch equation yields:</p>
+<texblock>m = \frac{B_{\text{seq}}}{\text{DP} \times b} = \frac{512}{\text{DP}}</texblock>
+<p>As the cluster expands and we increase the Data Parallel degree <tex>\text{DP}</tex>, the number of micro-batches <tex>m</tex> that each replica can process per step <strong>must decrease proportionally</strong>. However, as derived in Lesson 13, Pipeline Parallelism, the pipeline bubble fraction is:</p>
+<texblock>\text{Bubble Fraction} \approx \frac{p - 1}{m + p - 1}</texblock>
+<p>Consider what happens to a pipeline of depth <tex>p = 8</tex> across different cluster sizes:</p>
+<ul>
+<li><strong>Small cluster (<tex>\text{DP} = 16</tex>, 128 GPUs total)</strong>:
+<texblock>m = \frac{512}{16} = 32 \implies \text{Bubble Fraction} = \frac{8 - 1}{32 + 8 - 1} = \frac{7}{39} \approx 17.9\%</textblock>
+A 17.9% bubble is acceptable.</li>
+<li><strong>Large cluster (<tex>\text{DP} = 128</tex>, 1,024 GPUs total)</strong>:
+<texblock>m = \frac{512}{128} = 4 \implies \text{Bubble Fraction} = \frac{8 - 1}{4 + 8 - 1} = \frac{7}{11} \approx 63.6\%</textblock>
+Over 63% of total cluster compute is lost to pipeline idle time!</li>
+</ul>
+<p>This dynamic illustrates why pipeline parallelism must be configured with the minimal viable depth <tex>p</tex>. Every increase in pipeline depth <tex>p</tex> forces a higher micro-batch count <tex>m \ge 4p</tex> to avoid devastating bubble overhead, which in turn consumes precious batch capacity that could otherwise be used to scale Data Parallelism across more GPUs.</p>
+
+<h2>Worked Parallel Configurations: 8B, 70B, and 405B</h2>
+<p>To understand how engineering teams navigate these trade-offs in production, we analyze three concrete model scales on NVIDIA H100 clusters.</p>
+
+<h3>Configuration 1: Our pretraining run (Llama 3.1 8B on 256 H100s)</h3>
+<p>Our running scenario specifies pretraining a model with the Llama 3.1 8B architecture (8.03B parameters, 32 layers, hidden dimension 4,096) on 256 H100 GPUs across 32 nodes, with sequence length 8,192 and global batch size 4 million tokens.</p>
+<ul>
+<li><strong>Static memory accounting</strong>: 8.03 billion parameters in mixed-precision Adam require 16 bytes per parameter, totaling <tex>128.5\text{ GB}</tex> (119.7 GiB). Across the 8 GPUs of an H100 node, FSDP shards this footprint to <tex>128.5 / 8 \approx 16.06\text{ GB}</tex> per GPU. Visible memory on an 80 GB H100 is 79.6 GiB (85.5 GB), leaving approximately 64 GB free for activations and workspaces.</li>
+<li><strong>Optimal parallel layout: Hybrid Sharded Data Parallel (HSDP)</strong>:
+<texblock>\text{TP} = 1, \quad \text{PP} = 1, \quad \text{CP} = 1, \quad \text{FSDP}_{\text{intra}} = 8, \quad \text{DP}_{\text{inter}} = 32</texblock>
+Total GPUs: <tex>1 \times 1 \times 1 \times 8 \times 32 = 256\text{ GPUs}</tex>.</li>
+<li><strong>Why HSDP wins</strong>:
+<ol>
+<li><tex>\text{TP} = 1</tex>: Eliminates all layer-level All-Reduce operations, avoiding tensor core stalls and preserving 100% of single-GPU kernel efficiency.</li>
+<li><tex>\text{PP} = 1</tex>: Eliminates pipeline bubbles entirely (<tex>\text{Bubble Fraction} = 0\%</tex>). Every GPU computes 100% of the time.</li>
+<li><tex>\text{CP} = 1</tex>: At sequence length 8,192, FlashAttention-3 fits activations comfortably in GPU memory without sequence sharding.</li>
+<li><tex>\text{FSDP}_{\text{intra}} = 8</tex>: Shards parameters and optimizer states strictly across the 8 GPUs inside each node over 900 GB/s NVLink. All-gathers occur over ultra-fast NVLink rather than the inter-node network.</li>
+<li><tex>\text{DP}_{\text{inter}} = 32</tex>: Across the 32 server nodes, gradients are synchronized using standard Data Parallel All-Reduce across InfiniBand. For a global batch of 512 sequences, each of the 32 DP replicas processes <tex>512 / 32 = 16\text{ sequences}</tex> per step (<tex>m = 16, b = 1</tex>).</li>
+</ol>
+</li>
+</ul>
+<p>By choosing pure HSDP, our 8B pretraining run eliminates both TP communication overhead and PP bubble losses, directly achieving our target 40%+ MFU.</p>
+
+<h3>Configuration 2: Mid-scale pretraining (Llama 3.1 70B on 512 H100s)</h3>
+<p>Scaling to Llama 3.1 70B (70.6B parameters, 80 layers, hidden dimension 8,192) across 64 nodes (512 H100 GPUs) requires a fundamental shift. Static states in 16-byte Adam require <tex>70.6\text{B} \times 16\text{ bytes} \approx 1,130\text{ GB}</tex>.</p>
+<ul>
+<li><strong>Why pure FSDP struggles</strong>: Sharding 1,130 GB across an 8-GPU node leaves <tex>1,130 / 8 \approx 141\text{ GB}</tex> per GPU, which exceeds an 80 GB GPU by 76%. Sharding across all 512 GPUs via pure FSDP requires all-gathering 141 GB of weights across inter-node InfiniBand every step, consuming 15–20% of step time in unoverlapped network transfers.</li>
+<li><strong>Optimal parallel layout: 3D Parallelism (TP + PP + DP)</strong>:
+<texblock>\text{TP} = 8, \quad \text{PP} = 4, \quad \text{CP} = 1, \quad \text{DP} = 16</texblock>
+Total GPUs: <tex>8 \times 4 \times 1 \times 16 = 512\text{ GPUs}</tex>.</li>
+<li><strong>Memory and batch accounting</strong>:
+<ul>
+<li>Each model replica spans 4 nodes (<tex>8 \times 4 = 32\text{ GPUs}</tex>). Static states per GPU drop to <tex>1,130 / 32 \approx 35.3\text{ GB}</tex>, fitting comfortably within 80 GB HBM.</li>
+<li><tex>\text{TP} = 8</tex> stays strictly inside each 8-GPU node over 900 GB/s NVLink.</li>
+<li><tex>\text{PP} = 4</tex> partitions the 80 layers into 20 layers per node stage over InfiniBand. Point-to-point transfer volume is <tex>1 \times 8,192 \times 8,192 \times 2 = 134.2\text{ MB}</text>, transferring in 2.68 ms over 400 Gb/s InfiniBand and overlapping behind ~40 ms of stage compute.</li>
+<li>With <tex>\text{DP} = 16</tex> and global batch 512 sequences, each replica processes <tex>m = 512 / 16 = 32\text{ micro-batches}</text>.</li>
+<li>The pipeline bubble fraction is <tex>(4 - 1) / (32 + 4 - 1) = 3 / 35 \approx 8.6\%</tex>, maintaining high MFU.</li>
+</ul>
+</li>
+</ul>
+
+<h3>Configuration 3: Flagship pretraining (Llama 3 405B on 16,384 H100s)</h3>
+<p>The pretraining of Meta's Llama 3 405B represents the frontier of multi-dimensional parallelism engineering. In <em>The Llama 3 Herd of Models</em> (arXiv:2407.21783), Meta published the exact 4D scaling configurations and MFU metrics used to train 405B across 16,384 H100 GPUs (2,048 nodes) [7].</p>
+<fig src="014-llama3-405b-4d-layout.svg" caption="Case study: Meta's published Llama 3 405B 4D parallelism configuration">Meta's 4D layout on 16,384 H100 GPUs from Table 4 of arXiv:2407.21783. TP=8 operates inside each node; PP=16 spans 16 nodes to form a 128-GPU model replica; DP=128 replicates the model across 16K GPUs. For 128K context, CP=16 shards sequence length, achieving 38% to 41% MFU.</fig>
+<p>Static states for 405 billion parameters in 16-byte Adam require approximately <tex>6,480\text{ GB}</tex> (6.48 TB). Storing this model requires at least 81 H100 GPUs purely for weights and optimizer states before allocating memory for activations. Table 1 reproduces Meta's published configurations from Table 4 of the paper.</p>
+<table>
+<thead><tr><th>Total GPUs</th><th>TP</th><th>CP</th><th>PP</th><th>DP (FSDP)</th><th>Seq Length</th><th>Tokens / Batch</th><th>TFLOPS / GPU</th><th>BF16 MFU</th></tr></thead>
+<tbody>
+<tr><td>8,192</td><td>8</td><td>1</td><td>16</td><td>64</td><td>8,192</td><td>16M</td><td>430</td><td>43%</td></tr>
+<tr><td>16,384</td><td>8</td><td>1</td><td>16</td><td>128</td><td>8,192</td><td>16M</td><td>400</td><td>41%</td></tr>
+<tr><td>16,384</td><td>8</td><td>16</td><td>16</td><td>8</td><td>131,072</td><td>16M</td><td>380</td><td>38%</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Published 4D parallelism scaling configurations and achieved Model FLOPs Utilization for Llama 3 405B pretraining (Dubey et al., 2024, Table 4).</p>
+<p>Notice the architectural insights embedded in Meta's configuration:</p>
+<ol>
+<li><strong>Rigid hierarchy</strong>: <tex>\text{TP} = 8</tex> is held constant across all configurations, never exceeding the 8-GPU node boundary. <tex>\text{PP} = 16</tex> partitions the 126 transformer layers across 16 server nodes (~8 layers per node), creating a unified 128-GPU model replica (<tex>8 \times 16 = 128\text{ GPUs}</tex>).</li>
+<li><strong>Impact of DP scaling</strong>: Scaling from 8K GPUs to 16K GPUs on 8K context doubled <tex>\text{DP}</tex> from 64 to 128. Under a fixed global batch size of 16M tokens, the per-replica batch size was halved from 32 sequences to 16 sequences (<tex>m = 16</tex>). This reduced micro-batch accumulation, increasing the pipeline bubble fraction from <tex>15 / (32 + 15) \approx 31.9\%</tex> to <tex>15 / (16 + 15) \approx 48.4\%</tex> (mitigated by interleaved 1F1B scheduling), causing MFU to drop slightly from 43% to 41%.</li>
+<li><strong>Transition to 128K context</strong>: To train on 131,072-token sequences, Meta engaged Context Parallelism at <tex>\text{CP} = 16</tex>, trading off Data Parallelism (<tex>\text{DP}</tex> reduced from 128 to 8). Ring attention communications across CP ranks reduced MFU by only 3 percentage points (from 41% to 38%), demonstrating the effectiveness of pipelining ring exchanges behind FlashAttention compute.</li>
+</ol>
+
+<h2>Parallelism Choices and Model FLOPs Utilization (MFU)</h2>
+<h3>The efficiency waterfall</h3>
+<p>In Lesson 7, Training FLOPs, Time and MFU, we defined Model FLOPs Utilization as the ratio between actual floating-point operations executed per second and the theoretical peak throughput of the hardware:</p>
+<texblock>\text{MFU} = \frac{\text{Actual Training FLOPS}}{N_{\text{gpus}} \times \text{Peak Hardware FLOPS}}</texblock>
+<p>An NVIDIA H100 SXM GPU provides a theoretical peak of 989 TFLOPS in dense BF16 tensor operations. Why does a world-class 4D training cluster operate at 38% to 43% MFU rather than 100%? Figure 5 traces where theoretical throughput is consumed.</p>
+<fig src="014-mfu-breakdown-components.svg" caption="Waterfall of efficiency: how parallelism choices shape achieved MFU">Tracing the loss of theoretical throughput from 100% peak (989 TFLOPS) down to 38%–43% MFU on 16K GPUs. Single-GPU kernel rooflines consume ~35%; TP All-Reduce collectives consume ~9%; PP bubbles consume ~10%; and FSDP/CP communications consume ~5%.</fig>
+<p>The loss of theoretical throughput divides into four primary stages:</p>
+<ol>
+<li><strong>Single-GPU kernel rooflines (Loss: ~35%)</strong>: Matrix multiplications (GEMMs) in attention and MLP layers achieve 70–80% of peak tensor core efficiency due to memory bandwidth limits and tile quantization. Furthermore, non-GEMM operations—RMSNorm, rotary position embeddings (RoPE), SwiGLU activations, and softmax—are memory-bandwidth-bound and achieve negligible FLOP rates. On a single GPU, the achievable upper bound is approximately 65% MFU.</li>
+<li><strong>Tensor Parallelism collectives (Loss: ~8–10%)</strong>: Two All-Reduce operations per layer force GPU tensor cores to synchronize across NVLink. Memory bandwidth contention between communication buffers and kernel execution reduces efficiency by 8–10%.</li>
+<li><strong>Pipeline Parallelism bubbles (Loss: ~10–12%)</strong>: Warmup and cooldown idle periods, along with stage execution imbalance (embedding and LM head overhead), introduce a bubble fraction of 8–15% even with 1F1B scheduling.</li>
+<li><strong>FSDP all-gather and CP ring overhead (Loss: ~4–6%)</strong>: While asynchronous CUDA streams prefetch weights and exchange key-value tokens concurrently with computation, communication jitter and brief synchronization barriers consume the final 4–6%.</li>
+</ol>
+<p>When an infrastructure team optimizes a 4D layout, every percentage point of MFU gained delivers massive economic savings. On our 256-GPU H100 cluster running a 1-trillion token pretraining job, increasing MFU from 35% to 40% reduces total run time from 6.3 days to 5.5 days, saving approximately 4,900 GPU-hours (<tex>\approx \$14,700</tex> at $3.00/hour).</p>
+
+<h3>Comparison table of parallelism dimensions</h3>
+<p>Table 2 contrasts the four parallelism dimensions across their memory impact, communication collectives, interconnect requirements, and typical degree.</p>
+<table>
+<thead><tr><th>Dimension</th><th>What is Sharded</th><th>Communication Collective</th><th>Interconnect Requirement</th><th>Bubble / Overhead</th><th>Typical Degree</th></tr></thead>
+<tbody>
+<tr><td><strong>Tensor (TP)</strong></td><td>Weights &amp; activations within layer</td><td>All-Reduce (2× per layer)</td><td>NVLink (900 GB/s, &lt; 1 µs)</td><td>Zero bubble</td><td>1 to 8 (inside 1 node)</td></tr>
+<tr><td><strong>Pipeline (PP)</strong></td><td>Layers vertically across depth</td><td>P2P Send/Recv (stage boundary)</td><td>InfiniBand (400 Gb/s)</td><td>Bubble: <tex>\frac{p-1}{m+p-1}</tex></td><td>1 to 16 (across nodes)</td></tr>
+<tr><td><strong>Data (FSDP / DP)</strong></td><td>Model states &amp; data batches</td><td>All-Gather &amp; Reduce-Scatter</td><td>InfiniBand Cluster Spine</td><td>Zero bubble (prefetching)</td><td>16 to 128+</td></tr>
+<tr><td><strong>Context (CP)</strong></td><td>Sequence length (tokens)</td><td>Ring P2P / All-to-All</td><td>NVLink or InfiniBand</td><td>Zero bubble (ring pipeline)</td><td>1 to 16 (for 64K–128K)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Comparison of the four parallelism dimensions across communication, interconnect, and scheduling constraints.</p>
+<fig src="014-memory-vs-comm-tradeoff.svg" caption="Trade-off landscape across the four dimensions of distributed training">Visual comparison of TP, PP, FSDP/DP, and CP showing how each dimension navigates the trade-offs between memory footprint reduction, network fabric requirements, and scheduling complexity.</fig>
+
+<h4>What layout for our run?</h4>
+<p>For our running pretraining scenario—<strong>Llama 3.1 8B on 256 H100 GPUs</strong> (32 nodes × 8 GPUs, 400 Gb/s InfiniBand, sequence length 8,192, global batch 4 million tokens)—we select <strong>Hybrid Sharded Data Parallel (HSDP)</strong> with:</p>
+<texblock>\text{TP} = 1, \quad \text{PP} = 1, \quad \text{CP} = 1, \quad \text{FSDP}_{\text{intra}} = 8, \quad \text{DP}_{\text{inter}} = 32</texblock>
+<p>We reject Tensor Parallelism because the 8B model's layers fit comfortably in memory without intra-layer splitting, avoiding 64 All-Reduce synchronizations per step. We reject Pipeline Parallelism because the model fits in an 8-GPU node under FSDP, avoiding the 10–20% bubble loss that PP would introduce. We reject Context Parallelism because sequence length 8,192 fits in memory with FlashAttention-3 without sequence sharding. Sharding weights across the 8 GPUs of each node over NVLink reduces state footprint to 16 GB per GPU, while replicating across 32 nodes allows 16 accumulation steps (<tex>m = 16, b = 1</tex>) to hit our exact 4M token batch with zero bubble overhead and an expected MFU above 42%.</p>
+
+<h2>In Practice</h2>
+<p>The first tab demonstrates how to construct and slice 2D and 3D device meshes in PyTorch using <code>torch.distributed.device_mesh.init_device_mesh</code>. The second tab provides a production <code>torchtitan</code> TOML configuration file implementing 3D parallelism for large-scale training.</p>
+<codetabs>
+<tab label="PyTorch DeviceMesh" lang="python">
+import os
+import torch
+import torch.distributed as dist
+from torch.distributed.device_mesh import init_device_mesh
+
+# Assume launching via torchrun across 16 GPUs (e.g., 2 nodes x 8 GPUs)
+# torchrun --nproc_per_node=8 --nnodes=2 train_mesh.py
+rank = int(os.environ.get("RANK", "0"))
+world_size = int(os.environ.get("WORLD_SIZE", "16"))
+device_type = "cuda" if torch.cuda.is_available() else "cpu"
+
+if not dist.is_initialized():
+    dist.init_process_group(backend="nccl" if torch.cuda.is_available() else "gloo")
+
+# 1. Initialize a 3D DeviceMesh: DP = 2, PP = 2, TP = 4 (Total = 16 GPUs)
+mesh_3d = init_device_mesh(
+    device_type=device_type,
+    mesh_shape=(2, 2, 4),
+    mesh_dim_names=("dp", "pp", "tp"),
+)
+
+if rank == 0:
+    print(f"Initialized 3D DeviceMesh:\n{mesh_3d}")
+
+# 2. Extract orthogonal submeshes for individual parallelism dimensions
+dp_mesh = mesh_3d["dp"]  # Shape (2,), manages FSDP all-gather across replicas
+pp_mesh = mesh_3d["pp"]  # Shape (2,), manages P2P stage activation transfers
+tp_mesh = mesh_3d["tp"]  # Shape (4,), manages intra-layer All-Reduce operations
+
+# Print coordinates and group memberships for this rank
+my_coords = mesh_3d.get_coordinate()
+print(f"Rank {rank} coordinates in (dp, pp, tp): {my_coords}")
+print(f"Rank {rank} TP process group ranks: {dist.get_process_group_ranks(tp_mesh.get_group())}")
+</tab>
+<tab label="torchtitan 3D TOML config" lang="text">
+# torchtitan configuration for 3D Parallelism pretraining
+# File: train_configs/llama3_4d_mesh.toml
+
+[job]
+description = "Multi-dimensional parallelism pretraining"
+dump_folder = "./outputs"
+
+[model]
+name = "llama3"
+flavor = "70B"
+norm_type = "rmsnorm"
+
+[parallelism]
+# 3D Parallelism layout: TP=8 (inside node), PP=4 (across nodes), DP=16
+tensor_parallel_degree = 8
+pipeline_parallel_degree = 4
+pipeline_parallel_schedule = "1F1B"
+context_parallel_degree = 1
+# -1 automatically assigns remaining ranks to FSDP sharding degree (16)
+data_parallel_shard_degree = -1
+
+[training]
+batch_size = 1                  # Micro-batch per GPU (b = 1)
+seq_len = 8192
+gradient_accumulation_steps = 32 # Micro-batches per step (m = 32)
+# Global batch: 32 micro-batches * 1 seq * 16 DP * 8192 tokens = 4,194,304 tokens
+warmup_steps = 2000
+max_norm = 1.0
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Hybrid Sharded Data Parallel (HSDP) vs full FSDP</strong>: Full FSDP shards parameters across all GPUs in a cluster, which causes heavy inter-node communication traffic. HSDP limits full sharding to GPUs within the same NVLink domain (node), replicating the sharded model across nodes using standard data-parallel All-Reduce. This strikes an optimal balance between memory reduction and inter-node network bandwidth [5].</li>
+<li><strong>Sequence Parallelism (SP) paired with TP</strong>: Standard TP shards matrix multiplications in attention and MLP, but leaves LayerNorm and Dropout duplicated. Megatron Sequence Parallelism splits the sequence dimension across the TP group during LayerNorm and Dropout, reducing activation memory by an additional <tex>5\times</tex> with zero extra communication [3].</li>
+<li><strong>Ring Attention vs DeepSpeed Ulysses for Context Parallelism</strong>: Ulysses uses All-to-All collectives to gather sequences and shard attention heads across CP ranks, requiring <tex>H \ge \text{CP}</tex>. Ring Attention avoids head count constraints by passing KV blocks in a circular ring, enabling context scaling to millions of tokens [6].</li>
+<li><strong>Network rail alignment</strong>: In modern multi-node clusters with 8 NICs per node, NIC <tex>k</tex> on every node connects to the same InfiniBand leaf switch (rail). Aligning DP or PP process groups along physical network rails eliminates spine switch hops, doubling effective collective throughput [7].</li>
+<li><strong>Automated mesh search (Alpa / Galvatron)</strong>: Manually tuning 4D parallelism configurations requires extensive trial and error. Compilers such as Alpa and Galvatron use integer linear programming and execution cost models to automatically discover the Pareto-optimal combination of TP, PP, DP, and CP for any given model and cluster architecture.</li>
+<li><strong>Checkpointing multi-dimensional meshes</strong>: Distributed checkpoints saved under a specific 3D layout (e.g., TP=8, PP=4) historically could not be resumed on a cluster with a different layout (e.g., TP=4, PP=8). Modern PyTorch Distributed Checkpoint (DCP) saves state dictionaries as sharded coordinate tensors, enabling seamless resharding across different mesh dimensions upon restart.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="014-summary.png" caption="Combining parallelism summary" optional="1">Mind map summarizing 3D and 4D parallelism: hardware hierarchy mapping, global batch arithmetic, Llama 3 405B case study, and layout decisions.</fig>
+<ul>
+<li>Multi-dimensional parallelism composes Tensor (TP), Pipeline (PP), Context (CP), and Data (FSDP/DP) parallelism into an <tex>n</tex>-dimensional device mesh: <tex>N_{\text{gpus}} = \text{TP} \times \text{PP} \times \text{CP} \times \text{DP}</tex>.</li>
+<li>Golden rules of topology: Confine TP strictly to intra-node NVLink (<tex>\le 8</tex> GPUs); use PP across nodes to shard depth; use CP for ultra-long contexts; wrap the outer cluster in FSDP / DP.</li>
+<li>Global batch arithmetic governs the cluster: <tex>B_{\text{tokens}} = \text{DP} \times m \times b \times s</tex>. Scaling DP under a fixed global batch forces accumulation steps <tex>m</tex> to shrink, which inflates the pipeline bubble fraction <tex>(p - 1) / (m + p - 1)</tex>.</li>
+<li>Meta trained Llama 3 405B across 16,384 H100 GPUs using a 4D configuration: <tex>\text{TP} = 8</tex>, <tex>\text{PP} = 16</tex> (128 GPUs per replica), <tex>\text{DP} = 128</tex>, and <tex>\text{CP} = 16</tex> for 128K context, achieving 38% to 41% MFU.</li>
+<li>PyTorch <code>DeviceMesh</code> standardizes multi-dimensional communication by organizing ranks into coordinate grids with orthogonal submeshes (<code>mesh["tp"]</code>, <code>mesh["pp"]</code>, <code>mesh["dp"]</code>).</li>
+<li>For our 256-GPU H100 pretraining run on Llama 3.1 8B, pure HSDP (<tex>\text{TP}=1, \text{PP}=1, \text{CP}=1, \text{FSDP}=8, \text{DP}=32</tex>) is optimal, eliminating TP communication overhead and PP bubble losses.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Shoeybi et al. Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism. <a href="https://arxiv.org/abs/1909.08053" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1909.08053</a>.<br>
+[2] Huang et al. GPipe: Efficient Training of Giant Neural Networks using Pipeline Parallelism. <a href="https://arxiv.org/abs/1811.06965" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1811.06965</a>.<br>
+[3] Narayanan et al. Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM. <a href="https://arxiv.org/abs/2104.04473" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2104.04473</a>.<br>
+[4] Rajbhandari et al. ZeRO: Memory Optimizations Toward Training Trillion Parameter Models. <a href="https://arxiv.org/abs/1910.02054" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1910.02054</a>.<br>
+[5] Zhao et al. PyTorch FSDP: Experiences on Scaling Fully Sharded Data Parallel. <a href="https://arxiv.org/abs/2304.11277" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2304.11277</a>.<br>
+[6] Liu et al. RingAttention with Blockwise Transformers for Near-Infinite Context. <a href="https://arxiv.org/abs/2310.01889" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2310.01889</a>.<br>
+[7] Dubey et al. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[8] PyTorch documentation: Distributed DeviceMesh (torch.distributed.device_mesh). <a href="https://pytorch.org/docs/stable/distributed.tensor.parallel.html" rel="noopener noreferrer" target="_blank">https://pytorch.org/docs/stable/distributed.tensor.parallel.html</a>.<br>
+[9] TorchTitan: PyTorch native library for large model pretraining. <a href="https://github.com/pytorch/torchtitan" rel="noopener noreferrer" target="_blank">https://github.com/pytorch/torchtitan</a>.</p>

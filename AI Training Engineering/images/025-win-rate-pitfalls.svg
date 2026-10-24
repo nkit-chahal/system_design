@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Win Rates and Automated Judge Pitfalls</text>
+  <text x="25" y="48" class="sm" fill="#555">Evaluating post-training alignment with AlpacaEval and Arena-Hard (link to Lesson 34)</text>
+
+  <!-- Left: Evaluation Flow -->
+  <rect x="25" y="70" width="370" height="215" rx="6" class="gray"/>
+  <text x="210" y="94" text-anchor="middle" class="b">Automated LLM Judge Pipeline</text>
+
+  <rect x="45" y="110" width="330" height="38" rx="4" class="purple"/>
+  <text x="210" y="133" text-anchor="middle" class="sm b">Model A vs Baseline Model B on 1,000 Prompts</text>
+
+  <path d="M210 148 L210 168" class="edge"/>
+
+  <rect x="45" y="168" width="330" height="42" rx="4" class="yellow"/>
+  <text x="210" y="186" text-anchor="middle" class="sm b">Judge LLM (e.g. GPT-4 / Claude)</text>
+  <text x="210" y="202" text-anchor="middle" class="sm">Blind evaluation: "Which response is better?"</text>
+
+  <path d="M210 210 L210 230" class="edge"/>
+
+  <rect x="45" y="230" width="330" height="42" rx="4" class="green"/>
+  <text x="210" y="248" text-anchor="middle" class="sm b">Reported Metric: Win Rate %</text>
+  <text x="210" y="264" text-anchor="middle" class="sm">Win Rate = (Wins + 0.5 * Ties) / Total</text>
+
+  <!-- Right: 4 Judge Pitfalls -->
+  <rect x="425" y="70" width="370" height="215" rx="6" class="gray"/>
+  <text x="610" y="94" text-anchor="middle" class="b">Four Critical Judge Failure Modes</text>
+
+  <rect x="440" y="108" width="340" height="38" rx="3" class="red"/>
+  <text x="450" y="125" class="b sm">1. Length Bias</text>
+  <text x="450" y="139" class="sm">Judges favor verbose text even when less factual.</text>
+
+  <rect x="440" y="150" width="340" height="38" rx="3" class="orange"/>
+  <text x="450" y="167" class="b sm">2. Position Bias</text>
+  <text x="450" y="181" class="sm">Order matters: Option 1 gets 3-7% higher win rates.</text>
+
+  <rect x="440" y="192" width="340" height="38" rx="3" class="yellow"/>
+  <text x="450" y="209" class="b sm">3. Self-Enhancement Bias</text>
+  <text x="450" y="223" class="sm">Judges systematically favor text from their own family.</text>
+
+  <rect x="440" y="234" width="340" height="38" rx="3" class="purple"/>
+  <text x="450" y="251" class="b sm">4. Non-Transitivity</text>
+  <text x="450" y="265" class="sm">Preferences contain cycles (A &gt; B, B &gt; C, C &gt; A).</text>
+
+  <!-- Bottom Banner -->
+  <rect x="25" y="295" width="770" height="42" rx="4" class="green"/>
+  <text x="410" y="321" text-anchor="middle" class="b">Standard Mitigation: Use Length-Controlled (LC) win rates and swap position order (A/B and B/A)</text>
+</svg>

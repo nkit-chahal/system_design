@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="360" viewBox="0 0 820 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.xs{font-size:11px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:4 3}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">The 3D DeviceMesh Abstraction: Coordinate Grids and Submeshes</text>
+  <text x="25" y="44" class="sm" fill="#555">PyTorch DeviceMesh shape (dp=2, pp=2, tp=4) over 16 GPUs. Communicator groups form orthogonal slices.</text>
+
+  <!-- DP Replica 0 (Top Container) -->
+  <rect x="25" y="65" width="770" height="115" rx="6" class="gray"/>
+  <text x="40" y="86" class="b">DP Replica 0 (dp_rank = 0): 8 GPUs</text>
+
+  <!-- PP Stage 0 inside DP 0 -->
+  <rect x="35" y="95" width="370" height="75" rx="4" class="blue"/>
+  <text x="45" y="112" class="xs b">PP Stage 0 (pp_rank = 0) — TP group [ranks 0, 1, 2, 3]:</text>
+  <rect x="45" y="122" width="80" height="38" rx="3" class="orange"/><text x="85" y="140" text-anchor="middle" class="xs b">GPU 0</text><text x="85" y="153" text-anchor="middle" class="xs">(0,0,0)</text>
+  <rect x="135" y="122" width="80" height="38" rx="3" class="orange"/><text x="175" y="140" text-anchor="middle" class="xs b">GPU 1</text><text x="175" y="153" text-anchor="middle" class="xs">(0,0,1)</text>
+  <rect x="225" y="122" width="80" height="38" rx="3" class="orange"/><text x="265" y="140" text-anchor="middle" class="xs b">GPU 2</text><text x="265" y="153" text-anchor="middle" class="xs">(0,0,2)</text>
+  <rect x="315" y="122" width="80" height="38" rx="3" class="orange"/><text x="355" y="140" text-anchor="middle" class="xs b">GPU 3</text><text x="355" y="153" text-anchor="middle" class="xs">(0,0,3)</text>
+
+  <!-- PP Stage 1 inside DP 0 -->
+  <rect x="415" y="95" width="370" height="75" rx="4" class="green"/>
+  <text x="425" y="112" class="xs b">PP Stage 1 (pp_rank = 1) — TP group [ranks 4, 5, 6, 7]:</text>
+  <rect x="425" y="122" width="80" height="38" rx="3" class="orange"/><text x="465" y="140" text-anchor="middle" class="xs b">GPU 4</text><text x="465" y="153" text-anchor="middle" class="xs">(0,1,0)</text>
+  <rect x="515" y="122" width="80" height="38" rx="3" class="orange"/><text x="555" y="140" text-anchor="middle" class="xs b">GPU 5</text><text x="555" y="153" text-anchor="middle" class="xs">(0,1,1)</text>
+  <rect x="605" y="122" width="80" height="38" rx="3" class="orange"/><text x="645" y="140" text-anchor="middle" class="xs b">GPU 6</text><text x="645" y="153" text-anchor="middle" class="xs">(0,1,2)</text>
+  <rect x="695" y="122" width="80" height="38" rx="3" class="orange"/><text x="735" y="140" text-anchor="middle" class="xs b">GPU 7</text><text x="735" y="153" text-anchor="middle" class="xs">(0,1,3)</text>
+
+  <!-- DP Replica 1 (Bottom Container) -->
+  <rect x="25" y="190" width="770" height="115" rx="6" class="gray"/>
+  <text x="40" y="211" class="b">DP Replica 1 (dp_rank = 1): 8 GPUs</text>
+
+  <!-- PP Stage 0 inside DP 1 -->
+  <rect x="35" y="220" width="370" height="75" rx="4" class="blue"/>
+  <text x="45" y="237" class="xs b">PP Stage 0 (pp_rank = 0) — TP group [ranks 8, 9, 10, 11]:</text>
+  <rect x="45" y="247" width="80" height="38" rx="3" class="orange"/><text x="85" y="265" text-anchor="middle" class="xs b">GPU 8</text><text x="85" y="278" text-anchor="middle" class="xs">(1,0,0)</text>
+  <rect x="135" y="247" width="80" height="38" rx="3" class="orange"/><text x="175" y="265" text-anchor="middle" class="xs b">GPU 9</text><text x="175" y="278" text-anchor="middle" class="xs">(1,0,1)</text>
+  <rect x="225" y="247" width="80" height="38" rx="3" class="orange"/><text x="265" y="265" text-anchor="middle" class="xs b">GPU 10</text><text x="265" y="278" text-anchor="middle" class="xs">(1,0,2)</text>
+  <rect x="315" y="247" width="80" height="38" rx="3" class="orange"/><text x="355" y="265" text-anchor="middle" class="xs b">GPU 11</text><text x="355" y="278" text-anchor="middle" class="xs">(1,0,3)</text>
+
+  <!-- PP Stage 1 inside DP 1 -->
+  <rect x="415" y="220" width="370" height="75" rx="4" class="green"/>
+  <text x="425" y="237" class="xs b">PP Stage 1 (pp_rank = 1) — TP group [ranks 12, 13, 14, 15]:</text>
+  <rect x="425" y="247" width="80" height="38" rx="3" class="orange"/><text x="465" y="265" text-anchor="middle" class="xs b">GPU 12</text><text x="465" y="278" text-anchor="middle" class="xs">(1,1,0)</text>
+  <rect x="515" y="247" width="80" height="38" rx="3" class="orange"/><text x="555" y="265" text-anchor="middle" class="xs b">GPU 13</text><text x="555" y="278" text-anchor="middle" class="xs">(1,1,1)</text>
+  <rect x="605" y="247" width="80" height="38" rx="3" class="orange"/><text x="645" y="265" text-anchor="middle" class="xs b">GPU 14</text><text x="645" y="278" text-anchor="middle" class="xs">(1,1,2)</text>
+  <rect x="695" y="247" width="80" height="38" rx="3" class="orange"/><text x="735" y="265" text-anchor="middle" class="xs b">GPU 15</text><text x="735" y="278" text-anchor="middle" class="xs">(1,1,3)</text>
+
+  <!-- Bottom Legend -->
+  <rect x="25" y="312" width="770" height="38" rx="4" class="white"/>
+  <text x="40" y="328" class="xs"><tspan class="b">Submesh Slicing:</tspan> mesh["tp"] isolates 4-GPU rows for All-Reduce; mesh["pp"] connects stages 0 and 1;</text>
+  <text x="40" y="342" class="xs">mesh["dp"] connects replicas 0 and 1 across corresponding coordinates for all-gather / reduce-scatter.</text>
+</svg>

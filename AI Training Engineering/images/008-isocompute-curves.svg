@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="390" viewBox="0 0 840 390" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Iso-Compute Curves and the Compute-Optimal Frontier</text>
+  <text x="25" y="48" class="sm" fill="#555">Illustrative loss vs parameters for fixed FLOP budgets. Curve valleys form the Chinchilla frontier (D ≈ 20N)</text>
+
+  <!-- Chart Area: x: 80 to 760, y: 70 to 260 -->
+  <!-- Axes -->
+  <line x1="80" y1="260" x2="760" y2="260" stroke="#000" stroke-width="1.2"/>
+  <line x1="80" y1="260" x2="80" y2="70" stroke="#000" stroke-width="1.2"/>
+
+  <!-- Axis Labels -->
+  <text x="420" y="315" text-anchor="middle" class="b">Model Parameters (N) [Log Scale]</text>
+  <text x="30" y="165" text-anchor="middle" transform="rotate(-90 30 165)" class="b">Evaluation Loss (L)</text>
+
+  <!-- Parameter Ticks on X-axis -->
+  <line x1="150" y1="260" x2="150" y2="265" stroke="#000"/>
+  <text x="150" y="280" text-anchor="middle" class="sm">1B</text>
+
+  <line x1="270" y1="260" x2="270" y2="265" stroke="#000"/>
+  <text x="270" y="280" text-anchor="middle" class="sm">3B</text>
+
+  <line x1="390" y1="260" x2="390" y2="265" stroke="#000"/>
+  <text x="390" y="280" text-anchor="middle" class="sm">8B</text>
+
+  <line x1="530" y1="260" x2="530" y2="265" stroke="#000"/>
+  <text x="530" y="280" text-anchor="middle" class="sm">20B</text>
+
+  <line x1="670" y1="260" x2="670" y2="265" stroke="#000"/>
+  <text x="670" y="280" text-anchor="middle" class="sm">70B</text>
+
+  <!-- Curve 1: C = 1e21 -->
+  <path d="M 100,200 Q 170,175 270,200" fill="none" stroke="#6c8ebf" stroke-width="2"/>
+  <text x="280" y="200" class="sm" fill="#6c8ebf">C = 1e21</text>
+
+  <!-- Curve 2: C = 6e21 -->
+  <path d="M 150,170 Q 280,140 430,170" fill="none" stroke="#9673a6" stroke-width="2"/>
+  <text x="440" y="170" class="sm" fill="#9673a6">C = 6e21</text>
+
+  <!-- Curve 3: C = 4.8e22 (Our Budget) -->
+  <path d="M 220,140 Q 530,95 690,140" fill="none" stroke="#b45f06" stroke-width="2.2"/>
+  <text x="615" y="160" class="sm b" fill="#b45f06">C = 4.8e22 (Our Budget)</text>
+
+  <!-- Frontier dashed line connecting minima -->
+  <path d="M 170,175 L 280,140 L 530,95" fill="none" stroke="#274e13" stroke-width="2" stroke-dasharray="4 4"/>
+  <text x="310" y="125" class="sm b" fill="#274e13">Compute-Optimal Frontier (D ≈ 20N)</text>
+
+  <!-- Point A: Compute-optimal 20B on 400B tokens (x=530, y=95) -->
+  <circle cx="530" cy="95" r="5" fill="#274e13"/>
+  <text x="640" y="90" text-anchor="middle" class="sm b" fill="#274e13">Optimal: 20B on 400B tokens</text>
+
+  <!-- Point B: Running scenario 8.03B on 1T tokens (x=390, y=98) -->
+  <circle cx="390" cy="98" r="5" fill="#c00"/>
+  <text x="270" y="75" text-anchor="middle" class="sm b" fill="#c00">Our Run: 8B on 1T tokens</text>
+  <text x="270" y="90" text-anchor="middle" class="sm" fill="#555">(Overtrained for inference)</text>
+
+  <!-- Curved arrow from 8B to 20B -->
+  <path d="M 400,98 Q 460,105 520,97" fill="none" stroke="#555" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+  <!-- Explanatory footer -->
+  <rect x="25" y="330" width="790" height="48" rx="6" class="gray"/>
+  <text x="40" y="350" class="b">Illustrative Iso-Compute Dynamics:</text>
+  <text x="40" y="366" class="sm">Moving from 20B (optimal) to 8B on the 4.8e22 curve barely changes loss (+0.005), but cuts model serving size by 2.5×.</text>
+</svg>

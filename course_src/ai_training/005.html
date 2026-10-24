@@ -1,0 +1,312 @@
+<h2>Introduction</h2>
+<p>Training neural networks in single-precision floating point (FP32) provides ample dynamic range and high numerical precision, but it severely throttles training speed and GPU memory capacity. Modern AI accelerators achieve their peak compute throughput using specialized Tensor Cores engineered specifically for reduced-precision matrix multiplications. Moving from 32-bit floating point down to 16-bit formats doubles arithmetic throughput and halves memory bandwidth consumption; stepping further into 8-bit floating point (FP8) on architectures such as NVIDIA Hopper doubles matrix multiplication compute density once again [1], [2].</p>
+<p>However, running training entirely in low precision is physically impossible without causing immediate mathematical failure. As established in Lesson 3 (Training Memory), <strong>mixed-precision training</strong> does not simply convert all numbers to a smaller format. Instead, it carefully partitions execution: fast matrix multiplications (GEMMs) execute in lower precision (BF16 or FP8) to exploit hardware Tensor Cores, while sensitive mathematical operations—including master weight accumulation, optimizer momentum updates, softmax exponentiation, and normalization statistics—are strictly guarded in FP32 [1], [3].</p>
+<fig src="005-floating-point-formats.svg" caption="Bit layouts of floating-point formats: FP32, FP16, BF16, and FP8">Bit allocations across IEEE formats: FP32 provides 8 exponent and 23 mantissa bits. FP16 allocates 5 exponent and 10 mantissa bits. BF16 preserves the full 8-bit exponent of FP32 with 7 mantissa bits. FP8 divides into E4M3 (higher precision for forward activations) and E5M2 (wider dynamic range for backward gradients).</fig>
+<p>In this lesson, we examine the numerical systems engineering behind mixed-precision training. We compare FP16, BF16, and the FP8 formats (E4M3 and E5M2), explain why FP16 requires dynamic loss scaling while BF16 does not, trace which states must remain in FP32 to prevent weight stagnation, dissect FP8 scaling strategies from NVIDIA Transformer Engine's delayed scaling to DeepSeek-V3's fine-grained tile scaling, and analyze why real-world FP8 throughput gains fall well short of the theoretical 2× Tensor Core peak.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In infrastructure design interviews, mixed-precision questions evaluate whether an engineer understands low-level hardware representation, numerical stability hazards, and cluster throughput trade-offs. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: What model architecture, hardware cluster, and token budget are we targeting for this training run?<br>
+<strong>Interviewer</strong>: We are pretraining a model with the Llama 3.1 8B architecture (8.03 billion parameters) across 256 NVIDIA H100 80 GB GPUs on 1 trillion tokens. Sequence length is 8,192 tokens and the global batch size is 512 sequences (~4M tokens).</p>
+<p><strong>Candidate</strong>: Are we training in standard BF16 mixed precision, or are we evaluating FP8 mixed precision on Hopper?<br>
+<strong>Interviewer</strong>: That is the decision you need to make. NVIDIA reports that an H100 SXM delivers 989 TFLOPS dense compute in BF16 and 1,979 TFLOPS in FP8. Should we pretrain this run in pure BF16 or FP8, and how much end-to-end wall-clock speedup should we realistically expect?</p>
+<p><strong>Candidate</strong>: If we adopt FP8, how do we handle dynamic range limitations—using standard per-tensor delayed scaling or fine-grained block-wise scaling?<br>
+<strong>Interviewer</strong>: We want you to analyze both. Explain why standard FP8 training historically required hybrid E4M3/E5M2 formats, and how DeepSeek-V3 achieved pure E4M3 training across both forward and backward passes.</p>
+<p><strong>Candidate</strong>: Does FP8 substantially reduce our static model and optimizer state memory on the GPU?<br>
+<strong>Interviewer</strong>: You tell me. If master weights and Adam states remain in FP32, what is the actual memory saving per GPU when sharded across 8 GPUs via FSDP?</p>
+<p><strong>Candidate</strong>: What numerical risks are we taking on with FP8, and what telemetry should we monitor to catch loss spikes early?<br>
+<strong>Interviewer</strong>: That is the core operational trade-off. Walk us through underflow, overflow, and scaling lag hazards.</p>
+<p>The question underneath is: <em>How do we maximize hardware throughput on our H100 cluster without risking loss divergence, and does the engineering complexity of FP8 justify its wall-clock savings for an 8B pretraining run?</em> To answer it, we begin by comparing the fundamental number formats.</p>
+
+<h2>Number Formats and Dynamic Range</h2>
+<p>The IEEE 754 standard represents floating-point numbers in three binary fields: a 1-bit sign (<tex>s</tex>), an exponent of <tex>E</tex> bits biased by <tex>2^{E-1} - 1</tex>, and a mantissa (significand) of <tex>M</tex> bits with an implicit leading 1 [2] (see Inference Lesson 13, Quantization - FP8, INT8 and 4-bit, for format basics). The number of exponent bits determines the <strong>dynamic range</strong> (the span between the smallest and largest representable numbers), while the number of mantissa bits determines the <strong>precision</strong> (the relative distance between adjacent numbers, defined by machine epsilon <tex>\epsilon_{\text{mach}} = 2^{-M}</tex>).</p>
+<p>Table 1 details the exact specifications of the floating-point formats used in modern LLM training.</p>
+<table>
+<thead><tr><th>Format</th><th>Total Bits</th><th>Sign / Exp / Mantissa</th><th>Dynamic Range</th><th>Smallest Positive Normal</th><th>Max Value</th><th>Machine Epsilon</th></tr></thead>
+<tbody>
+<tr><td>FP32</td><td>32 bits</td><td>1 / 8 / 23</td><td><tex>\approx 10^{\pm 38}</tex></td><td><tex>2^{-126} \approx 1.17 \times 10^{-38}</tex></td><td><tex>3.40 \times 10^{38}</tex></td><td><tex>2^{-23} \approx 1.19 \times 10^{-7}</tex></td></tr>
+<tr><td>FP16</td><td>16 bits</td><td>1 / 5 / 10</td><td><tex>\approx 10^{\pm 4.8}</tex></td><td><tex>2^{-14} \approx 6.10 \times 10^{-5}</tex></td><td><tex>65,504</tex></td><td><tex>2^{-10} \approx 9.77 \times 10^{-4}</tex></td></tr>
+<tr><td>BF16</td><td>16 bits</td><td>1 / 8 / 7</td><td><tex>\approx 10^{\pm 38}</tex></td><td><tex>2^{-126} \approx 1.17 \times 10^{-38}</tex></td><td><tex>3.39 \times 10^{38}</tex></td><td><tex>2^{-7} \approx 7.81 \times 10^{-3}</tex></td></tr>
+<tr><td>FP8 E4M3</td><td>8 bits</td><td>1 / 4 / 3</td><td><tex>\approx 10^{\pm 1.8}</tex></td><td><tex>2^{-6} \approx 0.0156</tex></td><td><tex>448</tex></td><td><tex>2^{-3} = 0.125</tex></td></tr>
+<tr><td>FP8 E5M2</td><td>8 bits</td><td>1 / 5 / 2</td><td><tex>\approx 10^{\pm 4.8}</tex></td><td><tex>2^{-14} \approx 6.10 \times 10^{-5}</tex></td><td><tex>57,344</tex></td><td><tex>2^{-2} = 0.250</tex></td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Bit allocation and numerical properties of training floating-point formats</p>
+
+<h3>Why FP16 requires loss scaling</h3>
+<p>In FP16, the exponent field is restricted to only 5 bits (bias 15). Consequently, the smallest positive normal number representable in FP16 is <tex>2^{-14} \approx 6.10 \times 10^{-5}</tex>. Values smaller than this either fall into the subnormal range (with severely degraded precision) or round directly to zero (<tex>2^{-24} \approx 5.96 \times 10^{-8}</tex> is absolute underflow) [1].</p>
+<p>During backpropagation through deep transformer networks (such as a 32-layer model), gradient values decay exponentially as they traverse repeated matrix multiplications and attention projections. In standard training, <strong>over 60% of all backpropagated gradient values are smaller than <tex>6.1 \times 10^{-5}</tex></strong> [1]. If executed directly in FP16, these gradients underflow to zero, causing gradient updates to stall and halting model learning.</p>
+<fig src="005-fp16-vs-bf16-dynamic-range.svg" caption="Dynamic range comparison: FP16 loss scaling vs native BF16">In FP16 (left), over half of backpropagated gradients fall below the 6.1e-5 underflow threshold, requiring a dynamic loss scaler to shift gradients into representable range. BF16 (right) provides an 8-bit exponent matching FP32, naturally spanning gradients down to 1e-38 without scaling.</fig>
+<p>To prevent underflow, FP16 training requires <strong>dynamic loss scaling</strong>. Before backpropagation begins, the scalar loss <tex>\mathcal{L}</tex> is multiplied by a large scaling factor <tex>S</tex> (for example, <tex>S = 2^{16} = 65,536</tex>):</p>
+<texblock>\mathcal{L}_{\text{scaled}} = S \times \mathcal{L}</texblock>
+<p>By the linearity of differentiation, every gradient in the backward pass is scaled by exactly <tex>S</tex>:</p>
+<texblock>\nabla_\theta \mathcal{L}_{\text{scaled}} = S \times \nabla_\theta \mathcal{L}</texblock>
+<p>This shifts the gradient distribution upward by <tex>\log_2(S)</tex> octaves, moving tiny gradients out of the underflow zone and into the normal FP16 representable range. Before applying the optimizer update, the gradients are unscaled by dividing by <tex>S</tex>. If any gradient overflows to infinity (exceeding 65,504), the step is skipped and <tex>S</tex> is halved; if no overflows occur over several consecutive steps, <tex>S</tex> is doubled. This dynamic calibration introduces code complexity and requires GPU-wide synchronization across all ranks in distributed training.</p>
+
+<h3>Why BF16 does not require loss scaling</h3>
+<p>Google developed <strong>Brain Floating Point (BF16)</strong> specifically for deep learning by retaining the exact 8-bit exponent field of FP32 while truncating the mantissa to 7 bits [1]. Because its exponent field is identical to FP32, BF16 provides the exact same dynamic range: its smallest positive normal number is <tex>2^{-126} \approx 1.17 \times 10^{-38}</tex>, and its maximum value is <tex>3.39 \times 10^{38}</tex>.</p>
+<p>Because gradient values in language modeling virtually never fall below <tex>10^{-38}</tex>, <strong>BF16 training completely eliminates the risk of underflow</strong>. Loss scaling is entirely unnecessary. Training loops in BF16 run with standard gradient accumulation without needing <code>torch.cuda.amp.GradScaler</code>, avoiding skipped steps and eliminating distributed overflow checks. Consequently, BF16 has superseded FP16 as the universal standard for pretraining modern frontier LLMs [4].</p>
+
+<h2>The Guardrails: What Stays in FP32 and Why</h2>
+<p>While BF16 resolves dynamic range limitations, its 7-bit mantissa offers only about 3.3 decimal digits of precision (machine epsilon <tex>7.81 \times 10^{-3}</tex>). Attempting to perform all training operations in BF16 results in swift degradation. As illustrated in Figure 3, mixed precision enforces strict guardrails that maintain critical states in 32-bit floating point.</p>
+<fig src="005-what-stays-in-fp32.svg" caption="What stays in FP32 during mixed-precision training and why">Critical numerical guardrails: master weights prevent swamping when small updates are added to large parameters. Optimizer states preserve subtle variance tracking. Softmax and normalization reductions prevent exponent overflow and variance collapse.</fig>
+
+<h3>1. FP32 master weights (preventing weight stagnation)</h3>
+<p>At each training iteration, the optimizer updates each parameter <tex>\theta</tex> by a small step <tex>\Delta \theta = -\eta \frac{\hat{m}}{\sqrt{\hat{v}} + \epsilon}</tex>. At typical pretraining learning rates (<tex>\eta \approx 3 \times 10^{-4}</tex>), <tex>\Delta \theta</tex> is commonly on the order of <tex>10^{-5}</tex> or <tex>10^{-6}</tex>. Consider adding an update of <tex>1.0 \times 10^{-5}</tex> to an existing weight <tex>\theta = 1.0</tex>:</p>
+<p>In BF16, the gap between <tex>1.0</tex> and the next representable number is <tex>2^{-7} \approx 7.81 \times 10^{-3}</tex>. Any addition smaller than half this distance rounds directly back to <tex>1.0</tex>:</p>
+<texblock>\theta_{\text{next}} = \text{round}_{\text{BF16}}(1.0 + 1.0 \times 10^{-5}) = 1.0</texblock>
+<p>The parameter update is completely erased by rounding. This failure mode is known as <strong>swamping</strong> or <strong>weight stagnation</strong> [1]. Over millions of steps, the model fails to learn because parameter updates vanish into mantissa truncation.</p>
+<p>To eliminate swamping, the system maintains an <strong>FP32 master weight</strong> (4 bytes per parameter). The optimizer applies the update <tex>\Delta \theta</tex> in FP32, where machine epsilon is <tex>1.19 \times 10^{-7}</tex>. Over many iterations, tiny updates accumulate smoothly in the lower-order bits of the master weight. Before each forward pass, the FP32 master weight is cast down to BF16 for matrix multiplication on Tensor Cores.</p>
+
+<h3>2. FP32 optimizer states (preserving variance tracking)</h3>
+<p>As proved in Lesson 4 (Optimizers), AdamW tracks the running first moment <tex>m_t = \beta_1 m_{t-1} + (1 - \beta_1) g_t</tex> and uncentered second moment <tex>v_t = \beta_2 v_{t-1} + (1 - \beta_2) g_t^2</tex>. Because <tex>g_t^2</tex> squares small gradient values (for example, <tex>(10^{-4})^2 = 10^{-8}</tex>), the second moment spans extreme orders of magnitude. Storing <tex>v_t</tex> in BF16 would cause smaller gradient additions to be wiped out by rounding. Both moments must reside in FP32 (8 bytes per parameter).</p>
+
+<h3>3. FP32 reductions: Softmax and Normalization</h3>
+<p>Certain non-GEMM layer reductions must accumulate in FP32 to prevent arithmetic collapse:</p>
+<ul>
+<li><strong>Softmax exponent sum</strong>: Computing <tex>\sum_{j=1}^V \exp(z_j)</tex> across our 128,256-token vocabulary requires summing thousands of exponential terms. In 16-bit, large logits exceed the maximum value (65,504 in FP16), and summing many small exponentials accumulates substantial truncation bias. PyTorch executes the online maximum subtraction and denominator reduction in FP32 before casting probabilities back to 16-bit.</li>
+<li><strong>LayerNorm and RMSNorm statistics</strong>: RMSNorm calculates the root-mean-square over hidden dimension <tex>d = 4,096</tex>:
+<texblock>\text{RMS}(x) = \sqrt{\frac{1}{d} \sum_{i=1}^d x_i^2 + \epsilon}</texblock>
+Summing the squares of 4,096 elements in 16-bit precision easily overflows or suffers catastrophic cancellation. The sum of squares, division, and square root must execute in FP32.</li>
+</ul>
+
+<h2>PyTorch Autocast Mechanics</h2>
+<p>PyTorch manages mixed precision through <code>torch.autocast</code> [1]. When execution enters <code>with torch.autocast(device_type="cuda", dtype=torch.bfloat16):</code>, PyTorch dynamically intercepts every CUDA operator and dispatches it according to an internal rule table:</p>
+<ol>
+<li><strong>Fast 16-bit list (GEMMs & Convolutions)</strong>: <code>nn.Linear</code>, <code>torch.matmul</code>, <code>bmm</code>, <code>conv1d</code>, and <code>conv2d</code> are automatically cast to BF16, routing execution to high-throughput hardware Tensor Cores.</li>
+<li><strong>FP32 precision list (Reductions & Normalizations)</strong>: <code>layer_norm</code>, <code>rms_norm</code>, <code>softmax</code>, <code>cross_entropy</code>, <code>exp</code>, and <code>sum</code> are automatically executed in FP32.</li>
+<li><strong>Native pass-through list</strong>: Elementwise additions and identity operations execute in the dtype of their input tensors.</li>
+</ol>
+<p>Autocast ensures that engineers write idiomatic PyTorch code while the runtime automatically guarantees both maximum Tensor Core speed for linear algebra and FP32 accuracy for sensitive operations.</p>
+
+<h2>FP8 Training on Hopper: Scaling Recipes and DeepSeek-V3</h2>
+<p>NVIDIA's Hopper architecture (H100) introduced fourth-generation Tensor Cores with native hardware support for 8-bit floating point, doubling theoretical dense compute from 989 TFLOPS (BF16) to 1,979 TFLOPS (FP8). However, because FP8 provides only 8 bits total, its dynamic range and precision are extremely constrained (Table 1).</p>
+<p>To execute matrix multiplication in FP8, input tensors must be scaled before quantization. Given input matrices <tex>A</tex> and <tex>B</tex>, scalar scaling factors <tex>S_A</tex> and <tex>S_B</tex> rescale tensors into the FP8 representable range [3]:</p>
+<texblock>A_{\text{FP8}} = \text{clip}\left( \text{round}\left( S_A \times A \right) \right), \quad B_{\text{FP8}} = \text{clip}\left( \text{round}\left( S_B \times B \right) \right)</texblock>
+<p>The hardware Tensor Cores multiply the FP8 matrices, accumulating partial sums in FP32. The output is scaled back by multiplying by <tex>\frac{1}{S_A S_B}</tex>:</p>
+<texblock>C = \frac{1}{S_A S_B} \left( A_{\text{FP8}} B_{\text{FP8}} \right)</texblock>
+
+<fig src="005-fp8-scaling-strategies.svg" caption="FP8 scaling strategies: Per-tensor delayed scaling vs DeepSeek-V3 fine-grained">Per-tensor delayed scaling (left) uses a single historical scalar per matrix, requiring hybrid E4M3/E5M2 formats to survive activation outliers. DeepSeek-V3 fine-grained scaling (right) partitions activations into 1x128 tiles and weights into 128x128 blocks, isolating outliers and enabling pure E4M3 across both forward and backward passes.</fig>
+
+<h3>Per-tensor delayed scaling (NVIDIA Transformer Engine)</h3>
+<p>In standard FP8 training with NVIDIA's <strong>Transformer Engine</strong> [5], scaling factors are computed per tensor: <tex>S = \frac{\text{FP8\_MAX}}{\text{amax}(X)}</tex>, where <tex>\text{amax}(X) = \max |X|</tex>. However, computing the exact maximum absolute value of a tensor immediately before every matrix multiplication introduces kernel synchronization overhead.</p>
+<p>To eliminate this latency, Transformer Engine uses <strong>delayed scaling</strong> [3]. The framework tracks the history of <tex>\text{amax}</tex> over a sliding window of past iterations (typically 16 steps). The scaling factor for step <tex>t</tex> is calculated using the maximum <tex>\text{amax}</tex> observed across steps <tex>t-16</tex> through <tex>t-1</tex>. Because scaling is decoupled from step <tex>t</tex>'s live tensors, GEMM kernels launch asynchronously without waiting for live reductions.</p>
+<p>However, delayed scaling creates a dynamic range risk: if a sudden activation surge occurs at step <tex>t</tex>, the delayed scaling factor will be too large, causing activations to clip against <tex>\text{FP8\_MAX}</tex>. Because backward gradients exhibit far more extreme dynamic swings than forward activations, Transformer Engine historically required a <strong>hybrid recipe</strong>: using E4M3 (higher precision) for forward activations and weights, and E5M2 (wider dynamic range matching FP16) for backward gradients [3], [5].</p>
+
+<h3>DeepSeek-V3: Fine-grained tile- and block-wise scaling</h3>
+<p>In late 2024, DeepSeek published the <em>DeepSeek-V3 Technical Report</em>, establishing a breakthrough fine-grained FP8 quantization strategy [5]. DeepSeek identified that the coarse granularity of per-tensor scaling was the fundamental bottleneck of FP8 training. When a single scaling factor is applied to an entire tensor, outlier tokens or feature channels force the scale factor downward, causing non-outlier coordinates to underflow.</p>
+<p>DeepSeek-V3 solved this by introducing <strong>fine-grained localized scaling</strong> [5]:</p>
+<ul>
+<li><strong>Tile-wise scaling for activations (<tex>1 \times 128</tex>)</strong>: Activation tensors are grouped into tiles of 1 token by 128 hidden channels. An independent FP8 scaling factor is computed dynamically for each 128-channel tile. Outlier channels in one token only affect that token's local tile, leaving other tokens and channels uncompromised.</li>
+<li><strong>Block-wise scaling for weights (<tex>128 \times 128</tex>)</strong>: Model weight matrices are partitioned into square blocks of <tex>128 \times 128</tex> parameters, each with an independent scale factor.</li>
+</ul>
+<p>By computing scaling factors over fine-grained blocks on the fly using custom high-performance CUDA kernels (DeepGEMM), DeepSeek-V3 completely eliminated the need for historical delayed scaling. Most impressively, fine-grained scaling preserved dynamic range so effectively that DeepSeek-V3 <strong>trained entirely in the higher-precision E4M3 format across both forward and backward passes</strong>, discarding E5M2 completely [6].</p>
+
+<h2>Realized Throughput: Why FP8 Speedup is Well Below 2x</h2>
+<p>While Hopper Tensor Cores provide exactly <tex>2.0\times</tex> the raw compute in FP8 compared to BF16 (1,979 vs 989 TFLOPS), <strong>no real-world pretraining run achieves a 2× end-to-end wall-clock speedup</strong>. Understanding why is a classic interview question governed by Amdahl's Law and systems overheads.</p>
+<fig src="005-fp8-throughput-amdahl.svg" caption="Amdahl's law and FP8 throughput: theoretical 2x vs real-world 1.39x">Illustrative step time breakdown on an H100 GPU: matrix multiplications (GEMMs) account for 80% of step time in BF16. Under FP8, GEMMs accelerate by 1.75x, but non-GEMM operations (RMSNorm, Softmax, RoPE, all-reduce, optimizer) remain in BF16/FP32, while quantization kernels add 6% overhead. Realized end-to-end speedup is approximately 1.39x.</fig>
+
+<h3>Amdahl's law derivation</h3>
+<p>In an optimized LLM training step running in BF16, matrix multiplications (GEMMs) account for approximately <strong>75% to 80% of total step time</strong> (<tex>p = 0.80</tex>). The remaining 20% (<tex>1 - p = 0.20</tex>) consists of non-GEMM operations: RMSNorm, RoPE rotary embeddings, softmax cross-entropy, residual additions, inter-node collective communication (gradient all-reduce over InfiniBand), and the FP32 AdamW optimizer update.</p>
+<p>Under FP8 execution:</p>
+<ol>
+<li><strong>GEMM speedup</strong>: FP8 GEMMs do not achieve a theoretical 2.0× speedup due to memory bandwidth limits and tensor core loading overhead; actual GEMM speedup is typically <tex>1.75\times</tex>.</li>
+<li><strong>Non-GEMM operations</strong>: These operations cannot run in FP8 and remain in BF16 or FP32, experiencing zero speedup (<tex>1.0\times</tex>).</li>
+<li><strong>Quantization overhead</strong>: Calculating <tex>\text{amax}</tex> statistics, quantizing FP32/BF16 tensors down to FP8, and casting outputs back adds extra memory-bound GPU kernel launches, introducing an overhead of roughly 5%–8% of step time.</li>
+</ol>
+<p>Applying Amdahl's Law with these realistic factors:</p>
+<texblock>\text{FP8 Step Time} = \frac{0.80}{1.75} + 0.20 + 0.06 = 0.457 + 0.20 + 0.06 = 0.717 \text{ of original time}</texblock>
+<p>The resulting end-to-end wall-clock speedup is:</p>
+<texblock>\text{Realized Speedup} = \frac{1.0}{0.717} \approx 1.39\times</texblock>
+<p>Published empirical benchmarks from NVIDIA Megatron-LM [5] and DeepSeek-V3 [6] confirm this reality: <strong>realized end-to-end FP8 pretraining speedups reliably fall between 1.25× and 1.45×</strong> (a 25% to 45% reduction in wall-clock time), far below the marketed 2.0× Tensor Core peak.</p>
+
+<h2>Memory Effects of FP8</h2>
+<p>Engineers often assume that switching from 16-bit to 8-bit training cuts total GPU memory by half. As illustrated in Figure 6, this assumption is false because optimizer states dominate the baseline footprint.</p>
+<fig src="005-fp8-memory-breakdown.svg" caption="Memory effects of FP8: why static state savings are modest">Per-parameter memory comparison: standard BF16 requires 16 bytes. Storing weights in FP8 drops the state to 15 bytes. Storing both weights and gradients in FP8 drops it to 14 bytes. FP32 master weights (4B) and FP32 Adam states (8B) continue to consume 12 bytes per parameter.</fig>
+<p>Table 2 computes the exact state footprint across precisions for our 8.03-billion-parameter model under 8-way intra-node FSDP sharding.</p>
+<table>
+<thead><tr><th>Precision Regime</th><th>Bytes per Parameter</th><th>Total Cluster State (8B Model)</th><th>Per-GPU Memory (8-Way FSDP)</th><th>Memory Saved vs BF16</th></tr></thead>
+<tbody>
+<tr><td>Pure BF16 Mixed Precision</td><td>16 bytes (2B W + 2B G + 4B M + 8B Opt)</td><td>128.48 GB</td><td>16.06 GB per GPU</td><td>0 GB (Baseline)</td></tr>
+<tr><td>FP8 Weights + BF16 Gradients</td><td>15 bytes (1B W + 2B G + 4B M + 8B Opt)</td><td>120.45 GB</td><td>15.06 GB per GPU</td><td>1.00 GB per GPU (6.2%)</td></tr>
+<tr><td>FP8 Weights + FP8 Gradients</td><td>14 bytes (1B W + 1B G + 4B M + 8B Opt)</td><td>112.42 GB</td><td>14.05 GB per GPU</td><td>2.01 GB per GPU (12.5%)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Per-GPU model and optimizer state memory for Llama 3.1 8B under 8-way FSDP</p>
+<p>Because FP32 master weights and FP32 AdamW states (12 bytes per parameter) must remain in 32-bit, <strong>FP8 reduces the static baseline state by at most 2 bytes per parameter (12.5%)</strong>. On our 80 GB H100 GPUs sharded 8 ways, FP8 saves only 2 GB per device (dropping state from 16.1 GB to 14.1 GB). The primary justification for FP8 is arithmetic throughput, not memory savings.</p>
+
+<h2>Numerical Risks and Stability</h2>
+<p>Training in FP8 introduces severe numerical failure modes that do not exist in BF16:</p>
+<ul>
+<li><strong>Activation overflow and saturation</strong>: In E4M3, the maximum representable value is 448. In deep transformers, attention out-projections and MLP intermediate activations routinely spike above 500 when processing rare token sequences. In delayed scaling, if scaling factors lag behind an activation surge, activations saturate at 448 or produce NaNs, destabilizing the entire layer.</li>
+<li><strong>Gradient underflow</strong>: In E4M3, the smallest positive number is 0.0156. Backpropagating gradients through 32 layers without fine-grained scaling causes lower-magnitude gradients to snap to zero.</li>
+<li><strong>Loss spikes</strong>: A sudden surge in gradient norm can poison delayed scaling statistics. The subsequent iteration applies an overly aggressive scaling factor, triggering a catastrophic <strong>loss spike</strong> (explored in Lesson 32, Training Stability - Loss Spikes and Divergence). Recovering from an FP8 loss spike requires rolling back to a checkpoint and manually re-calibrating scaling history.</li>
+</ul>
+
+<h4>BF16 or FP8 for our run?</h4>
+<p>For pretraining Llama 3.1 8B on 256 H100 GPUs across 1 trillion tokens, we evaluate the cost-benefit equation:</p>
+<ul>
+<li><strong>BF16 baseline</strong>: At 40% MFU, each step takes 2.00 seconds. Total pretraining time across 238,419 steps is <strong>5.5 days (33,800 GPU-hours)</strong>, costing approximately $101,000 at $3.00/hour. BF16 training requires zero loss scaling, produces zero scaling-lag artifacts, and guarantees flawless convergence out of the box.</li>
+<li><strong>FP8 alternative</strong>: Assuming a realistic 1.35× realized end-to-end speedup, step time drops to 1.48 seconds. Total pretraining time decreases to <strong>4.1 days (25,000 GPU-hours)</strong>, saving approximately 1.4 days of cluster time and $26,000.</li>
+</ul>
+<p><strong>Decision: We choose pure BF16 mixed precision for our 8B pretraining run</strong>. At an 8B model scale and a 5.5-day timeline, the engineering overhead and risk of debugging FP8 numerical instabilities, delayed scaling lag, and potential loss spikes far outweigh the modest 1.4-day savings. However, for 70B+ frontier models where pretraining takes months and costs millions of dollars, fine-grained FP8 (such as DeepSeek-V3's tile-wise recipe) becomes an indispensable economic imperative.</p>
+
+<h2>In Practice</h2>
+<p>The first tab demonstrates native PyTorch mixed-precision pretraining using <code>torch.autocast</code> in BF16. The second tab demonstrates how to configure NVIDIA Transformer Engine for FP8 execution using <code>te.Linear</code> and <code>te.fp8_autocast</code> with delayed scaling. The third tab implements a minimal, self-contained demonstration of DeepSeek-V3-style fine-grained tile-wise quantization in PyTorch.</p>
+
+<codetabs>
+<tab label="PyTorch BF16 autocast" lang="python">
+import torch
+import torch.nn as nn
+
+# 1. Setup model with FP32 master weights
+model = nn.Sequential(
+    nn.Linear(4096, 14336, bias=False),
+    nn.RMSNorm(14336),
+    nn.Linear(14336, 4096, bias=False)
+).cuda()  # Parameters initialized in FP32
+
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.1)
+criterion = nn.MSELoss()
+
+# Synthetic input batch (micro-batch b=1, seq_len=8192)
+inputs = torch.randn(1, 8192, 4096, device="cuda")
+targets = torch.randn(1, 8192, 4096, device="cuda")
+
+# 2. Training step with native BF16 autocast
+model.train()
+optimizer.zero_grad(set_to_none=True)
+
+# Autocast automatically dispatches GEMMs to BF16 while keeping RMSNorm in FP32
+with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+    outputs = model(inputs)
+    loss = criterion(outputs, targets)
+
+# Notice: NO GradScaler is required for BF16!
+loss.backward()
+
+# Clip gradients and update FP32 master weights
+torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+optimizer.step()
+
+print(f"BF16 step complete. Loss: {loss.item():.4f}")
+print(f"Linear1 weight dtype: {model[0].weight.dtype}")  # torch.float32 master
+print(f"Output tensor dtype: {outputs.dtype}")          # torch.bfloat16
+</tab>
+<tab label="Transformer Engine FP8" lang="python">
+import torch
+import torch.nn as nn
+
+# NVIDIA Transformer Engine provides native Hopper FP8 execution
+# pip install transformer-engine
+try:
+    import transformer_engine.pytorch as te
+    from transformer_engine.common.recipe import Format, DelayedScaling
+
+    # 1. Define model using Transformer Engine layers
+    class FP8TransformerMLP(nn.Module):
+        def __init__(self, hidden_dim: int = 4096, ffn_dim: int = 14336):
+            super().__init__()
+            # te.Linear intercepts tensors and converts them to FP8 on Tensor Cores
+            self.fc1 = te.Linear(hidden_dim, ffn_dim, bias=False)
+            self.fc2 = te.Linear(ffn_dim, hidden_dim, bias=False)
+            self.act = nn.SiLU()
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return self.fc2(self.act(self.fc1(x)))
+
+    model = FP8TransformerMLP().cuda()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+
+    # 2. Configure FP8 Delayed Scaling Recipe
+    # Format.HYBRID uses E4M3 for forward pass and E5M2 for backward gradients
+    fp8_recipe = DelayedScaling(
+        fp8_format=Format.HYBRID,
+        amax_history_len=16,
+        amax_compute_algo="max"
+    )
+
+    inputs = torch.randn(2, 512, 4096, device="cuda", dtype=torch.bfloat16)
+
+    # 3. Training step inside fp8_autocast
+    optimizer.zero_grad(set_to_none=True)
+    with te.fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
+        out = model(inputs)
+        loss = out.sum()
+
+    loss.backward()
+    optimizer.step()
+    print("Transformer Engine FP8 step completed successfully.")
+
+except ImportError:
+    print("Transformer Engine not installed. Code requires an NVIDIA Hopper (H100) GPU.")
+</tab>
+<tab label="Tile-wise quantization" lang="python">
+import torch
+
+def quantize_tile_wise_fp8(x: torch.Tensor, tile_size: int = 128):
+    """
+    Minimal demonstration of DeepSeek-V3 style fine-grained tile-wise quantization.
+    Partitions activations along channel dimension into tiles of 128 elements.
+    """
+    b, s, d = x.shape
+    assert d % tile_size == 0, "Hidden dimension must be divisible by tile_size"
+
+    # Reshape to isolate tiles: [b, s, num_tiles, tile_size]
+    num_tiles = d // tile_size
+    tiles = x.view(b, s, num_tiles, tile_size)
+
+    # Compute amax per tile: [b, s, num_tiles, 1]
+    amax = torch.clamp(tiles.abs().amax(dim=-1, keepdim=True), min=1e-8)
+
+    # E4M3 maximum representable value
+    FP8_E4M3_MAX = 448.0
+    scale = FP8_E4M3_MAX / amax
+
+    # Quantize and clamp to FP8 representable range
+    x_quant = torch.clamp(torch.round(tiles * scale), -FP8_E4M3_MAX, FP8_E4M3_MAX)
+
+    # Dequantize back to high precision
+    x_dequant = (x_quant / scale).view(b, s, d)
+    return x_dequant
+
+# Test tile-wise quantization on tensor with an outlier channel
+x = torch.randn(1, 8, 512, device="cuda" if torch.cuda.is_available() else "cpu")
+x[0, 3, 42] = 250.0  # Introduce extreme activation outlier in tile 0
+
+x_restored = quantize_tile_wise_fp8(x, tile_size=128)
+error = (x - x_restored).abs().mean()
+print(f"Fine-grained quantization mean absolute error: {error.item():.6f}")
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Stochastic rounding for lower-precision master weights</strong>: Recent research evaluates replacing FP32 master weights with BF16 or FP16 master weights updated via hardware-supported stochastic rounding (where numbers are rounded up or down probabilistically proportional to their residual distance), cutting another 2 bytes per parameter.</li>
+<li><strong>Microscaling formats (MXFP8 and MXFP6)</strong>: The Open Compute Project (OCP) recently standardized Microscaling (MX) specifications, which associate a single shared 8-bit scale factor with small blocks of 32 elements in 4-bit, 6-bit, or 8-bit floating point, further advancing fine-grained quantization in hardware.</li>
+<li><strong>Tensor Core accumulation precision</strong>: When Tensor Cores execute BF16 or FP8 matrix multiplications, the hardware multiplies numbers in 16-bit or 8-bit but accumulates intermediate products in full 32-bit floating point before converting to the output dtype. Disabling FP32 accumulation causes severe loss of precision in attention projections.</li>
+<li><strong>Loss spike recovery in FP8 training</strong>: In FP8 runs, sudden gradient explosions can cause scaling factors to saturate. Production recovery protocols detect a sudden jump in gradient norm, instantly freeze scaling updates, discard the bad micro-batch, and roll back scaling factor history by several iterations (cross-referenced in Lesson 32, Training Stability - Loss Spikes and Divergence).</li>
+<li><strong>Online vs offline quantization in inference</strong>: In serving (Inference Lesson 13, Quantization - FP8, INT8 and 4-bit), weights are quantized offline before deployment. In training, both activations and gradients are dynamic and non-stationary, requiring real-time, low-overhead scaling factor calculation during the step.</li>
+<li><strong>Hardware generation support</strong>: FP8 Tensor Cores require NVIDIA Hopper (compute capability 9.0, e.g. H100) or newer (Blackwell). Older architectures (such as Ampere A100) support BF16 and FP16 but have zero hardware support for FP8.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="005-summary.png" caption="Mixed precision training summary" optional="1">Mind map summarizing mixed-precision training: number formats, loss scaling mechanics, FP32 guardrails, Hopper FP8 scaling methods, and cluster throughput trade-offs.</fig>
+<ul>
+<li>FP16 provides narrow dynamic range (max 65,504, min normal <tex>6.1 \times 10^{-5}</tex>), requiring dynamic loss scaling to prevent small backpropagated gradients from underflowing to zero.</li>
+<li>BF16 preserves the full 8-bit exponent of FP32 (spanning <tex>10^{-38}</tex> to <tex>10^{38}</tex>), completely eliminating the need for loss scaling and establishing itself as the pretraining standard.</li>
+<li>Master weights must remain in FP32 to prevent swamping (weight stagnation) when small updates (<tex>\approx 10^{-5}</tex>) are added to weights. Optimizer states (8 bytes) and reductions (softmax, RMSNorm) also require FP32.</li>
+<li>NVIDIA Hopper introduces FP8 with E4M3 (higher precision for forward activations) and E5M2 (wider range for gradients). Transformer Engine uses delayed scaling across a 16-step history window to avoid kernel synchronization lag.</li>
+<li>DeepSeek-V3 introduced fine-grained tile-wise (<tex>1 \times 128</tex>) and block-wise (<tex>128 \times 128</tex>) scaling, isolating outliers locally and enabling pure E4M3 execution across both forward and backward passes.</li>
+<li>Amdahl's Law and non-GEMM operations (RMSNorm, Softmax, communication, optimizer updates) cap realized FP8 pretraining speedups at 1.25× to 1.45×, far below the theoretical 2× peak.</li>
+<li>For pretraining Llama 3.1 8B on 256 H100s, pure BF16 mixed precision is the optimal engineering choice: it completes a 1T-token run in just 5.5 days ($101,000) with guaranteed stability, avoiding the operational risks of FP8.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Micikevicius et al. Mixed Precision Training. <a href="https://arxiv.org/abs/1710.03740" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1710.03740</a>.<br>
+[2] IEEE Computer Society. IEEE Standard for Floating-Point Arithmetic (IEEE 754-2008). <a href="https://doi.org/10.1109/IEEESTD.2008.4610935" rel="noopener noreferrer" target="_blank">https://doi.org/10.1109/IEEESTD.2008.4610935</a>.<br>
+[3] Micikevicius et al. FP8 Formats for Deep Learning. <a href="https://arxiv.org/abs/2209.05433" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2209.05433</a>.<br>
+[4] Llama 3 Team, Meta. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[5] NVIDIA Corporation. Transformer Engine Documentation. <a href="https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/</a>.<br>
+[6] DeepSeek-AI. DeepSeek-V3 Technical Report. <a href="https://arxiv.org/abs/2412.19437" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2412.19437</a>.</p>

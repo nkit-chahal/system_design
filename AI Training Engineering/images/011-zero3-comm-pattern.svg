@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="360" viewBox="0 0 820 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .lg { font-size: 16px; }
+    .b { font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .yellow { fill: #fff2cc; stroke: #d6b656; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #000; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="410" y="24" text-anchor="middle" class="lg b">ZeRO-3 and FSDP Communication Lifecycle per Transformer Layer</text>
+
+  <!-- Left Container: Forward Pass -->
+  <rect x="30" y="45" width="365" height="250" rx="6" class="gray"/>
+  <text x="212" y="70" text-anchor="middle" class="b">Forward Pass Execution</text>
+
+  <!-- Step 1: All-Gather weights -->
+  <rect x="50" y="85" width="325" height="48" rx="4" class="purple"/>
+  <text x="212" y="105" text-anchor="middle" class="sm b">1. All-Gather Weights (Layer L)</text>
+  <text x="212" y="122" text-anchor="middle" class="sm">Reconstruct full weights temporarily (traffic: 1.0 * Psi)</text>
+
+  <!-- Step 2: Compute forward -->
+  <rect x="50" y="145" width="325" height="45" rx="4" class="orange"/>
+  <text x="212" y="165" text-anchor="middle" class="sm b">2. Compute Forward Activations</text>
+  <text x="212" y="181" text-anchor="middle" class="sm">Evaluate Y = W * X on GPU Tensor Cores</text>
+
+  <!-- Step 3: Discard weights -->
+  <rect x="50" y="202" width="325" height="42" rx="4" class="yellow"/>
+  <text x="212" y="222" text-anchor="middle" class="sm b">3. Discard Reconstructed Weights</text>
+  <text x="212" y="236" text-anchor="middle" class="sm">Free HBM buffer; keep only local 1/N shard</text>
+
+  <path d="M 212 133 L 212 145" class="edge"/>
+  <path d="M 212 190 L 212 202" class="edge"/>
+
+  <text x="212" y="275" text-anchor="middle" class="sm b">Forward Comm Volume = 1.0 * Psi</text>
+
+  <!-- Right Container: Backward Pass -->
+  <rect x="425" y="45" width="365" height="250" rx="6" class="gray"/>
+  <text x="607" y="70" text-anchor="middle" class="b">Backward Pass Execution</text>
+
+  <!-- Step 1: All-Gather weights again -->
+  <rect x="445" y="85" width="325" height="48" rx="4" class="purple"/>
+  <text x="607" y="105" text-anchor="middle" class="sm b">1. All-Gather Weights Again (Layer L)</text>
+  <text x="607" y="122" text-anchor="middle" class="sm">Fetch weights for input gradient backprop (traffic: 1.0 * Psi)</text>
+
+  <!-- Step 2: Compute gradients -->
+  <rect x="445" y="145" width="325" height="45" rx="4" class="orange"/>
+  <text x="607" y="165" text-anchor="middle" class="sm b">2. Compute Gradients &amp; Discard W</text>
+  <text x="607" y="181" text-anchor="middle" class="sm">Compute dL/dX and dL/dW; drop weights again</text>
+
+  <!-- Step 3: Reduce-Scatter gradients -->
+  <rect x="445" y="202" width="325" height="45" rx="4" class="green"/>
+  <text x="607" y="222" text-anchor="middle" class="sm b">3. Reduce-Scatter Gradients (Layer L)</text>
+  <text x="607" y="238" text-anchor="middle" class="sm">Sum grads and deliver 1/N shard to owner (traffic: 1.0 * Psi)</text>
+
+  <path d="M 607 133 L 607 145" class="edge"/>
+  <path d="M 607 190 L 607 202" class="edge"/>
+
+  <text x="607" y="275" text-anchor="middle" class="sm b">Backward Comm Volume = 2.0 * Psi</text>
+
+  <!-- Bottom Comparison Banner -->
+  <rect x="30" y="305" width="760" height="45" rx="4" class="yellow"/>
+  <text x="410" y="324" text-anchor="middle" class="b">Total Traffic = 1.0 * Psi (fwd) + 1.0 * Psi (bwd) + 1.0 * Psi (reduce-scatter) = 3.0 * Psi</text>
+  <text x="410" y="341" text-anchor="middle" class="sm">Baseline DDP All-Reduce = 2.0 * Psi  ==&gt;  ZeRO-3 / FSDP traffic is exactly 1.5x DDP (50% higher)</text>
+</svg>

@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="300" viewBox="0 0 800 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Row 1: Input Tokens -->
+  <text x="30" y="45" class="b">Tokenized Sequence:</text>
+
+  <!-- User Prompt Tokens -->
+  <rect x="30" y="60" width="70" height="40" class="purple"/>
+  <text x="42" y="85" class="sm">&lt;|im_start|&gt;</text>
+  <rect x="100" y="60" width="50" height="40" class="purple"/>
+  <text x="112" y="85" class="sm">user</text>
+  <rect x="150" y="60" width="75" height="40" class="purple"/>
+  <text x="162" y="85" class="sm">How do I</text>
+  <rect x="225" y="60" width="75" height="40" class="purple"/>
+  <text x="238" y="85" class="sm">reset pin</text>
+  <rect x="300" y="60" width="70" height="40" class="purple"/>
+  <text x="312" y="85" class="sm">&lt;|im_end|&gt;</text>
+
+  <!-- Response Template Delimiter -->
+  <rect x="370" y="60" width="90" height="40" class="yellow"/>
+  <text x="382" y="85" class="sm b">assistant</text>
+
+  <!-- Assistant Response Tokens -->
+  <rect x="460" y="60" width="60" height="40" class="green"/>
+  <text x="480" y="85" class="sm">To</text>
+  <rect x="520" y="60" width="65" height="40" class="green"/>
+  <text x="535" y="85" class="sm">reset</text>
+  <rect x="585" y="60" width="65" height="40" class="green"/>
+  <text x="600" y="85" class="sm">your</text>
+  <rect x="650" y="60" width="60" height="40" class="green"/>
+  <text x="668" y="85" class="sm">pin</text>
+  <rect x="710" y="60" width="65" height="40" class="green"/>
+  <text x="718" y="85" class="sm">&lt;|im_end|&gt;</text>
+
+  <!-- Row 2: Target Labels for Cross-Entropy -->
+  <text x="30" y="145" class="b">Target Labels (PyTorch Loss Mask):</text>
+
+  <rect x="30" y="160" width="70" height="40" class="red"/>
+  <text x="52" y="185" class="sm b">-100</text>
+  <rect x="100" y="160" width="50" height="40" class="red"/>
+  <text x="112" y="185" class="sm b">-100</text>
+  <rect x="150" y="160" width="75" height="40" class="red"/>
+  <text x="175" y="185" class="sm b">-100</text>
+  <rect x="225" y="160" width="75" height="40" class="red"/>
+  <text x="250" y="185" class="sm b">-100</text>
+  <rect x="300" y="160" width="70" height="40" class="red"/>
+  <text x="322" y="185" class="sm b">-100</text>
+  <rect x="370" y="160" width="90" height="40" class="red"/>
+  <text x="400" y="185" class="sm b">-100</text>
+
+  <rect x="460" y="160" width="60" height="40" class="green"/>
+  <text x="472" y="185" class="sm b">tok_14</text>
+  <rect x="520" y="160" width="65" height="40" class="green"/>
+  <text x="532" y="185" class="sm b">tok_89</text>
+  <rect x="585" y="160" width="65" height="40" class="green"/>
+  <text x="597" y="185" class="sm b">tok_22</text>
+  <rect x="650" y="160" width="60" height="40" class="green"/>
+  <text x="662" y="185" class="sm b">tok_45</text>
+  <rect x="710" y="160" width="65" height="40" class="green"/>
+  <text x="722" y="185" class="sm b">tok_02</text>
+
+  <!-- Explanatory note at bottom -->
+  <rect x="30" y="225" width="745" height="55" rx="6" class="gray"/>
+  <text x="45" y="247" class="sm b">Masking Rule (DataCollatorForCompletionOnlyLM):</text>
+  <text x="45" y="265" class="sm">Labels set to -100 are ignored by PyTorch CrossEntropyLoss. The model is penalized solely on assistant output tokens.</text>
+</svg>

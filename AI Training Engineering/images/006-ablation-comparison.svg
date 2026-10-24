@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="370" viewBox="0 0 820 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .axis{stroke:#333;stroke-width:1.2;fill:none}
+    .grid{stroke:#eee;stroke-width:1;stroke-dasharray:3 3}
+    .limit{stroke:#c00;stroke-width:1.2;stroke-dasharray:4 4}
+    .bar-red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .bar-orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .bar-blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .bar-green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .bar-purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Peak Memory Across Optimization Levers (GPT-2 Small, Eff Batch 8)</text>
+  <text x="25" y="46" class="sm" fill="#555">Measured and predicted impact of mixed precision, checkpointing, and gradient accumulation</text>
+
+  <!-- Chart Area: x from 260 to 760 (width 500), y from 75 to 290 (height 215) -->
+  <!-- Scale: 0 to 12 GB. 500 px / 12 GB = 41.67 px per GB -->
+  <!-- 0 GB -> x 260 -->
+  <!-- 4 GB -> x 426.7 -->
+  <!-- 8 GB -> x 593.3 -->
+  <!-- 12 GB -> x 760 -->
+
+  <!-- Vertical Grid Lines & X Labels -->
+  <line x1="260" y1="75" x2="260" y2="290" class="axis"/>
+  <text x="260" y="308" text-anchor="middle" class="sm">0 GB</text>
+
+  <line x1="427" y1="75" x2="427" y2="290" class="grid"/>
+  <text x="427" y="308" text-anchor="middle" class="sm">4 GB</text>
+
+  <line x1="593" y1="75" x2="593" y2="290" class="limit"/>
+  <text x="593" y="308" text-anchor="middle" class="sm b" fill="#c00">8 GB Limit (OOM)</text>
+
+  <line x1="760" y1="75" x2="760" y2="290" class="grid"/>
+  <text x="760" y="308" text-anchor="middle" class="sm">12 GB</text>
+
+  <!-- Horizontal Bars (5 configurations) -->
+  <!-- Bar 1: FP32 Baseline (b=8) -> 10.4 GB (width: 10.4 * 41.67 = 433 px) -->
+  <text x="245" y="98" text-anchor="end" class="sm b">1. Full Precision FP32 (b=8)</text>
+  <rect x="260" y="82" width="433" height="24" class="bar-red"/>
+  <text x="700" y="98" class="sm b" fill="#900">10.40 GB</text>
+
+  <!-- Bar 2: BF16 Baseline (b=8) -> 6.47 GB (width: 6.47 * 41.67 = 270 px) -->
+  <text x="245" y="140" text-anchor="end" class="sm b">2. BF16 Autocast (b=8)</text>
+  <rect x="260" y="124" width="270" height="24" class="bar-orange"/>
+  <text x="538" y="140" class="sm b" fill="#b45f06">6.47 GB</text>
+
+  <!-- Bar 3: BF16 + Checkpointing (b=8) -> 4.42 GB (width: 4.42 * 41.67 = 184 px) -->
+  <text x="245" y="182" text-anchor="end" class="sm b">3. BF16 + Checkpointing (b=8)</text>
+  <rect x="260" y="166" width="184" height="24" class="bar-blue"/>
+  <text x="452" y="182" class="sm b" fill="#1c4587">4.42 GB</text>
+
+  <!-- Bar 4: Grad Accum (u=2, accum=4) -> 3.31 GB (width: 3.31 * 41.67 = 138 px) -->
+  <text x="245" y="224" text-anchor="end" class="sm b">4. Grad Accum (u=2, acc=4)</text>
+  <rect x="260" y="208" width="138" height="24" class="bar-green"/>
+  <text x="406" y="224" class="sm b" fill="#274e13">3.31 GB</text>
+
+  <!-- Bar 5: Grad Accum + Checkpointing -> 2.82 GB (width: 2.82 * 41.67 = 117 px) -->
+  <text x="245" y="266" text-anchor="end" class="sm b">5. Grad Accum + Checkpointing</text>
+  <rect x="260" y="250" width="117" height="24" class="bar-purple"/>
+  <text x="385" y="266" class="sm b" fill="#4c1130">2.82 GB</text>
+
+  <!-- Bottom Insight -->
+  <rect x="25" y="325" width="770" height="35" rx="4" class="gray"/>
+  <text x="35" y="347" class="sm"><tspan class="b">Takeaway:</tspan> FP32 OOMs on an 8 GB GPU. BF16 enables training; gradient accumulation cuts peak memory by an additional 49%.</text>
+</svg>

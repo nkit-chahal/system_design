@@ -1,0 +1,7 @@
+center: Lab - Build a Filtering and Dedup Pipeline
+branch: Ingestion and Language | stream fineweb sample | odc by attribution license | filter english confidence
+branch: Heuristic Quality | document length bounds | symbol to word ratio | repetition checks and stopwords
+branch: Deduplication Stages | sha two fifty six exact | minhash locality sensitive hashing | jaccard candidate clustering
+branch: Precision Audit | sample rejected documents | true positive web spam | protect latex and code
+branch: One Trillion Scaling | ninety nine thousand core hours | thirty five hundred dollars cost | two terabytes binary shards
+branch: Distributed Production | datatrove declarative pipeline | ray and slurm executors | memory mapped uint sixteen shards

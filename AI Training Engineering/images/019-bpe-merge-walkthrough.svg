@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="25" y="30" class="lg b">Byte-Pair Encoding (BPE): Iterative Vocabulary Construction</text>
+  <text x="25" y="52" class="sm" fill="#555">How greedy frequency counting merges character pairs into compact subword vocabularies</text>
+
+  <!-- Step 0: Initial Corpus -->
+  <rect x="25" y="80" width="170" height="225" rx="5" class="blue"/>
+  <text x="110" y="105" class="b mid">Step 0: Characters</text>
+  <text x="35" y="132" class="sm b">Corpus frequencies:</text>
+  <text x="35" y="152" class="sm">5 × "l o w &lt;/w&gt;"</text>
+  <text x="35" y="172" class="sm">2 × "l o w e r &lt;/w&gt;"</text>
+  <text x="35" y="192" class="sm">6 × "n e w e s t &lt;/w&gt;"</text>
+  <text x="35" y="212" class="sm">3 × "w i d e s t &lt;/w&gt;"</text>
+  <rect x="35" y="235" width="150" height="50" rx="3" class="white"/>
+  <text x="110" y="255" class="sm b mid">Base Vocab:</text>
+  <text x="110" y="272" class="sm mid">{d, e, i, l, n, o, r, s, t, w}</text>
+
+  <line x1="195" y1="192" x2="225" y2="192" class="edge"/>
+
+  <!-- Step 1: First Merge -->
+  <rect x="230" y="80" width="180" height="225" rx="5" class="orange"/>
+  <text x="320" y="105" class="b mid">Step 1: Most Frequent</text>
+  <text x="240" y="132" class="sm b">Pair counts in corpus:</text>
+  <text x="240" y="152" class="sm">• ('e', 's') : 9 times</text>
+  <text x="240" y="172" class="sm">• ('s', 't') : 9 times</text>
+  <text x="240" y="192" class="sm">• ('o', 'w') : 7 times</text>
+  <text x="240" y="212" class="sm">• ('l', 'o') : 7 times</text>
+  <rect x="240" y="235" width="160" height="50" rx="3" class="white"/>
+  <text x="320" y="255" class="sm b mid" fill="#7d4b00">Merge 1: ('e', 's') -&gt; "es"</text>
+  <text x="320" y="272" class="sm mid" fill="#7d4b00">Add "es" to vocabulary</text>
+
+  <line x1="410" y1="192" x2="440" y2="192" class="edge"/>
+
+  <!-- Step 2: Second Merge -->
+  <rect x="445" y="80" width="180" height="225" rx="5" class="yellow"/>
+  <text x="535" y="105" class="b mid">Step 2: Next Pair</text>
+  <text x="455" y="132" class="sm b">Updated corpus:</text>
+  <text x="455" y="152" class="sm">... "n e w es t &lt;/w&gt;" ...</text>
+  <text x="455" y="172" class="sm">... "w i d es t &lt;/w&gt;" ...</text>
+  <text x="455" y="197" class="sm b">Top pair now:</text>
+  <text x="455" y="217" class="sm">• ('es', 't') : 9 times</text>
+  <rect x="455" y="235" width="160" height="50" rx="3" class="white"/>
+  <text x="535" y="255" class="sm b mid" fill="#5c4800">Merge 2: ('es', 't') -&gt; "est"</text>
+  <text x="535" y="272" class="sm mid" fill="#5c4800">Add "est" to vocabulary</text>
+
+  <line x1="625" y1="192" x2="655" y2="192" class="edge"/>
+
+  <!-- Step 3: Compressed Result -->
+  <rect x="660" y="80" width="135" height="225" rx="5" class="green"/>
+  <text x="727" y="105" class="b mid">Final Tokens</text>
+  <text x="670" y="132" class="sm b">"newest" becomes:</text>
+  <rect x="670" y="145" width="115" height="30" rx="3" class="white"/>
+  <text x="727" y="165" class="sm b mid">["new", "est"]</text>
+
+  <text x="670" y="200" class="sm b">"widest" becomes:</text>
+  <rect x="670" y="212" width="115" height="30" rx="3" class="white"/>
+  <text x="727" y="232" class="sm b mid">["wid", "est"]</text>
+
+  <text x="727" y="265" class="sm mid" fill="#2d572c">2 tokens</text>
+  <text x="727" y="282" class="sm mid" fill="#2d572c">instead of 6</text>
+</svg>

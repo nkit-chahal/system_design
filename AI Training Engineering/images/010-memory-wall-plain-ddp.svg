@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .lg { font-size: 16px; }
+    .b { font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .yellow { fill: #fff2cc; stroke: #d6b656; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #000; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="410" y="25" text-anchor="middle" class="lg b">The Memory Wall: Why Plain DDP Fails for Llama 3.1 8B</text>
+
+  <!-- Left: Replicated Footprint on EVERY GPU in Plain DDP -->
+  <rect x="40" y="50" width="440" height="210" rx="5" class="gray"/>
+  <text x="260" y="72" text-anchor="middle" class="b">Plain DDP Memory per GPU (16 Bytes / Param = 128.5 GB)</text>
+
+  <!-- Stacked Memory Blocks -->
+  <rect x="60" y="85" width="400" height="24" rx="3" class="orange"/>
+  <text x="260" y="101" text-anchor="middle" class="sm b">BF16 Model Weights: 16.06 GB (2 B/param)</text>
+
+  <rect x="60" y="113" width="400" height="24" rx="3" class="yellow"/>
+  <text x="260" y="129" text-anchor="middle" class="sm b">BF16 Gradients: 16.06 GB (2 B/param)</text>
+
+  <rect x="60" y="141" width="400" height="32" rx="3" class="purple"/>
+  <text x="260" y="161" text-anchor="middle" class="sm b">FP32 Master Weights: 32.12 GB (4 B/param)</text>
+
+  <rect x="60" y="177" width="400" height="42" rx="3" class="blue"/>
+  <text x="260" y="196" text-anchor="middle" class="sm b">FP32 Adam Optimizer Moments (m + v): 64.24 GB (8 B/param)</text>
+  <text x="260" y="211" text-anchor="middle" class="sm">75% of static footprint is optimizer state</text>
+
+  <text x="260" y="245" text-anchor="middle" class="sm b" fill="#b85450">Total Static Memory: 128.48 GB (exceeds 80 GB limit!)</text>
+
+  <!-- Right: H100 GPU Limit comparison -->
+  <rect x="520" y="50" width="260" height="210" rx="5" class="red"/>
+  <text x="650" y="75" text-anchor="middle" class="b">H100 80 GB GPU</text>
+  <text x="650" y="95" text-anchor="middle" class="sm">Visible HBM3: ~79.6 GiB (85.5 GB)</text>
+
+  <rect x="540" y="115" width="220" height="70" rx="4" class="white"/>
+  <text x="650" y="140" text-anchor="middle" class="sm b" fill="#b85450">Memory Deficit: 48.5 GB</text>
+  <text x="650" y="160" text-anchor="middle" class="sm">Out-Of-Memory (OOM)</text>
+  <text x="650" y="175" text-anchor="middle" class="sm">before forward pass starts</text>
+
+  <!-- Forward pointer to FSDP -->
+  <path d="M 480 155 L 515 155" class="edge"/>
+
+  <!-- Bottom resolution box -->
+  <rect x="40" y="270" width="740" height="38" rx="4" class="green"/>
+  <text x="410" y="288" text-anchor="middle" class="b">The Fix: Shard Model and Optimizer States (Lesson 11, ZeRO and FSDP)</text>
+  <text x="410" y="302" text-anchor="middle" class="sm">Sharding optimizer and weights across GPUs reduces static memory from 128.5 GB down to 16.0 GB (ZeRO-3 on 8 GPUs)</text>
+</svg>

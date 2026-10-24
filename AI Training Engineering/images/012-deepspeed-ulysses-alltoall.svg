@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="320" viewBox="0 0 800 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .lg { font-size: 16px; }
+    .b { font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .yellow { fill: #fff2cc; stroke: #d6b656; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #000; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="400" y="24" text-anchor="middle" class="lg b">DeepSpeed-Ulysses: All-to-All Sequence-to-Head Redistribution</text>
+
+  <!-- Step 1: Sequence Parallel Form -->
+  <rect x="40" y="55" width="200" height="185" rx="5" class="gray"/>
+  <text x="140" y="78" text-anchor="middle" class="b">1. Sequence Partition</text>
+  <rect x="55" y="95" width="170" height="50" rx="3" class="blue"/>
+  <text x="140" y="115" text-anchor="middle" class="sm b">Shape: [s / P, H, d]</text>
+  <text x="140" y="132" text-anchor="middle" class="sm">Sequence sharded by P</text>
+  <text x="140" y="165" text-anchor="middle" class="sm">Used in LayerNorm &amp;</text>
+  <text x="140" y="180" text-anchor="middle" class="sm">MLP down projections</text>
+
+  <!-- All-to-All Arrow -->
+  <path d="M 240 145 L 290 145" class="edge"/>
+  <text x="265" y="135" text-anchor="middle" class="sm b">All-to-All</text>
+
+  <!-- Step 2: Head Parallel Form -->
+  <rect x="295" y="55" width="210" height="185" rx="5" class="gray"/>
+  <text x="400" y="78" text-anchor="middle" class="b">2. Head Partition</text>
+  <rect x="310" y="95" width="180" height="50" rx="3" class="orange"/>
+  <text x="400" y="115" text-anchor="middle" class="sm b">Shape: [s, H / P, d]</text>
+  <text x="400" y="132" text-anchor="middle" class="sm">Full sequence length s</text>
+  <rect x="310" y="155" width="180" height="70" rx="3" class="green"/>
+  <text x="400" y="175" text-anchor="middle" class="sm b">Local Attention Core</text>
+  <text x="400" y="193" text-anchor="middle" class="sm">FlashAttention over full s</text>
+  <text x="400" y="210" text-anchor="middle" class="sm">for local H / P heads</text>
+
+  <!-- Inverse All-to-All Arrow -->
+  <path d="M 505 145 L 555 145" class="edge"/>
+  <text x="530" y="135" text-anchor="middle" class="sm b">All-to-All</text>
+
+  <!-- Step 3: Sequence Restored -->
+  <rect x="560" y="55" width="200" height="185" rx="5" class="gray"/>
+  <text x="660" y="78" text-anchor="middle" class="b">3. Sequence Restored</text>
+  <rect x="575" y="95" width="170" height="50" rx="3" class="blue"/>
+  <text x="660" y="115" text-anchor="middle" class="sm b">Shape: [s / P, H, d]</text>
+  <text x="660" y="132" text-anchor="middle" class="sm">Sequence sharded by P</text>
+  <text x="660" y="165" text-anchor="middle" class="sm">Feed directly to</text>
+  <text x="660" y="180" text-anchor="middle" class="sm">MLP feedforward blocks</text>
+
+  <!-- Bottom Constraint Callout -->
+  <rect x="40" y="255" width="720" height="50" rx="4" class="yellow"/>
+  <text x="400" y="275" text-anchor="middle" class="b">GQA Head Constraint: Attention heads H (and KV heads H_kv) must be divisible by Ulysses degree P</text>
+  <text x="400" y="293" text-anchor="middle" class="sm">For Llama 3.1 8B (8 KV heads): Maximum Ulysses degree P = 8. For larger cluster scaling, Ring Attention is preferred.</text>
+</svg>

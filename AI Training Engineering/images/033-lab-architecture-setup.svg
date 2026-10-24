@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #666; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Lab Setup: Recovering a Distributed Run from Mid-Flight Failure</text>
+  <text x="25" y="42" class="sm" fill="#555">Two evaluation tracks: a lightweight 2-process local path and a 16-GPU Slurm cluster path.</text>
+
+  <!-- Left: Small Path -->
+  <rect x="25" y="58" width="385" height="215" rx="5" class="gray"/>
+  <text x="40" y="80" class="b sm" fill="#274e13">Track A: Small Path (Local / Dev Server)</text>
+  <text x="40" y="96" class="sm" fill="#555">Validates state recovery, data resumption, and loss matching</text>
+
+  <rect x="40" y="110" width="355" height="44" rx="3" class="green"/>
+  <text x="50" y="128" class="b sm">Workload: ~124M Parameter Small GPT</text>
+  <text x="50" y="144" class="sm">2 Processes via torchrun · Micro-batch b=4 · Seq len 1,024</text>
+
+  <rect x="40" y="162" width="170" height="48" rx="3" class="blue"/>
+  <text x="50" y="180" class="b sm">Storage</text>
+  <text x="50" y="196" class="sm">Local NVMe / SSD</text>
+
+  <rect x="225" y="162" width="170" height="48" rx="3" class="red"/>
+  <text x="235" y="180" class="b sm">Fault Injection</text>
+  <text x="235" y="196" class="sm">kill -9 &lt;rank 1 pid&gt;</text>
+
+  <rect x="40" y="218" width="355" height="45" rx="3" class="white"/>
+  <text x="50" y="236" class="sm b">Recovery Validation:</text>
+  <text x="50" y="252" class="sm">Loss curve matches uninterrupted reference run within 1e-4 tolerance</text>
+
+  <!-- Right: Full Path -->
+  <rect x="430" y="58" width="385" height="215" rx="5" class="gray"/>
+  <text x="445" y="80" class="b sm" fill="#2c5d88">Track B: Full Path (2 × 8-H100 Nodes)</text>
+  <text x="445" y="96" class="sm" fill="#555">Measures real-world restart latency, Slurm requeue, and goodput</text>
+
+  <rect x="445" y="110" width="355" height="44" rx="3" class="purple"/>
+  <text x="455" y="128" class="b sm">Workload: Llama 3.1 8B Architecture</text>
+  <text x="455" y="144" class="sm">16 × H100 SXM (2 nodes) · FSDP Sharded · Seq len 8,192</text>
+
+  <rect x="445" y="162" width="170" height="48" rx="3" class="blue"/>
+  <text x="455" y="180" class="b sm">Storage</text>
+  <text x="455" y="196" class="sm">Parallel Lustre / CephFS</text>
+
+  <rect x="445" y="162" width="170" height="48" rx="3" class="blue"/>
+  <rect x="630" y="162" width="170" height="48" rx="3" class="orange"/>
+  <text x="640" y="180" class="b sm">Fault Injection</text>
+  <text x="640" y="196" class="sm">Slurm scancel / drain</text>
+
+  <rect x="445" y="218" width="355" height="45" rx="3" class="white"/>
+  <text x="455" y="236" class="sm b">Operational Cost:</text>
+  <text x="455" y="252" class="sm">Assume $3.00/H100-hr · 16 GPUs × 2 hr = ~$96 total lab spend</text>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="284" width="790" height="52" rx="4" class="white"/>
+  <text x="38" y="304" class="b sm">Core Objective:</text>
+  <text x="155" y="304" class="sm">Prove that your checkpointing pipeline preserves exact training determinism</text>
+  <text x="38" y="322" class="sm">while measuring the precise time lost to failure detection, scheduler requeue, and replayed steps.</text>
+</svg>

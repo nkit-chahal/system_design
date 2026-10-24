@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Pretraining Curriculum: Phased Context and Annealing</text>
+  <text x="25" y="48" class="sm" fill="#555">Three-stage curriculum: uniform pretraining, context extension, and high-quality learning rate annealing</text>
+
+  <!-- Timeline Stages Bar (Total width 770 px: 25 to 795) -->
+  <!-- Stage 1: 0 to 950B tokens (540 px) -->
+  <rect x="25" y="70" width="530" height="70" rx="4" class="blue"/>
+  <text x="290" y="96" text-anchor="middle" class="b">Stage 1: Base Pretraining (0 to 950B Tokens)</text>
+  <text x="290" y="116" text-anchor="middle" class="sm">Context Length: 8,192 tokens · Cosine Learning Rate Schedule</text>
+  <text x="290" y="132" text-anchor="middle" class="sm">Stationary Domain Mixture: 55% Web, 20% Code, 12% Math, 8% Multi, 5% Books</text>
+
+  <!-- Stage 2: 950B to 960B tokens (90 px) -->
+  <rect x="560" y="70" width="100" height="70" rx="4" class="purple"/>
+  <text x="610" y="96" text-anchor="middle" class="b">Stage 2: Context</text>
+  <text x="610" y="114" text-anchor="middle" class="sm">8k to 32k/128k</text>
+  <text x="610" y="130" text-anchor="middle" class="sm">RoPE adjusted</text>
+
+  <!-- Stage 3: 960B to 1000B tokens (130 px) -->
+  <rect x="665" y="70" width="130" height="70" rx="4" class="orange"/>
+  <text x="730" y="96" text-anchor="middle" class="b">Stage 3: Annealing</text>
+  <text x="730" y="114" text-anchor="middle" class="sm">Final 40B tokens</text>
+  <text x="730" y="130" text-anchor="middle" class="sm">LR to 0 · Math/Code</text>
+
+  <!-- Learning Rate Curve & Dynamics -->
+  <!-- Box around dynamics: x=25, y=155, width=770, height=160 -->
+  <rect x="25" y="155" width="770" height="165" rx="6" class="gray"/>
+  <text x="45" y="180" class="b">Learning Rate and Mixture Dynamics Across the Three Stages</text>
+
+  <!-- Graphic representation of LR -->
+  <path d="M 45 275 L 75 205 L 540 230 L 650 235 L 775 275" fill="none" stroke="#b45f06" stroke-width="2.5"/>
+  <text x="50" y="295" class="sm">Step 0</text>
+  <text x="290" y="295" text-anchor="middle" class="sm">Cosine Decay Phase (95% of compute)</text>
+  <text x="610" y="295" text-anchor="middle" class="sm">Context Extension</text>
+  <text x="735" y="295" text-anchor="middle" class="sm b" fill="#b45f06">Linear Anneal to 0</text>
+
+  <!-- Labels along curve -->
+  <text x="80" y="198" class="sm b">Peak LR: 3e-4</text>
+  <text x="495" y="222" class="sm">Min LR: 3e-5</text>
+  <text x="690" y="248" class="sm b" fill="#b45f06">Anneal (40B tok)</text>
+
+  <!-- Callout cards -->
+  <rect x="45" y="210" width="220" height="52" rx="4" class="white"/>
+  <text x="55" y="228" class="sm b">Warmup (2,000 steps):</text>
+  <text x="55" y="246" class="sm">Prevents early gradient divergence</text>
+
+  <rect x="525" y="170" width="255" height="42" rx="4" class="green"/>
+  <text x="535" y="188" class="sm b">Annealing Boost (Llama 3 recipe):</text>
+  <text x="535" y="204" class="sm">Upsample Math &amp; Code; +24% GSM8K</text>
+</svg>

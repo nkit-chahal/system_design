@@ -1,0 +1,7 @@
+center: Combining Parallelism
+branch: Four Dimensions | tensor parallel inside nodes | pipeline parallel across nodes | data parallel across cluster
+branch: Hardware Hierarchy | submicrosecond nvlink for tp | infiniBand fabric for pp | asynchronous spine for fsdp
+branch: Global Batch Arithmetic | data parallel times microbatches | accumulation steps control bubble | critical batch limits scaling
+branch: Frontier 4D Case Study | sixteen thousand gpus | llama three 405b layout | achieved 41 percent mfu
+branch: Measuring Efficiency | roofline limits single gpu | collective communication overhead | pipeline bubble drains throughput
+branch: Layout Decision | pure hybrid sharding for 8b | three d layout for 70b | four d layout for 405b

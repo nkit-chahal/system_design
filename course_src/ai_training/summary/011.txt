@@ -1,0 +1,7 @@
+center: ZeRO and FSDP
+branch: ZeRO Stages | stage one shards optimizer | stage two shards gradients | stage three shards parameters
+branch: Communication Tradeoff | three psi traffic total | one point five times ddp | all gather and reduce scatter
+branch: Prefetching Dynamics | forward layer prefetch | backward layer prefetch | hide communication behind gemm
+branch: PyTorch FSDP2 | composable fully shard | native dtensor parameters | mixed precision policies
+branch: Hybrid Sharding | shard within eight gpu node | replicate across thirty two nodes | isolate gathers to nvlink
+branch: Offloading Tiers | cpu host adam | nvme ssd zero infinity | pcie bandwidth bottleneck

@@ -19,8 +19,8 @@ Build one or more lessons, then preview them:
 
 ```bash
 python generate_inference_course.py 7 8            # builds 007 and 008 only
-python course_src/ai_inference/preview.py figs <out_dir> "AI Inference Engineering/images/007-*.svg"
-python course_src/ai_inference/preview.py page <out_dir> 7
+python course_src/preview.py figs <out_dir> "AI Inference Engineering/images/007-*.svg"
+python course_src/preview.py page <out_dir> 7
 ```
 
 `preview.py` writes PNGs into `<out_dir>`; open them and look. Titles and numbering live in

@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">The Mechanism of Attention Logit Growth and Softmax Collapse</text>
+  <text x="25" y="42" class="sm" fill="#555">Unbounded query-key dot products saturate softmax into one-hot distributions, driving gradient instability.</text>
+
+  <!-- Step 1: Query & Key Scaling -->
+  <rect x="25" y="60" width="180" height="205" rx="4" class="blue"/>
+  <text x="35" y="82" class="b sm">1. Vector Drift</text>
+  <text x="35" y="102" class="sm">• Over thousands of steps,</text>
+  <text x="35" y="118" class="sm">weights W_q and W_k grow</text>
+  <text x="35" y="145" class="sm b">L2 Norm Escalation:</text>
+  <text x="35" y="165" class="sm">||q|| and ||k|| exceed</text>
+  <text x="35" y="181" class="sm">theoretical variance bounds</text>
+  <text x="35" y="208" class="sm">• Dot product magnitude</text>
+  <text x="35" y="224" class="sm">scales with ||q|| × ||k||</text>
+
+  <path d="M205,162 L225,162" class="edge"/>
+
+  <!-- Step 2: Unchecked Logits -->
+  <rect x="225" y="60" width="185" height="205" rx="4" class="orange"/>
+  <text x="235" y="82" class="b sm">2. Unchecked Logits</text>
+  <text x="235" y="102" class="sm">• Standard 1/√d scaling</text>
+  <text x="235" y="118" class="sm">assumes unit variance</text>
+  <text x="235" y="145" class="sm b">Attention Matrix S:</text>
+  <text x="235" y="165" class="sm">S_ij = (q_i · k_j^T) / √d</text>
+  <text x="235" y="185" class="sm b" fill="#990000">Values exceed 50 to 100</text>
+  <text x="235" y="208" class="sm">• Floating point limits in</text>
+  <text x="235" y="224" class="sm">FP16/BF16 approach cap</text>
+
+  <path d="M410,162 L430,162" class="edge"/>
+
+  <!-- Step 3: Softmax Saturation -->
+  <rect x="430" y="60" width="185" height="205" rx="4" class="purple"/>
+  <text x="440" y="82" class="b sm">3. Softmax Saturation</text>
+  <text x="440" y="102" class="sm">• exp(S_ij) explodes for</text>
+  <text x="440" y="118" class="sm">a single dominant token</text>
+  <text x="440" y="145" class="sm b">One-Hot Collapse:</text>
+  <text x="440" y="165" class="sm">Softmax(S) → [0, 0, 1, 0, 0]</text>
+  <text x="440" y="185" class="sm">Attention entropy drops to 0</text>
+  <text x="440" y="208" class="sm">• Model attends to single</text>
+  <text x="440" y="224" class="sm">token regardless of context</text>
+
+  <path d="M615,162 L635,162" class="edge"/>
+
+  <!-- Step 4: Gradient Explosion & Spike -->
+  <rect x="635" y="60" width="180" height="205" rx="4" class="red"/>
+  <text x="645" y="82" class="b sm">4. Gradient Explosion</text>
+  <text x="645" y="102" class="sm">• Backward pass through</text>
+  <text x="645" y="118" class="sm">saturated softmax yields</text>
+  <text x="645" y="134" class="sm">near-zero local gradients</text>
+  <text x="645" y="160" class="sm b">Sudden Shock:</text>
+  <text x="645" y="178" class="sm">An unexpected token flips</text>
+  <text x="645" y="194" class="sm">attention abruptly</text>
+  <text x="645" y="214" class="sm b" fill="#990000">Loss Spikes by 2×–5×</text>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="280" width="790" height="55" rx="4" class="white"/>
+  <text x="38" y="300" class="b sm">The Architectural Fix:</text>
+  <text x="185" y="300" class="sm">Normalize Q and K vectors prior to dot product (QK-Norm),</text>
+  <text x="38" y="318" class="sm">capping max logit magnitude to √d and preventing softmax saturation regardless of training duration.</text>
+</svg>

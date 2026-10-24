@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="370" viewBox="0 0 820 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .axis{stroke:#333;stroke-width:1.2;fill:none}
+    .grid{stroke:#eee;stroke-width:1;stroke-dasharray:3 3}
+    .limit{stroke:#c00;stroke-width:1.2;stroke-dasharray:4 4}
+    .limit-blue{stroke:#1c4587;stroke-width:1.2;stroke-dasharray:4 4}
+    .red-line{stroke:#b85450;stroke-width:2.5;fill:none}
+    .orange-line{stroke:#d79b00;stroke-width:2.5;fill:none}
+    .green-line{stroke:#82b366;stroke-width:2.5;fill:none}
+    .static-line{stroke:#777;stroke-width:1.5;stroke-dasharray:2 2;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Peak Memory vs Micro-Batch Size (GPT-2 Small, s=1024)</text>
+  <text x="25" y="46" class="sm" fill="#555">Illustrative scaling behavior showing memory ceilings on 8 GB, 16 GB, and 24 GB GPUs</text>
+
+  <!-- Legend in top-left box -->
+  <g transform="translate(85, 68)">
+    <rect x="-8" y="-6" width="232" height="74" fill="#fff" fill-opacity="0.9" stroke="#ddd" rx="4"/>
+    <line x1="0" y1="8" x2="22" y2="8" class="red-line"/>
+    <text x="28" y="12" class="sm">Standard Attention</text>
+
+    <line x1="0" y1="26" x2="22" y2="26" class="orange-line"/>
+    <text x="28" y="30" class="sm">FlashAttention</text>
+
+    <line x1="0" y1="44" x2="22" y2="44" class="green-line"/>
+    <text x="28" y="48" class="sm">FlashAttn + Checkpointing</text>
+
+    <line x1="0" y1="60" x2="22" y2="60" class="static-line"/>
+    <text x="28" y="63" class="sm">Static States (1.99 GB)</text>
+  </g>
+
+  <!-- Chart Area: x from 80 to 540 (width 460), y from 75 to 290 (height 215) -->
+  <!-- Y-axis: 0 to 24 GB. Scale: 215 / 24 = 8.958 px per GB -->
+  <!-- 0 GB -> y 290 -->
+  <!-- 8 GB -> y 290 - 8*8.958 = 218.3 -->
+  <!-- 16 GB -> y 290 - 16*8.958 = 146.7 -->
+  <!-- 24 GB -> y 290 - 24*8.958 = 75.0 -->
+  <!-- X-axis: batch size b from 0 to 32. Scale: x = 80 + (b / 32) * 460 -->
+  <!-- b=0: x 80; b=4: x 137.5; b=8: x 195; b=16: x 310; b=24: x 425; b=32: x 540 -->
+
+  <!-- Horizontal Grid Lines & Y Ticks -->
+  <line x1="80" y1="290" x2="540" y2="290" class="axis"/>
+  <text x="70" y="294" text-anchor="end" class="sm">0 GB</text>
+
+  <!-- Static baseline at 1.99 GB: y = 290 - 1.99 * 8.958 = 272 -->
+  <line x1="80" y1="272" x2="540" y2="272" class="static-line"/>
+
+  <!-- 8 GB Hardware limit line (y = 218) -->
+  <line x1="80" y1="218" x2="540" y2="218" class="limit"/>
+  <text x="548" y="222" class="sm b" fill="#c00">8 GB Limit (RTX 4060)</text>
+
+  <!-- 16 GB Hardware limit line (y = 147) -->
+  <line x1="80" y1="147" x2="540" y2="147" class="limit-blue"/>
+  <text x="548" y="151" class="sm b" fill="#1c4587">16 GB Limit (T4 / V100)</text>
+
+  <!-- 24 GB Hardware limit line (y = 75) -->
+  <line x1="80" y1="75" x2="540" y2="75" class="grid"/>
+  <text x="70" y="79" text-anchor="end" class="sm">24 GB</text>
+  <text x="548" y="79" class="sm" fill="#555">24 GB Limit (RTX 4090)</text>
+
+  <!-- Y-axis line -->
+  <line x1="80" y1="65" x2="80" y2="290" class="axis"/>
+
+  <!-- X-axis Ticks -->
+  <line x1="138" y1="290" x2="138" y2="295" class="axis"/>
+  <text x="138" y="310" text-anchor="middle" class="sm">b=4</text>
+
+  <line x1="195" y1="290" x2="195" y2="295" class="axis"/>
+  <text x="195" y="310" text-anchor="middle" class="sm">b=8</text>
+
+  <line x1="310" y1="290" x2="310" y2="295" class="axis"/>
+  <text x="310" y="310" text-anchor="middle" class="sm">b=16</text>
+
+  <line x1="425" y1="290" x2="425" y2="295" class="axis"/>
+  <text x="425" y="310" text-anchor="middle" class="sm">b=24</text>
+
+  <line x1="540" y1="290" x2="540" y2="295" class="axis"/>
+  <text x="540" y="310" text-anchor="middle" class="sm">b=32</text>
+
+  <!-- Curve 1: Standard Attention (Red line) -->
+  <!-- b=1: 2.8 GB (y 265), b=4: 5.2 GB (y 243), b=8: 10.6 GB (y 195), b=12: 16.0 GB (y 147), b=16: 22.5 GB (y 88) -->
+  <path d="M80,272 Q138,245 195,195 T310,88" class="red-line"/>
+  <circle cx="195" cy="195" r="4" fill="#b85450"/>
+  <text x="175" y="185" class="sm b" fill="#900">10.6 GB</text>
+
+  <!-- Curve 2: FlashAttention (Orange line) -->
+  <!-- b=1: 2.5 GB, b=8: 6.47 GB (y 232), b=16: 10.9 GB (y 192), b=24: 15.4 GB (y 152), b=32: 19.8 GB (y 113) -->
+  <line x1="80" y1="272" x2="540" y2="113" class="orange-line"/>
+  <circle cx="195" cy="232" r="4" fill="#d79b00"/>
+  <text x="205" y="244" class="sm b" fill="#b45f06">6.47 GB</text>
+  <circle cx="310" cy="192" r="4" fill="#d79b00"/>
+  <text x="318" y="196" class="sm b" fill="#b45f06">10.9 GB</text>
+
+  <!-- Curve 3: Checkpointing + FlashAttn (Green line) -->
+  <!-- b=1: 2.3 GB, b=8: 4.42 GB (y 250), b=16: 5.6 GB (y 240), b=32: 8.0 GB (y 218) -->
+  <line x1="80" y1="272" x2="540" y2="218" class="green-line"/>
+  <circle cx="195" cy="250" r="4" fill="#82b366"/>
+  <text x="180" y="266" class="sm b" fill="#274e13">4.42 GB</text>
+  <circle cx="540" cy="218" r="4" fill="#82b366"/>
+  <text x="500" y="210" class="sm b" fill="#274e13">8.0 GB</text>
+
+  <!-- Explanatory Panel on the right -->
+  <rect x="580" y="240" width="220" height="85" rx="5" fill="#f5f5f5" stroke="#ccc" stroke-width="1"/>
+  <text x="590" y="260" class="b">Engineering Takeaways:</text>
+  <text x="590" y="280" class="sm">• b=8 fits 8 GB with FlashAttn</text>
+  <text x="590" y="298" class="sm">• Checkpointing doubles batch</text>
+  <text x="590" y="316" class="sm">• Standard attn OOMs at b=8</text>
+
+  <!-- Bottom Caption -->
+  <text x="25" y="348" class="sm" fill="#555"><tspan class="b">Note:</tspan> Static states (1.99 GB) set the minimum floor. Slope is determined by intermediate activation footprint per sample.</text>
+</svg>

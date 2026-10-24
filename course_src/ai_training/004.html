@@ -1,0 +1,363 @@
+<h2>Introduction</h2>
+<p>While the forward and backward passes evaluate the objective function and compute parameter gradients, the <strong>optimizer</strong> dictates how those gradients translate into actual model progress. In modern deep learning, training is challenging due to ill-conditioned loss landscapes. Gradients along certain parameter directions are orders of magnitude steeper than along others, causing naive first-order gradient descent to oscillate wildly across narrow valleys while making negligible progress along the valley floor [1].</p>
+<p>The standard workhorse of modern large language model (LLM) pretraining is <strong>AdamW</strong>, an adaptive moment estimation algorithm with decoupled weight decay [2], [3]. By tracking running averages of both past gradients (momentum) and past squared gradients (uncentered variance), AdamW normalizes update step sizes across every parameter coordinate. However, this adaptivity comes at a steep memory cost: for every parameter in the model, AdamW maintains two 32-bit floating-point (FP32) state variables, demanding <strong>8 bytes per parameter purely for optimizer states</strong>. As detailed in Lesson 3 (Training Memory), optimizer states account for half of the canonical 16-byte-per-parameter footprint, consuming over 64 GB of High Bandwidth Memory (HBM) for an 8B model [3].</p>
+<fig src="004-sgd-vs-momentum-adam.svg" caption="Optimization trajectories in an anisotropic ravine: SGD vs Momentum vs Adam">Illustrative comparison of optimization dynamics: vanilla SGD oscillates across steep valley walls, momentum dampens high-frequency oscillations to accelerate along the valley floor, and Adam normalizes coordinate scales to take a direct path toward the minimum.</fig>
+<p>In this lesson, we trace the mathematical evolution of deep learning optimizers from classical momentum to Adam and AdamW. We examine why decoupled weight decay is critical for transformers, unpack the mechanics of learning-rate schedules (warmup, cosine decay, and warmup-stable-decay), analyze the empirical relationship between batch size and learning rate via the critical batch size, survey memory-saving optimizers (8-bit Adam, Adafactor, Lion, and Muon), and evaluate optimizer memory trade-offs for our running pretraining cluster.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Optimizer questions in systems design interviews test trade-offs between convergence speed, stability, and memory limits. Here is how a discussion between a candidate and an interviewer typically proceeds:</p>
+<p><strong>Candidate</strong>: Which model architecture, cluster topology, and pretraining schedule are we designing for?<br>
+<strong>Interviewer</strong>: We are pretraining a model with the Llama 3.1 8B architecture (8.03 billion parameters) across 256 NVIDIA H100 80 GB GPUs. Our global batch size is approximately 4 million tokens (512 sequences of 8,192 tokens), targeting 1 trillion tokens total.</p>
+<p><strong>Candidate</strong>: What optimizer and hyperparameter recipe are we planning to use?<br>
+<strong>Interviewer</strong>: We are evaluating AdamW versus memory-saving alternatives like 8-bit Adam, Adafactor, or Lion. We need to decide which optimizer to ship, what hyperparameter values to configure, and what learning-rate schedule to apply.</p>
+<p><strong>Candidate</strong>: Can we fit the standard AdamW states on a single 80 GB GPU without sharding?<br>
+<strong>Interviewer</strong>: As you learned in Lesson 3, Training Memory, AdamW states require 64.2 GB alone, bringing the static baseline to 128.5 GB. Single-GPU training is out of the question. But how does optimizer choice affect our per-GPU memory footprint when we shard across 8 GPUs using intra-node FSDP?</p>
+<p><strong>Candidate</strong>: Are we training on a fixed token budget, or do we plan to continually train on additional domain data or scale model sizes later?<br>
+<strong>Interviewer</strong>: We want the flexibility to branch off intermediate checkpoints for domain fine-tuning and scaling law experiments without locking ourselves into a rigid total step count.</p>
+<p><strong>Candidate</strong>: What batch size regime does our 4M-token batch fall into relative to the gradient noise scale?<br>
+<strong>Interviewer</strong>: That is a critical theoretical question. Are we in the linear speedup regime, or are we past the critical batch size where additional parallelism wastes compute?</p>
+<p>The question underneath is: <em>How do we configure our optimizer, hyperparameters, and learning-rate schedule to ensure rapid, non-divergent convergence across 256 GPUs while strictly budgeting GPU memory?</em> To answer it, we begin with the mechanics of momentum and adaptive gradient scaling.</p>
+
+<h2>From SGD to Adam and AdamW</h2>
+<h3>Stochastic gradient descent and classical momentum</h3>
+<p>In vanilla <strong>stochastic gradient descent (SGD)</strong>, model parameters <tex>\theta \in \mathbb{R}^N</tex> are updated iteratively by stepping in the opposite direction of the batch loss gradient <tex>g_t = \nabla_\theta \mathcal{L}(\theta_t)</tex> scaled by learning rate <tex>\eta</tex>:</p>
+<texblock>\theta_{t+1} = \theta_t - \eta g_t</texblock>
+<p>When the loss surface possesses high curvature anisotropy—meaning the eigenvalues of the Hessian matrix <tex>H = \nabla^2 \mathcal{L}</tex> differ by several orders of magnitude (<tex>\lambda_{\max} / \lambda_{\min} \gg 1</tex>)—SGD struggles. In the directions of high curvature, gradients are large and reverse sign rapidly from step to step, forcing <tex>\eta</tex> to be set conservatively small to prevent divergence. Along the directions of gentle curvature, gradients are tiny, resulting in sluggish progress.</p>
+<p>Polyak's <strong>classical momentum</strong> resolves this by introducing a velocity vector <tex>m_t</tex> that acts as an exponential moving average of past gradients [1]:</p>
+<texblock>m_t = \beta m_{t-1} + g_t, \quad \theta_{t+1} = \theta_t - \eta m_t</texblock>
+<p>where <tex>\beta \in [0, 1)</tex> is the momentum coefficient (typically 0.9). In directions where gradients oscillate across valley walls, successive terms have opposite signs and cancel each other out, dampening lateral oscillations. In directions where gradients consistently point toward the minimum, successive terms reinforce one another, accelerating movement along the ravine.</p>
+
+<h3>The Adam algorithm: adaptive coordinate scaling</h3>
+<p>While momentum accelerates along consistent directions, it still applies a single uniform learning rate <tex>\eta</tex> across all parameters. Kingma and Ba introduced <strong>Adam</strong> (Adaptive Moment Estimation) to maintain individual, adaptive learning rates for every single parameter coordinate [2]. Adam computes exponentially decaying moving averages of both the gradient (the <strong>first moment</strong> <tex>m_t</tex>) and the squared gradient (the uncentered <strong>second moment</strong> <tex>v_t</tex>):</p>
+<texblock>m_t = \beta_1 m_{t-1} + (1 - \beta_1) g_t</texblock>
+<texblock>v_t = \beta_2 v_{t-1} + (1 - \beta_2) g_t^2</texblock>
+<p>where <tex>g_t^2</tex> represents elementwise squaring, <tex>\beta_1</tex> controls momentum decay, and <tex>\beta_2</tex> controls second-moment decay.</p>
+
+<h4>Bias correction</h4>
+<p>At the start of training (<tex>t = 0</tex>), the moment vectors are initialized to zero (<tex>m_0 = 0, v_0 = 0</tex>). Thus early in training, moment estimates are biased toward zero. Unrolling the recurrence for <tex>m_t</tex> reveals:</p>
+<texblock>m_t = (1 - \beta_1) \sum_{i=1}^t \beta_1^{t-i} g_i</texblock>
+<p>Taking expectations assuming stationary gradients:</p>
+<texblock>\mathbb{E}[m_t] = \mathbb{E}\left[ (1 - \beta_1) \sum_{i=1}^t \beta_1^{t-i} g_i \right] = \mathbb{E}[g] (1 - \beta_1) \sum_{j=0}^{t-1} \beta_1^j = \mathbb{E}[g] (1 - \beta_1^t)</texblock>
+<p>To remove this bias and ensure <tex>\mathbb{E}[\hat{m}_t] = \mathbb{E}[g]</tex>, Adam applies <strong>bias correction</strong> by dividing by <tex>1 - \beta_1^t</tex> and <tex>1 - \beta_2^t</tex> [2]:</p>
+<texblock>\hat{m}_t = \frac{m_t}{1 - \beta_1^t}, \quad \hat{v}_t = \frac{v_t}{1 - \beta_2^t}</texblock>
+<p>As <tex>t \to \infty</tex>, <tex>\beta_1^t \to 0</tex> and <tex>\beta_2^t \to 0</tex>, so the bias correction factors naturally approach 1.0. However, in the opening hundred steps of training, bias correction is vital: without it, <tex>v_t</tex> would be artificially tiny, causing <tex>1 / \sqrt{v_t}</tex> to explode and destabilizing the model.</p>
+
+<h3>Decoupled weight decay: why AdamW is mandatory</h3>
+<p>In standard SGD, <tex>L_2</tex> weight regularization (adding <tex>\frac{1}{2} \lambda \|\theta\|^2</tex> to the loss) is mathematically equivalent to weight decay (shrinking weights by a factor of <tex>1 - \eta \lambda</tex> at each step). In the original Adam paper [2], <tex>L_2</tex> regularization was implemented by adding the penalty gradient <tex>\lambda \theta_t</tex> directly into the loss gradient:</p>
+<texblock>g_t \leftarrow g_t + \lambda \theta_t</texblock>
+<p>Loshchilov and Hutter proved that in adaptive optimizers, <strong><tex>L_2</tex> regularization and weight decay are fundamentally not equivalent</strong> [3]. When <tex>\lambda \theta_t</tex> is merged into <tex>g_t</tex>, it enters both <tex>m_t</tex> and <tex>v_t</tex>:</p>
+<texblock>v_t = \beta_2 v_{t-1} + (1 - \beta_2) (g_t + \lambda \theta_t)^2</texblock>
+<p>As illustrated in Figure 2, when a weight coordinate has large historical gradients, its second moment <tex>v_t</tex> is large. When Adam updates the parameter by dividing by <tex>\sqrt{\hat{v}_t}</tex>, the effective regularization update is divided by <tex>\sqrt{\hat{v}_t}</tex>:</p>
+<texblock>\Delta \theta_t \propto -\frac{\lambda \theta_t}{\sqrt{\hat{v}_t}}</textblock>
+<p>Consequently, weights with large or frequent gradients receive <em>less</em> weight decay than weights with small gradients! This completely subverts the purpose of regularization.</p>
+<fig src="004-adam-vs-adamw.svg" caption="L2 regularization vs decoupled weight decay in Adam and AdamW">Standard Adam (red) mixes weight decay into the gradient, causing large second moments to divide and suppress decay on active parameters. AdamW (green) decouples weight decay, applying direct shrinkage proportional to learning rate across all weights uniformly.</fig>
+<p>In <strong>AdamW</strong>, Loshchilov and Hutter decoupled weight decay from the gradient moments, applying it directly to the parameter update [3]:</p>
+<texblock>\theta_{t+1} = \theta_t - \eta_t \left( \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon} \right) - \eta_t \lambda \theta_t</texblock>
+<p>where <tex>\lambda</tex> is the decoupled weight decay coefficient. This ensures that every parameter shrinks uniformly by <tex>\eta_t \lambda \theta_t</tex>, restoring scale-free regularization. Every modern transformer architecture (including Llama, GPT, and OLMo) trains with AdamW rather than original Adam.</p>
+
+<h2>Memory Accounting: Why Adam Costs 8 Bytes per Parameter</h2>
+<p>To execute the AdamW update rule, the optimizer must store the first and second moments across all training iterations. Because gradient moments represent running statistical sums accumulated over thousands of steps, storing them in 16-bit floating point (BF16 or FP16) leads to catastrophic numerical stagnation: small gradient additions underflow or round to zero against large existing moments.</p>
+<p>Consequently, <strong>both Adam moments must reside in full 32-bit floating point (FP32)</strong>:</p>
+<ul>
+<li><strong>First moment <tex>m_t</tex> (FP32)</strong>: 4 bytes per parameter. Holds the running momentum vector.</li>
+<li><strong>Second moment <tex>v_t</tex> (FP32)</strong>: 4 bytes per parameter. Holds the uncentered variance vector.</li>
+</ul>
+<p>Summing these gives <tex>4 + 4 = 8\text{ bytes per parameter}</tex> dedicated entirely to optimizer internal state. As established in Lesson 3 (Training Memory), standard mixed-precision training also requires an FP32 master weight (4 bytes), a BF16 active weight (2 bytes), and a BF16 gradient buffer (2 bytes). Figure 3 compares this 16-byte breakdown across alternative optimizers.</p>
+<fig src="004-optimizer-memory-comparison.svg" caption="Per-parameter memory footprint across optimizers">Memory accounting per parameter in mixed precision: AdamW requires 16 bytes (8 bytes for FP32 moments m and v). Lion eliminates the second moment, dropping to 12 bytes. SGD with momentum requires 12 bytes. 8-bit Adam quantizes moments to INT8, cutting optimizer states from 8 bytes to 2 bytes.</fig>
+<p>For our running model, Llama 3.1 8B (<tex>N = 8.03 \times 10^9</tex>):</p>
+<texblock>\text{AdamW State Memory} = 8.03 \times 10^9 \times 8\text{ bytes} = 64.24 \times 10^9\text{ bytes} \approx 64.24\text{ GB}</texblock>
+<p>The optimizer states alone consume over 80% of an 80 GB H100 GPU before accounting for weights, gradients, or activations.</p>
+
+<h2>Learning-Rate Schedules: Warmup, Cosine, and WSD</h2>
+<p>The learning rate <tex>\eta_t</tex> is not held constant throughout training. Instead, a <strong>learning-rate schedule</strong> adjusts <tex>\eta_t</tex> across steps to balance early stability against late-stage convergence.</p>
+
+<h3>Learning-rate warmup</h3>
+<p>At step 0, model weights are initialized randomly, and the optimizer's moment buffers <tex>m_0</tex> and <tex>v_0</tex> are empty. In the initial steps, gradients are noisy and large. If training begins immediately at peak learning rate, large updates can knock parameters into poorly conditioned regions of loss space, causing early divergence or irreversible gradient explosion [4].</p>
+<p>To prevent this, pretraining begins with <strong>linear warmup</strong>: the learning rate ramps linearly from 0 (or a small baseline) to peak learning rate <tex>\eta_{\max}</tex> over <tex>T_{\text{warmup}}</tex> steps:</p>
+<texblock>\eta_t = \eta_{\max} \left( \frac{t}{T_{\text{warmup}}} \right) \quad \text{for } t \le T_{\text{warmup}}</textblock>
+<p>For Llama 3.1 8B, warmup typically lasts 2,000 to 5,000 steps (approximately 1% to 2% of the training run), allowing moments <tex>m_t</tex> and <tex>v_t</tex> to settle into reliable running averages before peak steps occur.</p>
+
+<h3>Cosine decay schedule</h3>
+<p>After warmup, the classic schedule pioneered by Loshchilov and Hutter is <strong>cosine decay</strong> [4]:</p>
+<texblock>\eta_t = \eta_{\min} + \frac{1}{2}(\eta_{\max} - \eta_{\min}) \left( 1 + \cos\left( \frac{t - T_{\text{warmup}}}{T_{\max} - T_{\text{warmup}}} \pi \right) \right)</textblock>
+<p>where <tex>\eta_{\min}</tex> is typically set to 10% of peak learning rate (<tex>0.1 \times \eta_{\max}</tex>). Cosine decay gently lowers the learning rate, allowing the optimizer to settle into sharp, flat minima. However, cosine decay has a major practical drawback: <strong>it requires fixing the total step count <tex>T_{\max}</tex> in advance</strong>. If an engineering team decides to continue pretraining on another 500 billion tokens, the schedule has already decayed to <tex>\eta_{\min}</tex>, and resetting or extending the cosine curve disrupts convergence dynamics [5].</p>
+
+<h3>Warmup-stable-decay (WSD)</h3>
+<p>To eliminate the rigid horizon constraint of cosine decay, the <strong>Warmup-Stable-Decay (WSD)</strong> schedule—popularized by Hu et al. in MiniCPM [5] and adopted in modern scaling research—divides training into three distinct stages:</p>
+<ol>
+<li><strong>Warmup phase (1%–2% of steps)</strong>: Linearly ramps from 0 to peak <tex>\eta_{\max}</tex>.</li>
+<li><strong>Stable phase (80%–90% of steps)</strong>: Holds the learning rate flat at <tex>\eta_{\max}</tex>. Training continues along this plateau indefinitely as new data arrives. Every checkpoint saved during this phase is in an active, high-learning-rate state.</li>
+<li><strong>Decay / Cooldown phase (10% of steps)</strong>: Once the team decides to conclude training (or branch a model for downstream evaluation), a short cooldown anneals the learning rate rapidly down to zero (or <tex>\eta_{\min}</tex>) via a steep cosine or linear ramp.</li>
+</ol>
+<fig src="004-lr-schedules.svg" caption="Learning rate schedules: Cosine Decay vs Warmup-Stable-Decay (WSD)">Cosine decay (left) ties learning rate continuously to a predetermined final step count T_max. Warmup-Stable-Decay (right) maintains a flat stable plateau, allowing teams to continue pretraining indefinitely and branch reusable checkpoints for scaling studies or domain fine-tuning before executing a short cooldown decay.</fig>
+<p>The decisive engineering benefit of WSD is <strong>checkpoint reusability</strong>: intermediate checkpoints taken during the stable phase can be branched off to train domain-specific models, conduct scaling law projections, or transition into Supervised Fine-Tuning (SFT) simply by executing a dedicated cooldown on new data mixes [5].</p>
+
+<h2>Standard LLM Hyperparameter Recipes</h2>
+<p>Hyperparameter choices for large transformer pretraining are remarkably consistent across leading labs. Table 1 compares the published recipes of Meta's Llama 3.1 8B [6] and AI2's open OLMo 7B [7].</p>
+<table>
+<thead><tr><th>Hyperparameter</th><th>Llama 3.1 8B Recipe</th><th>OLMo 7B Recipe</th><th>Engineering Rationale</th></tr></thead>
+<tbody>
+<tr><td>Optimizer</td><td>AdamW (decoupled)</td><td>AdamW (decoupled)</td><td>Scale-free regularization; avoids L2 gradient distortion</td></tr>
+<tr><td>First moment (<tex>\beta_1</tex>)</td><td>0.9</td><td>0.9</td><td>Standard exponential momentum horizon: <tex>1 / (1 - 0.9) = 10\text{ steps}</tex></td></tr>
+<tr><td>Second moment (<tex>\beta_2</tex>)</td><td>0.95</td><td>0.95</td><td>Shorter memory horizon: <tex>1 / (1 - 0.95) = 20\text{ steps}</tex> (prevents stale variance)</td></tr>
+<tr><td>Numerical epsilon (<tex>\epsilon</tex>)</td><td><tex>1.0 \times 10^{-8}</tex></td><td><tex>1.0 \times 10^{-5}</tex></td><td>Prevents division by zero; <tex>10^{-5}</tex> adds stability in lower precision</td></tr>
+<tr><td>Peak learning rate (<tex>\eta_{\max}</tex>)</td><td><tex>3.0 \times 10^{-4}</tex></td><td><tex>3.0 \times 10^{-4}</tex></td><td>Empirically optimal for ~7B–8B parameter scale</td></tr>
+<tr><td>Min learning rate (<tex>\eta_{\min}</tex>)</td><td><tex>3.0 \times 10^{-5}</tex></td><td><tex>3.0 \times 10^{-5}</tex></td><td>10% of peak learning rate at end of decay</td></tr>
+<tr><td>Weight decay (<tex>\lambda</tex>)</td><td>0.1</td><td>0.1</td><td>Decoupled weight shrinkage; regularizes large embedding/MLP matrices</td></tr>
+<tr><td>Gradient clipping norm</td><td>1.0</td><td>1.0</td><td>Caps maximum global <tex>L_2</tex> gradient norm to prevent loss spikes</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Standard pretraining hyperparameter recipes for 7B–8B models</p>
+
+<h3>Why <tex>\beta_2 = 0.95</tex> instead of 0.999?</h3>
+<p>Standard PyTorch defaults set <tex>\beta_2 = 0.999</tex>, which was tuned for computer vision models trained for hundreds of thousands of small-batch iterations. The effective memory horizon of an exponential moving average is <tex>1 / (1 - \beta_2)</tex>. For <tex>\beta_2 = 0.999</tex>, the horizon is <tex>1 / 0.001 = 1,000\text{ steps}</tex>. In LLM pretraining with massive batches, the loss landscape evolves rapidly. Averaging squared gradients over 1,000 steps means <tex>v_t</tex> reflects ancient geometry, making the optimizer sluggish to adapt to newly encountered gradient spikes.</p>
+<p>Setting <tex>\beta_2 = 0.95</tex> shortens the memory horizon to <tex>1 / (1 - 0.95) = 20\text{ steps}</tex> [6], [7]. The optimizer adapts rapidly to shifting gradient magnitudes, dampening transient variance spikes and drastically reducing late-stage training divergences.</p>
+
+<h3>The role of gradient clipping</h3>
+<p>During pretraining on massive web-scraped datasets, occasional corrupted tokens, unformatted binary data, or catastrophic sequence batches produce sudden spikes in gradient magnitude. If unmitigated, a massive gradient step instantly corrupts model weights, triggering an irreversible <strong>loss spike</strong> (detailed in Lesson 32, Training Stability - Loss Spikes and Divergence).</p>
+<p><strong>Gradient clipping</strong> computes the total Euclidean (<tex>L_2</tex>) norm of all parameter gradients concatenated across the entire model:</p>
+<texblock>\|g\|_2 = \sqrt{\sum_{i=1}^N g_i^2}</textblock>
+<p>If <tex>\|g\|_2</tex> exceeds maximum threshold <tex>c</tex> (standardly <tex>c = 1.0</tex>), all gradients are rescaled proportionally before the optimizer update:</p>
+<texblock>g \leftarrow g \times \frac{c}{\max(c, \|g\|_2)}</textblock>
+<p>Clipping preserves gradient direction while capping update step size, preventing abnormal batches from destabilizing the run.</p>
+
+<h2>Batch Size and the Critical Batch Size</h2>
+<p>In distributed training, the fastest way to accelerate wall-clock training is to scale data parallelism by increasing global batch size <tex>B</tex>. But how large can the batch size grow before diminishing returns make further scaling pointless?</p>
+<p>McCandlish et al. (OpenAI, 2018) addressed this fundamental question in <em>An Empirical Model of Large-Batch Training</em> [8]. They formulated the concept of the <strong>gradient noise scale</strong>, denoted as the <strong>critical batch size</strong> <tex>B_{\text{crit}}</tex>:</p>
+<texblock>B_{\text{crit}} \approx \frac{\text{tr}(H \Sigma)}{G^\top G}</textblock>
+<p>where <tex>\Sigma</tex> is the covariance matrix of single-sample gradients, <tex>H</tex> is the Hessian matrix, and <tex>G</tex> is the true gradient vector. As illustrated in Figure 4, training operates in two distinct regimes:</p>
+<fig src="004-critical-batch-size.svg" caption="Critical batch size: linear speedup vs diminishing returns">The empirical framework of McCandlish et al.: when batch size B is below B_crit (Regime 1), doubling batch size halves required optimization steps at constant compute. Above B_crit (Regime 2), gradient noise is exhausted and further batch growth yields diminishing returns, wasting GPU compute.</fig>
+<ul>
+<li><strong>Regime 1: <tex>B \ll B_{\text{crit}}</tex> (Linear Speedup)</strong>: Gradient noise dominates. Averaging gradients across a larger batch directly reduces gradient variance. In this regime, doubling the batch size halves the number of optimizer steps required to reach a given validation loss. Total compute (FLOPs) spent to reach the target loss remains constant, while wall-clock training time drops linearly. In this regime, learning rate should scale approximately linearly (<tex>\eta \propto B</tex>) or with the square root of batch size (<tex>\eta \propto \sqrt{B}</tex>).</li>
+<li><strong>Regime 2: <tex>B \gg B_{\text{crit}}</tex> (Diminishing Returns)</strong>: Gradient variance has already been minimized; the estimated batch gradient is nearly identical to the true dataset gradient. Further increasing batch size does not meaningfully reduce step count. Doubling the batch size doubles compute spent per step while yielding negligible reduction in steps, causing total FLOPs to explode.</li>
+</ul>
+<p>For our running pretraining scenario, our global batch size is 512 sequences of 8,192 tokens—totaling <strong>4,194,304 tokens per step</strong> (~4M tokens). For 8B-scale models, empirical noise scale measurements place <tex>B_{\text{crit}}</tex> between 2M and 6M tokens during the middle stages of pretraining [8]. Our 4M-token batch operates directly at the optimal knee of the curve, maximizing cluster parallelism across 256 H100 GPUs without wasting compute budget.</p>
+
+<h2>Memory-Saving Optimizers: 8-bit Adam, Adafactor, Lion, and Muon</h2>
+<p>Because the 8 bytes per parameter of AdamW represent such a severe memory tax, researchers have engineered several memory-saving alternatives. Table 2 summarizes their mechanics, memory footprints, and practical caveats.</p>
+<table>
+<thead><tr><th>Optimizer</th><th>Optimizer Memory / Param</th><th>Core Compression Mechanism</th><th>Status in Frontier LLM Training</th></tr></thead>
+<tbody>
+<tr><td>Standard AdamW</td><td>8 bytes (FP32 <tex>m</tex>, FP32 <tex>v</tex>)</td><td>None (full 32-bit tracking)</td><td><strong>Industry Gold Standard</strong>; proven stability across trillion-token runs</td></tr>
+<tr><td>8-bit AdamW</td><td>2 bytes (INT8 <tex>m</tex>, INT8 <tex>v</tex>)</td><td>Block-wise non-linear 8-bit quantization [9]</td><td>Widely used for fine-tuning (QLoRA, SFT); rare in flagship pretraining</td></tr>
+<tr><td>Adafactor</td><td><tex>O(R + C)</tex> sublinear</td><td>Low-rank row/col factorization of <tex>v_t</tex> [10]</td><td>Used in T5 and PaLM; sensitive to learning rate tuning</td></tr>
+<tr><td>Lion</td><td>4 bytes (FP32 <tex>m</tex>, no <tex>v</tex>)</td><td>Tracks only momentum; update uses <tex>\text{sign}(m_t)</tex> [11]</td><td>High research interest; requires 3–10× smaller lr and 10× higher decay</td></tr>
+<tr><td>Muon</td><td>4 bytes (for 2D weights)</td><td>Newton-Schulz polar orthogonalization [12]</td><td>Emerging for hidden layers; combined with AdamW for embeddings</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Comparison of standard and memory-saving optimizers</p>
+
+<h3>8-bit Adam (bitsandbytes)</h3>
+<p>Developed by Dettmers et al. [9], 8-bit Adam quantizes the FP32 moment buffers <tex>m_t</tex> and <tex>v_t</tex> down to 8-bit representations using block-wise dynamic quantization. Vectors are divided into blocks of 2,048 elements. Each block computes a local absolute maximum scaling factor stored in FP32, while individual elements are mapped into non-linear 8-bit bins optimized for Gaussian-distributed gradients. This cuts optimizer state from 8 bytes to roughly 2.05 bytes per parameter (a <strong>75% reduction</strong>), shrinking states for an 8B model from 64.2 GB to 16.5 GB. While popular in fine-tuning, large pretraining clusters with FSDP sharding already divide states across GPUs.</p>
+
+<h3>Adafactor</h3>
+<p>Introduced by Shazeer and Stern [10], Adafactor targets the <tex>M \times N</tex> second-moment matrix <tex>v_t</tex> of linear layers. Instead of storing <tex>M \times N</tex> numbers, Adafactor factorizes the variance matrix into row and column sums <tex>r \in \mathbb{R}^M</tex> and <tex>c \in \mathbb{R}^N</tex>, reconstructing the second moment on the fly as <tex>v_{ij} \approx r_i c_j / \sum r</tex>. This reduces second-moment memory from <tex>O(MN)</tex> to <tex>O(M + N)</tex>, cutting footprint from 8 bytes to roughly 4 bytes per parameter (or ~1 byte if momentum is dropped). Adafactor was successfully used to pretrain T5 and PaLM, but it requires careful learning rate scheduling and can exhibit instability during mixed-precision training if gradient scales fluctuate.</p>
+
+<h3>Lion (EvoLved Sign Momentum)</h3>
+<p>Discovered by Chen et al. at Google using symbolic program search [11], Lion completely removes the second moment <tex>v_t</tex>. It tracks only the first moment <tex>m_t</tex> and computes parameter updates using the elementwise sign function:</p>
+<texblock>c_t = \beta_1 m_{t-1} + (1 - \beta_1) g_t, \quad \theta_{t+1} = \theta_t - \eta_t (\text{sign}(c_t) + \lambda \theta_t)</textblock>
+<texblock>m_t = \beta_2 m_{t-1} + (1 - \beta_2) g_t</textblock>
+<p>Because <tex>\text{sign}(c_t) \in \{-1, +1\}</tex>, every coordinate step has identical magnitude, making Lion an <tex>L_\infty</tex> norm optimizer. Lion halves optimizer memory (4 bytes per parameter), but claims regarding superior pretraining efficiency must be hedged: Lion is highly sensitive to hyperparameters, requiring learning rates roughly 3× to 10× smaller than AdamW and weight decay values roughly 10× larger. Most frontier LLM teams continue to prioritize the predictable convergence of AdamW.</p>
+
+<h3>Muon (Momentum Orthogonalized by Newton-Schulz)</h3>
+<p>Introduced by Keller Jordan et al. in late 2024 [12], <strong>Muon</strong> recognizes that neural network weights in transformer hidden layers are 2D linear matrices rather than unstructured scalar collections. While Adam scales each coordinate independently, Muon orthogonalizes the update matrix so that all singular values equal 1, eliminating spectral bias. To avoid computing an expensive Singular Value Decomposition (SVD) on the GPU, Muon uses five iterations of a quintic <strong>Newton-Schulz polynomial iteration</strong>:</p>
+<texblock>X_{k+1} = a X_k + (b X_k X_k^\top + c (X_k X_k^\top)^2) X_k</textblock>
+<p>which executes purely via fast GPU matrix multiplications. Muon is applied strictly to 2D hidden layer weight matrices, while 1D embeddings and normalization layers continue to use AdamW. While Muon has delivered impressive training speedups on benchmarks like NanoGPT, its stability across trillion-token frontier runs is still being established in production.</p>
+
+<h2>Optimizer Choice and Per-GPU Memory for the 8B Run</h2>
+<p>Now let us evaluate how optimizer selection impacts physical GPU memory for our running pretraining scenario. Figure 5 compares the per-GPU memory footprint of Llama 3.1 8B (<tex>N = 8.03 \times 10^9</tex>) across optimizers under two distributed parallelism strategies: unsharded Data Parallelism (DDP) versus 8-way intra-node FSDP sharding.</p>
+<fig src="004-per-gpu-optimizer-memory.svg" caption="Per-GPU memory footprint for Llama 3.1 8B across optimizers">Per-GPU memory comparison on 80 GB H100 GPUs: without sharding (left), all optimizers fail with an Out-Of-Memory crash. With 8-way FSDP sharding across intra-node NVLink (right), AdamW consumes only 16.1 GB per GPU, leaving 63.9 GB of headroom for activations.</fig>
+<p>Notice the crucial systems insight: <strong>on an 80 GB GPU, unsharded training is impossible regardless of optimizer choice</strong>. Even with 8-bit Adam (10 bytes per parameter), the baseline state requires 80.3 GB—exceeding the 79.6 GiB usable memory of an H100 before allocating a single activation tensor or communication buffer.</p>
+<p>However, when we apply <strong>intra-node FSDP sharding across the 8 GPUs of an H100 node</strong> (connected via 900 GB/s NVLink), the entire 16-byte state of AdamW (128.5 GB) is partitioned 8 ways:</p>
+<texblock>\text{Per-GPU Sharded State} = \frac{128.48\text{ GB}}{8} = 16.06\text{ GB per GPU}</texblock>
+<p>On an 80 GB H100, 16.1 GB represents only 20% of device memory, leaving <strong>63.9 GB of free headroom</strong> for activations, temporary scratchpads, and CUDA context. Because intra-node sharding makes AdamW fit easily, there is no need to accept the convergence or tuning risks of 8-bit Adam, Lion, or Adafactor.</p>
+
+<h4>Which optimizer fits our run?</h4>
+<p>For pretraining Llama 3.1 8B on 256 H100 GPUs, <strong>AdamW with intra-node FSDP sharding is the unambiguous choice</strong>. We configure <tex>\beta_1 = 0.9</tex>, <tex>\beta_2 = 0.95</tex>, <tex>\epsilon = 1.0 \times 10^{-8}</tex>, decoupled weight decay <tex>\lambda = 0.1</tex>, and gradient clipping at 1.0, matching the verified Llama 3.1 recipe [6]. We pair this with a <strong>Warmup-Stable-Decay (WSD)</strong> schedule (2,000 steps warmup, stable plateau at <tex>3.0 \times 10^{-4}</tex>, and a 20,000-step cooldown decay). This guarantees maximum training stability, allows flexible checkpoint branching, and eliminates the risk of optimizer-induced divergence on a $100,000 cluster run.</p>
+
+<h2>In Practice</h2>
+<p>The first tab demonstrates a standard PyTorch pretraining optimizer configuration: setting up AdamW with parameter-specific weight decay filtering (disabling decay on normalization layers and biases), applying a cosine annealing schedule with linear warmup, and performing gradient clipping. The second tab implements a custom Warmup-Stable-Decay (WSD) scheduler in pure PyTorch. The third tab inspects the internal state dictionaries of PyTorch optimizers to verify exact memory allocations.</p>
+
+<codetabs>
+<tab label="AdamW with cosine schedule" lang="python">
+import torch
+import torch.nn as nn
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import LambdaLR
+
+# 1. Model setup and parameter separation
+# Standard practice: disable weight decay on 1D tensors (biases, layer norms)
+model = nn.Sequential(
+    nn.Linear(4096, 14336),
+    nn.RMSNorm(14336),
+    nn.Linear(14336, 4096)
+).cuda()
+
+decay_params = []
+no_decay_params = []
+for name, param in model.named_parameters():
+    if param.requires_grad:
+        if param.dim() >= 2:
+            decay_params.append(param)
+        else:
+            no_decay_params.append(param)
+
+optim_groups = [
+    {"params": decay_params, "weight_decay": 0.1},
+    {"params": no_decay_params, "weight_decay": 0.0}
+]
+
+# 2. AdamW configuration matching Llama 3.1 recipe
+peak_lr = 3e-4
+min_lr = 3e-5
+optimizer = AdamW(
+    optim_groups,
+    lr=peak_lr,
+    betas=(0.9, 0.95),      # beta2=0.95 adapts quickly to LLM gradient shifts
+    eps=1e-8
+)
+
+# 3. Cosine decay with linear warmup schedule
+warmup_steps = 2000
+max_steps = 238419
+
+def cosine_schedule_fn(step: int) -> float:
+    if step < warmup_steps:
+        return float(step) / float(max(1, warmup_steps))
+    # Decay from 1.0 down to min_lr / peak_lr
+    progress = float(step - warmup_steps) / float(max(1, max_steps - warmup_steps))
+    cosine_decay = 0.5 * (1.0 + torch.cos(torch.tensor(progress * 3.1415926535)).item())
+    min_ratio = min_lr / peak_lr
+    return min_ratio + (1.0 - min_ratio) * cosine_decay
+
+scheduler = LambdaLR(optimizer, lr_lambda=cosine_schedule_fn)
+
+# 4. Standard step execution with gradient clipping
+# Dummy gradient step
+loss = model(torch.randn(2, 4096, device="cuda")).sum()
+loss.backward()
+
+# Clip global gradient norm to 1.0
+total_norm = nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+optimizer.step()
+scheduler.step()
+optimizer.zero_grad(set_to_none=True)
+
+print(f"Step executed. Clipped norm: {total_norm:.4f}, LR: {scheduler.get_last_lr()[0]:.6e}")
+</tab>
+<tab label="Warmup-Stable-Decay schedule" lang="python">
+import torch
+from torch.optim.lr_scheduler import LambdaLR
+
+class WSDScheduler:
+    """Warmup-Stable-Decay (WSD) scheduler for flexible LLM pretraining."""
+    def __init__(self, optimizer, warmup_steps: int, total_steps: int,
+                 decay_ratio: float = 0.1, min_lr_ratio: float = 0.1):
+        self.warmup_steps = warmup_steps
+        self.total_steps = total_steps
+        self.decay_steps = int(total_steps * decay_ratio)
+        self.stable_steps = total_steps - warmup_steps - self.decay_steps
+        self.min_lr_ratio = min_lr_ratio
+
+        def lr_lambda(step: int) -> float:
+            # Phase 1: Linear Warmup
+            if step < self.warmup_steps:
+                return float(step) / float(max(1, self.warmup_steps))
+            # Phase 2: Stable Plateau (flat at peak learning rate)
+            elif step < self.warmup_steps + self.stable_steps:
+                return 1.0
+            # Phase 3: Cooldown Decay
+            else:
+                decay_step = step - (self.warmup_steps + self.stable_steps)
+                progress = float(decay_step) / float(max(1, self.decay_steps))
+                progress = min(1.0, max(0.0, progress))
+                # Cosine annealing to min_lr_ratio
+                cosine = 0.5 * (1.0 + torch.cos(torch.tensor(progress * 3.1415926535)).item())
+                return self.min_lr_ratio + (1.0 - self.min_lr_ratio) * cosine
+
+        self.scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+
+    def step(self):
+        self.scheduler.step()
+
+    def get_lr(self):
+        return self.scheduler.get_last_lr()
+
+# Verification test
+p = torch.nn.Parameter(torch.zeros(10))
+opt = torch.optim.SGD([p], lr=1e-3)
+wsd = WSDScheduler(opt, warmup_steps=100, total_steps=1000, decay_ratio=0.1)
+
+# Inspect LR across phases
+for step in range(1001):
+    if step in (50, 100, 500, 900, 950, 1000):
+        print(f"Step {step:4d} | Phase LR factor: {wsd.get_lr()[0]:.4f}")
+    wsd.step()
+</tab>
+<tab label="Inspecting optimizer states" lang="python">
+import torch
+import torch.nn as nn
+from torch.optim import AdamW
+
+# Create a simple layer with 1000 parameters
+layer = nn.Linear(10, 100, bias=False)  # 1000 params
+optimizer = AdamW(layer.parameters(), lr=1e-3)
+
+# Before step: state dict contains no moments
+print("State entries before step:", len(optimizer.state))  # 0
+
+# Execute forward and backward pass
+out = layer(torch.randn(4, 10)).sum()
+out.backward()
+optimizer.step()
+
+# After step: state dict holds m (exp_avg) and v (exp_avg_sq) in FP32
+state = optimizer.state[layer.weight]
+print("\nState entries after step:", list(state.keys()))
+print("exp_avg shape and dtype:", state['exp_avg'].shape, state['exp_avg'].dtype)
+print("exp_avg_sq shape and dtype:", state['exp_avg_sq'].shape, state['exp_avg_sq'].dtype)
+
+# Calculate bytes consumed per parameter
+bytes_m = state['exp_avg'].element_size() * state['exp_avg'].nelement()
+bytes_v = state['exp_avg_sq'].element_size() * state['exp_avg_sq'].nelement()
+total_bytes = bytes_m + bytes_v
+print(f"Total optimizer state for 1,000 params: {total_bytes} bytes ({total_bytes / 1000:.1f} B/param)")
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Weight decay filtering on normalization and embeddings</strong>: Standard recipes exclude 1D parameters (LayerNorm/RMSNorm scale and bias terms) from weight decay. Decaying scale factors artificially compresses representation variance and degrades attention dynamics.</li>
+<li><strong>Gradient noise scale evolution during training</strong>: McCandlish et al. demonstrated that <tex>B_{\text{crit}}</tex> is not static; it grows as training progresses and the loss drops. Some training recipes dynamically increase batch size (or decrease learning rate) in the second half of pretraining to match shifting noise dynamics.</li>
+<li><strong>Fused and multi-tensor optimizers</strong>: In PyTorch, using <code>torch.optim.AdamW(..., fused=True)</code> or <code>foreach=True</code> combines tensor updates across all layers into a single fused GPU kernel launch. This drastically reduces CUDA kernel launch overhead and improves memory bandwidth utilization during the optimizer step.</li>
+<li><strong>FP16 vs BF16 master weights</strong>: While FP32 master weights are standard, recent research (such as Llama 3 405B training) has explored FP16/BF16 master weights with stochastic rounding to cut another 2 bytes per parameter. However, stochastic rounding requires high-performance hardware RNG support to avoid weight stagnation.</li>
+<li><strong>Loss spikes and Adam second-moment resets</strong>: When an irrecoverable loss spike occurs during pretraining, the second moment <tex>v_t</tex> can become poisoned with extreme variance. Recovery strategies include restarting from an earlier checkpoint with a reduced learning rate or clearing optimizer states while keeping model weights (cross-referenced in Lesson 32, Training Stability - Loss Spikes and Divergence).</li>
+<li><strong>Spectral properties and Newton-Schulz convergence</strong>: In Muon, the quintic Newton-Schulz coefficients are specifically tuned to guarantee contractive convergence for matrices whose singular values fall within <tex>[0, \sqrt{2}]</tex>, ensuring rapid normalization in exactly five iterations.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="004-summary.png" caption="Optimizers summary" optional="1">Mind map summarizing the optimizers lesson: momentum mechanics, decoupled weight decay in AdamW, learning rate schedules, critical batch size, memory-saving optimizers, and cluster sizing.</fig>
+<ul>
+<li>Polyak momentum smooths oscillations across steep valley walls. Adam introduces coordinate-wise adaptive learning rates by normalizing gradients by the root-mean-square of past squared gradients.</li>
+<li>Standard <tex>L_2</tex> regularization distorts adaptive learning rates because penalty terms enter the second moment <tex>v_t</tex>. AdamW decouples weight decay, applying direct parameter shrinkage proportional to learning rate across all weights uniformly.</li>
+<li>AdamW requires 8 bytes per parameter for optimizer states alone (4 bytes for FP32 momentum <tex>m_t</tex> and 4 bytes for FP32 variance <tex>v_t</tex>), bringing baseline model state memory to 16 bytes per parameter (128.5 GB for Llama 3.1 8B).</li>
+<li>Standard LLM recipes configure <tex>\beta_1 = 0.9, \beta_2 = 0.95, \epsilon = 10^{-8}</tex>, weight decay 0.1, and gradient clipping at 1.0. A <tex>\beta_2</tex> of 0.95 shortens the variance memory horizon to 20 steps, dampening transient spikes and preventing divergence.</li>
+<li>Warmup-Stable-Decay (WSD) replaces rigid cosine decay horizons with a constant stable plateau, enabling continuous pretraining and intermediate checkpoint reusability before a short cooldown decay.</li>
+<li>The critical batch size <tex>B_{\text{crit}}</tex> marks the transition between linear parallel speedup and diminishing compute returns. Our 4M-token global batch operates near <tex>B_{\text{crit}}</tex>, allowing 256 H100 GPUs to scale data parallelism efficiently.</li>
+<li>On an 80 GB GPU, unsharded training of an 8B model fails across all optimizers. With 8-way intra-node FSDP sharding across 900 GB/s NVLink, AdamW consumes only 16.1 GB per GPU, leaving 63.9 GB for activations without needing optimizer approximations.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Polyak. Some methods of speeding up the convergence of iteration methods. <a href="https://doi.org/10.1016/0041-5553(64)90137-5" rel="noopener noreferrer" target="_blank">https://doi.org/10.1016/0041-5553(64)90137-5</a>.<br>
+[2] Kingma and Ba. Adam: A Method for Stochastic Optimization. <a href="https://arxiv.org/abs/1412.6980" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1412.6980</a>.<br>
+[3] Loshchilov and Hutter. Decoupled Weight Decay Regularization. <a href="https://arxiv.org/abs/1711.05101" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1711.05101</a>.<br>
+[4] Loshchilov and Hutter. SGDR: Stochastic Gradient Descent with Warm Restarts. <a href="https://arxiv.org/abs/1608.03983" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1608.03983</a>.<br>
+[5] Hu et al. MiniCPM: Unveiling the Potential of Small Language Models with Scalable Training Strategies. <a href="https://arxiv.org/abs/2404.06395" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2404.06395</a>.<br>
+[6] Llama 3 Team, Meta. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[7] Groeneveld et al. OLMo: Accelerating the Science of Language Models. <a href="https://arxiv.org/abs/2402.00838" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2402.00838</a>.<br>
+[8] McCandlish et al. An Empirical Model of Large-Batch Training. <a href="https://arxiv.org/abs/1812.06162" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1812.06162</a>.<br>
+[9] Dettmers et al. 8-bit Optimizers via Block-wise Quantization. <a href="https://arxiv.org/abs/2110.02861" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2110.02861</a>.<br>
+[10] Shazeer and Stern. Adafactor: Adaptive Learning Rates with Sublinear Memory Cost. <a href="https://arxiv.org/abs/1804.04235" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1804.04235</a>.<br>
+[11] Chen et al. Symbolic Discovery of Optimization Algorithms. <a href="https://arxiv.org/abs/2302.06675" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2302.06675</a>.<br>
+[12] Jordan et al. Muon: An optimizer for hidden layers in neural networks. <a href="https://github.com/KellerJordan/Muon" rel="noopener noreferrer" target="_blank">https://github.com/KellerJordan/Muon</a>.</p>

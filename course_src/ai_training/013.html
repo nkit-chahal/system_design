@@ -1,0 +1,317 @@
+<h2>Introduction</h2>
+<p>When training an 8-billion-parameter language model such as Llama 3.1 8B, Fully Sharded Data Parallel (FSDP) and ZeRO-3 shard the 128.5 GB of model and optimizer states comfortably across eight GPUs in a single server (see Lesson 11, ZeRO and FSDP). But when scaling to 70-billion or 405-billion parameter models, memory requirements explode. A 70B model requires over 1.1 TB of static state in 16-bit mixed precision; a 405B model requires nearly 6.5 TB. Even with Tensor Parallelism (TP) dividing attention and MLP projections across an 8-GPU node (see Lesson 12, Tensor, Sequence and Context Parallelism), an entire 70B or 405B model cannot execute inside a single chassis without sharding or partitioning layers across nodes.</p>
+<p>Extending Tensor Parallelism across multiple nodes degrades training throughput catastrophically. TP requires two collective All-Reduce communications inside every single transformer layer—one for the multi-head self-attention projection and one for the feed-forward network. Across 32 or 80 layers, this demands hundreds of collective operations per training step. While intra-node NVLink provides 900 GB/s per GPU with sub-microsecond latency, inter-node InfiniBand networks provide 50 GB/s per GPU with microsecond latencies. Subjecting high-frequency All-Reduce operations to inter-node latency stalls GPU tensor cores and collapses Model FLOPs Utilization (MFU).</p>
+<p><strong>Pipeline Parallelism (PP)</strong> solves this interconnect dilemma by partitioning the model <em>vertically</em> by layers across sequential stages [1]. Instead of splitting individual weight matrices within each layer, pipeline parallelism assigns consecutive blocks of transformer layers to different GPUs or multi-node GPU groups. Communication occurs only at stage boundaries: stage <tex>k</tex> transmits its forward output activations to stage <tex>k+1</tex>, and receives backward activation gradients from stage <tex>k+1</tex>. Because communication occurs only between adjacent stages at layer boundaries, the communication frequency drops by orders of magnitude compared to tensor parallelism.</p>
+<fig src="013-pipeline-stages-split.svg" caption="Partitioning a transformer model into sequential pipeline stages">A 32-layer transformer partitioned across four pipeline stages (GPU 0 to GPU 3). Stage 0 hosts the token embedding and layers 0 to 7. Intermediate stages 1 and 2 host internal layers. Stage 3 hosts layers 24 to 31, final RMSNorm, the LM head, and the loss function. Forward activations flow left-to-right; backward gradients flow right-to-left.</fig>
+<p>However, vertical partitioning introduces a fundamental challenge: <strong>pipeline bubbles</strong>. Because stage <tex>k+1</tex> depends on the activations produced by stage <tex>k</tex>, downstream GPUs sit completely idle waiting for upstream computation to reach them. Without careful scheduling, naive pipeline parallelism leaves accelerators idle for over 70% of the training step. In this lesson, we examine how micro-batch scheduling (GPipe and 1F1B) shrinks the bubble, analyze activation memory accumulation across stages, explore advanced interleaved and zero-bubble schedules, derive the point-to-point network traffic, and evaluate where pipeline parallelism fits in large-scale cluster design.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In distributed infrastructure interviews, pipeline parallelism questions focus on scheduling trade-offs, bubble fraction arithmetic, memory buffering, and network hierarchy. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: Which model are we distributing, and what is our target hardware cluster?<br>
+<strong>Interviewer</strong>: We are pretraining a 70-billion parameter model (Llama 3.1 70B: 80 layers, hidden dimension 8,192, 64 query heads, 8 KV heads) across 64 nodes of 8 NVIDIA H100 80 GB GPUs (512 GPUs total). Intra-node interconnect is 900 GB/s NVLink; inter-node is 8 × 400 Gb/s InfiniBand NDR (50 GB/s per GPU).</p>
+<p><strong>Candidate</strong>: What sequence length and batch size are specified for this run?<br>
+<strong>Interviewer</strong>: Sequence length is 8,192 tokens. Global batch size is 4 million tokens, corresponding to 512 sequences per optimizer step.</p>
+<p><strong>Candidate</strong>: Why not use pure Tensor Parallelism across the entire cluster, or pure FSDP?<br>
+<strong>Interviewer</strong>: TP beyond an 8-GPU node saturates our 400 Gb/s InfiniBand network because it requires two All-Reduce collectives in every layer. Pure FSDP over 512 GPUs oversubscribes the inter-node network with parameter all-gathers. We want to evaluate a hybrid 3D layout using TP inside each node and Pipeline Parallelism across nodes.</p>
+<p><strong>Candidate</strong>: What pipeline depth are you considering, and what is our tolerance for pipeline bubbles?<br>
+<strong>Interviewer</strong>: We are evaluating pipeline depths of <tex>p = 4</tex> and <tex>p = 8</tex>. We need the pipeline bubble fraction to remain strictly under 15% to maintain an MFU above 40%. How should we schedule the pipeline, how many micro-batches are required, and what happens to GPU memory?</p>
+<p>The core question is: <em>How do we split layers across sequential stages, schedule forward and backward micro-batches to minimize idle bubble time, and prevent in-flight activations from triggering out-of-memory errors?</em> To answer it, we begin by analyzing why naive pipelining fails.</p>
+
+<h2>The Pipeline Bubble: From Naive Execution to 1F1B</h2>
+<h3>Why naive pipeline execution provides zero speedup</h3>
+<p>Consider a model divided across <tex>p = 4</tex> pipeline stages, where each stage runs on one GPU. If the system processes an entire mini-batch as a single monolithic block, GPU 0 evaluates the forward pass for its layers and sends the intermediate activation tensor to GPU 1. While GPU 1 computes, GPU 0 has no work to perform and sits idle. The computation propagates sequentially through GPU 2 and GPU 3. Once GPU 3 evaluates the loss, it computes its backward pass and transmits activation gradients back to GPU 2. The backward pass propagates in reverse until GPU 0 updates its parameters.</p>
+<fig src="013-naive-pipeline-bubble.svg" caption="Naive pipeline execution timeline with a single monolithic batch">Execution timeline for four pipeline stages with no micro-batching. At any given instant, only one GPU is computing while three GPUs sit idle. The idle pipeline bubble consumes 75% of total execution time.</fig>
+<p>In this naive arrangement, exactly one stage executes at any point in time while the other <tex>p - 1</tex> stages idle. The fraction of idle time—termed the <strong>pipeline bubble</strong>—is:</p>
+<texblock>\text{Bubble Fraction}_{\text{naive}} = \frac{p - 1}{p}</texblock>
+<p>For <tex>p = 4</tex>, 75% of GPU cycles are wasted; for <tex>p = 8</tex>, 87.5% are wasted. Adding GPUs does not accelerate the training step; it merely shards the parameters across devices while leaving total wall-clock execution time identical to single-GPU execution. To achieve parallel speedup, the pipeline must keep multiple stages computing concurrently.</p>
+
+<h3>GPipe: Micro-batching and the pipeline flush</h3>
+<p>The breakthrough introduced by Huang et al. in <strong>GPipe</strong> is to divide the mini-batch into <tex>m</tex> smaller <strong>micro-batches</strong> (<tex>m \ge p</tex>) [1]. Instead of waiting for an entire batch to finish, GPU 0 executes the forward pass on micro-batch 1 (<tex>F_1</tex>) and immediately transmits the resulting activations to GPU 1. While GPU 1 executes <tex>F_1</tex>, GPU 0 immediately starts computing <tex>F_2</tex>. In this manner, micro-batches stream through the pipeline like an assembly line.</p>
+<fig src="013-gpipe-schedule.svg" caption="GPipe schedule: forward sweep, pipeline flush, and backward sweep">Timeline for p = 4 stages and m = 8 micro-batches under GPipe. All forward micro-batches (F1 to F8) execute before any backward passes begin. Stage 0 must retain activations for all 8 micro-batches until the backward pass returns, creating an O(m) memory bottleneck.</fig>
+<p>In GPipe, all <tex>m</tex> forward micro-batches are evaluated across all stages before any backward passes begin. Once the final stage evaluates <tex>F_m</tex>, it begins the backward pass (<tex>B_m</tex>), propagating gradients back to stage 0. A global synchronization barrier—a <strong>pipeline flush</strong>—occurs at the end of every step before the optimizer updates weights across all stages. This preserves exact batch gradient statistics identical to non-pipelined training.</p>
+<p>The total duration of the GPipe step can be derived analytically. Let <tex>t_F</tex> be the forward execution time of one micro-batch on one stage, and <tex>t_B</tex> be the backward execution time. In neural networks, backward compute takes roughly twice as long as forward compute (<tex>t_B \approx 2 t_F</tex>) because backpropagation computes both activation gradients and parameter weight gradients (see Lesson 2, Forward and Backward Passes). For simplicity of notation, let <tex>t_{\text{step}} = t_F + t_B</tex>.</p>
+<p>Stage 0 starts <tex>F_1</tex> at time <tex>0</tex>. The final stage <tex>p - 1</tex> begins <tex>F_1</tex> at time <tex>(p - 1) t_F</tex>. The final stage finishes all <tex>m</tex> forward passes at time <tex>(p - 1) t_F + m t_F</tex>. It then executes <tex>m</text> backward passes, which take <tex>m t_B</tex>. The backward pass of the final micro-batch then takes <tex>(p - 1) t_B</tex> to propagate back from stage <tex>p - 1</tex> to stage 0. The total step duration is therefore:</p>
+<texblock>T_{\text{total}} = m (t_F + t_B) + (p - 1)(t_F + t_B) = (m + p - 1)(t_F + t_B)</texblock>
+<p>The total useful compute time spent by each GPU across the step is <tex>m (t_F + t_B)</tex>. The total idle time spent by each GPU in the bubble is <tex>(p - 1)(t_F + t_B)</tex>. Dividing idle time by total step time yields the canonical <strong>bubble fraction</strong> formula:</p>
+<texblock>\text{Bubble Fraction} = \frac{(p - 1)(t_F + t_B)}{(m + p - 1)(t_F + t_B)} = \frac{p - 1}{m + p - 1}</texblock>
+<p>When the number of micro-batches <tex>m</tex> is substantially larger than the pipeline depth <tex>p</tex> (<tex>m \gg p</tex>), the bubble fraction shrinks toward zero. For example, if <tex>p = 4</tex> and <tex>m = 32</tex>, the bubble fraction is <tex>3 / (32 + 3) \approx 8.6\%</tex>.</p>
+
+<h3>The GPipe memory explosion</h3>
+<p>While GPipe reduces the idle bubble, it creates an unsustainable activation memory bottleneck. Under backpropagation, computing weight gradients during <tex>B_k</tex> requires the exact input activations saved during <tex>F_k</tex> (see Lesson 3, Training Memory). Because GPipe executes <em>all</em> <tex>m</tex> forward micro-batches before executing a single backward pass, <strong>stage 0 must store the intermediate activations for all <tex>m</tex> micro-batches simultaneously</strong> in High Bandwidth Memory (HBM).</p>
+<p>As we increase <tex>m</tex> to reduce the bubble fraction, the activation footprint on stage 0 scales linearly as <tex>\mathcal{O}(m)</tex>. For large transformer models with sequence lengths of 8,192 tokens, buffering activations for 32 or 64 micro-batches requires hundreds of gigabytes per GPU, causing immediate Out-Of-Memory (OOM) crashes. GPipe forces a punishing trade-off: choose a small <tex>m</tex> and waste 30–50% of compute in pipeline bubbles, or choose a large <tex>m</tex> and run out of memory.</p>
+
+<h3>1F1B (PipeDream-Flush): Capping activations at O(p)</h3>
+<p>To eliminate GPipe's memory explosion, Narayanan et al. introduced the <strong>1F1B (One-Forward-One-Backward)</strong> schedule in PipeDream and PipeDream-Flush [2], [3]. The core insight of 1F1B is simple: as soon as a downstream stage finishes a forward pass on a micro-batch, the pipeline should prioritize running the corresponding backward pass so that intermediate activations can be freed immediately.</p>
+<fig src="013-1f1b-schedule.svg" caption="1F1B schedule (PipeDream-Flush): warmup, steady state, and cooldown">Timeline for p = 4 stages and m = 8 micro-batches under 1F1B. Stage k executes p − k forward micro-batches during warmup. In the steady state, each stage alternates one forward pass with one backward pass. Peak activation memory is strictly capped at p micro-batches.</fig>
+<p>The 1F1B schedule operates in three distinct phases:</p>
+<ol>
+<li><strong>Warmup phase</strong>: Pipeline stages ramp up sequentially. Stage <tex>k</tex> (where <tex>k \in [0, p-1]</tex>) executes exactly <tex>p - k</tex> forward micro-batches. On stage 0, this means executing <tex>p</tex> forwards (<tex>F_1, F_2, \dots, F_p</tex>). At that point, the first micro-batch <tex>F_1</tex> has reached the final stage <tex>p - 1</tex>, which immediately computes backward pass <tex>B_1</tex> and sends the activation gradient upstream.</li>
+<li><strong>Steady-state phase (1F1B)</strong>: Each stage alternates strictly between executing one backward pass and one forward pass. On stage 0, computing <tex>B_1</tex> consumes and frees the activations stored for <tex>F_1</tex>. Stage 0 then immediately executes <tex>F_{p+1}</tex>. Because every forward pass is preceded by a backward pass that frees an older micro-batch, <strong>the number of in-flight micro-batches held in memory never exceeds <tex>p</tex></strong>.</li>
+<li><strong>Cooldown phase</strong>: Once all <tex>m</tex> forward micro-batches have been evaluated, the remaining micro-batches drain through backward passes (<tex>B_{m-p+1}</tex> to <tex>B_m</tex>) until the pipeline is empty.</li>
+</ol>
+<p>Because the startup and drain latencies are identical to GPipe, the 1F1B schedule preserves the exact same bubble fraction:</p>
+<texblock>\text{Bubble Fraction}_{\text{1F1B}} \approx \frac{p - 1}{m + p - 1}</texblock>
+<p>However, peak activation memory on stage 0 drops from <tex>\mathcal{O}(m)</tex> down to <tex>\mathcal{O}(p)</tex>. Because <tex>p</tex> is typically fixed between 4 and 16 while <tex>m</tex> can scale to 64 or 128, 1F1B allows scaling to large micro-batch counts without exceeding GPU memory capacity.</p>
+
+<h3>Worked table: Bubble fraction vs micro-batch count</h3>
+<p>Table 1 evaluates the analytical bubble fraction across common pipeline depths <tex>p</tex> and micro-batch counts <tex>m</tex>, assuming symmetric forward and backward times (<tex>t_B \approx 2 t_F</tex>, which yields the exact same ratio when forward and backward bubbles are balanced).</p>
+<table>
+<thead><tr><th>Pipeline Depth (<tex>p</tex>)</th><th>Micro-batches (<tex>m</tex>)</th><th>Ratio <tex>m / p</tex></th><th>Bubble Fraction</th><th>Peak Activations (GPipe)</th><th>Peak Activations (1F1B)</th></tr></thead>
+<tbody>
+<tr><td>4</td><td>4</td><td>1.0×</td><td>42.9%</td><td>4 micro-batches</td><td>4 micro-batches</td></tr>
+<tr><td>4</td><td>8</td><td>2.0×</td><td>27.3%</td><td>8 micro-batches</td><td>4 micro-batches</td></tr>
+<tr><td>4</td><td>16</td><td>4.0×</td><td>15.8%</td><td>16 micro-batches</td><td>4 micro-batches</td></tr>
+<tr><td>4</td><td>32</td><td>8.0×</td><td>8.6%</td><td>32 micro-batches</td><td>4 micro-batches</td></tr>
+<tr><td>8</td><td>8</td><td>1.0×</td><td>46.7%</td><td>8 micro-batches</td><td>8 micro-batches</td></tr>
+<tr><td>8</td><td>16</td><td>2.0×</td><td>30.4%</td><td>16 micro-batches</td><td>8 micro-batches</td></tr>
+<tr><td>8</td><td>32</td><td>4.0×</td><td>17.9%</td><td>32 micro-batches</td><td>8 micro-batches</td></tr>
+<tr><td>8</td><td>64</td><td>8.0×</td><td>9.9%</td><td>64 micro-batches</td><td>8 micro-batches</td></tr>
+<tr><td>16</td><td>16</td><td>1.0×</td><td>48.4%</td><td>16 micro-batches</td><td>16 micro-batches</td></tr>
+<tr><td>16</td><td>64</td><td>4.0×</td><td>19.0%</td><td>64 micro-batches</td><td>16 micro-batches</td></tr>
+<tr><td>16</td><td>128</td><td>8.0×</td><td>10.5%</td><td>128 micro-batches</td><td>16 micro-batches</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Analytical pipeline bubble fraction and peak activation memory across pipeline depths and micro-batch counts.</p>
+<p>The numbers reveal an iron rule of pipeline engineering: <strong>to achieve a bubble fraction under 15%, the micro-batch count <tex>m</tex> must be at least 4× to 8× the pipeline depth <tex>p</tex> (<tex>m \ge 4p</tex>)</strong>. If <tex>m = p</tex>, nearly half of all cluster compute is wasted in pipeline idle time.</p>
+
+<h2>Advanced Schedules: Interleaving and Zero-Bubble</h2>
+<h3>Interleaved / virtual stages in Megatron-LM</h3>
+<p>When training with a large pipeline depth (such as <tex>p = 8</tex> or <tex>p = 16</tex>), requiring <tex>m \ge 8p</tex> forces <tex>m \ge 64</tex> or <tex>m \ge 128</tex>. As we will see, large micro-batch counts inflate the global batch size beyond what optimizer convergence allows. To reduce the bubble fraction without requiring massive micro-batch counts, Narayanan et al. developed <strong>interleaved pipeline parallelism</strong> (also known as virtual stages) in Megatron-LM [4].</p>
+<fig src="013-interleaved-virtual-stages.svg" caption="Interleaved 1F1B schedule with virtual stages (v = 2)">Four physical GPUs hosting two virtual stages each (v = 2), creating eight total model chunks. GPU 0 hosts Chunk 0 (layers 0–3) and Chunk 4 (layers 16–19). Activations loop back through the GPUs a second time, cutting the startup and drain bubble durations by roughly 2×.</fig>
+<p>Instead of assigning a single contiguous block of <tex>L / p</tex> layers to each GPU, the model is split into <tex>p \times v</tex> smaller virtual chunks, where <tex>v</tex> is the <strong>virtual stage factor</strong> (typically <tex>v = 2</tex> or <tex>v = 4</tex>). Each physical GPU hosts <tex>v</tex> non-contiguous chunks:</p>
+<ul>
+<li>GPU 0 hosts Chunk 0 (layers 0–3) and Chunk 4 (layers 16–19).</li>
+<li>GPU 1 hosts Chunk 1 (layers 4–7) and Chunk 5 (layers 20–23).</li>
+<li>GPU 2 hosts Chunk 2 (layers 8–11) and Chunk 6 (layers 24–27).</li>
+<li>GPU 3 hosts Chunk 3 (layers 12–15) and Chunk 7 (layers 28–31).</li>
+</ul>
+<p>During the forward pass, micro-batch 1 flows through Chunk 0 (on GPU 0), Chunk 1 (on GPU 1), Chunk 2 (on GPU 2), and Chunk 3 (on GPU 3). It then loops back to GPU 0 to process Chunk 4, continuing through Chunks 5, 6, and 7 on GPUs 1, 2, and 3. Because each individual chunk contains only <tex>L / (p \cdot v)</tex> layers, the forward and backward computation time per chunk is scaled down by <tex>1/v</tex>. Consequently, the time required for a micro-batch to traverse from the first GPU to the last GPU shrinks by roughly <tex>v\times</tex>.</p>
+<p>The resulting bubble fraction for interleaved 1F1B is approximately:</p>
+<texblock>\text{Bubble Fraction}_{\text{interleaved}} \approx \frac{1}{v} \cdot \frac{p - 1}{m + p - 1} \approx \frac{p - 1}{v \cdot m}</texblock>
+<p>For <tex>p = 4</tex>, <tex>m = 8</tex>, and <tex>v = 2</tex>, the bubble drops from 27.3% down to approximately 15.8% without changing the batch size. The penalty is network communication: because activations must pass between GPUs <tex>v</tex> times rather than once, <strong>point-to-point communication volume increases by exactly <tex>v\times</tex></strong>. Interleaving pays off when network interconnects have sufficient bandwidth headroom to absorb the extra traffic.</p>
+
+<h3>Zero-bubble pipeline parallelism</h3>
+<p>In 2024, Qi et al. introduced <strong>Zero-Bubble Pipeline Parallelism</strong> (ICLR 2024) [5]. While GPipe and 1F1B treat the backward pass of a micro-batch as an atomic unit <tex>B</tex>, backpropagation actually consists of two mathematically distinct operations:</p>
+<ol>
+<li><strong>Activation gradient pass (<tex>B_A</tex>)</strong>: Evaluates <tex>\partial \mathcal{L} / \partial X = (\partial \mathcal{L} / \partial Y) W^\top</tex>. This computes the gradients with respect to the input activations of the layer. This tensor must be sent upstream to stage <tex>k - 1</tex> so that stage <tex>k - 1</tex> can continue its backward pass. <tex>B_A</tex> is on the latency-critical path.</li>
+<li><strong>Weight gradient pass (<tex>B_W</tex>)</strong>: Evaluates <tex>\partial \mathcal{L} / \partial W = (\partial \mathcal{L} / \partial Y)^\top X</tex>. This computes the gradients with respect to the layer's local weights. These gradients are accumulated locally in the GPU's gradient buffer for the eventual optimizer step; <strong><tex>B_W</tex> is never transmitted to another GPU</strong>.</li>
+</ol>
+<fig src="013-zero-bubble-decoupling.svg" caption="Zero-bubble pipeline scheduling: decoupling activation and weight gradients">In standard 1F1B, monolithic backward computation B combines activation gradients (BA) and weight gradients (BW), forcing upstream stages to idle. Zero-bubble schedules decouple BA and BW. BA executes immediately on the critical path, while BW is postponed and scheduled into idle bubble slots, driving bubble overhead below 5%.</fig>
+<p>Because <tex>B_W</tex> is required only at the end of the step when the optimizer updates weights, it does not need to execute immediately after <tex>B_A</tex>. The zero-bubble scheduler decouples backpropagation into two distinct tasks: it schedules <tex>B_A</tex> immediately to unblock upstream stages, while postponing <tex>B_W</tex> to execute inside what would otherwise be idle bubble slots during the pipeline drain.</p>
+<p>In standard transformer layers, <tex>B_W</tex> accounts for roughly half of the total backward compute time (<tex>t_B = t_{BA} + t_{BW}</tex>, with <tex>t_{BA} \approx t_F</tex> and <tex>t_{BW} \approx t_F</tex>). By moving <tex>B_W</tex> into the idle bubbles of the warmup and drain phases, zero-bubble schedules (such as ZB1P and ZBV) drive the pipeline bubble fraction down to under 5%, unlocking 20–30% higher training throughput compared to standard 1F1B [5]. The trade-off is memory: because computing <tex>B_W</tex> requires input activations <tex>X</tex>, intermediate activations must be retained slightly longer until the deferred <tex>B_W</tex> pass completes, increasing activation memory by 15–25%.</p>
+
+<h2>Network Communication: Why PP Crosses Nodes Better Than TP</h2>
+<h3>Deriving point-to-point activation traffic</h3>
+<p>To understand why pipeline parallelism is the preferred strategy for multi-node model partitioning, we quantify the exact data volume transferred across stage boundaries. Between stage <tex>k</tex> and stage <tex>k + 1</tex>, the forward pass transmits the hidden activation tensor emerging from layer <tex>L / p - 1</tex>. For a micro-batch of size <tex>b</tex>, sequence length <tex>s</tex>, and hidden dimension <tex>h</tex>, the activation tensor has shape <tex>[b, s, h]</tex>.</p>
+<p>In 16-bit precision (BF16 or FP16), each element requires 2 bytes. The forward transfer volume per micro-batch is:</p>
+<texblock>\text{P2P Activation Bytes} = b \times s \times h \times 2\text{ bytes}</texblock>
+<p>During the backward pass, stage <tex>k + 1</tex> transmits the activation gradient <tex>\partial \mathcal{L} / \partial X</tex> back to stage <tex>k</tex>. This gradient tensor has the exact same shape <tex>[b, s, h]</tex> and precision, requiring the identical number of bytes.</p>
+<p>Let us evaluate this transfer volume for our running scenarios with micro-batch size <tex>b = 1</tex> and sequence length <tex>s = 8,192</tex>:</p>
+<ul>
+<li><strong>Llama 3.1 8B (<tex>h = 4,096</tex>)</strong>:
+<texblock>1 \times 8,192 \times 4,096 \times 2\text{ bytes} = 67,108,864\text{ bytes} = 64\text{ MiB} \approx 67.11\text{ MB}</textblock></li>
+<li><strong>Llama 3.1 70B (<tex>h = 8,192</tex>)</strong>:
+<texblock>1 \times 8,192 \times 8,192 \times 2\text{ bytes} = 134,217,728\text{ bytes} = 128\text{ MiB} \approx 134.22\text{ MB}</textblock></li>
+</ul>
+<p>On a modern cluster equipped with 400 Gb/s InfiniBand NDR (providing <tex>\approx 50\text{ GB/s}</tex> of effective unidirectional bandwidth per GPU), transmitting 67.11 MB takes:</p>
+<texblock>t_{\text{transfer}} = \frac{67.11 \times 10^6\text{ bytes}}{50 \times 10^9\text{ bytes/s}} \approx 1.34 \times 10^{-3}\text{ s} = 1.34\text{ ms}</textblock>
+<p>For Llama 3.1 70B, transmitting 134.22 MB takes approximately 2.68 ms. Evaluating the forward pass of an 8-layer or 10-layer transformer stage on an H100 GPU takes roughly 30 to 50 ms. Because the 1.34–2.68 ms network transfer time is less than one-tenth of the layer compute time, <strong>point-to-point communication can be completely overlapped behind computation</strong> using asynchronous CUDA streams (<code>torch.cuda.Stream</code>).</p>
+
+<h3>PP versus TP network traffic comparison</h3>
+<p>Figure 7 contrasts the communication patterns of Pipeline Parallelism and Tensor Parallelism.</p>
+<fig src="013-p2p-vs-tp-traffic.svg" caption="Inter-node communication traffic: Pipeline Parallelism vs Tensor Parallelism">Tensor Parallelism executes two collective All-Reduces per layer (64 per step), making it disastrous across high-latency inter-node networks. Pipeline Parallelism communicates only once per stage boundary via point-to-point transfers (1.34 ms transfer over InfiniBand), which overlaps easily behind 30–50 ms of stage compute.</fig>
+<p>In Tensor Parallelism, the GPU must perform an All-Reduce after the multi-head attention projection and another All-Reduce after the MLP projection in <em>every single layer</em>. For a 32-layer model, that represents 64 collective All-Reduce operations per micro-batch. Each collective requires multi-stage network handshakes and ring or tree reductions. Over an inter-node InfiniBand fabric, latency accumulation and synchronization jitter stall the tensor cores at every layer.</p>
+<p>In Pipeline Parallelism, communication occurs <strong>only at stage boundaries</strong>. For <tex>p = 4</tex>, there are exactly 3 boundary interfaces in the entire model. At each boundary, communication is peer-to-peer between exactly two GPUs, requiring no multi-party barrier synchronizations. This structural difference explains the universal architectural guideline in distributed training: <strong>confine Tensor Parallelism to the high-bandwidth NVLink domain inside a node, and use Pipeline Parallelism to cross inter-node network fabrics</strong>.</p>
+
+<h2>Memory per Stage and Load Balancing</h2>
+<h3>Memory breakdown across pipeline stages</h3>
+<p>Under 1F1B, the memory footprint on each GPU divides into static states and dynamic activation buffers:</p>
+<ol>
+<li><strong>Model and optimizer states</strong>: Each stage holds <tex>L / p</tex> layers. For an <tex>N</tex>-parameter model in mixed-precision Adam, each stage holds <tex>(N / p) \times 16\text{ bytes}</tex>. Sharding across <tex>p</tex> stages reduces static memory by exactly <tex>1/p</tex>.</li>
+<li><strong>Activation memory</strong>: Under 1F1B, stage <tex>k</tex> holds at most <tex>p - k</tex> micro-batches of in-flight activations during the steady state. Stage 0 holds <tex>p</tex> micro-batches, stage 1 holds <tex>p - 1</tex>, and the final stage <tex>p - 1</tex> holds exactly 1 micro-batch.</li>
+</ol>
+<p>This creates a pronounced memory asymmetry across the cluster: <strong>stage 0 carries the heaviest activation memory burden, while stage <tex>p - 1</tex> carries the lightest</strong>.</p>
+
+<h3>Boundary asymmetry: Token embeddings and the LM head</h3>
+<p>In addition to activation buffers, the first and last stages host specialized parameter layers that internal stages do not carry:</p>
+<ul>
+<li><strong>Stage 0 (Input stage)</strong>: Hosts the token embedding table. For modern tokenizers with large vocabularies (such as Llama 3.1's vocabulary of <tex>V = 128,256</tex> tokens and hidden dimension <tex>h = 4,096</tex>), the embedding tensor alone contains <tex>128,256 \times 4,096 \approx 525\times 10^6</tex> parameters (0.525B). In 16-byte Adam, this single tensor requires <tex>8.4\text{ GB}</tex> of GPU memory. Furthermore, stage 0 buffers <tex>p</tex> in-flight micro-batches.</li>
+<li><strong>Stage <tex>p - 1</tex> (Output stage)</strong>: Hosts the final RMSNorm, the Language Model (LM) head projection, and the cross-entropy loss computation. The LM head shares the same shape <tex>[h, V]</tex> as the embedding table, adding another 0.525B parameters (8.4 GB of static memory). In addition, computing cross-entropy loss over a vocabulary of 128,256 requires projecting activations into a massive logit tensor of shape <tex>[b, s, V]</tex>, consuming significant transient memory and compute.</li>
+<li><strong>Intermediate stages</strong>: Host only standard transformer blocks with uniform memory and compute footprints.</li>
+</ul>
+<p>If an engineering team partitions layers strictly uniformly (e.g., dividing 32 layers into 8 layers per stage across 4 stages), stages 0 and 3 will execute slower and consume more memory than stages 1 and 2. Because a pipeline runs at the speed of its slowest stage, load imbalance directly inflates the pipeline bubble.</p>
+<p>To restore balance, large-scale training frameworks employ <strong>non-uniform layer partitioning</strong> [4]. Instead of allocating an equal number of layers per stage, stages 0 and <tex>p - 1</tex> are assigned fewer transformer layers than intermediate stages. For example, in a 32-layer model distributed across 4 stages, the partition might assign 7 layers to stage 0, 9 layers to stage 1, 9 layers to stage 2, and 7 layers to stage 3 (<tex>7 + 9 + 9 + 7 = 32</tex>). The reduced layer count on the boundary stages compensates for the embedding table, LM head, and loss computation, equalizing per-stage execution times and memory allocations.</p>
+
+<h2>Interaction with Batch Size and Gradient Accumulation</h2>
+<p>Pipeline parallelism cannot be tuned in isolation; it is coupled directly to the global batch size. In distributed training, the <strong>global batch size</strong> in sequences (<tex>B_{\text{seq}}</tex>) is governed by the product of micro-batch size <tex>b</tex>, micro-batch count <tex>m</tex>, and the Data Parallel degree (<tex>\text{DP}</tex>):</p>
+<texblock>B_{\text{seq}} = m \times b \times \text{DP}</texblock>
+<p>Multiplying by sequence length <tex>s</tex> gives the global batch size in tokens:</p>
+<texblock>B_{\text{tokens}} = m \times b \times \text{DP} \times s</texblock>
+<p>In our pretraining run on 256 H100 GPUs, the global batch size is targeted at 4 million tokens (512 sequences of <tex>s = 8,192</tex>). If an engineer configures pipeline parallelism with depth <tex>p = 8</tex>, keeping the bubble fraction under 15% requires <tex>m \ge 4p = 32</tex> micro-batches. With micro-batch size <tex>b = 1</tex>, the batch size required per data-parallel replica is:</p>
+<texblock>B_{\text{per-replica}} = m \times b = 32 \times 1 = 32\text{ sequences} = 262,144\text{ tokens}</textblock>
+<p>If the cluster runs 16 data-parallel replicas (<tex>\text{DP} = 16</tex>, using <tex>8 \times 16 = 128</tex> GPUs), the global batch size becomes:</p>
+<texblock>B_{\text{global}} = 32 \times 16 = 512\text{ sequences} \approx 4.19 \times 10^6\text{ tokens}</textblock>
+<p>This matches our 4M token target. However, suppose the team attempts to scale to a larger cluster of 1,024 GPUs while maintaining the same 4M token global batch size. With <tex>p = 8</tex>, the data parallel degree would increase to <tex>\text{DP} = 1,024 / 8 = 128</tex>. To keep the global batch size at 512 sequences, the micro-batch count <tex>m</tex> would be forced down to:</p>
+<texblock>m = \frac{B_{\text{global}}}{\text{DP} \times b} = \frac{512}{128 \times 1} = 4\text{ micro-batches}</texblock>
+<p>Plugging <tex>p = 8</tex> and <tex>m = 4</tex> into our bubble formula reveals a catastrophic result:</p>
+<texblock>\text{Bubble Fraction} = \frac{8 - 1}{4 + 8 - 1} = \frac{7}{11} \approx 63.6\%</texblock>
+<p>More than 63% of the cluster sits completely idle! This dynamic demonstrates a fundamental scaling constraint: <strong>pipeline parallelism cannot scale indefinitely on fixed global batch sizes</strong>. When the cluster expands, increasing the data parallel degree forces micro-batch count <tex>m</tex> to shrink, which inflates the pipeline bubble. If you attempt to prevent the bubble by keeping <tex>m = 32</tex>, the global batch size balloons to 33 million tokens, exceeding the critical batch size and severely degrading optimizer convergence efficiency [6].</p>
+
+<h3>Comparison of pipeline scheduling strategies</h3>
+<p>Table 2 summarizes the architectural trade-offs among the four primary pipeline scheduling paradigms.</p>
+<table>
+<thead><tr><th>Scheduler</th><th>Bubble Fraction</th><th>Peak Activation Memory</th><th>P2P Comm Multiplier</th><th>Scheduling Complexity</th></tr></thead>
+<tbody>
+<tr><td>Naive Sequential</td><td><tex>(p - 1) / p</tex></td><td><tex>\mathcal{O}(1)</tex> batch</td><td>1×</td><td>Trivial</td></tr>
+<tr><td>GPipe [1]</td><td><tex>(p - 1) / (m + p - 1)</tex></td><td><tex>\mathcal{O}(m)</tex> micro-batches</td><td>1×</td><td>Low (batch flush)</td></tr>
+<tr><td>1F1B (PipeDream-Flush) [3]</td><td><tex>(p - 1) / (m + p - 1)</tex></td><td><tex>\mathcal{O}(p)</tex> micro-batches</td><td>1×</td><td>Medium (warmup / steady state)</td></tr>
+<tr><td>Interleaved 1F1B [4]</td><td><tex>\approx (p - 1) / (v \cdot m)</tex></td><td><tex>\mathcal{O}(p)</tex> micro-batches</td><td><tex>v\times</tex></td><td>High (virtual chunk routing)</td></tr>
+<tr><td>Zero-Bubble (ZB1P) [5]</td><td><tex>< 5\%</tex> (near zero)</td><td><tex>\approx 1.2 \times \mathcal{O}(p)</tex></td><td>1×</td><td>Very High (decoupled <tex>B_A / B_W</tex>)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Comparison of pipeline scheduling strategies across bubble efficiency, memory, communication, and complexity.</p>
+
+<h4>Where does pipeline parallelism help?</h4>
+<p>For our running pretraining scenario with <strong>Llama 3.1 8B on 256 H100 GPUs</strong>, <strong>pipeline parallelism should not be used</strong>. The 8B model requires only 128.5 GB of static states. Across eight GPUs in an NVLink node, FSDP shards this to approximately 16 GB per GPU, leaving over 60 GB of memory for activations. Hybrid Sharded Data Parallel (HSDP) across the 32 nodes provides 100% compute efficiency with zero pipeline bubbles. Introducing pipeline parallelism for an 8B model adds unnecessary bubble latency, micro-batch tuning overhead, and load imbalance for zero memory benefit.</p>
+<p>In contrast, for <strong>70B and 405B models</strong>, pipeline parallelism becomes indispensable. For Llama 3.1 70B, static states require 1,130 GB. Tensor Parallelism is capped at 8 to remain within the NVLink domain of a single node. Sharding the remaining layers across nodes requires either inter-node FSDP or Pipeline Parallelism. Because inter-node FSDP all-gathers saturate multi-node InfiniBand networks, production configurations universally combine <tex>\text{TP} = 8</tex> inside each node with <tex>\text{PP} = 4</tex> or <tex>\text{PP} = 8</tex> across nodes, achieving balanced memory distribution and manageable point-to-point network traffic.</p>
+
+<h2>In Practice</h2>
+<p>Modern distributed training frameworks provide high-level abstractions for pipeline parallelism. The first tab demonstrates PyTorch's native pipeline parallelism API (<code>torch.distributed.pipelining</code>) [7], introduced in PyTorch 2.4+ based on the PiPPy architecture. It splits a toy transformer into stages using <code>PipelineStage</code> and executes a step using <code>Schedule1F1B</code>. The second tab shows how to configure pipeline parallelism in <code>torchtitan</code> [8], PyTorch's reference clean-room library for large language model pretraining.</p>
+<codetabs>
+<tab label="torch.distributed.pipelining" lang="python">
+import os
+import torch
+import torch.nn as nn
+import torch.distributed as dist
+from torch.distributed.pipelining import PipelineStage, Schedule1F1B
+
+# Initialize standard distributed environment via torchrun
+rank = int(os.environ.get("RANK", "0"))
+world_size = int(os.environ.get("WORLD_SIZE", "4"))
+device = torch.device(f"cuda:{rank % torch.cuda.device_count()}" if torch.cuda.is_available() else "cpu")
+
+if not dist.is_initialized():
+    dist.init_process_group(backend="nccl" if torch.cuda.is_available() else "gloo")
+
+# Define an isolated transformer stage block (e.g., 8 layers)
+class TransformerStage(nn.Module):
+    def __init__(self, stage_idx: int, total_stages: int, hidden_dim: int = 4096):
+        super().__init__()
+        self.stage_idx = stage_idx
+        # Stage 0 holds embeddings; final stage holds the LM projection head
+        self.embed = nn.Embedding(128256, hidden_dim) if stage_idx == 0 else None
+        self.layers = nn.ModuleList([
+            nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=32, dim_feedforward=14336,
+                                       batch_first=True, norm_first=True)
+            for _ in range(8)
+        ])
+        self.head = nn.Linear(hidden_dim, 128256, bias=False) if stage_idx == total_stages - 1 else None
+
+    def forward(self, x):
+        if self.embed is not None:
+            x = self.embed(x)
+        for layer in self.layers:
+            x = layer(x)
+        if self.head is not None:
+            x = self.head(x)
+        return x
+
+stage_module = TransformerStage(stage_idx=rank, total_stages=world_size).to(device)
+
+# Wrap local module in PipelineStage runtime
+stage = PipelineStage(
+    stage_module,
+    stage_index=rank,
+    num_stages=world_size,
+    device=device,
+)
+
+# Instantiate 1F1B schedule with 8 micro-batches (m = 8, p = 4)
+n_microbatches = 8
+schedule = Schedule1F1B(
+    stage=stage,
+    n_microbatches=n_microbatches,
+    loss_fn=nn.CrossEntropyLoss(),
+)
+
+# Execute one distributed pipeline training step
+batch_size, seq_len = 8, 8192
+if rank == 0:
+    # First stage feeds token IDs [batch_size, seq_len]
+    tokens = torch.randint(0, 128256, (batch_size, seq_len), device=device)
+    schedule.step(tokens)
+elif rank == world_size - 1:
+    # Last stage computes loss against ground-truth targets
+    targets = torch.randint(0, 128256, (batch_size, seq_len), device=device)
+    loss = schedule.step(target=targets)
+    print(f"Step completed on rank {rank}. Pipeline loss: {loss}")
+else:
+    # Intermediate stages pass activations and gradients
+    schedule.step()
+</tab>
+<tab label="torchtitan TOML config" lang="text">
+# torchtitan configuration for Llama 3 70B pretraining with 3D Parallelism
+# File: train_configs/llama3_70b_3d.toml
+
+[job]
+description = "Llama 3 70B pretraining on 512 H100 GPUs"
+dump_folder = "./outputs"
+
+[model]
+name = "llama3"
+flavor = "70B"
+norm_type = "rmsnorm"
+tokenizer_path = "./tokenizer.model"
+
+[parallelism]
+# 3D Parallelism mesh: TP = 8 (intra-node), PP = 4 (inter-node), DP = 16
+tensor_parallel_degree = 8
+pipeline_parallel_degree = 4
+pipeline_parallel_schedule = "1F1B"   # Options: "GPipe", "1F1B", "Interleaved1F1B"
+pipeline_parallel_schedule_csv = ""   # Optional custom zero-bubble schedule file
+context_parallel_degree = 1
+data_parallel_shard_degree = -1       # Shards remaining ranks via FSDP (-1 = 16)
+
+[training]
+batch_size = 1                        # Micro-batch size per pipeline replica (b = 1)
+seq_len = 8192
+warmup_steps = 2000
+max_norm = 1.0
+gradient_accumulation_steps = 32      # Micro-batches per step (m = 32)
+# Global batch: 32 micro-batches * 1 seq * 16 DP * 8192 tokens = 4,194,304 tokens
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Asynchronous 1F1B (PipeDream)</strong>: The original PipeDream system avoided the pipeline flush entirely by letting backward passes update weights asynchronously using weight stashing [2]. While this achieved 0% bubble overhead, staleness gradients harmed optimizer convergence on large language models; modern production pipelines universally use synchronous 1F1B with flushes (PipeDream-Flush).</li>
+<li><strong>Activation recomputation inside stages</strong>: Combining pipeline parallelism with activation checkpointing allows each stage to drop intermediate activation tensors, storing only the inputs to each transformer block. This drops activation memory per stage by over 80% at the cost of 33% extra forward compute (see Lesson 3, Training Memory).</li>
+<li><strong>Handling tied embeddings</strong>: In models where the input embedding matrix and the output LM head matrix share the same weights (tied embeddings), stage 0 and stage <tex>p - 1</tex> must synchronize embedding weight gradients via an extra point-to-point All-Reduce at each optimizer step. Modern LLMs (including Llama 3) decouple the embedding and LM head weights to eliminate this cross-stage gradient synchronization.</li>
+<li><strong>Dynamic micro-batch sizing</strong>: For models with extreme sequence length variance, fixed micro-batch counts lead to bubbles due to differing token counts per batch. Systems such as Megatron-LM pack tokens into uniform 1D buffers to ensure each micro-batch has identical computational work.</li>
+<li><strong>PyTorch PiPPy compiler tracing</strong>: PyTorch's <code>torch.distributed.pipelining</code> uses FX graph symbolic tracing to automatically detect stage boundaries and slice arbitrary <code>nn.Module</code> graphs into balanced pipeline stages without manual refactoring.</li>
+<li><strong>DualPipe in DeepSeek-V3</strong>: DeepSeek-V3 introduced a bidirectional pipeline schedule called DualPipe that overlaps the forward and backward computation of two independent micro-batch streams, driving bubble fraction down while maintaining exact numerical consistency [9].</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="013-summary.png" caption="Pipeline parallelism summary" optional="1">Mind map summarizing the pipeline parallelism lesson: stage partitioning, bubble arithmetic, GPipe vs 1F1B scheduling, zero-bubble execution, and network trade-offs.</fig>
+<ul>
+<li>Pipeline parallelism partitions a model vertically by layers across sequential stages, communicating activations forward and gradients backward only at stage boundaries.</li>
+<li>Naive execution leaves <tex>(p - 1) / p</tex> of GPU time idle (75% for 4 stages). Micro-batching streams smaller chunks to overlap computation across stages.</li>
+<li>The pipeline bubble fraction is analytically <tex>(p - 1) / (m + p - 1)</tex>. Maintaining an idle bubble under 15% requires micro-batch count <tex>m \ge 4p</tex> to <tex>8p</tex>.</li>
+<li>GPipe executes all forward micro-batches before backward passes, creating an unsustainable <tex>\mathcal{O}(m)</tex> activation memory bottleneck. 1F1B alternates forwards and backwards in steady state, capping peak activations at <tex>\mathcal{O}(p)</tex>.</li>
+<li>Interleaved stages (Megatron-LM) cut the bubble duration by <tex>1/v</tex> at the cost of <tex>v\times</tex> higher point-to-point network traffic. Zero-bubble schedules decouple backward passes into latency-critical activation gradients (<tex>B_A</tex>) and deferred weight gradients (<tex>B_W</tex>) to fill idle bubbles.</li>
+<li>Point-to-point activation traffic is shape <tex>[b, s, h]</tex> (67 MB for 8B, 134 MB for 70B in BF16). On 400 Gb/s InfiniBand, transfers take 1.3–2.7 ms and hide completely behind stage computation, making PP ideal for crossing inter-node fabrics.</li>
+<li>Pipeline parallelism is unnecessary for 8B models (which fit under pure FSDP/HSDP), but essential for 70B+ models where Tensor Parallelism is confined to an 8-GPU node.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Huang et al. GPipe: Efficient Training of Giant Neural Networks using Pipeline Parallelism. <a href="https://arxiv.org/abs/1811.06965" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1811.06965</a>.<br>
+[2] Narayanan et al. PipeDream: Fast and Efficient Pipeline Parallel DNN Training. <a href="https://arxiv.org/abs/1806.03377" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1806.03377</a>.<br>
+[3] Narayanan et al. Memory-Efficient Pipeline-Parallel DNN Training for Diverse GPU Architectures. <a href="https://arxiv.org/abs/2006.09503" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2006.09503</a>.<br>
+[4] Narayanan et al. Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM. <a href="https://arxiv.org/abs/2104.04473" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2104.04473</a>.<br>
+[5] Qi et al. Zero Bubble Pipeline Parallelism. <a href="https://arxiv.org/abs/2401.10241" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.10241</a>.<br>
+[6] Shoeybi et al. Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism. <a href="https://arxiv.org/abs/1909.08053" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1909.08053</a>.<br>
+[7] PyTorch documentation: Pipeline Parallelism (torch.distributed.pipelining). <a href="https://pytorch.org/docs/stable/distributed.pipelining.html" rel="noopener noreferrer" target="_blank">https://pytorch.org/docs/stable/distributed.pipelining.html</a>.<br>
+[8] TorchTitan: PyTorch native library for LLM pretraining. <a href="https://github.com/pytorch/torchtitan" rel="noopener noreferrer" target="_blank">https://github.com/pytorch/torchtitan</a>.<br>
+[9] Dubey et al. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.</p>

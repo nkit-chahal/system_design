@@ -1,0 +1,300 @@
+<h2>Introduction</h2>
+<p>Orchestrating large-scale AI training is fundamentally different from managing standard web applications or microservices. In cloud microservices, individual containers can be scheduled onto arbitrary nodes, scale up or down independently, and survive partial pod crashes without taking down the entire service. In distributed deep learning, <strong>a training job is a single tightly coupled parallel application spanning hundreds of GPUs</strong>.</p>
+<p>Because distributed training relies on synchronous collective communication (Lesson 30, Cluster Networking and Collectives), <strong>all GPUs across all nodes must start at the exact same millisecond</strong>. Allocating 248 GPUs to a 256-GPU training job results in zero forward progress: the 248 active GPUs sit completely idle, blocked at the network barrier while consuming millions of dollars in hardware reservations. Managing these massive workloads requires specialized scheduling semantics: <strong>gang scheduling</strong> (all-or-nothing allocation), <strong>topology-aware placement</strong> (grouping nodes within identical network switch fabrics), and <strong>exclusive node allocation</strong> [1].</p>
+<fig src="031-gang-scheduling-vs-naive.svg" caption="Gang scheduling versus naive pod-by-pod scheduling">Contrast between naive FIFO scheduling and gang scheduling for distributed training. Under naive scheduling, partial allocations leave jobs stalled at the rendezvous barrier, creating a cluster-wide deadlock where 192 GPUs sit idle. Gang scheduling enforces all-or-nothing admission, ensuring jobs only start when 100% of requested nodes are ready.</fig>
+<p>Today, AI engineering teams deploy one of two major scheduling paradigms: <strong>Slurm Workload Manager</strong>, the battle-tested standard of High-Performance Computing (HPC), or <strong>Kubernetes</strong>, extended with custom batch operators such as Kubeflow Training Operator and Kueue [2, 3]. In this lesson, we examine why distributed training demands specialized scheduling, analyze Slurm's multi-factor priority and launch mechanics, inspect the modern Kubernetes training stack, evaluate preemption and cluster utilization economics, and compare both schedulers to guide your infrastructure choices.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In a systems design interview for an AI infrastructure role, job scheduling questions typically explore how to maximize cluster throughput and arbitrate resources between long pretraining runs and fast-turnaround research jobs. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: What is the scale of our training cluster, and what workloads share the hardware?<br>
+<strong>Interviewer</strong>: We operate a cluster of 256 NVIDIA H100 80 GB SXM GPUs arranged across 32 nodes (8 GPUs per node). Our primary workload is pretraining a model with the Llama 3.1 8B architecture (8.03 billion parameters) on 1 trillion tokens, which takes roughly 5.5 days (33,800 GPU-hours, or ~$101,000 at $3.00 per H100-hour). However, our research team also runs dozens of small exploratory fine-tuning and ablation jobs daily.</p>
+<p><strong>Candidate</strong>: How are competing workloads prioritized when the cluster is fully occupied?<br>
+<strong>Interviewer</strong>: The 256-GPU pretraining run is our flagship production job. Research jobs must be able to run whenever capacity allows, but the pretraining job should preempt them when ready, or vice versa if urgent ablations take precedence. We need fair-share quotas to prevent any single team from monopolizing the GPUs.</p>
+<p><strong>Candidate</strong>: What network constraints must the scheduler respect during node allocation?<br>
+<strong>Interviewer</strong>: Nodes communicate over 400 Gb/s InfiniBand NDR in a rail-optimized fat-tree. If the scheduler scatters our 32 nodes across distant spine switches, collective communication latency will degrade step time. The scheduler must allocate contiguous nodes under the same leaf switches whenever possible.</p>
+<p><strong>Candidate</strong>: What scheduler architecture do we currently run, or are we choosing between Slurm and Kubernetes?<br>
+<strong>Interviewer</strong>: We need you to evaluate both. Can we launch and manage this 256-GPU run reliably on Slurm, what does the equivalent stack look like on Kubernetes, and which should we standardize on?</p>
+<p>The question underneath is: <em>How do we guarantee gang scheduling and topology-aware placement at 256-GPU scale, implement non-destructive preemption with distributed checkpointing, and maximize cluster utilization without blowing up queue wait times?</em> To answer it, we begin with the fundamental scheduling requirements of deep learning.</p>
+
+<h2>Why Distributed Training Needs Specialized Scheduling</h2>
+<h3>Gang scheduling: the all-or-nothing requirement</h3>
+<p>Standard cluster orchestrators (such as default Kubernetes) schedule containers one by one using a best-effort bin-packing algorithm. In microservices, if an application requests 10 replicas and the cluster only has room for 8, the 8 replicas boot and immediately start serving traffic. The remaining 2 replicas queue until space opens.</p>
+<p>In distributed model training with PyTorch, this behavior is catastrophic. Before training begins, PyTorch's <code>torch.distributed</code> module executes a <strong>rendezvous</strong> protocol where all <tex>N</tex> participating ranks connect to a shared key-value store (the c10d TCP store) to exchange network addresses and construct NCCL communication rings. If 31 of 32 nodes are provisioned, the 248 GPUs on those 31 nodes sit in a blocking loop waiting for the final 8 GPUs to join the rendezvous. <strong>They cannot execute a single forward pass, yet they hold their GPU reservations exclusively</strong>.</p>
+<p>If two concurrent 128-GPU jobs submit simultaneously to a 192-GPU cluster, a naive scheduler might allocate 96 GPUs to Job A and 96 GPUs to Job B. Neither job has enough GPUs to satisfy its rendezvous barrier. Both jobs stall indefinitely, creating an unresolvable <strong>distributed resource deadlock</strong> where 100% of cluster GPUs sit idle while costing $3.00 per GPU-hour. <strong>Gang scheduling</strong> prevents this by enforcing an atomic condition: a job is admitted only if 100% of its requested nodes and GPUs can be bound simultaneously. If even one GPU is missing, the job remains in the pending queue without reserving any resources.</p>
+
+<h3>Topology-aware placement and rack locality</h3>
+<p>As demonstrated in Lesson 30 (Cluster Networking and Collectives), inter-node network bandwidth is 9× slower than intra-node NVLink, and communication across spine switches introduces latency jitter and potential congestion. When a scheduler assigns 32 nodes to our pretraining run, the physical placement of those nodes directly impacts training goodput.</p>
+<p>In a multi-tier fat-tree network, server nodes located within the same physical rack connect to the same top-of-rack (ToR) or leaf switches. Traffic between nodes under the same leaf switch enjoys single-hop latency (sub-2 microseconds) and zero spine oversubscription. If the scheduler allocates nodes scattered across four different physical data center halls, collective All-Gather and All-Reduce packets must traverse multiple spine tiers, increasing the likelihood of ECMP hash collisions and tail-latency stragglers. Schedulers must support <strong>topology-aware scheduling</strong>, allowing jobs to request node allocations constrained within a minimum number of network switch boundaries [4].</p>
+
+<h3>Exclusive nodes versus shared nodes</h3>
+<p>In general cloud computing, multiple tenants share physical server hosts through CPU and memory cgroups. In AI supercomputing, <strong>multi-GPU server nodes must be allocated exclusively to a single job</strong>. Sharing a server node between an LLM pretraining job and an unrelated container causes severe performance degradation:</p>
+<ul>
+<li><strong>PCIe and memory bus contention</strong>: If an external process runs intensive CPU-to-GPU data copies over the host PCIe bus, it degrades the PCIe bandwidth available to the local ConnectX-7 NIC, crippling GPUDirect RDMA throughput.</li>
+<li><strong>Host CPU cache pollution and OS context switches</strong>: Distributed data loaders rely on dedicated host CPU cores for background data prefetching, tokenization, and decompression. CPU thread contention causes data starvation on the GPUs.</li>
+<li><strong>NCCL environment interference</strong>: NCCL creates shared memory segments (POSIX shm) for intra-node communication. Multiple unrelated distributed jobs on the same node can trigger shared memory naming collisions or socket exhaustion.</li>
+</ul>
+<p>High-performance schedulers enforce node exclusivity, ensuring the primary job possesses 100% of CPU cores, host memory, PCIe lanes, and GPU devices on the node.</p>
+
+<h2>Slurm for AI Supercomputing</h2>
+<h3>Slurm architecture and multi-factor priorities</h3>
+<p><strong>Simple Linux Utility for Resource Management (Slurm)</strong> is an open-source, highly scalable cluster management and job scheduling system used by the majority of the world's TOP500 supercomputers [1]. Slurm's architecture is centralized and lightweight, consisting of a central controller daemon (<code>slurmctld</code>) running on head nodes, a local daemon (<code>slurmd</code>) running on each compute node, and an optional database daemon (<code>slurmdbd</code>) for accounting and quota tracking (Figure 2).</p>
+<fig src="031-slurm-job-hierarchy.svg" caption="Slurm scheduling architecture and multi-factor priority calculation">The Slurm cluster hierarchy. The central slurmctld controller evaluates jobs using multi-factor priority formulas (combining age, fair-share decay, and QOS) and dispatches exclusive allocations across slurmd compute nodes.</fig>
+<p>Slurm determines the order of pending jobs using a configurable <strong>multi-factor priority plugin</strong>. A pending job's priority is a weighted linear combination of several independent factors [1]:</p>
+<texblock>\text{Job Priority} = W_{\text{age}} \times \text{Age} + W_{\text{fairshare}} \times \text{FairShare} + W_{\text{size}} \times \text{JobSize} + W_{\text{partition}} \times \text{Partition} + W_{\text{qos}} \times \text{QOS}</texblock>
+<ul>
+<li><strong>FairShare factor</strong>: Slurm tracks historical resource consumption using a half-life decay algorithm (typically configured with a 7-day or 14-day half-life). If Team A has used 50,000 GPU-hours over the past week while Team B has used only 2,000 GPU-hours, Team B's FairShare factor is significantly higher. Their jobs will automatically jump ahead in the queue, preventing resource hogs from starving other engineers.</li>
+<li><strong>Backfill scheduling</strong>: A critical feature of Slurm is its <strong>backfill scheduler</strong>. When a large 256-GPU job is waiting for nodes to drain, the scheduler calculates the expected start time of that job. If a small 8-GPU job is submitted that can finish <em>before</em> the large job's start time without delaying it, Slurm immediately starts the small job in the empty hole. Backfill scheduling routinely raises cluster utilization from 70% to over 90%.</li>
+</ul>
+
+<h3>Multi-node execution: sbatch, srun, and torchrun</h3>
+<p>Launching multi-node PyTorch training under Slurm requires coordinating three layers: the Slurm resource allocation (<code>sbatch</code>), the distributed task launcher (<code>srun</code>), and the PyTorch process manager (<code>torchrun</code>) [5].</p>
+<p>A common mistake among AI engineers is setting <code>--ntasks-per-node=8</code> when wrapping <code>torchrun</code>. If Slurm runs 8 tasks per node, and each task invokes <code>torchrun</code> with <code>--nproc_per_node=8</code>, the system spawns <tex>8 \times 8 = 64</tex> processes per node, crashing GPU memory immediately. <strong>The correct pattern uses <code>srun</code> to launch exactly one task per node (<code>--ntasks-per-node=1</code>), delegating process forking to <code>torchrun</code></strong>. Figure 3 illustrates this execution pattern.</p>
+<fig src="031-slurm-srun-torchrun-pattern.svg" caption="Standard multi-node launch pattern: Slurm srun plus torchrun">Architecture of a multi-node launch. sbatch allocates 32 exclusive nodes. srun spawns exactly one task per node (ntasks-per-node=1). On each node, torchrun forks 8 local Python worker processes and connects to the c10d rendezvous master at MASTER_ADDR:29500.</fig>
+<p>The standard multi-node launch sequence proceeds in four steps:</p>
+<ol>
+<li><strong>Batch reservation</strong>: The engineer submits a script with <code>#SBATCH --nodes=32 --ntasks-per-node=1 --gpus-per-node=8 --exclusive</code>. Slurm places the job in queue until 32 nodes are available.</li>
+<li><strong>Rendezvous discovery</strong>: Once nodes are allocated, the script queries Slurm's environment to elect the head node:
+<pre><code>MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+MASTER_PORT=29500</code></pre></li>
+<li><strong>Task dispatch</strong>: <code>srun --cpu-bind=none torchrun ...</code> starts one <code>torchrun</code> agent on each of the 32 nodes. Setting <code>--cpu-bind=none</code> is mandatory to prevent Slurm from pinning all 8 local GPU worker processes to a single CPU core.</li>
+<li><strong>Worker forking &amp; rendezvous</strong>: Each <code>torchrun</code> agent reads <code>--nproc_per_node=8</code> and forks 8 Python processes, binding each to <code>CUDA_VISIBLE_DEVICES=0..7</code>. The agents connect across the network to <code>$MASTER_ADDR:$MASTER_PORT</code> via the PyTorch c10d TCP store, exchange IP addresses, initialize NCCL, and begin step 0.</li>
+</ol>
+
+<h3>Job arrays, requeue on failure, and topology flags</h3>
+<p>Slurm provides powerful operational primitives for long-running AI infrastructure:</p>
+<ul>
+<li><strong>Automatic requeue (<code>#SBATCH --requeue</code>)</strong>: If a node experiences an unrecoverable hardware failure (e.g. an Xid 79 GPU bus error) or the job is preempted by a higher-priority workload, Slurm catches the non-zero exit or preemption signal and automatically places the job back into the pending queue. When paired with resilient checkpointing (Lesson 28), the job restarts on healthy nodes without human intervention.</li>
+<li><strong>Switch topology requests (<code>#SBATCH --switches=1@24:00</code>)</strong>: In clusters configured with Slurm's topology plugin (<code>topology/tree</code>), this flag instructs Slurm to allocate all requested nodes under a single leaf switch. The <code>@24:00</code> parameter specifies the maximum time (24 hours) the job is willing to wait in queue for an optimal leaf-switch topology before falling back to a multi-switch allocation.</li>
+<li><strong>Job arrays (<code>#SBATCH --array=0-15</code>)</strong>: Allows researchers to submit sweeps of hyperparameter ablations (learning rates, batch sizes) with a single command, throttling concurrency via <code>--array=0-15%4</code> (running at most 4 jobs simultaneously).</li>
+</ul>
+
+<h2>Kubernetes for Distributed Training</h2>
+<h3>The cloud-native training stack</h3>
+<p>While Slurm dominates traditional HPC environments, modern enterprise AI platforms increasingly deploy <strong>Kubernetes (K8s)</strong> to unify training infrastructure with data ingestion pipelines, vector databases, and real-time model serving engines [2].</p>
+<p>Because native Kubernetes <code>Job</code> resources lack support for gang scheduling, distributed rendezvous, and multi-node worker coordination, the cloud-native ecosystem relies on specialized Custom Resource Definitions (CRDs) and operators (Figure 4):</p>
+<ul>
+<li><strong>Kubeflow Training Operator / PyTorchJob</strong>: The industry standard CRD for distributed PyTorch training [2]. A <code>PyTorchJob</code> defines a <code>Master</code> (or <code>Worker[0]</code>) replica and <tex>N - 1</tex> <code>Worker</code> replicas. The operator automatically provisions a headless Kubernetes Service for the master pod, injects <code>PET_MASTER_ADDR</code>, <code>RANK</code>, and <code>WORLD_SIZE</code> environment variables into each container, and coordinates job lifecycle. Recently, the Kubeflow community is evolving this operator into <strong>Kubeflow Trainer v2</strong>, introducing a unified <code>TrainJob</code> API.</li>
+<li><strong>JobSet (Kubernetes SIG-Apps)</strong>: A lightweight controller designed specifically for multi-node batch workloads [6]. Unlike older controllers that manage individual pods, JobSet manages groups of homogeneous Kubernetes <code>Jobs</code> as a single unit, providing built-in gang scheduling semantics, configurable restart policies, and unified failure domains.</li>
+<li><strong>NVIDIA GPU Operator &amp; Network Operator</strong>: Manages the low-level infrastructure stack inside Kubernetes containers: installing the NVIDIA driver container, CUDA runtime, K8s Device Plugin (exposing <code>nvidia.com/gpu</code>), and Mellanox OFED drivers for GPUDirect RDMA.</li>
+</ul>
+<fig src="031-k8s-training-stack.svg" caption="The Kubernetes distributed training stack">Four-layer cloud-native architecture for AI training. High-level Custom Resources (PyTorchJob, JobSet) submit workloads to Kueue for multi-tenant queueing and quota admission. Volcano or coscheduling plugins enforce gang scheduling across worker pods, which access physical GPUs and ConnectX-7 NICs via NVIDIA operators.</fig>
+
+<h3>Gang scheduling and queue management: Kueue and Volcano</h3>
+<p>To provide Slurm-equivalent gang scheduling and multi-tenancy in Kubernetes, two primary batch scheduling projects are deployed:</p>
+<p><strong>Kueue (Kubernetes SIG-Apps / Batch Working Group)</strong> is a cloud-native job queue controller [3]. Rather than replacing the default Kubernetes kube-scheduler, Kueue operates at the admission layer. Workloads (such as <code>PyTorchJob</code> or <code>JobSet</code>) are submitted with <code>suspend: true</code> and a label pointing to a <code>LocalQueue</code>:</p>
+<pre><code class="language-yaml">metadata:
+  labels:
+    kueue.x-k8s.io/queue-name: research-team-queue
+spec:
+  runPolicy:
+    suspend: true</code></pre>
+<p>Kueue manages <strong>ClusterQueues</strong> with defined resource quotas, borrowing rules across team cohorts, and workload priority. Once Kueue determines that sufficient GPUs exist across the cluster to satisfy the job's entire request, it patches the resource to <code>suspend: false</code>, allowing all pods to be scheduled at once. Kueue delegates pod-to-node placement to the kube-scheduler or topology-aware plugins.</p>
+<p><strong>Volcano (CNCF Incubating)</strong> is an alternative purpose-built batch scheduler that replaces <code>kube-scheduler</code> [7]. Volcano introduces the <strong>PodGroup</strong> CRD, which tracks the minimum number of member pods required for a job (<code>minMember: 32</code>). Volcano's scheduling engine evaluates all pods in the group atomically: if all 32 pods cannot be placed on suitable nodes, none are scheduled. Volcano also provides native support for task-topology scheduling and bin-packing.</p>
+
+<h3>Slurm versus Kubernetes: architectural comparison</h3>
+<p>Both schedulers can successfully execute our 256-GPU pretraining run, but they differ fundamentally in operational model, scheduling latency, and platform maturity. Table 1 provides a direct engineering comparison.</p>
+<table>
+<thead><tr><th>Feature / Dimension</th><th>Slurm Workload Manager</th><th>Kubernetes (Kueue + PyTorchJob / JobSet)</th></tr></thead>
+<tbody>
+<tr><td>Primary Design Goal</td><td>High-Performance Computing (HPC) &amp; bare-metal batch execution</td><td>Cloud-native container orchestration &amp; multi-workload unification</td></tr>
+<tr><td>Gang Scheduling Mechanism</td><td>Native (built-in atomic multi-node reservation)</td><td>Requires add-on controllers (Kueue or Volcano PodGroup)</td></tr>
+<tr><td>Scheduling Latency</td><td>Sub-second (dispatches thousands of jobs per minute)</td><td>Several seconds to minutes (API server &amp; etcd serialization)</td></tr>
+<tr><td>Network Topology Awareness</td><td>Native (<code>--switches</code> with tree/rail topology plugins)</td><td>Emerging (Kueue Topology-Aware Scheduling / TAS plugin)</td></tr>
+<tr><td>Multi-Tenancy &amp; Fair Share</td><td>Built-in multi-factor priority with historical decay</td><td>Built-in via Kueue cohorts, borrowing, and LocalQueues</td></tr>
+<tr><td>Hardware Containerization</td><td>Optional (native execution, Enroot, or Apptainer / Singularity)</td><td>Mandatory (Docker / OCI containers via containerd)</td></tr>
+<tr><td>Fault Recovery &amp; Requeue</td><td>Built-in <code>--requeue</code> flag and job state tracking</td><td>Handled by Operator (<code>restartPolicy: OnFailure</code>) or JobSet</td></tr>
+<tr><td>Ecosystem Integration</td><td>Standard HPC monitoring (Slurm DBD, Prometheus exporters)</td><td>Native cloud-native ecosystem (Prometheus, Grafana, Argo, Ray)</td></tr>
+<tr><td>Operational Complexity</td><td>Low to Moderate (single binary daemons, static config)</td><td>High (control plane, etcd, CRD operators, CNI, CSI, mesh)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Architectural comparison: Slurm versus Kubernetes for distributed training</p>
+
+<h2>Cluster Economics: Preemption, Quotas, and Utilization</h2>
+<h3>Preemption workflows and checkpoint integration</h3>
+<p>Maximizing the return on investment of a $10M+ GPU cluster requires running the cluster near full capacity 24 hours a day. Schedulers achieve this through <strong>priority preemption</strong>: allowing low-priority exploratory jobs (such as hyperparameter searches or student experiments) to fill idle GPUs, while guaranteeing that flagship production jobs can evict them immediately when ready.</p>
+<p>However, evicting a distributed training job abruptly via <code>SIGKILL</code> destroys all training progress since the last saved checkpoint, wasting tens of thousands of dollars in compute. Robust training platforms implement <strong>coordinated graceful preemption</strong> [8] (Figure 5):</p>
+<fig src="031-preemption-and-checkpointing.svg" caption="Coordinated preemption and distributed checkpointing workflow">Sequence of events during graceful preemption. The scheduler delivers a SIGTERM signal with a 10-minute grace period. The training loop catches the signal, finishes the current step, flushes an emergency checkpoint to shared storage, and exits cleanly. Slurm automatically requeues the job to resume later.</fig>
+<ol>
+<li><strong>Grace period notification</strong>: When a high-priority job arrives, Slurm or Kubernetes sends a <code>SIGTERM</code> signal to the low-priority job instead of killing it immediately. Slurm configures this via <code>#SBATCH --signal=B:TERM@600</code> (warning the batch script 600 seconds before termination). In Kubernetes, this is configured via <code>terminationGracePeriodSeconds: 600</code>.</li>
+<li><strong>Signal handling in PyTorch</strong>: The training script registers a Python signal handler (<code>signal.signal(signal.SIGTERM, handler)</code>) that sets a global flag (<code>stop_requested = True</code>).</li>
+<li><strong>Synchronized emergency checkpoint</strong>: Rather than aborting mid-step, all ranks complete the current forward and backward pass, execute the optimizer step, and immediately trigger a PyTorch Distributed Checkpoint (DCP) save to shared network storage (Lesson 28, Checkpointing). Because DCP writes shards in parallel, an 8B model checkpoint completes in under 30 seconds.</li>
+<li><strong>Clean exit and requeue</strong>: The script exits with status code 0. Slurm's <code>--requeue</code> flag or Kueue's workload manager moves the job back to the pending queue. When nodes become available again, the job restarts and resumes seamlessly from the exact step saved during preemption, resulting in <strong>zero lost GPU-hours</strong>.</li>
+</ol>
+
+<h3>The cost of queue time and cluster utilization</h3>
+<p>Cluster management involves a fundamental trade-off between <strong>utilization</strong> (percentage of GPU capacity actively computing) and <strong>queue wait time</strong> (how long engineers wait for their jobs to start) [9].</p>
+<p>According to queueing theory (specifically Kingman's formula for <tex>M/M/c</tex> queueing models), expected queue wait time <tex>W_q</tex> is non-linear with respect to cluster utilization <tex>\rho</tex>:</p>
+<texblock>W_q \propto \frac{\rho}{1 - \rho}</texblock>
+<p>Figure 6 illustrates this behavior. As cluster utilization increases from 50% to 75%, queue wait times rise slowly and predictably. However, <strong>past 85% utilization, queue wait time experiences a catastrophic exponential explosion</strong>. At 95% utilization, a job requesting 32 nodes might wait days or weeks for enough nodes to drain simultaneously to satisfy gang scheduling.</p>
+<fig src="031-queue-time-vs-utilization.svg" caption="Cluster utilization versus average queue wait time (Illustrative)">Illustrative queue wait curve across cluster utilization levels. Below 80%, jobs start almost immediately. Beyond 85%, wait times explode non-linearly. Preemptible backfill scheduling maintains the target 80–85% utilization sweet spot without paralyzing engineering velocity.</fig>
+<p>If an infrastructure team targets 98% utilization to impress finance executives, engineering velocity plummets: researchers wait 36 hours to run a 2-hour debugging ablation, destroying productivity. Conversely, running at 60% utilization provides instant job startups but leaves millions of dollars of hardware idle. The industry standard sweet spot is <strong>80% to 85% steady-state utilization</strong>, achieved by using large pretraining runs as anchor workloads and aggressive backfill scheduling with preemptible jobs to absorb transient capacity dips.</p>
+
+<h4>Slurm or Kubernetes for our team?</h4>
+<p>We can now answer the interviewer's strategic question: <em>Should we deploy Slurm or Kubernetes for our 256-GPU cluster?</em></p>
+<p>The decision depends entirely on organizational context and workload diversity:</p>
+<ul>
+<li><strong>Choose Slurm if</strong>: The cluster is a dedicated, bare-metal GPU supercomputer whose primary purpose is large-scale pretraining and foundation model research. Slurm offers near-zero control-plane overhead, native sub-second gang scheduling, superior topology-aware node selection across InfiniBand switches, and proven stability at 10,000+ GPU scale. It eliminates the maintenance burden of Kubernetes etcd clusters, CNI networking plugins, and complex CRD operators.</li>
+<li><strong>Choose Kubernetes (with Kueue + PyTorchJob / JobSet) if</strong>: The GPUs belong to a broader enterprise cloud platform where training jobs must integrate with containerized data pipelines (Spark, Kafka), feature stores, real-time inference microservices (vLLM, Triton), and shared identity providers. Kueue brings production-grade multi-tenancy and quota management to Kubernetes, making it viable for shared enterprise AI infrastructure.</li>
+</ul>
+<p>For our specific scenario—pretraining Llama 3.1 8B on 256 H100s for a 5.5-day production run—<strong>Slurm provides the highest reliability, lowest latency, and simplest operational model</strong>.</p>
+
+<h2>In Practice</h2>
+<p>The first tab provides a production-grade multi-node Slurm submission script (<code>sbatch.sh</code>) that configures exclusive 32-node allocations, topology-aware network placement, graceful SIGTERM checkpointing, and <code>torchrun</code> execution. The second tab provides the equivalent cloud-native Kubernetes manifest deploying a <code>PyTorchJob</code> integrated with <code>Kueue</code> for queue admission and gang scheduling.</p>
+<codetabs>
+<tab label="Slurm sbatch" lang="bash">
+#!/bin/bash
+#SBATCH --job-name=llama3-8b-pretrain
+#SBATCH --nodes=32                   # 32 nodes * 8 GPUs = 256 H100 GPUs
+#SBATCH --ntasks-per-node=1         # Crucial: 1 task (torchrun instance) per node
+#SBATCH --gpus-per-node=8           # Allocate all 8 GPUs per node
+#SBATCH --cpus-per-task=64          # Dedicated CPU cores per node
+#SBATCH --exclusive                 # Exclusive node reservation (no noisy neighbors)
+#SBATCH --partition=gpu-batch       # Target batch partition
+#SBATCH --qos=production            # High priority production QOS
+#SBATCH --requeue                   # Automatically requeue on node failure
+#SBATCH --signal=B:TERM@600         # Send SIGTERM 10 min before walltime / preemption
+#SBATCH --output=logs/%x-%j.out
+#SBATCH --error=logs/%x-%j.err
+
+# 1. Environment & InfiniBand Network Optimization
+export NCCL_DEBUG=INFO
+export NCCL_DEBUG_SUBSYS=INIT,COLL,ENV,NET
+export NCCL_IB_DISABLE=0
+export NCCL_NET_GDR_LEVEL=5
+export PYTHONUNBUFFERED=1
+
+# 2. Extract Master Address & Port for PyTorch c10d Rendezvous
+export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+export MASTER_PORT=29500
+
+echo "=== Slurm Job Allocation Details ==="
+echo "Job ID: $SLURM_JOB_ID | Allocated Nodes: $SLURM_JOB_NUM_NODES"
+echo "Rendezvous Head Node: $MASTER_ADDR:$MASTER_PORT"
+echo "Total Ranks: $((SLURM_JOB_NUM_NODES * 8)) GPUs"
+echo "====================================="
+
+# 3. Launch with srun wrapping torchrun
+# --cpu-bind=none prevents Slurm from pinning worker processes to a single core
+srun --cpu-bind=none torchrun \
+    --nnodes=$SLURM_JOB_NUM_NODES \
+    --nproc_per_node=8 \
+    --rdzv_id=$SLURM_JOB_ID \
+    --rdzv_backend=c10d \
+    --rdzv_endpoint="$MASTER_ADDR:$MASTER_PORT" \
+    train.py \
+    --model-config configs/llama3_8b.json \
+    --checkpoint-dir /mnt/shared/checkpoints/llama3_8b \
+    --batch-size 2 \
+    --seq-len 8192
+</tab>
+<tab label="Kubernetes PyTorchJob" lang="yaml">
+apiVersion: kubeflow.org/v1
+kind: PyTorchJob
+metadata:
+  name: llama3-8b-pretrain-256gpu
+  namespace: training
+  labels:
+    # Routes workload to Kueue for multi-tenant queueing and gang admission
+    kueue.x-k8s.io/queue-name: production-training-queue
+spec:
+  runPolicy:
+    # Workload starts suspended; Kueue unsuspends when 32 nodes are available
+    suspend: true
+    cleanPodPolicy: Running
+    schedulingPolicy:
+      minAvailable: 32  # Enforces gang scheduling across all 32 node pods
+  pytorchReplicaSpecs:
+    Master:
+      replicas: 1
+      restartPolicy: OnFailure
+      template:
+        metadata:
+          labels:
+            app: llama3-pretrain
+        spec:
+          terminationGracePeriodSeconds: 600  # 10 min grace period for emergency checkpoint
+          containers:
+            - name: pytorch
+              image: nvcr.io/nvidia/pytorch:24.07-py3
+              command:
+                - torchrun
+                - --nproc_per_node=8
+                - --nnodes=32
+                - --rdzv_backend=c10d
+                - --rdzv_endpoint=$(PET_MASTER_ADDR):29500
+                - train.py
+                - --model-config=configs/llama3_8b.json
+              resources:
+                limits:
+                  nvidia.com/gpu: 8
+                  cpu: "64"
+                  memory: 512Gi
+                requests:
+                  nvidia.com/gpu: 8
+                  cpu: "64"
+                  memory: 512Gi
+    Worker:
+      replicas: 31
+      restartPolicy: OnFailure
+      template:
+        metadata:
+          labels:
+            app: llama3-pretrain
+        spec:
+          terminationGracePeriodSeconds: 600
+          containers:
+            - name: pytorch
+              image: nvcr.io/nvidia/pytorch:24.07-py3
+              command:
+                - torchrun
+                - --nproc_per_node=8
+                - --nnodes=32
+                - --rdzv_backend=c10d
+                - --rdzv_endpoint=$(PET_MASTER_ADDR):29500
+                - train.py
+                - --model-config=configs/llama3_8b.json
+              resources:
+                limits:
+                  nvidia.com/gpu: 8
+                  cpu: "64"
+                  memory: 512Gi
+                requests:
+                  nvidia.com/gpu: 8
+                  cpu: "64"
+                  memory: 512Gi
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Slurm Pyxis and Enroot</strong>: Rather than running Python directly on host operating systems, modern HPC clusters use NVIDIA Enroot and the Slurm Pyxis plugin (<code>#SBATCH --container-image=...</code>) to execute containerized Docker images natively with zero root daemon overhead.</li>
+<li><strong>Kubernetes Device Plugins and Health Checks</strong>: If an H100 SXM GPU drops off the PCIe bus due to an uncorrectable ECC error, the NVIDIA K8s device plugin marks the node <code>NotReady</code> or taints the node, preventing newly scheduled jobs from landing on the broken hardware.</li>
+<li><strong>Gang Scheduling with DRA (Dynamic Resource Allocation)</strong>: In newer Kubernetes releases (v1.30+), Dynamic Resource Allocation (DRA) allows fine-grained topology matching between GPUs and specific NUMA nodes / InfiniBand NICs directly within the core scheduler.</li>
+<li><strong>Job Arrays for Hyperparameter Tuning</strong>: Submitting 100 fine-tuning runs using Slurm job arrays (<code>--array=1-100%8</code>) allows automatic job slot reuse without overwhelming the scheduler daemon with hundreds of individual job entries.</li>
+<li><strong>Walltime management and checkpoint staggering</strong>: HPC clusters enforce strict job walltimes (e.g. 24 or 48 hours). Production pretraining workflows configure automated wrapper scripts that monitor elapsed walltime and trigger a planned checkpoint 15 minutes before the limit expires.</li>
+<li><strong>Fair-share decay math</strong>: In Slurm, historical usage <tex>U_t</tex> decays exponentially according to <tex>U_t = U_{t-1} e^{-\lambda \Delta t}</tex>, where <tex>\lambda = \ln(2) / T_{\text{half-life}}</tex>. Sizing the half-life prevents seasonal holidays or project deadlines from distorting long-term quota fairness.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="031-summary.png" caption="Job scheduling summary" optional="1">Mind map summarizing job scheduling: gang scheduling semantics, Slurm multi-node launch mechanics, the Kubernetes training stack with Kueue and PyTorchJob, graceful preemption workflows, and scheduler trade-offs.</fig>
+<ul>
+<li>Distributed LLM training requires gang scheduling: all 256 GPUs must be bound simultaneously. Partial allocations trigger distributed deadlocks where GPUs idle indefinitely at the rendezvous barrier.</li>
+<li>Topology-aware placement schedules nodes under identical leaf switches, minimizing collective latency and eliminating cross-spine InfiniBand contention. Multi-GPU nodes must be allocated exclusively.</li>
+<li>In Slurm, multi-node training uses <code>sbatch</code> for exclusive allocation, <code>srun</code> with <code>--ntasks-per-node=1</code>, and <code>torchrun</code> to fork 8 local ranks per node and connect to the c10d TCP store.</li>
+<li>Slurm arbitrates competing workloads using multi-factor priorities (combining age, fair-share historical decay, and QOS) alongside backfill scheduling to maximize cluster utilization.</li>
+<li>Kubernetes orchestrates distributed training via Custom Resources (Kubeflow <code>PyTorchJob</code>, <code>JobSet</code>) paired with <code>Kueue</code> for queueing, team quotas, and gang admission.</li>
+<li>Coordinated preemption delivers a <code>SIGTERM</code> signal with a 10-minute grace period, allowing the training loop to save an emergency distributed checkpoint before yielding nodes, resulting in zero lost compute.</li>
+<li>Cluster utilization exhibits a non-linear hockey-stick relationship with queue wait time: targeting 80% to 85% utilization balances hardware efficiency with rapid engineering turnaround.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Yoo et al. SLURM: Simple Linux Utility for Resource Management. <a href="https://slurm.schedmd.com/" rel="noopener noreferrer" target="_blank">https://slurm.schedmd.com/</a>.<br>
+[2] Kubeflow Community. Kubeflow Training Operator Documentation. <a href="https://www.kubeflow.org/docs/components/training/" rel="noopener noreferrer" target="_blank">https://www.kubeflow.org/docs/components/training/</a>.<br>
+[3] Kubernetes SIG-Apps. Kueue: Kubernetes-native Job Queueing. <a href="https://kueue.sigs.k8s.io/" rel="noopener noreferrer" target="_blank">https://kueue.sigs.k8s.io/</a>.<br>
+[4] Dubey et al. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[5] PyTorch Documentation: Distributed Elastic and torchrun. <a href="https://pytorch.org/docs/stable/elastic/run.html" rel="noopener noreferrer" target="_blank">https://pytorch.org/docs/stable/elastic/run.html</a>.<br>
+[6] Kubernetes SIG-Apps. JobSet: Managing Sets of Jobs in Kubernetes. <a href="https://jobset.sigs.k8s.io/" rel="noopener noreferrer" target="_blank">https://jobset.sigs.k8s.io/</a>.<br>
+[7] Cloud Native Computing Foundation. Volcano: High-Performance Batch Scheduling System for Kubernetes. <a href="https://volcano.sh/" rel="noopener noreferrer" target="_blank">https://volcano.sh/</a>.<br>
+[8] Mohan et al. CheckFreq: Frequent, Fine-Grained DNN Checkpointing. FAST 2021. <a href="https://www.usenix.org/conference/fast21/presentation/mohan" rel="noopener noreferrer" target="_blank">https://www.usenix.org/conference/fast21/presentation/mohan</a>.<br>
+[9] Kleinrock. Queueing Systems, Volume 1: Theory. <a href="https://dl.acm.org/doi/book/10.5555/540098" rel="noopener noreferrer" target="_blank">https://dl.acm.org/doi/book/10.5555/540098</a>.</p>

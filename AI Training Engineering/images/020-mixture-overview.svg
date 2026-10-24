@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">The Pretraining Data Mixture Architecture</text>
+  <text x="25" y="48" class="sm" fill="#555">Heterogeneous source streams combined via target weights into a continuous pretraining token stream</text>
+
+  <!-- Top 5 Domain Sources -->
+  <rect x="25" y="70" width="140" height="72" rx="4" class="blue"/>
+  <text x="95" y="94" text-anchor="middle" class="b">Curated Web</text>
+  <text x="95" y="112" text-anchor="middle" class="sm">550B tokens (55%)</text>
+  <text x="95" y="128" text-anchor="middle" class="sm">1.0 epoch · FineWeb</text>
+
+  <rect x="180" y="70" width="140" height="72" rx="4" class="orange"/>
+  <text x="250" y="94" text-anchor="middle" class="b">Source Code</text>
+  <text x="250" y="112" text-anchor="middle" class="sm">200B tokens (20%)</text>
+  <text x="250" y="128" text-anchor="middle" class="sm">2.0 epochs · GitHub</text>
+
+  <rect x="335" y="70" width="140" height="72" rx="4" class="green"/>
+  <text x="405" y="94" text-anchor="middle" class="b">Math &amp; Science</text>
+  <text x="405" y="112" text-anchor="middle" class="sm">120B tokens (12%)</text>
+  <text x="405" y="128" text-anchor="middle" class="sm">3.0 epochs · arXiv</text>
+
+  <rect x="490" y="70" width="140" height="72" rx="4" class="purple"/>
+  <text x="560" y="94" text-anchor="middle" class="b">Multilingual</text>
+  <text x="560" y="112" text-anchor="middle" class="sm">80B tokens (8%)</text>
+  <text x="560" y="128" text-anchor="middle" class="sm">1.0 epoch · 20 langs</text>
+
+  <rect x="645" y="70" width="150" height="72" rx="4" class="yellow"/>
+  <text x="720" y="94" text-anchor="middle" class="b">Books &amp; Prose</text>
+  <text x="720" y="112" text-anchor="middle" class="sm">50B tokens (5%)</text>
+  <text x="720" y="128" text-anchor="middle" class="sm">1.0 epoch · Long form</text>
+
+  <!-- Flow Arrows to Sampler -->
+  <path d="M 95 142 L 95 168 L 380 168 L 380 185" class="edge"/>
+  <path d="M 250 142 L 250 168 L 395 168 L 395 185" class="edge"/>
+  <path d="M 405 142 L 405 185" class="edge"/>
+  <path d="M 560 142 L 560 168 L 415 168 L 415 185" class="edge"/>
+  <path d="M 720 142 L 720 168 L 430 168 L 430 185" class="edge"/>
+
+  <!-- Weighted Streaming Sampler Box -->
+  <rect x="220" y="185" width="370" height="52" rx="6" class="gray"/>
+  <text x="405" y="206" text-anchor="middle" class="b">Weighted Streaming Multi-Source Sampler</text>
+  <text x="405" y="224" text-anchor="middle" class="sm">Deterministic seed · Resumable shard pointers · Target probabilities</text>
+
+  <!-- Arrow down to batch packer -->
+  <path d="M 405 237 L 405 260" class="edge"/>
+
+  <!-- Output stream box -->
+  <rect x="50" y="260" width="710" height="56" rx="6" class="white"/>
+  <text x="405" y="282" text-anchor="middle" class="b">Global Pretraining Batch: 4M Tokens / Step (512 seqs × 8,192 tokens)</text>
+  <text x="405" y="302" text-anchor="middle" class="sm">Uniform token mix across steps prevents catastrophic forgetting of minority domains</text>
+</svg>

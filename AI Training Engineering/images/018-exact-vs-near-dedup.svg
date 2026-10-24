@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="25" y="30" class="lg b">Granularity of Deduplication: From URL to Substrings</text>
+  <text x="25" y="52" class="sm" fill="#555">Four distinct granularities for pruning redundancy across web-scale text corpora</text>
+
+  <!-- Level 1: URL Dedup -->
+  <rect x="25" y="80" width="180" height="225" rx="5" class="blue"/>
+  <text x="115" y="105" class="b mid">1. URL Dedup</text>
+  <text x="35" y="135" class="sm">• Normalized URL hashing</text>
+  <text x="35" y="153" class="sm">• Strips tracking query params</text>
+  <text x="35" y="171" class="sm">  (?utm_source=...)</text>
+  <text x="35" y="195" class="sm">• O(1) hash lookup</text>
+  <text x="35" y="213" class="sm">• Discards redundant pages</text>
+  <text x="35" y="231" class="sm">  before extraction</text>
+  <text x="35" y="260" class="sm b" fill="#1b3e6b">Fastest, cheapest</text>
+  <text x="35" y="278" class="sm" fill="#1b3e6b">Misses syndicated mirrors</text>
+
+  <!-- Level 2: Exact Document Hash -->
+  <rect x="220" y="80" width="180" height="225" rx="5" class="yellow"/>
+  <text x="310" y="105" class="b mid">2. Exact Doc Hash</text>
+  <text x="230" y="135" class="sm">• SHA-256 or 64-bit FarmHash</text>
+  <text x="230" y="153" class="sm">• Computed on normalized text</text>
+  <text x="230" y="171" class="sm">  (whitespace collapsed)</text>
+  <text x="230" y="195" class="sm">• Drops 100% identical copies</text>
+  <text x="230" y="213" class="sm">  across different domains</text>
+  <text x="230" y="237" class="sm">• Zero false positives</text>
+  <text x="230" y="260" class="sm b" fill="#5c4800">High efficiency</text>
+  <text x="230" y="278" class="sm" fill="#5c4800">Misses 1-word edits</text>
+
+  <!-- Level 3: Near-Duplicate MinHash -->
+  <rect x="415" y="80" width="185" height="225" rx="5" class="orange"/>
+  <text x="507" y="105" class="b mid">3. MinHash LSH</text>
+  <text x="425" y="135" class="sm">• Word 5-gram shingles</text>
+  <text x="425" y="153" class="sm">• 128 permutation hashes</text>
+  <text x="425" y="171" class="sm">• LSH bands catch pairs</text>
+  <text x="425" y="189" class="sm">  with Jaccard sim &gt; 0.70</text>
+  <text x="425" y="213" class="sm">• Drops syndicated news</text>
+  <text x="425" y="231" class="sm">  and edited blog posts</text>
+  <text x="425" y="260" class="sm b" fill="#7d4b00">Core of FineWeb &amp; Dolma</text>
+  <text x="425" y="278" class="sm" fill="#7d4b00">Needs graph clustering</text>
+
+  <!-- Level 4: Suffix Array Substring -->
+  <rect x="615" y="80" width="180" height="225" rx="5" class="green"/>
+  <text x="705" y="105" class="b mid">4. Suffix Arrays</text>
+  <text x="625" y="135" class="sm">• Token-level suffix sorting</text>
+  <text x="625" y="153" class="sm">• Finds verbatim repeated</text>
+  <text x="625" y="171" class="sm">  substrings &gt; 50 tokens</text>
+  <text x="625" y="195" class="sm">• Prunes licensing terms,</text>
+  <text x="625" y="213" class="sm">  disclaimers, benchmark leakage</text>
+  <text x="625" y="237" class="sm">• Lee et al. (ACL 2022)</text>
+  <text x="625" y="260" class="sm b" fill="#2d572c">Deepest cleaning</text>
+  <text x="625" y="278" class="sm" fill="#2d572c">High RAM during build</text>
+</svg>

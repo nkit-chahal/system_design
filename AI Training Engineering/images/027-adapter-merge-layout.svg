@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="300" viewBox="0 0 800 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Left: Base Weight Matrix W_0 -->
+  <rect x="40" y="55" width="130" height="150" rx="4" class="blue"/>
+  <text x="80" y="125" class="lg b">W_0</text>
+  <text x="65" y="148" class="sm">Base Weight</text>
+  <text x="70" y="168" class="sm">dim: d x k</text>
+
+  <!-- Plus Operator -->
+  <text x="195" y="135" class="lg b">+</text>
+
+  <!-- Middle: LoRA Matrices B and A -->
+  <rect x="235" y="55" width="45" height="150" rx="4" class="orange"/>
+  <text x="250" y="125" class="lg b">B</text>
+  <text x="240" y="148" class="sm">d x r</text>
+
+  <!-- Multiply Operator -->
+  <text x="295" y="135" class="lg b">x</text>
+
+  <rect x="320" y="105" width="130" height="45" rx="4" class="orange"/>
+  <text x="375" y="133" class="lg b">A</text>
+  <text x="365" y="168" class="sm">dim: r x k</text>
+
+  <!-- Scaling Factor -->
+  <text x="270" y="225" class="sm b">Delta W = (alpha / r) x (B x A)</text>
+
+  <!-- Equals Arrow -->
+  <path d="M470,130 L520,130" class="edge"/>
+  <text x="475" y="120" class="sm">merge</text>
+
+  <!-- Right: Merged Weight W_final -->
+  <rect x="535" y="55" width="130" height="150" rx="4" class="green"/>
+  <text x="565" y="125" class="lg b">W_merged</text>
+  <text x="560" y="148" class="sm">Single Tensor</text>
+  <text x="570" y="168" class="sm">dim: d x k</text>
+
+  <!-- Serving note -->
+  <rect x="40" y="245" width="720" height="42" rx="4" class="gray"/>
+  <text x="55" y="265" class="sm b">Serving Benefit (Inference Lesson 37):</text>
+  <text x="55" y="280" class="sm">Merged weights execute as a single standard GEMM with zero extra kernel launches or memory lookups.</text>
+</svg>

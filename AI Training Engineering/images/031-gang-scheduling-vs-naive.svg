@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .group { fill: none; stroke: #666; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Gang Scheduling vs Naive Pod-by-Pod Scheduling</text>
+  <text x="25" y="42" class="sm" fill="#555">Distributed LLM training requires all-or-nothing scheduling to prevent idle resource deadlocks.</text>
+
+  <!-- Left: Naive Pod-by-Pod Scheduling -->
+  <rect x="25" y="58" width="385" height="215" rx="5" class="gray"/>
+  <text x="40" y="80" class="b" fill="#990000">Naive Scheduling (Pod-by-Pod)</text>
+  <text x="40" y="96" class="sm" fill="#555">Allocates nodes incrementally as they become free</text>
+
+  <!-- Job A partial -->
+  <rect x="40" y="110" width="170" height="48" rx="4" class="orange"/>
+  <text x="125" y="130" text-anchor="middle" class="b sm">Job A (12 of 16 Nodes)</text>
+  <text x="125" y="146" text-anchor="middle" class="sm">4 nodes pending · Stalled</text>
+
+  <!-- Job B partial -->
+  <rect x="225" y="110" width="170" height="48" rx="4" class="blue"/>
+  <text x="310" y="130" text-anchor="middle" class="b sm">Job B (12 of 20 Nodes)</text>
+  <text x="310" y="146" text-anchor="middle" class="sm">8 nodes pending · Stalled</text>
+
+  <!-- Result box -->
+  <rect x="40" y="170" width="355" height="90" rx="4" class="red"/>
+  <text x="217" y="192" text-anchor="middle" class="b sm">Distributed Deadlock &amp; 100% Waste</text>
+  <text x="55" y="212" class="sm">• Neither job can initialize NCCL (ranks blocked at rendezvous)</text>
+  <text x="55" y="228" class="sm">• 24 nodes (192 GPUs) sit 100% idle consuming reservation</text>
+  <text x="55" y="244" class="sm">• Neither job finishes, preventing the other from acquiring nodes</text>
+
+  <!-- Right: Gang Scheduling -->
+  <rect x="430" y="58" width="385" height="215" rx="5" class="gray"/>
+  <text x="445" y="80" class="b" fill="#274e13">Gang Scheduling (All-or-Nothing)</text>
+  <text x="445" y="96" class="sm" fill="#555">Admits a job only when 100% of requested nodes are ready</text>
+
+  <!-- Job A Full Allocation -->
+  <rect x="445" y="110" width="355" height="48" rx="4" class="green"/>
+  <text x="622" y="130" text-anchor="middle" class="b sm">Job A (16 of 16 Nodes Allocated)</text>
+  <text x="622" y="146" text-anchor="middle" class="sm">All 128 GPUs start training immediately · 100% MFU</text>
+
+  <!-- Job B Queued Cleanly -->
+  <rect x="445" y="170" width="355" height="90" rx="4" class="white"/>
+  <text x="622" y="192" text-anchor="middle" class="b sm">Job B (Queued in Pending State)</text>
+  <text x="460" y="212" class="sm">• Job B holds 0 nodes while waiting in queue</text>
+  <text x="460" y="228" class="sm">• Free nodes remain open for smaller jobs or Job A completion</text>
+  <text x="460" y="244" class="sm">• Zero idle GPU spend; guaranteed forward progress</text>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="284" width="790" height="52" rx="4" class="white"/>
+  <text x="38" y="304" class="b sm">The Gang Rule:</text>
+  <text x="150" y="304" class="sm">Because collective training uses synchronous barriers across all ranks,</text>
+  <text x="38" y="322" class="sm">an N-GPU job allocated N − 1 GPUs achieves exactly 0% progress while billing for N − 1 GPUs.</text>
+</svg>

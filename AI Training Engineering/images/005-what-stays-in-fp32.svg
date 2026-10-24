@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="25" class="title">What Stays in FP32 and Why: The Guardrails of Mixed Precision</text>
+  <text x="25" y="45" class="sm" fill="#555">Operations and states preserved in 32-bit floating point to prevent numerical degradation</text>
+
+  <!-- Box 1: FP32 Master Weights -->
+  <rect x="25" y="65" width="245" height="245" rx="6" class="blue"/>
+  <text x="147" y="90" text-anchor="middle" class="b">1. Master Weights (4B)</text>
+  <text x="147" y="108" text-anchor="middle" class="sm">Reference parameter copy</text>
+
+  <rect x="35" y="125" width="225" height="60" rx="4" class="white"/>
+  <text x="45" y="145" class="sm b">Weight Stagnation Hazard:</text>
+  <text x="45" y="163" class="sm">Update step delta approx 1e-5</text>
+  <text x="45" y="179" class="sm">Current weight W approx 1.0</text>
+
+  <rect x="35" y="195" width="225" height="105" rx="4" class="white"/>
+  <text x="45" y="215" class="sm b" fill="#b85450">In BF16 (eps approx 7.8e-3):</text>
+  <text x="45" y="233" class="sm">1.0 + 1e-5 rounds to 1.0!</text>
+  <text x="45" y="249" class="sm" fill="#b85450">Updates vanish completely.</text>
+  <text x="45" y="271" class="sm b" fill="#005cc5">In FP32 (eps approx 1.2e-7):</text>
+  <text x="45" y="289" class="sm">Updates accumulate smoothly.</text>
+
+  <!-- Box 2: FP32 Optimizer States -->
+  <rect x="285" y="65" width="245" height="245" rx="6" class="purple"/>
+  <text x="407" y="90" text-anchor="middle" class="b">2. Optimizer States (8B)</text>
+  <text x="407" y="108" text-anchor="middle" class="sm">Adam m (4B) and v (4B)</text>
+
+  <rect x="295" y="125" width="225" height="75" rx="4" class="white"/>
+  <text x="305" y="145" class="sm b">Subtle Variance Tracking:</text>
+  <text x="305" y="163" class="sm">v_t = beta2 * v_t-1 + (1-b2)*g^2</text>
+  <text x="305" y="181" class="sm">Requires wide dynamic range</text>
+  <text x="305" y="195" class="sm">for tiny squared gradients</text>
+
+  <rect x="295" y="210" width="225" height="90" rx="4" class="white"/>
+  <text x="305" y="230" class="sm b" fill="#05673d">Precision Stability:</text>
+  <text x="305" y="248" class="sm">Prevents second moments</text>
+  <text x="305" y="266" class="sm">from zeroing out or clipping,</text>
+  <text x="305" y="284" class="sm">ensuring reliable updates</text>
+
+  <!-- Box 3: FP32 Reductions -->
+  <rect x="545" y="65" width="250" height="245" rx="6" class="yellow"/>
+  <text x="670" y="90" text-anchor="middle" class="b">3. Sensitive Reductions</text>
+  <text x="670" y="108" text-anchor="middle" class="sm">Softmax &amp; Normalization</text>
+
+  <rect x="555" y="125" width="230" height="75" rx="4" class="white"/>
+  <text x="565" y="145" class="sm b">Softmax Exponent Sum:</text>
+  <text x="565" y="163" class="sm">Sum_j exp(z_j) over 128,256 items</text>
+  <text x="565" y="181" class="sm">16-bit accumulates massive</text>
+  <text x="565" y="195" class="sm">rounding error in denominator</text>
+
+  <rect x="555" y="210" width="230" height="90" rx="4" class="white"/>
+  <text x="565" y="230" class="sm b">Normalization Variance:</text>
+  <text x="565" y="248" class="sm">RMSNorm: 1/sqrt(mean(x^2)+eps)</text>
+  <text x="565" y="266" class="sm">Sum of squares over d=4,096</text>
+  <text x="565" y="284" class="sm">requires FP32 accumulator</text>
+</svg>

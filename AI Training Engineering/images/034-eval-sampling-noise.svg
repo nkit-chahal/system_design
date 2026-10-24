@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .box { rx: 5px; stroke-width: 1.2; }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">Evaluation Noise and Sample Size: Standard Error Scaling</text>
+  <text x="25" y="42" class="sm" fill="#555">The statistical reality of evaluation: on small benchmarks, small score differences are purely random noise.</text>
+
+  <!-- 4 Sample Size Cards (p = 0.50) -->
+  <!-- Card 1: n = 50 -->
+  <rect x="25" y="60" width="185" height="210" class="box red"/>
+  <text x="35" y="82" class="b sm">n = 50 Questions</text>
+  <text x="35" y="98" class="sm" fill="#555">Quick ad-hoc sanity test</text>
+
+  <rect x="35" y="112" width="165" height="42" rx="3" class="white"/>
+  <text x="45" y="130" class="sm b">Std Error (SE): ±7.1%</text>
+  <text x="45" y="146" class="sm">sqrt(0.25 / 50)</text>
+
+  <rect x="35" y="162" width="165" height="50" rx="3" class="white"/>
+  <text x="45" y="180" class="sm b">95% CI: [36.1%, 63.9%]</text>
+  <text x="45" y="196" class="sm">Margin of error = ±13.9%</text>
+
+  <text x="35" y="235" class="sm b" fill="#990000">Extreme Noise:</text>
+  <text x="35" y="252" class="sm">A 5% score gain is</text>
+  <text x="35" y="266" class="sm">statistically meaningless.</text>
+
+  <!-- Card 2: n = 200 -->
+  <rect x="225" y="60" width="185" height="210" class="box orange"/>
+  <text x="235" y="82" class="b sm">n = 200 Questions</text>
+  <text x="235" y="98" class="sm" fill="#555">Small ablation subset</text>
+
+  <rect x="235" y="112" width="165" height="42" rx="3" class="white"/>
+  <text x="245" y="130" class="sm b">Std Error (SE): ±3.5%</text>
+  <text x="245" y="146" class="sm">sqrt(0.25 / 200)</text>
+
+  <rect x="235" y="162" width="165" height="50" rx="3" class="white"/>
+  <text x="245" y="180" class="sm b">95% CI: [43.1%, 56.9%]</text>
+  <text x="245" y="196" class="sm">Margin of error = ±6.9%</text>
+
+  <text x="235" y="235" class="sm b" fill="#b45f06">Moderate Noise:</text>
+  <text x="235" y="252" class="sm">Requires &gt; 7% delta to</text>
+  <text x="235" y="266" class="sm">confirm real progress.</text>
+
+  <!-- Card 3: n = 1,319 (GSM8K) -->
+  <rect x="425" y="60" width="185" height="210" class="box blue"/>
+  <text x="435" y="82" class="b sm">n = 1,319 (GSM8K)</text>
+  <text x="435" y="98" class="sm" fill="#555">Standard math benchmark</text>
+
+  <rect x="435" y="112" width="165" height="42" rx="3" class="white"/>
+  <text x="445" y="130" class="sm b">Std Error (SE): ±1.4%</text>
+  <text x="445" y="146" class="sm">sqrt(0.24 / 1319)</text>
+
+  <rect x="435" y="162" width="165" height="50" rx="3" class="white"/>
+  <text x="445" y="180" class="sm b">95% CI: [57.3%, 62.7%]</text>
+  <text x="445" y="196" class="sm">Margin of error = ±2.7%</text>
+
+  <text x="435" y="235" class="sm b" fill="#2c5d88">Decent Precision:</text>
+  <text x="435" y="252" class="sm">A 1% change between runs</text>
+  <text x="435" y="266" class="sm">is within noise threshold.</text>
+
+  <!-- Card 4: n = 14,042 (MMLU) -->
+  <rect x="625" y="60" width="190" height="210" class="box green"/>
+  <text x="635" y="82" class="b sm">n = 14,042 (MMLU)</text>
+  <text x="635" y="98" class="sm" fill="#555">Full test suite (57 subjects)</text>
+
+  <rect x="635" y="112" width="170" height="42" rx="3" class="white"/>
+  <text x="645" y="130" class="sm b">Std Error (SE): ±0.4%</text>
+  <text x="645" y="146" class="sm">sqrt(0.23 / 14042)</text>
+
+  <rect x="635" y="162" width="170" height="50" rx="3" class="white"/>
+  <text x="645" y="180" class="sm b">95% CI: [64.2%, 65.8%]</text>
+  <text x="645" y="196" class="sm">Margin of error = ±0.8%</text>
+
+  <text x="635" y="235" class="sm b" fill="#274e13">High Statistical Power:</text>
+  <text x="635" y="252" class="sm">A 1.0% gain is genuine</text>
+  <text x="635" y="266" class="sm">and reproducible.</text>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="280" width="790" height="55" rx="4" class="white"/>
+  <text x="38" y="300" class="b sm">Takeaway for Training Teams:</text>
+  <text x="255" y="300" class="sm">Never declare one ablation checkpoint superior to another</text>
+  <text x="38" y="318" class="sm">based on a 0.5% gain on a 500-question eval set. Compute SE = sqrt(p(1-p)/n) before making decisions.</text>
+</svg>

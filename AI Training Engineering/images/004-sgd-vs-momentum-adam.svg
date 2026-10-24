@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#005cc5"/></marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#05673d"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .edge-blue{fill:none;stroke:#005cc5;stroke-width:1.3;marker-end:url(#arrow-blue)}
+    .edge-green{fill:none;stroke:#05673d;stroke-width:1.3;marker-end:url(#arrow-green)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="25" class="title">Optimization Trajectories in Ravines: SGD vs Momentum vs Adam</text>
+  <text x="25" y="45" class="sm" fill="#555">How momentum and adaptive second moments resolve ill-conditioned curvature anisotropy (illustrative)</text>
+
+  <!-- Panel 1: Vanilla SGD -->
+  <rect x="25" y="65" width="245" height="245" rx="6" class="gray"/>
+  <text x="147" y="90" text-anchor="middle" class="b">1. Vanilla SGD</text>
+  <text x="147" y="108" text-anchor="middle" class="sm">theta_t+1 = theta_t - lr * g_t</text>
+
+  <!-- Ellipses representing anisotropic loss contours -->
+  <ellipse cx="147" cy="185" rx="100" ry="40" fill="none" stroke="#ccc" stroke-dasharray="3 3"/>
+  <ellipse cx="147" cy="185" rx="65" ry="22" fill="none" stroke="#bbb" stroke-dasharray="3 3"/>
+  <ellipse cx="147" cy="185" rx="25" ry="8" fill="none" stroke="#999"/>
+  <circle cx="147" cy="185" r="3" fill="#05673d"/>
+
+  <!-- Zig-zag trajectory -->
+  <path d="M 60 150 L 85 215 L 110 160 L 130 205 L 142 175" class="edge"/>
+  <circle cx="60" cy="150" r="3" fill="#b85450"/>
+
+  <rect x="35" y="245" width="225" height="55" rx="4" class="red"/>
+  <text x="147" y="267" text-anchor="middle" class="sm b">High Curvature Oscillation</text>
+  <text x="147" y="285" text-anchor="middle" class="sm">Steps bounce across valley walls</text>
+
+  <!-- Panel 2: Momentum -->
+  <rect x="285" y="65" width="245" height="245" rx="6" class="gray"/>
+  <text x="407" y="90" text-anchor="middle" class="b">2. SGD with Momentum</text>
+  <text x="407" y="108" text-anchor="middle" class="sm">m_t = beta * m_t-1 + (1-beta)*g</text>
+
+  <!-- Contours -->
+  <ellipse cx="407" cy="185" rx="100" ry="40" fill="none" stroke="#ccc" stroke-dasharray="3 3"/>
+  <ellipse cx="407" cy="185" rx="65" ry="22" fill="none" stroke="#bbb" stroke-dasharray="3 3"/>
+  <ellipse cx="407" cy="185" rx="25" ry="8" fill="none" stroke="#999"/>
+  <circle cx="407" cy="185" r="3" fill="#05673d"/>
+
+  <!-- Smoothed momentum trajectory -->
+  <path d="M 320 150 Q 350 200 375 180 T 405 185" class="edge-blue"/>
+  <circle cx="320" cy="150" r="3" fill="#b85450"/>
+
+  <rect x="295" y="245" width="225" height="55" rx="4" class="blue"/>
+  <text x="407" y="267" text-anchor="middle" class="sm b">Averaged Velocity</text>
+  <text x="407" y="285" text-anchor="middle" class="sm">Oscillations cancel; path straightens</text>
+
+  <!-- Panel 3: Adam -->
+  <rect x="545" y="65" width="250" height="245" rx="6" class="gray"/>
+  <text x="670" y="90" text-anchor="middle" class="b">3. Adam / AdamW</text>
+  <text x="670" y="108" text-anchor="middle" class="sm">Scaled by sqrt(v_t) per coordinate</text>
+
+  <!-- Contours -->
+  <ellipse cx="670" cy="185" rx="100" ry="40" fill="none" stroke="#ccc" stroke-dasharray="3 3"/>
+  <ellipse cx="670" cy="185" rx="65" ry="22" fill="none" stroke="#bbb" stroke-dasharray="3 3"/>
+  <ellipse cx="670" cy="185" rx="25" ry="8" fill="none" stroke="#999"/>
+  <circle cx="670" cy="185" r="3" fill="#05673d"/>
+
+  <!-- Direct adaptive trajectory -->
+  <path d="M 580 150 L 620 170 L 665 184" class="edge-green"/>
+  <circle cx="580" cy="150" r="3" fill="#b85450"/>
+
+  <rect x="555" y="245" width="230" height="55" rx="4" class="green"/>
+  <text x="670" y="267" text-anchor="middle" class="sm b">Coordinate Normalization</text>
+  <text x="670" y="285" text-anchor="middle" class="sm">Direct descent into minimum</text>
+</svg>

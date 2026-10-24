@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="370" viewBox="0 0 820 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .axis{stroke:#333;stroke-width:1.2;fill:none}
+    .grid{stroke:#eee;stroke-width:1;stroke-dasharray:3 3}
+    .limit{stroke:#c00;stroke-width:1.2;stroke-dasharray:4 4}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Per-GPU Memory Footprint on 8×H100: DDP vs FSDP</text>
+  <text x="25" y="46" class="sm" fill="#555">Analytical memory comparison for 1B and 8B models (mixed-precision AdamW)</text>
+
+  <!-- Legend in top-right -->
+  <g transform="translate(560, 24)">
+    <rect x="0" y="0" width="16" height="12" class="orange"/>
+    <text x="22" y="10" class="sm">Static States</text>
+    <rect x="110" y="0" width="16" height="12" class="green"/>
+    <text x="132" y="10" class="sm">Activations &amp; Buffers</text>
+  </g>
+
+  <!-- Left Container: 1B Parameter Model (Fits on both) -->
+  <g transform="translate(25, 70)">
+    <rect x="0" y="0" width="370" height="230" rx="6" class="gray"/>
+    <text x="185" y="24" text-anchor="middle" class="b">1B Parameter Model (8×H100)</text>
+    <text x="185" y="42" text-anchor="middle" class="sm" fill="#555">Both DDP and FSDP fit comfortably in 80 GB</text>
+
+    <!-- Bar 1: DDP (1B) -> Total ~19.5 GB. Width scale: 300px = 80GB -> 3.75 px/GB -->
+    <text x="20" y="70" class="sm b">DDP (Unsharded States):</text>
+    <rect x="20" y="80" width="60" height="26" class="orange"/>
+    <text x="50" y="98" text-anchor="middle" class="sm b">16.0G</text>
+    <rect x="80" y="80" width="15" height="26" class="green"/>
+    <text x="105" y="98" class="sm b">19.5 GB Peak</text>
+
+    <!-- Bar 2: FSDP (1B) -> Total ~5.6 GB -->
+    <text x="20" y="130" class="sm b">FSDP (Sharded States):</text>
+    <rect x="20" y="140" width="8" height="26" class="orange"/>
+    <rect x="28" y="140" width="15" height="26" class="green"/>
+    <text x="50" y="158" class="sm b">5.6 GB Peak</text>
+
+    <!-- Notes for 1B -->
+    <g transform="translate(20, 185)">
+      <text x="0" y="14" class="sm">• DDP is faster (zero fwd all-gather)</text>
+      <text x="0" y="32" class="sm">• FSDP frees 14 GB of VRAM per GPU</text>
+    </g>
+  </g>
+
+  <!-- Right Container: 8B Parameter Model (Llama 3.1 8B) -->
+  <g transform="translate(425, 70)">
+    <rect x="0" y="0" width="370" height="230" rx="6" class="gray"/>
+    <text x="185" y="24" text-anchor="middle" class="b">8B Parameter Model (Llama 3.1 8B)</text>
+    <text x="185" y="42" text-anchor="middle" class="sm" fill="#555">DDP crashes with OOM; FSDP enables training</text>
+
+    <!-- Bar 1: DDP (8B) -> 128.5 GB static (Exceeds 80 GB!) -->
+    <text x="20" y="70" class="sm b">DDP (Unsharded States):</text>
+    <rect x="20" y="80" width="300" height="26" class="red"/>
+    <text x="150" y="98" text-anchor="middle" class="sm b" fill="#900">128.5 GB (OOM Crash on 80 GB GPU!)</text>
+
+    <!-- Bar 2: FSDP (8B) -> Sharded states 16.1 GB + Act/buf ~12.5 GB = 28.6 GB -->
+    <text x="20" y="130" class="sm b">FSDP (Sharded States):</text>
+    <!-- Scale: 80GB = 300px -> 3.75 px/GB. 16.1GB = 60px. Act/buf 12.5GB = 47px. Total = 107px -->
+    <rect x="20" y="140" width="60" height="26" class="orange"/>
+    <text x="50" y="158" text-anchor="middle" class="sm b">16.1G</text>
+    <rect x="80" y="140" width="47" height="26" class="green"/>
+    <text x="135" y="158" class="sm b">28.6 GB Peak</text>
+
+    <!-- 80 GB limit marker -->
+    <line x1="320" y1="75" x2="320" y2="175" class="limit"/>
+    <text x="320" y="188" text-anchor="end" class="sm b" fill="#c00">80 GB Limit</text>
+
+    <!-- Notes for 8B -->
+    <g transform="translate(20, 195)">
+      <text x="0" y="14" class="sm">• DDP cannot fit 16 B/param on one GPU</text>
+      <text x="0" y="32" class="sm">• FSDP leaves 51.4 GB free headroom!</text>
+    </g>
+  </g>
+
+  <!-- Bottom Annotation Bar -->
+  <rect x="25" y="315" width="770" height="40" rx="4" class="gray"/>
+  <text x="35" y="339" class="sm"><tspan class="b">Memory Cliff:</tspan> DDP is viable only while 16 bytes/param fits on a single GPU. Beyond ~5B parameters, FSDP is strictly required.</text>
+</svg>

@@ -3,6 +3,7 @@ import os, glob, re, json
 DIRS = [
     'Python Course',
     'AI Inference Engineering',
+    'AI Training Engineering',
     'Behavioral Interview',
     'Coding Interview Patterns',
     'Generative AI System Design Interview',
@@ -15,6 +16,7 @@ DIRS = [
 CATEGORY_COLORS = {
     'Python Course': '#05673d',
     'AI Inference Engineering': '#0ea5e9',
+    'AI Training Engineering': '#f97316',
     'Behavioral Interview': '#f59e0b',
     'Coding Interview Patterns': '#3b82f6',
     'Generative AI System Design Interview': '#8b5cf6',

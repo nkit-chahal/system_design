@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">LoRA Learns Less and Forgets Less: The Capacity vs Regularization Trade-Off</text>
+  <text x="25" y="48" class="sm" fill="#555">Empirical findings from Biderman et al. (2024): comparing target task adaptation against general knowledge retention</text>
+
+  <!-- Left: Schematic Graph -->
+  <rect x="25" y="65" width="410" height="260" rx="6" class="gray"/>
+  <text x="230" y="88" text-anchor="middle" class="b">Performance Dynamics Across Adaptation Schemes</text>
+
+  <!-- Axes -->
+  <!-- Origin at (70, 280) -->
+  <line x1="70" y1="280" x2="400" y2="280" stroke="#000" stroke-width="1.5"/>
+  <line x1="70" y1="280" x2="70" y2="105" stroke="#000" stroke-width="1.5"/>
+
+  <!-- Y-axis label -->
+  <text x="45" y="105" text-anchor="middle" class="sm b">Score</text>
+  <text x="70" y="298" class="sm">Low Rank (r=8)</text>
+  <text x="200" y="298" class="sm">Medium (r=32)</text>
+  <text x="325" y="298" class="sm">High Rank / FFT</text>
+
+  <!-- Curve 1: Retention of Pretraining Knowledge (Green, goes down) -->
+  <!-- Starts high (98%), gently drops, drops sharply at FFT -->
+  <path d="M 80 130 C 180 135, 270 155, 380 250" fill="none" stroke="#82b366" stroke-width="3"/>
+  <text x="140" y="145" class="sm b" fill="#2d662d">General Knowledge Retention</text>
+
+  <!-- Curve 2: Target Task Adaptation (Orange, goes up) -->
+  <!-- Starts lower, increases with rank, highest at FFT -->
+  <path d="M 80 240 C 180 200, 270 170, 380 135" fill="none" stroke="#d79b00" stroke-width="3"/>
+  <text x="260" y="160" class="sm b" fill="#996000">Target Domain Adaptation</text>
+
+  <!-- Right: Comparison Breakdown Box -->
+  <rect x="450" y="65" width="345" height="260" rx="6" class="gray"/>
+  <text x="622" y="88" text-anchor="middle" class="b">Full Fine-Tuning vs LoRA Trade-offs</text>
+
+  <!-- Card 1: Low-Rank LoRA (r=8 to 16) -->
+  <rect x="465" y="105" width="315" height="60" rx="4" class="green"/>
+  <text x="475" y="125" class="b">Low-Rank LoRA (r = 8 to 16)</text>
+  <text x="475" y="143" class="sm">• Strong implicit regularization; resists forgetting.</text>
+  <text x="475" y="159" class="sm">• Ideal for style, safety, and customer support.</text>
+
+  <!-- Card 2: High-Rank LoRA (r=64+) -->
+  <rect x="465" y="175" width="315" height="60" rx="4" class="yellow"/>
+  <text x="475" y="195" class="b">High-Rank LoRA (r = 64 to 256)</text>
+  <text x="475" y="213" class="sm">• Closes 80-95% of the target gap on code/math.</text>
+  <text x="475" y="229" class="sm">• Starts eroding base knowledge similarly to FFT.</text>
+
+  <!-- Card 3: Full Fine-Tuning -->
+  <rect x="465" y="245" width="315" height="68" rx="4" class="red"/>
+  <text x="475" y="265" class="b">Full Fine-Tuning (All Weights)</text>
+  <text x="475" y="283" class="sm">• Maximum capacity to learn new domain knowledge.</text>
+  <text x="475" y="299" class="sm">• Highest risk of catastrophic forgetting &amp; drift.</text>
+</svg>

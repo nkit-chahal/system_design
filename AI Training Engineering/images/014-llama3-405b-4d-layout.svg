@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="360" viewBox="0 0 820 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.xs{font-size:11px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="26" class="title">Case Study: Llama 3 405B 4D Parallelism on 16,384 H100 GPUs</text>
+  <text x="25" y="44" class="sm" fill="#555">Meta's published 4D configuration: TP=8, PP=16, DP=128 (8K context, 41% MFU) and CP=16 (128K context, 38% MFU).</text>
+
+  <!-- Container for 1 Model Replica -->
+  <rect x="25" y="65" width="460" height="195" rx="6" class="blue"/>
+  <text x="40" y="88" class="b">One 405B Model Replica: 128 GPUs (16 Nodes)</text>
+
+  <!-- 1 Node Box (TP = 8) -->
+  <rect x="40" y="102" width="205" height="145" rx="4" class="orange"/>
+  <text x="142" y="122" text-anchor="middle" class="b">Node 0: TP = 8 (NVLink)</text>
+  <rect x="50" y="132" width="185" height="24" rx="3" class="white"/>
+  <text x="142" y="148" text-anchor="middle" class="xs">8 GPUs in 1 chassis (900 GB/s)</text>
+  <text x="50" y="174" class="xs">• Shards attention &amp; MLP weights</text>
+  <text x="50" y="192" class="xs">• Hosts layers for Pipeline Stage 0</text>
+  <text x="50" y="210" class="xs">• 126 layers total / 16 stages ≈ 8 layers</text>
+  <text x="50" y="228" class="xs">• Zero inter-node TP traffic!</text>
+
+  <!-- PP = 16 Arrow to Node 15 -->
+  <path d="M 250 170 L 275 170" class="edge"/>
+  <text x="262" y="160" text-anchor="middle" class="xs b">P2P</text>
+
+  <!-- Node 15 Box (Stage 15) -->
+  <rect x="280" y="102" width="190" height="145" rx="4" class="green"/>
+  <text x="375" y="122" text-anchor="middle" class="b">Node 15: Stage 15 (TP = 8)</text>
+  <rect x="290" y="132" width="170" height="24" rx="3" class="white"/>
+  <text x="375" y="148" text-anchor="middle" class="xs">8 GPUs via NVLink</text>
+  <text x="290" y="174" class="xs">• Hosts final transformer layers</text>
+  <text x="290" y="192" class="xs">• RMSNorm + LM head + Loss</text>
+  <text x="290" y="210" class="xs">• PP = 16 across 16 nodes</text>
+  <text x="290" y="228" class="xs">• 128 GPUs per replica</text>
+
+  <!-- Right: Scaling DP to 16,384 GPUs -->
+  <rect x="505" y="65" width="290" height="195" rx="6" class="purple"/>
+  <text x="650" y="88" text-anchor="middle" class="b">Cluster Scaling: DP = 128</text>
+  <rect x="515" y="102" width="270" height="40" rx="4" class="white"/>
+  <text x="650" y="120" text-anchor="middle" class="sm b">128 Concurrent Model Replicas</text>
+  <text x="650" y="134" text-anchor="middle" class="xs" fill="#555">128 replicas × 128 GPUs = 16,384 H100s</text>
+  <text x="520" y="162" class="xs">• <tspan class="b">FSDP sharding:</tspan> Weights sharded across DP.</text>
+  <text x="520" y="180" class="xs">• <tspan class="b">Global batch:</tspan> 16M tokens (16 seqs / DP).</text>
+  <text x="520" y="198" class="xs">• <tspan class="b">MFU achieved:</tspan> <tspan class="b">41%</tspan> on 8K context (400 TFLOPS).</text>
+  <text x="520" y="216" class="xs">• <tspan class="b">128K context:</tspan> Sets CP = 16, DP = 8, achieving</text>
+  <text x="520" y="234" class="xs">  <tspan class="b">38% MFU</tspan> (380 TFLOPS per GPU).</text>
+
+  <!-- Bottom Published Numbers Summary -->
+  <rect x="25" y="270" width="770" height="75" rx="4" class="gray"/>
+  <text x="40" y="292" class="b">Key Takeaways from Meta's Llama 3 405B Architecture (arXiv:2407.21783, Table 4):</text>
+  <text x="40" y="312" class="sm">• Total GPUs: TP × PP × CP × DP = 8 × 16 × 1 × 128 = <tspan class="b">16,384 H100 GPUs</tspan> (2,048 server nodes).</text>
+  <text x="40" y="330" class="sm">• Strict hierarchy: TP stays inside each node; PP crosses 16 nodes; DP/FSDP spans the 128 outer model replicas.</text>
+</svg>

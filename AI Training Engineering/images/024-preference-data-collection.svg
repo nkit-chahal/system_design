@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.title{font-size:16px;font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="28" class="title">Collecting Pairwise Preference Data</text>
+  <text x="25" y="48" class="sm" fill="#555">Generating candidate responses, applying 3H guidelines (Helpful, Honest, Harmless), and labeling pairs</text>
+
+  <!-- Prompt Box -->
+  <rect x="25" y="130" width="130" height="60" rx="4" class="purple"/>
+  <text x="90" y="155" text-anchor="middle" class="b">Prompt (x)</text>
+  <text x="90" y="175" text-anchor="middle" class="sm">User Query</text>
+
+  <!-- Fork arrows -->
+  <path d="M155 160 L205 160 L205 105 L235 105" class="edge"/>
+  <path d="M155 160 L205 160 L205 215 L235 215" class="edge"/>
+
+  <!-- Candidate 1 -->
+  <rect x="235" y="80" width="170" height="50" rx="4" class="blue"/>
+  <text x="320" y="102" text-anchor="middle" class="b">Response A (y1)</text>
+  <text x="320" y="120" text-anchor="middle" class="sm">Sampled from SFT policy</text>
+
+  <!-- Candidate 2 -->
+  <rect x="235" y="190" width="170" height="50" rx="4" class="blue"/>
+  <text x="320" y="212" text-anchor="middle" class="b">Response B (y2)</text>
+  <text x="320" y="230" text-anchor="middle" class="sm">Sampled from SFT / baseline</text>
+
+  <!-- Arrows to Evaluator -->
+  <path d="M405 105 L445 105 L445 145 L475 145" class="edge"/>
+  <path d="M405 215 L445 215 L445 175 L475 175" class="edge"/>
+
+  <!-- Evaluator Box (Human or AI Judge) -->
+  <rect x="475" y="115" width="150" height="90" rx="6" class="orange"/>
+  <text x="550" y="140" text-anchor="middle" class="b">Annotator / Judge</text>
+  <text x="550" y="160" text-anchor="middle" class="sm">Evaluates 3H criteria</text>
+  <text x="550" y="180" text-anchor="middle" class="sm">Agreement: kappa ~0.65</text>
+
+  <!-- Arrow to Output Pair -->
+  <path d="M625 160 L665 160" class="edge"/>
+
+  <!-- Output Binarized Pair -->
+  <rect x="665" y="105" width="130" height="110" rx="4" class="green"/>
+  <text x="730" y="130" text-anchor="middle" class="b">Preference Pair</text>
+  <text x="730" y="155" text-anchor="middle" class="sm b" fill="#2d662d">y_w (Chosen)</text>
+  <text x="730" y="175" text-anchor="middle" class="sm b" fill="#b85450">y_l (Rejected)</text>
+  <text x="730" y="198" text-anchor="middle" class="sm">Format: (x, yw, yl)</text>
+
+  <!-- Explanatory footer box -->
+  <rect x="25" y="260" width="770" height="60" rx="4" class="gray"/>
+  <text x="40" y="281" class="sm b">Why pairwise comparisons instead of absolute 1-10 scalar scores?</text>
+  <text x="40" y="299" class="sm">• Humans calibrate poorly on absolute scales: one annotator's 7 is another annotator's 4.</text>
+  <text x="40" y="315" class="sm">• Pairwise ranking ("Is A better than B?") achieves higher consistency and eliminates individual rater bias.</text>
+</svg>

@@ -1,0 +1,249 @@
+<h2>Introduction</h2>
+<p>Training a large language model is among the most capital-intensive engineering endeavors in modern computing. For our running pretraining scenario—training an 8-billion-parameter model on 1 trillion tokens across 256 NVIDIA H100 GPUs—the run consumes over $100,000 in compute and runs continuously for nearly six days. <strong>Operating such a cluster without continuous, rigorous evaluation is flying blind</strong>.</p>
+<p>Without evaluation during training, silent model regressions go unnoticed until days of compute have been wasted. A faulty data mixture, a subtle learning rate decay mismatch, or a corrupted tokenization pipeline can destroy reasoning capabilities while leaving training loss looking deceptively normal. However, evaluation is not free: halting 256 H100 GPUs to generate thousands of tokens on benchmark questions burns valuable GPU-hours and collapses cluster training goodput (Lesson 29, Failures, Restarts and Elastic Training). Sizing an evaluation pipeline requires balancing <strong>evaluation granularity, statistical reliability, and compute overhead</strong>.</p>
+<fig src="034-eval-pyramid-tiers.svg" caption="The four-tier evaluation hierarchy during training">A multi-tiered evaluation strategy balancing frequency against compute cost. Tier 1 computes held-out cross-entropy loss continuously every few hundred steps. Tier 2 evaluates fast log-likelihood academic benchmarks (MMLU, ARC) every 2,000 steps. Tiers 3 and 4 execute full autoregressive generation and automated LLM judges on milestone checkpoints using an asynchronous evaluation cluster.</fig>
+<p>Furthermore, evaluating foundation models involves deep statistical subtleties. Small evaluation sets introduce high sampling variance, meaning a 2% gain between two checkpoints is frequently pure statistical noise [1]. Moreover, evaluating raw base models requires fundamentally different protocols than evaluating instruction-tuned chat models. In this lesson, we establish a multi-tiered evaluation architecture, analyze the mathematical divergence between perplexity and downstream reasoning, derive the statistical noise of benchmark scores from first principles, evaluate automated LLM judges and their systemic biases, examine checkpoint averaging techniques, and build an automated evaluation hook using the <code>lm-evaluation-harness</code> [2].</p>
+
+<h2>Clarifying the Problem</h2>
+<p>In a systems design interview for an AI evaluation or pretraining role, evaluation questions typically focus on designing a telemetry pipeline that catches model regressions without slowing down primary training. Here is how a discussion between a candidate and an interviewer typically unfolds:</p>
+<p><strong>Candidate</strong>: What model are we training, and what is our primary evaluation objective during the run?<br>
+<strong>Interviewer</strong>: We are pretraining Llama 3.1 8B on 1 trillion tokens across 256 H100 GPUs. We need an evaluation system that catches performance regressions early, helps us pick the best final checkpoint, and validates whether recent data mixture ablations actually improved reasoning.</p>
+<p><strong>Candidate</strong>: What compute budget is allocated to evaluation relative to our main training run?<br>
+<strong>Interviewer</strong>: We cannot afford to pause the 256-GPU pretraining cluster for more than a few minutes per day. However, we have a separate pool of 8 H100 GPUs dedicated specifically to asynchronous evaluation and offline benchmarking.</p>
+<p><strong>Candidate</strong>: Are we evaluating base pretraining checkpoints or post-trained instruct checkpoints?<br>
+<strong>Interviewer</strong>: Our primary task is evaluating the pretraining base model checkpoints. However, our product team also wants to know if our checkpoints will fine-tune well into customer-support instruct models.</p>
+<p><strong>Candidate</strong>: What benchmarks and metrics should we track during the run?<br>
+<strong>Interviewer</strong>: That is for you to decide. How often do we run held-out loss versus downstream task benchmarks, how do we distinguish real signal from benchmark noise, and how do we choose the winning final checkpoint?</p>
+<p>The question underneath is: <em>How do we architect an asynchronous, multi-tiered evaluation pipeline that provides statistically sound signals across both log-likelihood and generation tasks without starving our pretraining cluster?</em> To answer it, we begin by comparing validation loss against downstream task performance.</p>
+
+<h2>Held-Out Loss vs Downstream Task Evals</h2>
+<h3>Why perplexity and downstream benchmarks diverge</h3>
+<p>The simplest and cheapest metric to compute during pretraining is <strong>held-out validation loss</strong> (<tex>\mathcal{L}_{\text{val}}</tex>) and its exponential, <strong>perplexity</strong> (<tex>\text{PPL} = \exp(\mathcal{L}_{\text{val}})</tex>). Every 200 to 500 steps, the training loop runs a single forward pass over a fixed, pristine validation split of several million tokens, calculating average cross-entropy without backpropagation.</p>
+<p>Throughout early and middle training, validation loss tracks overall model quality remarkably well: as loss drops from 3.5 to 2.2, grammar improves, factual recall increases, and sentence structure solidifies. However, as training progresses into late stages, <strong>validation loss and downstream task performance frequently decouple</strong> [1, 3]:</p>
+<fig src="034-heldout-loss-vs-downstream.svg" caption="Held-out loss versus downstream task accuracy: why they disagree (Illustrative)">Illustrative comparison of held-out cross-entropy loss against downstream reasoning accuracy (GSM8K) during 1T tokens of pretraining. While validation loss follows a smooth, continuous power law, multi-step math reasoning exhibits delayed non-linear emergence, remaining near zero until roughly 200B tokens before surging rapidly.</fig>
+<ul>
+<li><strong>Loss is dominated by common language tokens</strong>: Cross-entropy loss averages prediction error across every single token in the sequence—including commas, articles ("the", "a"), boilerplate syntax, and whitespace. A model can achieve a lower validation loss simply by becoming slightly better at predicting common syntax, even if its mathematical reasoning degrades.</li>
+<li><strong>Downstream tasks test critical decision tokens</strong>: In a multiple-choice benchmark (such as MMLU) or a math problem (GSM8K), accuracy depends entirely on whether the model assigns higher probability to a single critical token (e.g. choice "B" or digit "4"). A model with higher average cross-entropy across the prompt can still achieve higher downstream task accuracy if its probability mass is concentrated correctly on the answer token.</li>
+<li><strong>Delayed emergence of complex reasoning</strong>: As illustrated in Figure 2, multi-step reasoning capabilities (such as chain-of-thought arithmetic in GSM8K) exhibit <strong>non-linear emergence</strong> [3]. A model may show zero measurable accuracy on GSM8K (0%) for the first 200 billion tokens while its validation loss drops steadily. Then, between 200B and 500B tokens, the capability suddenly emerges and surges from 5% to 45%. Tracking validation loss alone will never reveal when these higher-order reasoning circuits form.</li>
+</ul>
+
+<h3>The four-tier evaluation hierarchy</h3>
+<p>To capture both continuous convergence and downstream capability without wasting cluster compute, production AI teams deploy a four-tier evaluation pyramid (Figure 1):</p>
+<ul>
+<li><strong>Tier 1: Continuous Held-Out Loss (Every 200–500 steps)</strong>: Executed synchronously directly on the training GPUs. Takes 5 to 10 seconds. Evaluates 50 micro-batches of held-out pretraining data. Purpose: immediate anomaly detection (catching loss spikes, gradient corruptions, or dataset degradation).</li>
+<li><strong>Tier 2: Fast Core Benchmarks (Every 2,000 steps)</strong>: Executed asynchronously on the dedicated 8-GPU eval pool. Runs log-likelihood multiple-choice tasks (ARC-Challenge, HellaSwag, and a 20% random subset of MMLU) [2, 4]. Takes roughly 10 minutes. Purpose: tracking core language understanding and factual knowledge trajectory.</li>
+<li><strong>Tier 3: Full Academic Benchmark Suite (Every 20,000 steps &amp; major checkpoints)</strong>: Comprehensive evaluation across full MMLU (14,042 questions), GSM8K (1,319 questions), MATH (5,000 problems), and HumanEval (164 coding tasks). Involves multi-token autoregressive generation with greedy decoding. Purpose: checkpoint selection and ablation comparisons.</li>
+<li><strong>Tier 4: Automated Judges &amp; Preference Evals (Final candidate checkpoints)</strong>: Pairwise comparisons evaluated by strong judge LLMs (e.g. GPT-4 or Claude 3.5 Sonnet) on open-ended prompt suites (MT-Bench, internal customer support test sets) [4]. Purpose: gating model release for post-training (Stage 5).</li>
+</ul>
+
+<h2>Statistical Noise and Evaluation Rigor</h2>
+<h3>The standard error of benchmark accuracy</h3>
+<p>One of the most pervasive traps in AI engineering is over-interpreting minor fluctuations in benchmark scores. When an engineer tests an experimental checkpoint and sees MMLU accuracy increase from 64.2% to 64.8%, they often declare victory and push the change to production. In reality, that difference is almost certainly random noise.</p>
+<p>Any evaluation benchmark that measures accuracy as the percentage of correct answers out of <tex>n</tex> independent questions is a binomial sampling experiment. According to the Central Limit Theorem, the <strong>Standard Error (SE)</strong> of an estimated accuracy proportion <tex>p</tex> on <tex>n</tex> test items is [5]:</p>
+<texblock>\text{SE} = \sqrt{\frac{p(1 - p)}{n}}</texblock>
+<p>The standard error defines the width of the confidence interval. For a standard 95% confidence interval (<tex>\pm 1.96 \times \text{SE}</tex>), the true accuracy lies within:</p>
+<texblock>\text{95% Confidence Interval} = p \pm 1.96 \sqrt{\frac{p(1 - p)}{n}}</texblock>
+<p>Let us evaluate this equation across different benchmark sample sizes (Figure 3):</p>
+<fig src="034-eval-sampling-noise.svg" caption="Evaluation noise and sample size: standard error scaling">Standard error and 95% confidence intervals for an accuracy of 50% across benchmark sizes: n = 50, 200, 1,319, and 14,042. Small test sets introduce high variance, meaning score differences under 5% are statistically meaningless.</fig>
+<ul>
+<li><strong>Ad-hoc sanity test (<tex>n = 50</tex> questions)</strong>: At <tex>p = 0.50</tex>, <tex>\text{SE} = \sqrt{0.25 / 50} = 0.0707</tex> (7.1 percentage points). The 95% confidence interval spans <strong><tex>[36.1\%, 63.9\%]</tex></strong>. A 5% score swing on a 50-question test set is pure noise.</li>
+<li><strong>Small task subset (<tex>n = 200</tex> questions)</strong>: At <tex>p = 0.50</tex>, <tex>\text{SE} = \sqrt{0.25 / 200} = 0.0354</tex> (3.5 percentage points). The 95% confidence interval is <strong><tex>[43.1\%, 56.9\%]</tex></strong>. Verifying an improvement requires a gain of at least 7.0%.</li>
+<li><strong>GSM8K test set (<tex>n = 1,319</tex> questions)</strong>: At <tex>p = 0.60</tex>, <tex>\text{SE} = \sqrt{(0.60 \times 0.40) / 1,319} \approx 0.0135</tex> (1.35 percentage points). The 95% confidence interval is <strong><tex>[57.4\%, 62.6\%]</tex></strong>. A 1% fluctuation between checkpoints is statistically indistinguishable from chance.</li>
+<li><strong>Full MMLU test set (<tex>n = 14,042</tex> questions across 57 subjects)</strong>: At <tex>p = 0.65</tex>, <tex>\text{SE} = \sqrt{(0.65 \times 0.35) / 14,042} \approx 0.0040</tex> (0.40 percentage points). The 95% confidence interval is tight: <strong><tex>[64.2\%, 65.8\%]</tex></strong>. On full MMLU, a 1.0% gain represents a genuine, statistically significant improvement.</li>
+</ul>
+<callout kind="tip" title="Interview tip">Always state sample sizes when discussing benchmarks. Say: "GSM8K has only 1,319 questions, which gives a standard error of roughly 1.4 percentage points. We require at least a 3-point delta before concluding an ablation is superior." This demonstrates statistical maturity.</callout>
+
+<h2>Evaluating Base Models vs Instruct Models</h2>
+<h3>Base models: log-likelihood multiple choice</h3>
+<p>A raw base foundation model (such as Llama 3.1 8B Base) is trained exclusively on next-token prediction. It has not undergone Supervised Fine-Tuning (SFT) or Reinforcement Learning from Human Feedback (RLHF) (Lesson 22, Supervised Fine-Tuning). Consequently, <strong>base models do not know how to follow instructions or carry on a dialogue</strong>.</p>
+<p>If you feed a base model a prompt such as <code>"Please solve this math question: What is 2 + 2?"</code>, the model will not output <code>"4"</code>. Instead, it will hallucinate continuations: <code>" What is 3 + 3? What is 4 + 4? Exercises for 2nd grade math students..."</code>. Evaluating base models with conversational zero-shot generation yields garbage outputs and falsely deflated scores.</p>
+<p>Instead, base models are evaluated using <strong>log-likelihood scoring</strong> (Figure 4, Left) [2, 4]:</p>
+<ol>
+<li><strong>Few-shot context</strong>: The prompt provides 5 completed demonstration examples establishing the formatting pattern.</li>
+<li><strong>Option conditioning</strong>: The prompt ends with <code>"Answer:"</code>.</li>
+<li><strong>Forward pass</strong>: In a single forward pass, the model evaluates the unnormalized logits at the final token position.</li>
+<li><strong>Log-probability comparison</strong>: The evaluation harness extracts the log-probabilities assigned to the target candidate tokens: <tex>\log P(\text{" A"}), \log P(\text{" B"}), \log P(\text{" C"}), \log P(\text{" D"})</tex>.</li>
+<li><strong>Decision</strong>: The model chooses the option with the highest log-probability: <tex>\text{Prediction} = \text{argmax}_{c} \log P(c)</tex>.</li>
+</ol>
+<p>Log-likelihood evaluation is completely deterministic, requires zero autoregressive generation, and executes at full forward-pass tensor core speed (hundreds of questions per second per GPU).</p>
+<fig src="034-base-vs-instruct-eval.svg" caption="Evaluating base models versus instruct models: two distinct protocols">Architectural differences in evaluation. Left: Base models are evaluated via single-pass log-likelihood scoring of candidate answer tokens over 5-shot prefixes. Right: Instruct models are evaluated using chat templates and multi-token autoregressive generation, verified via regex parsing or automated LLM judges.</fig>
+
+<h3>Instruct models: chat templates, CoT generation, and judge parsing</h3>
+<p>Once a model undergoes instruction tuning in Stage 5, its evaluation protocol shifts completely to <strong>autoregressive generation</strong> (Figure 4, Right):</p>
+<ul>
+<li><strong>Chat templates</strong>: Prompts must be wrapped in the exact special token delimiter format used during fine-tuning (e.g. <code>&lt;|begin_of_text|&gt;&lt;|start_header_id|&gt;user&lt;|end_header_id|&gt;...</code>). Omitting chat templates causes severe format confusion.</li>
+<li><strong>Chain-of-Thought (CoT) generation</strong>: For complex reasoning benchmarks (GSM8K, MATH, HumanEval), the model generates multi-token reasoning steps before outputting its final answer (e.g. <code>"First, calculate ... Therefore, the answer is #### 42"</code>). Evaluating CoT requires autoregressive decoding at temperature 0 (greedy decoding).</li>
+<li><strong>Answer extraction</strong>: An automated parser uses regular expressions to extract the final predicted token following standard delimiter anchors (such as <code>####</code> in GSM8K or <code>\boxed{}</code> in MATH).</li>
+</ul>
+
+<h3>LLM-as-a-Judge and systemic biases</h3>
+<p>For open-ended tasks (customer support dialogues, creative writing, summarization), exact-match regex parsing is impossible. In response, AI teams deploy <strong>LLM-as-a-Judge</strong>: using a frontier model (such as GPT-4 or Claude 3.5 Sonnet) to evaluate and grade model responses [4].</p>
+<p>While automated judges correlate strongly with human preferences (often achieving &gt; 80% agreement with expert human annotators), they exhibit three severe <strong>systematic biases</strong> that must be mitigated (Figure 5) [4]:</p>
+<fig src="034-llm-as-judge-biases.svg" caption="The three systematic biases of LLM-as-a-Judge (Zheng et al., 2023)">The three primary distortions identified in automated LLM evaluation. Position bias favors Answer A over Answer B; Verbosity bias rewards length and formatting over correctness; Self-preference bias causes evaluator models to favor outputs generated by their own architecture.</fig>
+<ol>
+<li><strong>Position Bias</strong>: In pairwise comparisons (presenting Answer A and Answer B), judges exhibit strong positional preference, favoring the first answer (Position A) up to 60–70% of the time, regardless of quality. <em>Mitigation</em>: <strong>Bidirectional position swapping</strong>. Every comparison must be evaluated twice: once as (A, B) and once as (B, A). A model is awarded a win only if it wins in both orientations; contradictory verdicts are scored as ties.</li>
+<li><strong>Verbosity / Length Bias</strong>: LLM judges consistently award higher scores to longer, formatting-heavy, verbose responses over concise, direct answers, even when the concise response is more accurate. <em>Mitigation</em>: Length-controlled judging prompts that explicitly instruct the judge to penalize filler and boilerplate, or normalizing win rates against response word counts.</li>
+<li><strong>Self-Preference Bias</strong>: When an LLM evaluates outputs from diverse models, it systematically favors responses generated by models from its own family (e.g. GPT-4 preferring GPT-4 outputs, Llama 3 preferring Llama 3 outputs), recognizing familiar token distributions and rhetorical structures. <em>Mitigation</em>: Deploying a multi-model judge panel combining diverse model architectures (e.g. GPT-4, Claude, and Gemini) and auditing automated decisions against human calibration sets.</li>
+</ol>
+
+<h2>Checkpoint Selection and Model Soup Averaging</h2>
+<h3>The late-stage checkpoint dilemma</h3>
+<p>During the final cooling phase of pretraining (the last 5–10% of tokens where the learning rate decays toward zero), validation loss reaches a flat minimum valley. However, within this valley, individual late-stage checkpoints oscillate:</p>
+<ul>
+<li>Checkpoint at step 94,000 might achieve 64.8% on MMLU but only 52.1% on GSM8K.</li>
+<li>Checkpoint at step 97,000 might achieve 64.1% on MMLU but jump to 54.2% on GSM8K.</li>
+<li>Checkpoint at step 100,000 might achieve the lowest training loss but show slight regression on coding benchmarks.</li>
+</ul>
+<p>Choosing a single checkpoint based on an individual benchmark score is gambling on evaluation noise.</p>
+
+<h3>Uniform weight averaging (Model Soup / SWA)</h3>
+<p>Rather than picking a single winner, state-of-the-art foundation model pipelines apply <strong>Stochastic Weight Averaging (SWA)</strong> or <strong>Uniform Model Soup</strong> [6]. The team identifies the top <tex>K</tex> checkpoints (typically <tex>K = 3</tex> to <tex>5</tex>) saved during the final minimum learning rate schedule, and computes their element-wise parameter average:</p>
+<texblock>\bar{W}_{\text{soup}} = \frac{1}{K} \sum_{k=1}^K W_k</texblock>
+<p>As illustrated in Figure 6, individual late-stage checkpoints sit on different outer lips of the flat loss valley. Averaging their weights in parameter space projects the model into the deep, flat geometric center of the basin [6].</p>
+<fig src="034-checkpoint-averaging-soup.svg" caption="Checkpoint selection and weight averaging (Model Soup / SWA)">Loss landscape representation of checkpoint averaging. Individual late-stage checkpoints (94k, 97k, 100k) sit on different lips of the basin, winning on different noisy benchmarks. The averaged parameter soup (W_soup) locates the flat center of the basin, achieving superior generalization and higher benchmark scores than any single checkpoint.</fig>
+<p>Extensive empirical studies by Wortsman et al. demonstrate that <strong>the averaged model soup consistently outperforms every individual constituent checkpoint across virtually all evaluation benchmarks</strong>, gaining +0.5% to +1.2% in accuracy while improving out-of-distribution robustness [6]. Weight averaging requires zero additional training compute, zero inference overhead (the averaged weights have identical parameter count), and serves as an ideal hedge against evaluation noise.</p>
+
+<h3>Evaluation compute cost</h3>
+<p>Running comprehensive benchmarks across 14,000 MMLU questions and hundreds of reasoning prompts requires significant matrix compute. If an evaluation suite requires 20 million tokens of inference per checkpoint, running this on the primary 256-GPU training cluster wastes thousands of dollars in paused training.</p>
+<p>Production training infrastructure separates training and evaluation compute physically (linking to Inference Lesson 39, Batch and Offline Inference):</p>
+<ul>
+<li>The 256-GPU pretraining cluster saves checkpoints asynchronously to shared storage (Lustre / CephFS) and resumes training immediately without pausing.</li>
+<li>A dedicated evaluation pool of 8 H100 GPUs detects the newly saved checkpoint, loads the weights into an optimized batch serving engine (such as vLLM or SGLang), and executes the benchmark suite in parallel at 3,000+ tokens per second.</li>
+<li>Benchmark results and standard errors are parsed and logged directly to experiment tracking dashboards (WandB, MLflow) within 15 minutes of checkpoint creation.</li>
+</ul>
+
+<h4>What evals and how often for our run?</h4>
+<p>We can now establish the exact evaluation policy for our running 256-GPU pretraining cluster:</p>
+<ol>
+<li><strong>Every 200 steps (Synchronous, Training GPUs)</strong>: Run Tier 1 held-out cross-entropy loss over 50 validation batches. Execution time: &lt; 8 seconds. If validation loss spikes by &gt; 2.5×, trigger the automated stability watchdog (Lesson 32, Training Stability - Loss Spikes and Divergence).</li>
+<li><strong>Every 2,000 steps (Asynchronous, Dedicated 8-GPU Pool)</strong>: Run Tier 2 fast log-likelihood core benchmarks: ARC-Challenge, HellaSwag, and 5-shot MMLU. Log raw scores and standard errors (<tex>\pm \sqrt{p(1-p)/n}</tex>).</li>
+<li><strong>Every 20,000 steps (Milestones)</strong>: Run Tier 3 full academic benchmarks: full MMLU (14,042 items), GSM8K (1,319 items), MATH (5,000 items), and HumanEval (164 coding tasks).</li>
+<li><strong>Final Checkpoint Selection</strong>: Save the final 5 checkpoints during the cosine learning rate floor (steps 92k, 94k, 96k, 98k, 100k). Compute their uniform parameter average (<tex>\bar{W}_{\text{soup}}</tex>). Validate that the averaged model soup equals or exceeds the constituent checkpoints before handing off to post-training.</li>
+</ol>
+
+<h2>In Practice</h2>
+<p>The first tab provides an automated evaluation hook script (<code>eval_hook.py</code>) that monitors a shared checkpoint directory, triggers <code>lm-eval</code> via subprocess, parses the structured JSON results, extracts accuracy and standard error metrics, and logs them to tracking dashboards. The second tab provides the production CLI command to run the EleutherAI <code>lm-evaluation-harness</code> across standard foundation model benchmarks.</p>
+<codetabs>
+<tab label="eval_hook.py" lang="python">
+import glob
+import json
+import os
+import subprocess
+import time
+
+def evaluate_checkpoint(ckpt_dir: str, output_base: str, tasks: str = "arc_challenge,hellaswag,mmlu"):
+    """Monitors checkpoint folder, triggers lm-eval on new checkpoints, and extracts metrics."""
+    os.makedirs(output_base, exist_ok=True)
+    
+    # Identify latest saved checkpoint folder
+    ckpts = glob.glob(os.path.join(ckpt_dir, "step_*"))
+    if not ckpts:
+        print("[EVAL HOOK] No checkpoints found in directory.")
+        return None
+    ckpts.sort(key=os.path.getmtime)
+    latest_ckpt = ckpts[-1]
+    ckpt_name = os.path.basename(latest_ckpt)
+    
+    eval_output_dir = os.path.join(output_base, ckpt_name)
+    os.makedirs(eval_output_dir, exist_ok=True)
+    
+    print(f"[EVAL HOOK] Launching lm-eval for {ckpt_name} on tasks: {tasks}...")
+    start_time = time.perf_counter()
+    
+    cmd = [
+        "lm_eval",
+        "--model", "hf",
+        "--model_args", f"pretrained={latest_ckpt},dtype=bfloat16",
+        "--tasks", tasks,
+        "--batch_size", "auto",
+        "--output_path", eval_output_dir,
+    ]
+    
+    # Execute lm-eval across dedicated evaluation GPUs
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"[EVAL ERROR] lm-eval execution failed:\n{result.stderr}")
+        return None
+        
+    elapsed = time.perf_counter() - start_time
+    print(f"[EVAL HOOK] Completed evaluation in {elapsed:.1f}s. Parsing JSON outputs...")
+    
+    # Parse output JSON generated by lm-evaluation-harness
+    json_files = glob.glob(os.path.join(eval_output_dir, "**/*.json"), recursive=True)
+    if not json_files:
+        print("[EVAL ERROR] No JSON output files generated.")
+        return None
+        
+    with open(json_files[0], "r") as f:
+        data = json.load(f)
+        
+    summary = {}
+    for task_name, task_metrics in data.get("results", {}).items():
+        # Extract primary accuracy and standard error metrics
+        acc = task_metrics.get("acc,none") or task_metrics.get("acc_norm,none") or task_metrics.get("acc")
+        stderr = task_metrics.get("acc_stderr,none") or task_metrics.get("acc_norm_stderr,none") or 0.0
+        summary[task_name] = {"acc": acc, "stderr": stderr}
+        print(f"  Task: {task_name:18s} | Accuracy: {acc*100:5.2f}% (±{stderr*100:4.2f}%)")
+        
+    return summary
+
+if __name__ == "__main__":
+    evaluate_checkpoint(
+        ckpt_dir="/mnt/shared/checkpoints/llama3_8b",
+        output_base="/mnt/shared/eval_results/llama3_8b",
+        tasks="arc_challenge,hellaswag,mmlu"
+    )
+</tab>
+<tab label="lm-eval CLI" lang="bash">
+# Install official lm-evaluation-harness
+pip install lm-eval
+
+# Run fast core log-likelihood benchmark suite on an 8-GPU node
+# Uses native Hugging Face model loader with BF16 precision and auto-batching
+accelerate launch -m lm_eval \
+  --model hf \
+  --model_args pretrained=/mnt/shared/checkpoints/llama3_8b/step_40000,dtype=bfloat16 \
+  --tasks mmlu,arc_challenge,hellaswag \
+  --num_fewshot 5 \
+  --batch_size auto \
+  --output_path ./eval_results/step_40000/ \
+  --log_samples
+
+# Expected output table:
+# |    Tasks     |Version|Filter|n-shot| Metric |   |Value |   |Stderr|
+# |--------------|------:|------|-----:|--------|---|-----:|---|-----:|
+# |arc_challenge |      1|none  |     5|acc_norm|±  |0.5842|±  |0.0144|
+# |hellaswag     |      1|none  |     5|acc_norm|±  |0.7920|±  |0.0040|
+# |mmlu          |      1|none  |     5|acc     |±  |0.6512|±  |0.0040|
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li><strong>Few-shot demonstration sensitivity</strong>: In-context few-shot examples introduce order bias: permuting the order of the 5 few-shot demonstration examples can alter model accuracy by up to 3% to 5% on sensitive multiple-choice tasks. Standardizing the exact demonstration examples is essential for reproducible ablation comparisons.</li>
+<li><strong>Prompt format brittleness</strong>: Small variations in whitespace (e.g. <code>"Answer:"</code> versus <code>"Answer: "</code>) or capitalization can dramatically shift token probabilities in base models. The <code>lm-evaluation-harness</code> standardizes prompt templates across models to ensure fair comparisons.</li>
+<li><strong>Perplexity normalization</strong>: When comparing perplexity across models with different tokenizers, raw token cross-entropy cannot be compared directly because tokenizers segment text with differing compression ratios (tokens per byte). Comparing perplexity across architectures requires normalizing loss by bytes: <tex>\text{Bits Per Byte (BPB)} = \mathcal{L} / (\ln(2) \times \text{bytes per token})</tex>.</li>
+<li><strong>Data contamination audits during eval</strong>: If held-out evaluation scores exceed peer benchmarks by a suspicious margin (+15%), immediate n-gram containment checks must be executed against the pretraining dataset to detect test-set leakage (Lesson 35, Benchmarks and Contamination).</li>
+<li><strong>Asynchronous eval queue scaling</strong>: Using batch inference engines (vLLM, TensorRT-LLM) for evaluation achieves up to 10× higher token throughput than standard PyTorch forward loops, allowing full milestone suites to execute in under an hour.</li>
+<li><strong>Early stopping in pretraining</strong>: Unlike supervised fine-tuning, large-scale language model pretraining virtually never uses early stopping based on validation loss, as pretraining corpora are so vast that models operate far below empirical data saturation (Lesson 8, Scaling Laws).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="034-summary.png" caption="Training evaluation summary" optional="1">Mind map summarizing training evaluation: the four-tier evaluation pyramid, statistical noise mechanics, base versus instruct evaluation protocols, automated judge biases, and checkpoint soup averaging.</fig>
+<ul>
+<li>Continuous evaluation during training prevents silent regressions and guides checkpoint selection. Never halt the main training cluster; offload heavy evaluations to an asynchronous evaluation pool.</li>
+<li>Held-out validation loss and downstream reasoning benchmarks frequently diverge: validation loss reflects average syntax prediction, while reasoning benchmarks test critical decision tokens and exhibit delayed emergence.</li>
+<li>Benchmark accuracy is subject to binomial sampling noise: <tex>\text{SE} = \sqrt{p(1 - p) / n}</tex>. On small test sets (<tex>n \le 200</tex>), differences under 5% are statistically meaningless. Full MMLU (<tex>n = 14,042</tex>) achieves tight precision (<tex>\text{SE} \approx 0.4\%</tex>).</li>
+<li>Base pretraining models must be evaluated via few-shot log-likelihood scoring of candidate answer tokens, not conversational generation. Instruct models require chat templates and chain-of-thought generation.</li>
+<li>Automated LLM judges exhibit three systematic distortions: Position Bias, Verbosity Bias, and Self-Preference Bias. Position swapping and length-controlled rubrics are mandatory.</li>
+<li>Uniform parameter averaging (Model Soup / SWA) across the final 3–5 checkpoints projects the model into the deep center of the loss basin, consistently outperforming every individual checkpoint across all benchmarks.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Dubey et al. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[2] Gao et al. A Framework for Few-Shot Language Model Evaluation. <a href="https://github.com/EleutherAI/lm-evaluation-harness" rel="noopener noreferrer" target="_blank">https://github.com/EleutherAI/lm-evaluation-harness</a>.<br>
+[3] Wei et al. Emergent Abilities of Large Language Models. <a href="https://arxiv.org/abs/2206.07682" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2206.07682</a>.<br>
+[4] Zheng et al. Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena. <a href="https://arxiv.org/abs/2306.05685" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2306.05685</a>.<br>
+[5] Wasserman. All of Statistics: A Concise Course in Statistical Inference. <a href="https://link.springer.com/book/10.1007/978-0-387-21736-9" rel="noopener noreferrer" target="_blank">https://link.springer.com/book/10.1007/978-0-387-21736-9</a>.<br>
+[6] Wortsman et al. Model Soups: Averaging Weights of Multiple Fine-Tuned Models Improves Accuracy Without Increasing Inference Time. <a href="https://arxiv.org/abs/2203.05482" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2203.05482</a>.</p>

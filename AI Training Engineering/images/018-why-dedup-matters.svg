@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="25" y="30" class="lg b">Why Duplicates Hurt: The Three Hazards of Redundant Data</text>
+  <text x="25" y="52" class="sm" fill="#555">Empirical failure modes caused by uncleaned repetition and mirror text in pretraining corpora</text>
+
+  <!-- Hazard 1: Memorization & Privacy -->
+  <rect x="25" y="80" width="240" height="225" rx="5" class="red"/>
+  <text x="145" y="105" class="b mid" fill="#900">1. Verbatim Memorization</text>
+  <text x="40" y="135" class="sm">• Duplicated sequences are</text>
+  <text x="40" y="153" class="sm">  memorized exponentially faster</text>
+  <text x="40" y="171" class="sm">  (Carlini et al., 2022)</text>
+  <text x="40" y="195" class="sm">• 10× higher rate of emitting</text>
+  <text x="40" y="213" class="sm">  private training text verbatim</text>
+  <text x="40" y="237" class="sm">• Leaks API keys, private emails,</text>
+  <text x="40" y="255" class="sm">  and medical records</text>
+  <text x="40" y="280" class="sm b" fill="#900">Severe compliance &amp; legal risk</text>
+
+  <!-- Hazard 2: Wasted Compute & Degradation -->
+  <rect x="290" y="80" width="240" height="225" rx="5" class="orange"/>
+  <text x="410" y="105" class="b mid" fill="#7d4b00">2. Wasted Compute</text>
+  <text x="305" y="135" class="sm">• Up to 30% of raw web text</text>
+  <text x="305" y="153" class="sm">  consists of duplicate documents</text>
+  <text x="305" y="177" class="sm">• Model spends billions of FLOPs</text>
+  <text x="305" y="195" class="sm">  relearning identical gradients</text>
+  <text x="305" y="219" class="sm">• Deduplicated models reach</text>
+  <text x="305" y="237" class="sm">  lower perplexity with fewer</text>
+  <text x="305" y="255" class="sm">  total training steps</text>
+  <text x="305" y="280" class="sm b" fill="#7d4b00">Saves ~$30,000 on our 1T run</text>
+
+  <!-- Hazard 3: Benchmark Contamination -->
+  <rect x="555" y="80" width="240" height="225" rx="5" class="purple"/>
+  <text x="675" y="105" class="b mid" fill="#4d2c63">3. Evaluation Contamination</text>
+  <text x="570" y="135" class="sm">• Web crawls contain leaked</text>
+  <text x="570" y="153" class="sm">  splits of MMLU, GSM8k, HumanEval</text>
+  <text x="570" y="177" class="sm">• Models memorize exact answers</text>
+  <text x="570" y="195" class="sm">  rather than reasoning</text>
+  <text x="570" y="219" class="sm">• Creates deceptive benchmark</text>
+  <text x="570" y="237" class="sm">  scores that collapse in production</text>
+  <text x="570" y="261" class="sm">• Suffix-array dedup purges</text>
+  <text x="570" y="280" class="sm b" fill="#4d2c63">  benchmark test-set overlaps</text>
+</svg>

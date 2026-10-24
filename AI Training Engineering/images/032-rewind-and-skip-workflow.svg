@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b85450"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-size: 14px; fill: #000; }
+    .sm { font-size: 12px; }
+    .b { font-weight: bold; }
+    .title { font-size: 16px; font-weight: bold; }
+    .orange { fill: #ffe6cc; stroke: #d79b00; stroke-width: 1.2; }
+    .blue { fill: #dae8fc; stroke: #6c8ebf; stroke-width: 1.2; }
+    .green { fill: #d5e8d4; stroke: #82b366; stroke-width: 1.2; }
+    .purple { fill: #e1d5e7; stroke: #9673a6; stroke-width: 1.2; }
+    .red { fill: #f8cecc; stroke: #b85450; stroke-width: 1.2; }
+    .gray { fill: #f5f5f5; stroke: #666; stroke-width: 1.2; }
+    .white { fill: #fff; stroke: #000; stroke-width: 1.2; }
+    .edge { fill: none; stroke: #000; stroke-width: 1.2; marker-end: url(#arrow); }
+    .rewind-edge { fill: none; stroke: #b85450; stroke-width: 1.8; stroke-dasharray: 4 3; marker-end: url(#arrow-red); }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="25" y="24" class="title">The PaLM Strategy: Rewind Checkpoint and Skip Bad Batches</text>
+  <text x="25" y="42" class="sm" fill="#555">Empirical mitigation for data-induced loss spikes: roll back 100 steps and advance dataloader past toxic tokens.</text>
+
+  <!-- Step Timeline Container -->
+  <rect x="25" y="60" width="790" height="215" rx="5" class="gray"/>
+
+  <!-- Phase 1: Healthy Checkpoint at T - 100 -->
+  <rect x="45" y="80" width="165" height="70" rx="4" class="green"/>
+  <text x="127" y="102" text-anchor="middle" class="b sm">Checkpoint T − 100</text>
+  <text x="127" y="120" text-anchor="middle" class="sm">Loss = 2.42 · Stable</text>
+  <text x="127" y="136" text-anchor="middle" class="sm">Model &amp; Adam states saved</text>
+
+  <!-- Forward flow arrow -->
+  <path d="M210,115 L320,115" class="edge"/>
+  <text x="265" y="105" text-anchor="middle" class="sm" fill="#555">+100 Steps</text>
+
+  <!-- Phase 2: Spike at Step T -->
+  <rect x="320" y="80" width="165" height="70" rx="4" class="red"/>
+  <text x="402" y="102" text-anchor="middle" class="b sm">Spike at Step T</text>
+  <text x="402" y="120" text-anchor="middle" class="sm">Loss jumps: 2.40 → 6.85</text>
+  <text x="402" y="136" text-anchor="middle" class="sm">Grad norm explodes to 48.0</text>
+
+  <!-- Rewind Curve from Step T back to T-100 -->
+  <path d="M402,150 C402,185 127,185 127,150" class="rewind-edge"/>
+  <text x="265" y="180" text-anchor="middle" class="sm b" fill="#990000">1. Rewind weights &amp; optimizer to T − 100</text>
+
+  <!-- Phase 3: Data Stream Action -->
+  <rect x="45" y="195" width="440" height="65" rx="4" class="orange"/>
+  <text x="55" y="215" class="b sm">2. Dataloader Fast-Forward (Skip Poisoned Batch Range):</text>
+  <text x="55" y="233" class="sm">• Advance batch offset by 300 batches (covering steps T − 50 to T + 250)</text>
+  <text x="55" y="249" class="sm">• Bypasses corrupted text, malformed HTML, or zero-entropy token strings</text>
+
+  <!-- Forward Resume from T-100 to T' -->
+  <path d="M485,227 L560,227" class="edge"/>
+
+  <!-- Phase 4: Clean Resumed State -->
+  <rect x="560" y="140" width="235" height="120" rx="4" class="white"/>
+  <text x="570" y="162" class="b sm" fill="#274e13">3. Resumed Training Trajectory</text>
+  <text x="570" y="182" class="sm">• Restarts from step T − 100</text>
+  <text x="570" y="200" class="sm">• Consumes fresh data stream</text>
+  <text x="570" y="218" class="sm">• Loss continues smooth descent</text>
+  <text x="570" y="236" class="sm b" fill="#274e13">• Zero recurrence of spike</text>
+
+  <!-- Bottom Explanatory Box -->
+  <rect x="25" y="284" width="790" height="52" rx="4" class="white"/>
+  <text x="38" y="304" class="b sm">Why PaLM Rewound 100 Steps Instead of Just 1:</text>
+  <text x="390" y="304" class="sm">Optimizer states (Adam second moment v)</text>
+  <text x="38" y="322" class="sm">become polluted by toxic gradients tens of steps before the loss spikes visibly. Rewinding 100 steps flushes corrupted momentum.</text>
+</svg>
