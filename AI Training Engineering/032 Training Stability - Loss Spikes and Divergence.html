@@ -323,7 +323,7 @@
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing training stability: primary causes of loss spikes, QK-Norm and z-loss mathematical mechanics, the PaLM rewind-and-skip empirical protocol, and telemetry thresholds." loading="lazy" decoding="async" src="images/032-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Training stability summary</figcaption></div></figure>
 <ul>
 <li>Training instabilities arise from four primary sources: unchecked attention logit growth, corrupted data batches, numerical overflow in low precision, and Adam optimizer momentum lag (<math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><msub><mi>&#x003B2;</mi><mn>2</mn></msub></mrow></math> lag).</li>
 <li>Attention logit growth escalates query and key norms, causing dot-product logits to exceed 50 and collapsing softmax into a one-hot distribution with zero entropy.</li>

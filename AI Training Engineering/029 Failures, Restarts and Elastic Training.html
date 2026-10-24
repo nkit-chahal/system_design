@@ -405,7 +405,7 @@ srun --kill-on-bad-exit=<span class="hljs-number">1</span> \
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing cluster reliability: empirical failure rates from Llama 3, failure taxonomy, multi-tier watchdog detection, the goodput equation, and static topologies with hot spares." loading="lazy" decoding="async" src="images/029-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 6: Failures, restarts and elastic training summary</figcaption></div></figure>
 <ul>
 <li>At scale, hardware failures are statistical certainties: Meta's Llama 3 pretraining on 16K H100s experienced 419 unplanned interruptions in 54 days (~1 failure every 3 hours), dominated by GPU, NVLink, and HBM3 faults.</li>
 <li>Scaling to our 256-GPU cluster yields a Mean Time Between Failures of approximately 198 hours (~8.25 days), resulting in an expected 0.67 interruptions across our 5.5-day pretraining run.</li>

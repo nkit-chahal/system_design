@@ -385,7 +385,7 @@ Under synchronous checkpointing, saving roughly every 3 hours minimizes total wa
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing distributed checkpointing: exact state requirements, DCP sharded directory layout, asynchronous host memory staging, the Young/Daly frequency formula, and multi-tier retention pipelines." loading="lazy" decoding="async" src="images/028-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Distributed checkpointing summary</figcaption></div></figure>
 <ul>
 <li>An exact training checkpoint requires 16 bytes per parameter (128.5 GB for Llama 3.1 8B) to store BF16 weights, FP32 master weights, and Adam momentum and variance states, alongside lightweight LR scheduler, DataLoader, and RNG states.</li>
 <li>Naive <code>torch.save()</code> crashes master ranks via memory gathering and saturates network storage. PyTorch Distributed Checkpoint (DCP) allows each rank to write its local shard independently, eliminating all rank-0 bottlenecks.</li>

@@ -534,7 +534,7 @@ curl -X POST http://localhost:<span class="hljs-number">8000</span>/v1/chat/comp
 </ol>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the lab: post-training workflow, SFT assistant-only loss masking, PEFT implicit reference DPO, pairwise win-rate judging, and adapter merging." loading="lazy" decoding="async" src="images/027-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: LoRA fine-tune then DPO lab summary</figcaption></div></figure>
 <ul>
 <li>Post-training bridges the gap between raw pretrained foundation models and aligned production assistants via a two-stage pipeline: SFT followed by preference optimization.</li>
 <li>In SFT, using <code>DataCollatorForCompletionOnlyLM</code> masks prompt tokens with label <code>-100</code>, ensuring cross-entropy loss is computed exclusively on assistant turns.</li>
