@@ -304,7 +304,7 @@ curl http://localhost:<span class="hljs-number">30000</span>/v1/chat/completions
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the lesson: LoRA adapter sizes, merged versus unmerged, batched kernels, caching tiers, engine flags, and multi-tenant isolation, fairness, and billing." loading="lazy" decoding="async" src="images/037-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 9: Multi-LoRA and multi-tenant serving summary</figcaption></div></figure>
 <ul>
 <li>A LoRA adapter adds <code>rank × (d_in + d_out)</code> parameters per adapted matrix. For Llama 3.1 8B at rank 16 on all linear layers that is 42 million parameters, 80 MiB, 0.52% of the base model.</li>
 <li>Merged adapters cost nothing at inference but need a model copy each; unmerged adapters share one base model and one batch, at a small per-step cost.</li>

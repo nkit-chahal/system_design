@@ -300,7 +300,7 @@ vllm bench serve \
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the percentile latency lesson: what percentiles are, which LLM latencies to track, measuring them correctly, SLOs and error budgets, and what drives the p99." loading="lazy" decoding="async" src="images/028-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 9: p50, p95 and p99 latency summary</figcaption></div></figure>
 <ul>
 <li>Latency is a distribution. Report p50, p95 and p99; a mean of 194 ms can hide a p99 of 1.4 s and a maximum of 5 s.</li>
 <li>Track TTFT, time per output token, inter-token latency, queue time and end-to-end latency separately, and add the worst gap per request: a 2 s freeze in every answer leaves the ITL p99 at 20 ms and the TPOT at 24 ms.</li>

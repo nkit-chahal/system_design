@@ -341,7 +341,7 @@ python -m sglang_router.launch_router \
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the request routing lesson: why LLM routing differs, the main policies, the tension between cache hits and load, and the concerns around routing such as adapters, priorities, disaggregation and retries." loading="lazy" decoding="async" src="images/025-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 9: Request routing summary</figcaption></div></figure>
 <ul>
 <li>LLM routing differs from web load balancing because requests differ by more than 100× in cost, streams hold a replica for seconds, and each replica's prefix cache makes some placements far cheaper than others.</li>
 <li>Round robin and least outstanding requests balance request counts, not work. Measuring load in outstanding tokens, queue length, or KV cache usage fixes that.</li>

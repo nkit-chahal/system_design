@@ -290,7 +290,7 @@ python -m sglang.launch_server --model-path meta-llama/Llama-<span class="hljs-n
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the lesson: memory and compute at 128K tokens, chunked prefill and context parallelism, offloading tiers, long-context model designs, and the cost decision against retrieval." loading="lazy" decoding="async" src="images/036-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 9: Long-context serving summary</figcaption></div></figure>
 <ul>
 <li>At 128 KiB per token, a 128K-token request of Llama 3.1 8B needs 16 GiB of KV cache; only three fit on an H100, and each decode step reads about 68 GB.</li>
 <li>Prefill FLOPs are 2Nn plus an attention term in n². For Llama 3.1 8B attention overtakes the linear layers at about 61K tokens, and a 128K prompt takes about 13.4 s at 50% MFU.</li>

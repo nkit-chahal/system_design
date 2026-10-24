@@ -292,7 +292,7 @@ python -m sglang.launch_server --model-path deepseek-ai/DeepSeek-V3-<span class=
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the lesson: routing and experts, total versus active parameters, prefill and decode cost, tensor versus expert parallelism, all-to-all and load balancing, wide EP deployments, and the memory budget for DeepSeek-V3." loading="lazy" decoding="async" src="images/035-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 9: Mixture-of-experts serving summary</figcaption></div></figure>
 <ul>
 <li>An MoE layer routes each token to its top-k experts, plus any shared experts. DeepSeek-V3 picks 8 of 256 routed experts and has 671B parameters, of which 37B are active per token.</li>
 <li>Memory follows total parameters: all 671 GB of FP8 weights must be resident. Prefill compute follows active parameters: about 75 GFLOPs per token.</li>

@@ -290,7 +290,7 @@ SCHEMA = {<span class="hljs-string">"type"</span>: <span class="hljs-string">"js
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the lesson: constrained decoding with token masks, automata and tokenizer alignment, the libraries and how engines hide their cost, quality practices, and the tool-calling round trip and its latency." loading="lazy" decoding="async" src="images/038-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Structured output and tool calling summary</figcaption></div></figure>
 <ul>
 <li>Constrained decoding masks, at every step, the logits of tokens that would break the format; the model still chooses among the allowed tokens.</li>
 <li>Regexes, enums, and flat schemas compile to finite-state machines; nested formats need a pushdown automaton with a stack. Tokens span grammar boundaries, so each token's full string must be checked.</li>

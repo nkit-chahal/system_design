@@ -521,7 +521,7 @@ sudo nvidia-smi -i <span class="hljs-number">0</span> -pl <span class="hljs-numb
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the lab: the monitoring stack, the metrics, the dashboard rows, leading-indicator alerts, the decision tree, and the worked incident." loading="lazy" decoding="async" src="images/032-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 8: Latency dashboard summary</figcaption></div></figure>
 <ul>
 <li>Prometheus scrapes vLLM's <code>vllm:*</code> metrics and dcgm-exporter's <code>DCGM_FI_*</code> metrics every 5 seconds; set the exporter's collection interval to match and enable the profiling fields.</li>
 <li>TTFT is queue time plus prefill, TPOT is decode, and none of vLLM's histograms include time spent in front of vLLM.</li>

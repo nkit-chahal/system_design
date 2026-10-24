@@ -304,7 +304,7 @@ python vllm/tests/v1/kv_connector/nixl_integration/toy_proxy_server.py \
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the lesson: the interference problem, the architecture, KV transfer cost, sizing the prefill-to-decode ratio, systems that implement it, and when to use it." loading="lazy" decoding="async" src="images/034-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 8: Disaggregated prefill and decode summary</figcaption></div></figure>
 <ul>
 <li>When prefill and decode share a GPU, a long prompt stretches every decoding user's step. Chunked prefill spreads the stall out but cannot remove it: a 2,000-token chunk still turns a 15 ms step into almost 80 ms.</li>
 <li>Disaggregated serving runs prefill and decode on separate GPU pools, with a router and a KV cache transfer between them. It improves goodput and tail latency, not raw throughput.</li>

@@ -309,7 +309,7 @@ python -m sglang.launch_server --model-path meta-llama/Llama-<span class="hljs-n
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the lesson: GPU building blocks, the memory hierarchy, naive versus FlashAttention, decode kernels, fusion and CUDA graphs, and the deployment decision." loading="lazy" decoding="async" src="images/033-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 9: GPU architecture and attention kernels summary</figcaption></div></figure>
 <ul>
 <li>An H100 SXM has 132 SMs with four tensor cores each, 256 KB of registers and up to 228 KB of shared memory per SM, a 50 MB L2, and 80 GB of HBM at 3.35 TB/s. Kernels are fast when they reuse data on chip.</li>
 <li>Naive attention writes and reads N × N matrices in HBM: 512 GiB of traffic for an 8,192-token prompt of Llama 3.1 8B, at about 64 FLOPs per byte. It is memory-bound and, at long contexts, does not even fit.</li>

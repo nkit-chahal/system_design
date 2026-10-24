@@ -275,7 +275,7 @@ DCGM_FI_DEV_ROW_REMAP_FAILURE &gt; <span class="hljs-number">0</span>
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the GPU metrics lesson: the DCGM pipeline, the key metrics, why memory looks full, reading GPU and engine metrics together, MIG caveats, and what to alert on." loading="lazy" decoding="async" src="images/030-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 8: GPU metrics summary</figcaption></div></figure>
 <ul>
 <li>dcgm-exporter publishes DCGM fields to Prometheus on port 9400; its default CSV omits SM activity, occupancy, the power limit, throttling, and ECC counters, so inference fleets should ship their own list.</li>
 <li>GPU utilization only says that some kernel was running; SM activity, tensor activity, and DRAM activity say how much of the GPU was working, with about 0.8 as the practical DRAM ceiling.</li>

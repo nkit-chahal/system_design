@@ -349,7 +349,7 @@ prev, prev_t = scrape(), time.monotonic()
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the queue depth lesson: where queues form, Little&#x27;s law, utilization, engine signals, and how to act on them." loading="lazy" decoding="async" src="images/029-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 8: Queue depth summary</figcaption></div></figure>
 <ul>
 <li>Most LLM queueing happens in the engine's waiting queue, which is unbounded by default; the running batch is limited by KV cache blocks and the maximum number of sequences.</li>
 <li>Little's law, <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>L</mi><mo>&#x0003D;</mo><mi>&#x003BB;</mi><mi>W</mi></mrow></math>, turns counts into time: our fleet holds about 180 requests in flight, about 36 per replica, and an estimated wait is waiting requests divided by completions per second.</li>

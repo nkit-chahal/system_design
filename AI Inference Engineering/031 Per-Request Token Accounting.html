@@ -317,7 +317,7 @@ vllm serve meta-llama/Llama-<span class="hljs-number">3.1</span>-8B-Instruct \
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the per-request token accounting lesson: the record&#x27;s fields, getting usage from the API, counting tokens, cost, storage, and privacy." loading="lazy" decoding="async" src="images/031-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 8: Per-request token accounting summary</figcaption></div></figure>
 <ul>
 <li>Keep one record per request with request ID, tenant, model and adapter, prompt, cached and output tokens, finish reason, status, queue time, TTFT, end-to-end latency, and replica.</li>
 <li>Streamed responses carry usage only with <code>stream_options={"include_usage": true}</code>, in a final chunk with empty <code>choices</code>; interrupted streams may lose it, so make vLLM force usage on every request.</li>
