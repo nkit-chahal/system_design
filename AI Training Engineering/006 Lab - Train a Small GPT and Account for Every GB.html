@@ -406,7 +406,7 @@ CONFIGS = [
 </ol>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the memory accounting lab: analytical sizing rules, PyTorch profiling hooks, mixed-precision impact, checkpointing trade-offs, micro-batch tuning, and hardware realities." loading="lazy" decoding="async" src="images/006-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Training memory accounting summary</figcaption></div></figure>
 <ul>
 <li>GPU training memory divides into four distinct categories: static model and optimizer states (16 bytes per parameter under mixed-precision AdamW), dynamic forward activations, ephemeral projection workspaces (such as the logits buffer), and allocator headroom.</li>
 <li>For GPT-2 Small (124.44M parameters), static states require <strong>1.99 GB</strong> (1,899 MiB). For a 1B-parameter model, static states require <strong>16.00 GB</strong>.</li>

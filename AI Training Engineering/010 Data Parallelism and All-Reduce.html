@@ -369,7 +369,7 @@ torchrun \
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing data parallelism, the ring all-reduce algorithm, NCCL tree and ring topologies, gradient bucketing and overlap, and memory constraints." loading="lazy" decoding="async" src="images/010-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 8: Data parallelism and all-reduce summary</figcaption></div></figure>
 <ul>
 <li>Data parallelism replicates the full model across all GPUs and partitions the global batch into distinct micro-batches. Local gradients are averaged via collective all-reduce before the optimizer step.</li>
 <li>Ring all-reduce executes in two phases—Reduce-Scatter and All-Gather—transferring <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mn>2</mn><mo stretchy="false">&#x00028;</mo><mi>N</mi><mo>&#x02212;</mo><mn>1</mn><mo stretchy="false">&#x00029;</mo><mo>&#x0002F;</mo><mi>N</mi><mo>&#x000D7;</mo><mi>S</mi></mrow></math> bytes per GPU. Communication volume asymptotically approaches <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mn>2</mn><mi>S</mi></mrow></math>, remaining independent of GPU count.</li>

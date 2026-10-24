@@ -354,7 +354,7 @@ sc1 = size_training_project(<span class="hljs-string">"Llama 3.1 8B on 1T"</span
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the sizing lab: compute budget allocation, 6ND and attention FLOP calculations, FSDP memory verification, InfiniBand communication overlap, financial failure buffering, and empirical calibration." loading="lazy" decoding="async" src="images/009-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 6: Lab - Size a Training Run summary</figcaption></div></figure>
 <ul>
 <li>Sizing a pretraining run requires a 6-step engineering pipeline: budget allocation, FLOP modeling, memory verification, network overlap checking, financial buffering, and live telemetry calibration.</li>
 <li>For a compute budget of <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mn>4.82</mn><mo>&#x000D7;</mo><msup><mn>10</mn><mrow><mn>22</mn></mrow></msup></mrow></math> FLOPs, Chinchilla optimality prescribes a 20B model on 400B tokens. Overtraining an 8.03B model on 1T tokens consumes identical compute and achieves nearly identical validation loss (+0.0057), but slashes inference memory from 40 GB to 16 GB and cuts serving costs by over 60%.</li>

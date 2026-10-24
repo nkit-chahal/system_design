@@ -305,7 +305,7 @@ torchrun --nproc_per_node=<span class="hljs-number">8</span> --nnodes=<span clas
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the expert parallelism lesson: router gradients, load balancing losses, dropless MegaBlocks execution, DeepSeek-V3 dynamic biases, and All-to-All communication." loading="lazy" decoding="async" src="images/015-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 6: Expert parallelism summary</figcaption></div></figure>
 <ul>
 <li>Mixture-of-Experts (MoE) decouples model capacity from compute cost by activating only top-<math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>k</mi></mrow></math> experts per token, but introduces memory, routing gradient, and interconnect challenges absent in inference.</li>
 <li>Router gradients flow through continuous softmax coefficients into router weights <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><msub><mi>W</mi><mi>g</mi></msub></mrow></math>. Without constraints, positive feedback causes router collapse onto a few popular experts.</li>

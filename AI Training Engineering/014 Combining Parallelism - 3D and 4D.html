@@ -293,7 +293,7 @@ max_norm = 1.0</code></pre><button type="button" class="ant-btn css-133v4sd ant-
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing 3D and 4D parallelism: hardware hierarchy mapping, global batch arithmetic, Llama 3 405B case study, and layout decisions." loading="lazy" decoding="async" src="images/014-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Combining parallelism summary</figcaption></div></figure>
 <ul>
 <li>Multi-dimensional parallelism composes Tensor (TP), Pipeline (PP), Context (CP), and Data (FSDP/DP) parallelism into an <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>n</mi></mrow></math>-dimensional device mesh: <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><msub><mi>N</mi><mrow><mtext>gpus</mtext></mrow></msub><mo>&#x0003D;</mo><mtext>TP</mtext><mo>&#x000D7;</mo><mtext>PP</mtext><mo>&#x000D7;</mo><mtext>CP</mtext><mo>&#x000D7;</mo><mtext>DP</mtext></mrow></math>.</li>
 <li>Golden rules of topology: Confine TP strictly to intra-node NVLink (<math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mo>&#x02264;</mo><mn>8</mn></mrow></math> GPUs); use PP across nodes to shard depth; use CP for ultra-long contexts; wrap the outer cluster in FSDP / DP.</li>

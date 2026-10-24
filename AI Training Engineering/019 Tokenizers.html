@@ -334,7 +334,7 @@ Allocating a 4.2 GB tensor purely for intermediate logits causes severe memory f
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the tokenizers lesson: subword algorithms, vocabulary sizing trade-offs, pre-tokenization regex, embedding parameter accounting, and multilingual fertility." loading="lazy" decoding="async" src="images/019-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Tokenizers summary</figcaption></div></figure>
 <ul>
 <li>Tokenization dictates the text compression ratio (chars/token), setting how much human knowledge fits within a fixed token budget and context length.</li>
 <li>Byte-Level BPE starts with 256 byte tokens and iteratively merges the most frequent symbol pairs, guaranteeing zero out-of-vocabulary tokens across all languages and code.</li>

@@ -492,7 +492,7 @@ prof.export_chrome_trace("trace.json")</code></pre>
 </ol>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the DDP versus FSDP comparison: memory scaling regimes, communication trade-offs, PyTorch Profiler traces, small path execution, and critical wrapping pitfalls." loading="lazy" decoding="async" src="images/016-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: DDP vs FSDP benchmark summary</figcaption></div></figure>
 <ul>
 <li><strong>DDP replicates all states</strong> (16 bytes per parameter under mixed-precision AdamW) across every GPU, synchronizing only gradients during backpropagation via asynchronous ring all-reduce.</li>
 <li><strong>FSDP shards weights, gradients, and optimizer states</strong> across ranks, reducing per-GPU static memory by factor <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><msub><mi>N</mi><mi>d</mi></msub></mrow></math> (from 128.5 GB down to 16.1 GB per GPU on an 8×H100 node for Llama 3.1 8B).</li>

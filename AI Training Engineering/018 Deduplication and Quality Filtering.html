@@ -348,7 +348,7 @@ On a small cluster of 24 nodes with 128 CPU cores each (3,072 total cores), sign
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the deduplication and quality filtering lesson: duplication hazards, exact and MinHash LSH deduplication, suffix-array substring pruning, Gopher heuristics, neural quality classifiers, and proxy ablations." loading="lazy" decoding="async" src="images/018-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Deduplication and quality filtering summary</figcaption></div></figure>
 <ul>
 <li>Duplicate training data causes verbatim memorization (10× higher emission rate), wastes up to 30% of cluster compute on redundant updates, and contaminates benchmark test sets.</li>
 <li>Exact deduplication uses normalized URL hashing and 64-bit FarmHash / SHA-256 document hashing. Near-duplicate deduplication uses word 5-gram shingles, 128 MinHash permutations, and Locality-Sensitive Hashing (LSH).</li>
