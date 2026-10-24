@@ -1,7 +1,7 @@
 center: Optimizers
-branch: Momentum And Adam | momentum smooths valley ravines | adam normalizes coordinate scales | bias correction handles initialization
-branch: Decoupled Weight Decay | l two penalty distorts variance | adamw applies direct shrinkage | scale free uniform regularization
-branch: Learning Rate Schedules | linear warmup prevents divergence | cosine decay requires fixed horizon | warmup stable decay flexibility
-branch: Standard Hyperparameters | beta two point nine five | weight decay point one | gradient clipping prevents spikes
-branch: Memory Saving Optimizers | eight bit adam quantizes states | adafactor low rank factors | muon orthogonalizes weight matrices
-branch: Distributed Memory Sizing | sixteen bytes per parameter | intra node fsdp sharding | sixteen gigabytes per gpu
+branch: Adam and AdamW | momentum smooths oscillations | RMS coordinate-wise scaling | decoupled weight decay 0.1
+branch: Memory accounting | 4B momentum and 4B variance | 8 bytes per parameter | 128.5 GB for 8B
+branch: Learning-rate schedules | linear warmup prevents divergence | cosine decay fixed horizon | WSD flexible cooldown
+branch: Standard hyperparameters | beta1=0.9 and beta2=0.95 | eps = 1e-8 | gradient clipping at 1.0
+branch: Memory-saving alternatives | 8-bit Adam quantizes states | Adafactor low-rank factors | Muon orthogonalized updates
+branch: Distributed sizing | unsharded AdamW OOMs | 8-way FSDP on NVLink | 16.1 GB per GPU

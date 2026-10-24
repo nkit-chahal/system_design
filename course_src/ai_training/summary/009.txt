@@ -1,7 +1,7 @@
-center: Lab Size a Training Run
-branch: Step Sizing Pipeline | compute budget and model allocation | planned mfu and wall clock days | memory headroom and network overlap
-branch: Memory Verification | sixteen bytes per parameter baseline | fsdp intra node sharding | thirty four gigabytes fits in eighty
-branch: Network Overlap | all reduce takes six hundred milliseconds | backward pass takes thirteen hundred milliseconds | communication hides behind compute
-branch: Financial Budgeting | base rental one hundred one thousand | ten percent buffer for restarts | five percent buffer for evals
-branch: Empirical Calibration | one hundred step validation trial | measure real step duration | recalibrate schedule and cluster spend
-branch: Results And Alternatives | running eight billion scenario | compute optimal twenty billion model | frontier scale seventy billion run
+center: Sizing a Training Run
+branch: Budget and model choice | ≈ 4.82e22 FLOPs budget | Chinchilla 20B on 400B | 8.03B on 1T overtrained
+branch: Memory verification | 16.06 GB states on FSDP-8 | 13.50 GB activations | 34.06 GB fits 80 GB
+branch: Network overlap | 642 ms InfiniBand all-reduce | 1,330 ms backward compute | 100% communication overlap
+branch: Financial buffers | 10% failure and restart pad | 5% online evaluation buffer | $116,715 total production commitment
+branch: Empirical calibration | 100-step validation trial | measure physical step time | validate 40% planned MFU
+branch: Alternative layouts | 8B pure intra-node FSDP | 20B compute-optimal baseline | 70B requires 3D parallelism

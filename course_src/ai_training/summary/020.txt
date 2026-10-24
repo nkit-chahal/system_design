@@ -1,7 +1,7 @@
 center: Data Mixtures and Curriculum
-branch: Domain Spectrum | curated web volume | source code logic | math and science reasoning
-branch: Mixture Laws | proxy model ablations | doremi minimax optimization | regmix regression laws
-branch: Repetition Limits | up to two epochs | four epochs negligible loss | beyond four epochs memorization
-branch: Curriculum Stages | stationary pretraining mix | phased context extension | late stage annealing
-branch: Annealing Benefits | upsample code and math | linear lr decay to zero | twenty four percent gsm8k gain
-branch: Pretraining Budget | one trillion tokens | eight hundred twenty billion unique | saves compute via repetition
+branch: Domain spectrum | curated web and source code | STEM and formal mathematics | books and multilingual text
+branch: Automated mixture laws | DoReMi minimax Group DRO | 2.6× faster convergence | RegMix regression surfaces
+branch: Repetition limits | up to 4 epochs repeated | < 0.1% degradation on math | web consumed in 1 epoch
+branch: Late-stage annealing | linear LR decay to zero | upsample high-quality code and math | +24% GSM8K accuracy boost
+branch: Context curriculum | stationary mixture baseline | phased context length extension | 8K pretraining to 128K
+branch: 1T pretraining budget | 55% Web and 20% Code | 12% Math and 8% Multilingual | 820B unique tokens required

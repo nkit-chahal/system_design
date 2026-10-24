@@ -352,7 +352,7 @@ error = (x - x_restored).<span class="hljs-built_in">abs</span>().mean()
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing mixed-precision training: number formats, loss scaling mechanics, FP32 guardrails, Hopper FP8 scaling methods, and cluster throughput trade-offs." loading="lazy" decoding="async" src="images/005-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Mixed precision training summary</figcaption></div></figure>
 <ul>
 <li>FP16 provides narrow dynamic range (max 65,504, min normal <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mn>6.1</mn><mo>&#x000D7;</mo><msup><mn>10</mn><mrow><mo>&#x02212;</mo><mn>5</mn></mrow></msup></mrow></math>), requiring dynamic loss scaling to prevent small backpropagated gradients from underflowing to zero.</li>
 <li>BF16 preserves the full 8-bit exponent of FP32 (spanning <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><msup><mn>10</mn><mrow><mo>&#x02212;</mo><mn>38</mn></mrow></msup></mrow></math> to <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><msup><mn>10</mn><mrow><mn>38</mn></mrow></msup></mrow></math>), completely eliminating the need for loss scaling and establishing itself as the pretraining standard.</li>

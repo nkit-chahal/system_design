@@ -1,7 +1,7 @@
 center: Verifiable Rewards and GRPO
-branch: Verifiable Rewards | deterministic rule based scoring | math solvers and test suites | immune to reward model drift
-branch: GRPO Algorithm | group relative advantage | samples multiple outputs per prompt | eliminates value critic model
-branch: Memory Savings | fifty percent lower memory | cuts critic weights and optimizer | frees memory for long rollouts
-branch: Reasoning Emergence | deepseek r1 zero pure rl | autonomous self correction | test time compute expansion
-branch: Systems Bottleneck | rollout phase dominates time | fast vllm inference loop | weight sync across nvlink
-branch: Production Fit | exact ground truth tasks | hybrid alignment pipelines | verification over subjectivity
+branch: Deterministic verifiers | SymPy solvers and compilers | unit test execution harnesses | immune to reward drift
+branch: GRPO algorithm mechanics | group of G sampled completions | standardize rewards against group | eliminates parameterized critic network
+branch: Memory economics | saves 128.5 GB AdamW states | cuts static memory by 50% | frees VRAM for long rollouts
+branch: Reasoning emergence | DeepSeek-R1 pure RL | autonomous backtracking and reflection | test-time compute expansion
+branch: Systems architecture | 70% to 90% rollout time | high-throughput vLLM serving engine | low-latency NVLink weight synchronization
+branch: Optimal applications | formal mathematics and Olympiads | competitive code execution | structured deterministic tool calling

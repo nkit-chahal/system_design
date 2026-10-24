@@ -1,7 +1,7 @@
 center: Pipeline Parallelism
-branch: Stage Partitioning | vertical split of layers | point to point activations | embedding and head asymmetry
-branch: Schedulers And Bubbles | naive execution stalls gpus | gpipe causes memory explosion | one f one b caps activations
-branch: Bubble Arithmetic | p minus one over total | high microbatch count helps | interleaved virtual stages
-branch: Zero Bubble Training | decouples activation and weight | fills idle bubbles | under five percent overhead
-branch: Network And Interconnect | low frequency p2p transfers | crosses nodes over infiniband | avoids fine grained all reduce
-branch: Sizing Decision | unnecessary for eight billion | essential for seventy billion | combined with tp and fsdp
+branch: Stage partitioning | vertical layer partition | boundary point-to-point transfers | embedding and head asymmetry
+branch: 1F1B steady state | naive schedule wastes 75% | GPipe causes O(m) activations | 1F1B caps activations at O(p)
+branch: Bubble fraction math | bubble formula (p-1)/(m+p-1) | requires m >= 4p micro-batches | interleaved virtual stages
+branch: Zero-bubble scheduling | decouples activation gradients BA | defers weight gradients BW | pushes bubble under 5%
+branch: Network characteristics | [b, s, h] activation tensors | 1.3-2.7 ms over InfiniBand | ideal for cross-node scaling
+branch: Architecture decision | unnecessary for 8B run | mandatory for 70B+ scale | combined with TP and FSDP

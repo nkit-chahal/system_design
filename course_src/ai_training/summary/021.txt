@@ -1,7 +1,7 @@
-center: Lab - Build a Filtering and Dedup Pipeline
-branch: Ingestion and Language | stream fineweb sample | odc by attribution license | filter english confidence
-branch: Heuristic Quality | document length bounds | symbol to word ratio | repetition checks and stopwords
-branch: Deduplication Stages | sha two fifty six exact | minhash locality sensitive hashing | jaccard candidate clustering
-branch: Precision Audit | sample rejected documents | true positive web spam | protect latex and code
-branch: One Trillion Scaling | ninety nine thousand core hours | thirty five hundred dollars cost | two terabytes binary shards
-branch: Distributed Production | datatrove declarative pipeline | ray and slurm executors | memory mapped uint sixteen shards
+center: Building a Data Pipeline
+branch: Ingestion and language ID | stream raw Common Crawl | fastText English threshold 0.65 | filters foreign web pages
+branch: Heuristic quality filters | word count and length bounds | symbol-to-word ratio < 15% | repetitive line ratio < 30%
+branch: Deduplication stages | SHA-256 exact document hash | MinHash with 128 permutations | 16 bands of 8 rows
+branch: Precision auditing | sample removed documents | verify true spam removal | protect LaTeX and code blocks
+branch: 1T scaling economics | ingests 3.57T raw tokens | ~99,200 CPU core-hours | ~$3,500 filtering cost
+branch: Distributed production | Datatrove pipeline orchestration | Ray and Slurm workers | memory-mapped binary shards

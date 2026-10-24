@@ -1,6 +1,7 @@
 center: LoRA SFT and DPO Lab
-branch: Post Training Pipeline | supervised fine tuning first | preference optimization second | parameter efficient adapter merging
-branch: SFT Assistant Loss | masks user prompt tokens | computes cross entropy on completions | data collator completion only
-branch: LoRA DPO Architecture | reference model set to none | implicit reference disables adapter | eliminates model weight duplication
-branch: Hyperparameter Tuning | beta controls reference drift | lower learning rate than sft | prevents policy collapse and verbosity
-branch: Evaluation and Serving | pairwise win rate judge | position bias shuffling | merge adapter for vllm serving
+branch: Two-stage pipeline | supervised fine-tuning first stage | direct preference optimization second | parameter-efficient LoRA adapters
+branch: SFT loss masking | DataCollatorForCompletionOnlyLM collator | masks prompts with label -100 | computes loss on assistant turns
+branch: Memory-efficient DPO | ref model set to None | disables adapter for reference forward | eliminates base model duplication
+branch: Hyperparameter tuning | beta controls policy drift | 5e-6 DPO vs 2e-4 SFT | prevents conversational capability collapse
+branch: Pairwise evaluation | LLM judge win-rate scoring | swap candidate positions | eliminates order presentation bias
+branch: Serving deployment | merge and unload adapter weights | standalone Hugging Face checkpoint | zero-overhead vLLM engine serving

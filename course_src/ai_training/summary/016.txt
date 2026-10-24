@@ -1,6 +1,7 @@
 center: DDP vs FSDP Comparison
-branch: Memory Scaling | ddp replicates sixteen bytes | fsdp shards across ranks | enables eight b training
-branch: Communication Tradeoff | ddp all reduce in backward | fsdp fifty percent more | nvlink hides fsdp gathers
-branch: Runtime Profiling | torch profiler chrome tracing | nccl kernel stream overlap | identifies communication stalls
-branch: Small Path Execution | two gpus on three fifty m | single gpu measurement limits | torchrun multi process launch
-branch: Critical Pitfalls | block level wrapping mandatory | mixed precision policy matching | avoid premature reduce scatter
+branch: Memory footprint scaling | DDP replicates 16 bytes/param | FSDP shards states across ranks | 16.1 GB per GPU
+branch: Communication volume | DDP 2S all-reduce in backward | FSDP 3S total traffic | 50% more collective communication
+branch: Throughput tradeoffs | DDP 10% faster under 1B | FSDP mandatory above 5B | NVLink hides FSDP prefetch
+branch: Runtime trace profiling | PyTorch Profiler Chrome traces | layer i+1 all-gather prefetching | identifies communication stalls
+branch: Implementation pitfalls | block-level wrapping mandatory | root wrapping negates memory savings | torch compile DTensor matching
+branch: Lab sizing decision | small path on 350M proxy | full path 8 GPUs | torchrun multi-process launch

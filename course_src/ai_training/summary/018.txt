@@ -1,7 +1,7 @@
 center: Deduplication and Quality Filtering
-branch: Hazards Of Duplication | verbatim memorization risks | wasted training cluster compute | evaluation benchmark contamination
-branch: Deduplication Levels | url normalization hash | exact document sha two fifty six | near duplicate minhash lsh
-branch: Minhash And Lsh | word five gram shingles | s curve collision formula | union find graph clustering
-branch: Substring Deduplication | suffix array lexicographical sort | longest common prefix array | prunes repeated spans
-branch: Quality Filtering Tiers | gopher rule based heuristics | kenlm perplexity filters | fineweb edu neural classifier
-branch: Proxy Ablation Strategy | one billion parameter models | twenty five billion tokens | guides pretraining data mixture
+branch: Duplication hazards | 10× higher verbatim memorization | wastes up to 30% compute | benchmark test set contamination
+branch: Exact deduplication | normalized URL hashing | 64-bit FarmHash | SHA-256 document signatures
+branch: MinHash LSH near-dedup | word 5-gram shingles | 16 bands of 8 rows | 0.707 inflection threshold
+branch: Suffix array substring dedup | lexicographical suffix sort | purges matches over 50 tokens | eliminates boilerplate and licenses
+branch: Quality filtering tiers | Gopher heuristics > 500 MB/s | KenLM 5-gram perplexity | FineWeb-Edu neural classifier
+branch: Proxy ablation validation | 1B models on 25B tokens | 6 hours for $150 | transfers reliably to 8B/70B

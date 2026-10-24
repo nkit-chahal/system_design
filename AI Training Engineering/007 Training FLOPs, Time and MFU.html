@@ -364,7 +364,7 @@ stats = monitor.toc(tokens_in_step)
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the training FLOPs, time, and MFU lesson: the 6ND rule, attention compute growth, MFU versus HFU, cluster efficiency bottlenecks, operational telemetry, and cluster budgeting." loading="lazy" decoding="async" src="images/007-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Training FLOPs, Time and MFU summary</figcaption></div></figure>
 <ul>
 <li>Dense transformer pretraining requires approximately <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mn>6</mn><mi>N</mi><mi>D</mi></mrow></math> floating-point operations (<math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mn>2</mn><mi>N</mi><mi>D</mi></mrow></math> for forward pass, <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mn>4</mn><mi>N</mi><mi>D</mi></mrow></math> for backward pass). Full activation recomputation adds <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mn>2</mn><mi>N</mi><mi>D</mi></mrow></math>, reaching <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mn>8</mn><mi>N</mi><mi>D</mi></mrow></math> (+33.3% compute).</li>
 <li>The quadratic attention term contributes <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mn>12</mn><mi>L</mi><mi>s</mi><mi>h</mi></mrow></math> FLOPs per token. For an 8B model, attention represents only 6.7% overhead at 2,048 tokens, but climbs to 26.7% at 8,192 tokens and over 100% at 32K context.</li>

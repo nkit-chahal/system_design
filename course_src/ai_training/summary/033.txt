@@ -1,7 +1,7 @@
-center: Recover From Failure
-branch: Lab Architecture | two process local dev path | sixteen gpu slurm cluster | fault injection process kill
-branch: Mandatory States | model weights and optimizer | lr scheduler step counter | rng states and dataloader
-branch: Recovery Timeline | failure detection timeout | torchrun relaunch and sync | state restoration and replay
-branch: Verification Metric | continuous loss curve match | tolerance within ten to minus four | bitwise with cuda deterministic
-branch: Goodput Accounting | useful compute over total | checkpoint saving overhead | lost time and replayed steps
-branch: Failure Pitfalls | missing optimizer momentum | non resumable dataloader shuffle | corrupted partial file writes
+center: Recovering from Failure
+branch: Five mandatory states | model weights and Adam states | LR scheduler step counter | DataLoader offset and RNG states
+branch: Restart omission pitfalls | missing optimizer resets momentum | triggers loss spikes on restart | missing DataLoader duplicates data
+branch: Recovery timeline breakdown | failure detection watchdog timeout | scheduler requeue and node reboot | checkpoint read and replay
+branch: Verification and parity | matches baseline within 1e-4 | bitwise parity under deterministic mode | non-deterministic atomic add divergence
+branch: Goodput accounting math | useful forward-backward compute ratio | checkpoint I/O saving overhead | replayed uncheckpointed step cost
+branch: Lab fault injection | kill -9 simulated failure | 2-process local dev test | 16-GPU Slurm cluster test

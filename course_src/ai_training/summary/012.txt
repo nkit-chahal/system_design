@@ -1,7 +1,7 @@
-center: Tensor Sequence and Context Parallelism
-branch: Tensor Parallelism | column and row decomposition | four all-reduces per layer | backward pass doubles communication
-branch: Sequence Parallelism | shards layernorm and dropout | reduce-scatter and all-gather | zero extra communication penalty
-branch: Context Parallelism | ring attention kv passing | deepspeed ulysses all-to-all | scales context to millions
-branch: Network Constraints | nvlink ninety times faster | blocking all-reduce stalls | tp confined inside node
-branch: Model Scaling | 8B uses zero tp | 70B requires tp eight | fits layers across gpus
-branch: Run Selection | llama 8b at 8k | pure hsdp deployment | peak forty percent mfu
+center: Tensor and Sequence Parallelism
+branch: Tensor Parallelism | ColumnParallel and RowParallel | 4 all-reduces per layer | 128 all-reduces per step
+branch: Sequence Parallelism | shards RMSNorm along sequence | reduce-scatter and all-gather | zero extra communication volume
+branch: Context Parallelism | Ring Attention P2P circulation | DeepSpeed-Ulysses all-to-all | scales context to 128K
+branch: Network constraints | blocking synchronous collective stalls | 16.7 ms over NVLink | > 300 ms over InfiniBand
+branch: Model scaling limits | TP confined inside node | 70B requires TP=8 | 405B requires 4D mesh
+branch: Pretraining run choice | Llama 3.1 8B at 8K | TP=1 and CP=1 | pure HSDP sustains 40% MFU

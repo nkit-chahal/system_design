@@ -1,7 +1,7 @@
 center: Combining Parallelism
-branch: Four Dimensions | tensor parallel inside nodes | pipeline parallel across nodes | data parallel across cluster
-branch: Hardware Hierarchy | submicrosecond nvlink for tp | infiniBand fabric for pp | asynchronous spine for fsdp
-branch: Global Batch Arithmetic | data parallel times microbatches | accumulation steps control bubble | critical batch limits scaling
-branch: Frontier 4D Case Study | sixteen thousand gpus | llama three 405b layout | achieved 41 percent mfu
-branch: Measuring Efficiency | roofline limits single gpu | collective communication overhead | pipeline bubble drains throughput
-branch: Layout Decision | pure hybrid sharding for 8b | three d layout for 70b | four d layout for 405b
+branch: Four-dimensional mesh | four dimensional device mesh | PyTorch DeviceMesh grids | orthogonal communication submeshes
+branch: Hardware mapping rules | TP strictly on NVLink | PP crosses node boundaries | outer cluster wrapped in DP
+branch: Global batch arithmetic | global batch token formula | critical batch size ceiling | scaling DP inflates bubble
+branch: Frontier 4D case study | Llama 3 405B configuration | 16,384 H100 GPUs | 38% to 41% MFU achieved
+branch: Layout by model size | 8B uses pure HSDP | 70B uses 3D mesh | 405B requires 4D parallelism
+branch: Pretraining run decision | 256 H100 cluster allocation | TP=1 and PP=1 | FSDP=8 with DP=32

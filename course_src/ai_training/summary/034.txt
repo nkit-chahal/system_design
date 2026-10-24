@@ -1,7 +1,7 @@
 center: Training Evaluation
-branch: Four Evaluation Tiers | continuous held out validation loss | frequent log likelihood multiple choice | milestone generation and reasoning
-branch: Loss Vs Downstream | perplexity drops monotonically | reasoning exhibits delayed emergence | lowest loss not best model
-branch: Statistical Noise | standard error formula | small benchmarks produce phantom gains | fourteen thousand question mmlu power
-branch: Base Vs Instruct | base uses log likelihood choices | instruct generates chain of thought | chat templates require regex extraction
-branch: Automated Judges | pairwise order position bias | verbosity and length inflation | self preference model bias
-branch: Checkpoint Selection | late stage valley oscillations | uniform weight soup averaging | hedges against evaluation noise
+branch: Asynchronous evaluation tiers | continuous held-out validation loss | frequent log-likelihood multiple-choice | dedicated asynchronous evaluation pool
+branch: Loss versus reasoning evals | perplexity drops smoothly | reasoning exhibits delayed emergence | lowest loss != best model
+branch: Statistical noise rigor | binomial SE formula | n <= 200 produces noise | MMLU n=14,042 achieves 0.4% SE
+branch: Base versus instruct evaluation | base uses log-likelihood scoring | instruct generates chain-of-thought | regex extracts final answers
+branch: Automated judge biases | position presentation order bias | verbosity and length inflation | self-preference model bias
+branch: Checkpoint selection | late-stage loss basin oscillations | Model Soup uniform averaging | averages final 3-5 checkpoints

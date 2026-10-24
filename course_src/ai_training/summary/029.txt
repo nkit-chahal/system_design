@@ -1,6 +1,7 @@
 center: Failures and Restarts
-branch: Scale Failure Reality | llama three reported four hundred failures | mostly hardware and memory | scales to our cluster
-branch: Failure Taxonomy | gpu xid fatal bus drops | hbm double bit ecc errors | silent data corruption bit flips
-branch: Watchdog Detection | nccl asynchronous error watchdog | dcgm hardware telemetry signals | loss anomaly and spike detection
-branch: Recovery Orchestration | automated node drain and exclusion | pre warmed hot standby spares | fast checkpoint reload
-branch: Goodput Optimization | useful training over total time | exceeds ninety percent at scale | fixed topology beats elastic resizing
+branch: Large-scale failure statistics | 419 interruptions in 54 days | Llama 3 16K H100 cluster | MTBF ≈ 198 hours
+branch: Failure taxonomy | XID 79 PCIe bus drops | XID 48 uncorrectable ECC errors | Silent Data Corruption bit flips
+branch: Watchdog failure detection | NCCL async error watchdog | 30-second deadlock detection timeout | DCGM hardware telemetry signals
+branch: Automated recovery flow | automated unhealthy node draining | pre-warmed hot standby spare nodes | fast asynchronous checkpoint reload
+branch: Invariant topology design | fixed 32-node cluster layout | avoids dynamic batch adjustments | prevents learning rate re-scaling
+branch: Goodput optimization | useful compute over total time | exceeds 99.7% on 256 GPUs | near-zero lost cluster compute

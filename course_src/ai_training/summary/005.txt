@@ -1,7 +1,7 @@
 center: Mixed Precision Training
-branch: Number Formats | fp sixteen narrow dynamic range | bf sixteen matches fp thirty two | fp eight introduces e four m three
-branch: Guardrails In Thirty Two | master weights prevent stagnation | optimizer states preserve variance | reductions avoid overflow
-branch: Loss Scaling Dynamics | fp sixteen underflows small gradients | dynamic grad scaler rescales loss | bf sixteen requires no scaling
-branch: Hopper FP Eight Scaling | per tensor delayed scaling | fine grained tile wise scaling | deepseek eliminates hybrid format
-branch: Realized Speedup Limits | tensor core peaks double compute | non gemm operations remain sixteen | amdahl caps gain under one point five
-branch: Pretraining Decision | pure bf sixteen stable baseline | five point five days for eight b | fp eight essential for frontier
+branch: Number formats | FP16 narrow range underflows | BF16 preserves FP32 exponent | FP8 introduces E4M3 and E5M2
+branch: FP32 guardrails | master weights prevent swamping | 8B optimizer states | softmax and RMSNorm reductions
+branch: Loss scaling | FP16 requires GradScaler | BF16 eliminates loss scaling | standard for pretraining
+branch: Hopper FP8 recipes | delayed scaling across 16 steps | DeepSeek-V3 128x128 tiles | pure E4M3 forward and backward
+branch: Realized speedup | 2× Tensor Core peak | non-GEMMs limit throughput | 1.25× to 1.45× real gain
+branch: Pretraining decision | pure BF16 on 256 H100s | 5.5 days for $101,000 | guaranteed numerical stability

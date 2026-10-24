@@ -298,7 +298,7 @@ total_bytes = bytes_m + bytes_v
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the optimizers lesson: momentum mechanics, decoupled weight decay in AdamW, learning rate schedules, critical batch size, memory-saving optimizers, and cluster sizing." loading="lazy" decoding="async" src="images/004-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 3: Optimizers summary</figcaption></div></figure>
 <ul>
 <li>Polyak momentum smooths oscillations across steep valley walls. Adam introduces coordinate-wise adaptive learning rates by normalizing gradients by the root-mean-square of past squared gradients.</li>
 <li>Standard <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><msub><mi>L</mi><mn>2</mn></msub></mrow></math> regularization distorts adaptive learning rates because penalty terms enter the second moment <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><msub><mi>v</mi><mi>t</mi></msub></mrow></math>. AdamW decouples weight decay, applying direct parameter shrinkage proportional to learning rate across all weights uniformly.</li>

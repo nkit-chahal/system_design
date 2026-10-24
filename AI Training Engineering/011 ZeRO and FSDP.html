@@ -340,7 +340,7 @@
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the ZeRO stages, memory scaling, communication trade-offs, PyTorch FSDP2 composability, and hybrid sharding." loading="lazy" decoding="async" src="images/011-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 8: ZeRO and FSDP summary</figcaption></div></figure>
 <ul>
 <li>Standard DDP replicates 16 bytes per parameter (128.5 GB for Llama 3.1 8B), exceeding 80 GB GPUs. ZeRO eliminates redundancy by partitioning states across data-parallel ranks.</li>
 <li>ZeRO-1 shards optimizer states (44.2 GB on 8 GPUs). ZeRO-2 shards optimizer states and gradients (30.1 GB). ZeRO-3 / FSDP shards parameters, gradients, and optimizer states (16.1 GB on 8 GPUs, 0.50 GB on 256 GPUs).</li>

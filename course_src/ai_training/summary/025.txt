@@ -1,7 +1,7 @@
-center: DPO and Preference Optimization
-branch: Closed Form Derivation | implicit reward formulation | partition function cancels out | binary cross entropy loss
-branch: Memory and Precomputation | policy and frozen reference | precomputing reference log probs | single GPU execution
-branch: Hyperparameter Tuning | beta temperature control | lower learning rates than SFT | avoiding policy collapse
-branch: Preference Variants | identity preference optimization | Kahneman Tversky prospect theory | reference free odds ratio
-branch: Alignment Failure Modes | likelihood displacement on chosen | verbosity and length exploitation | length controlled win rates
-branch: Production Decision | avoids four model instability | fast offline static training | ideal for product alignment
+center: Direct Preference Optimization
+branch: Mathematical derivation | implicit reward formulation | partition function Z cancels out | binary cross-entropy objective
+branch: Memory and precomputation | 144.6 GB static memory footprint | precompute reference log-probs offline | saves 40% forward compute
+branch: Hyperparameter tuning | beta between 0.05 and 0.1 | LR 5-20× below SFT | 5e-7 to 2e-6 full FT
+branch: Preference variants | IPO prevents deterministic overconfidence | KTO aligns unpaired feedback | reference-free ORPO and SimPO
+branch: Failure modes and mitigations | likelihood displacement on chosen | verbosity up to 40% expansion | anchor with SFT loss term
+branch: Production economics | 20,000 pairs on 8xH100 node | completes under 15 minutes | ~$6 total compute cost

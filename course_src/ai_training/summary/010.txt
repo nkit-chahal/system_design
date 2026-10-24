@@ -1,7 +1,7 @@
 center: Data Parallelism and All-Reduce
-branch: Replica Architecture | full weight copies | slice global batch | identical optimizer step
-branch: Ring All-Reduce | reduce-scatter and all-gather | traffic approaches 2S | independent of rank count
-branch: Collective Topology | tree for latency | ring for high bandwidth | nccl auto heuristic switch
-branch: Gradient Bucketing | autograd backward hooks | bucket cap mb sizing | overlap comm with compute
-branch: Optimization Dynamics | critical batch size limit | gradient noise scale | linear learning rate warmup
-branch: Cluster Budget | sixteen gigabytes gradients | thirty-one ms on nvlink | six hundred forty ms on ib
+branch: Replica architecture | full model weight copies | micro-batch data partitioning | synchronized optimizer step
+branch: Ring all-reduce mechanics | reduce-scatter then all-gather | 2S total communication volume | independent of GPU count
+branch: NCCL collective topologies | Double Binary Tree for latency | Ring algorithm for bandwidth | automatic payload heuristic
+branch: Gradient bucketing | bucket cap mb tuning | autograd backward hooks | overlap communication with compute
+branch: Cluster latency budget | 16.06 GB BF16 gradients | 31.2 ms over NVLink | 640 ms over InfiniBand
+branch: DDP memory wall | 128.5 GB per GPU baseline | exceeds 80 GB H100 capacity | requires ZeRO or FSDP

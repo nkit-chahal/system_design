@@ -1,7 +1,7 @@
 center: Training Stability
-branch: Instability Causes | learning rate too high | bad data batch corruption | low precision numerical overflow
-branch: Softmax Collapse | unchecked query key dot products | logits exceed fifty | qk norm prevents saturation
-branch: Logit Drift | output vocabulary logits drift | auxiliary z loss penalty | stabilizes cross entropy softmax
-branch: Empirical Recovery | palm checkpoint rewind | advance dataloader past corruption | flush poisoned adam states
-branch: Telemetry Signals | global gradient norm spikes | update to weight ratio | attention entropy monitoring
-branch: Stability Defaults | cosine warmup and clipping | remove all linear biases | adam beta two point ninetyfive
+branch: Instability root causes | attention logit growth | corrupted training data batches | Adam beta2 momentum lag
+branch: Softmax entropy collapse | QK dot products exceed 50 | collapses softmax to one-hot | QK-Norm caps logits to 11.3
+branch: Vocabulary logit drift | output logits drift outward | logit z-loss 1e-4 penalty | centers cross-entropy partition function
+branch: PaLM recovery recipe | rewind checkpoint 100 steps | flush poisoned Adam momentum | skip 200 to 500 batches
+branch: Real-time telemetry monitoring | global gradient norm spikes | update-to-weight ratio per layer | attention entropy drop detection
+branch: Pretraining stability defaults | pure BF16 with QK-Norm | AdamW beta2 = 0.95 | gradient clipping at 1.0

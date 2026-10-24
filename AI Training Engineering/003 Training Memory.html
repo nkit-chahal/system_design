@@ -435,7 +435,7 @@ If chunked across 4 micro-slices, this drops to ~1.05 GB.</li>
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the training memory lesson: four footprint components, mixed-precision Adam accounting, activation scaling, checkpointing trade-offs, state sharding, and PyTorch memory measurement." loading="lazy" decoding="async" src="images/003-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 8: Training memory summary</figcaption></div></figure>
 <ul>
 <li>GPU training memory comprises four distinct components: static model states, dynamic backward activations, temporary GEMM and communication buffers, and allocator fragmentation headroom.</li>
 <li>Mixed-precision Adam consumes exactly <strong>16 bytes per parameter</strong> (2B weight, 2B gradient, 4B master weight, 8B moments <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>m</mi></mrow></math> and <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>v</mi></mrow></math>). 75% of static memory belongs to the optimizer.</li>

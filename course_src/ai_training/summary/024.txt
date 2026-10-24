@@ -1,7 +1,7 @@
 center: Reward Models and RLHF
-branch: Why Preference Learning | limits of imitation learning | exposure bias in SFT | multi objective alignment
-branch: Preference Data | pairwise response comparisons | helpful honest harmless criteria | inter annotator agreement
-branch: Reward Model Architecture | Bradley Terry ranking loss | scalar head at final token | pairwise margin optimization
-branch: Four Model Ecosystem | policy reference reward critic | 289 GB static footprint | GAE advantage estimation
-branch: Reward Hacking | Goodharts law in RLHF | verbosity and sycophancy | KL regularization defense
-branch: Algorithmic Evolution | RLAIF and constitutional feedback | push toward offline DPO | verifiable rewards with GRPO
+branch: Preference learning motivation | overcomes SFT exposure bias | penalizes toxic hallucinations | optimizes multi-objective trade-offs
+branch: Bradley-Terry reward model | pairwise comparison dataset | scalar head on final token | negative log-sigmoid ranking loss
+branch: Four-model PPO ecosystem | Policy, Critic, Reference, Reward | 289.1 GB static footprint | 36.1 GB/GPU on 8xH100
+branch: Systems bottleneck | > 70% time in rollouts | memory-bound autoregressive generation | complex cluster orchestration
+branch: Reward hacking defenses | Goodhart law proxy drift | verbosity and sycophancy degradation | KL divergence penalty constraint
+branch: Algorithmic evolution | RLAIF synthetic feedback | transition to offline DPO | verifiable rewards with GRPO

@@ -1,7 +1,7 @@
 center: Benchmarks and Contamination
-branch: Benchmark Taxonomy | multitask knowledge suites | reasoning and math tasks | code execution and instruction
-branch: Saturation Dynamics | ceiling effects on legacy sets | goodhart law optimization pressure | harder replacement benchmarks
-branch: Contamination Vectors | crawled web test scrapes | code repository test suites | synthetic distillation leakage
-branch: Detection Methods | surface ngram overlap filtering | mink prob membership inference | canary guid zero shot probing
-branch: Decontamination Pipelines | pre tokenization shingle purge | split clean vs dirty evaluation | dirty set score delta reporting
-branch: Evaluation Reproducibility | prompt template formatting sensitivity | logit scoring versus regex parsing | harness version pinning
+branch: Benchmark domain landscape | MMLU-Pro general knowledge | MATH and GPQA Diamond | HumanEval and SWE-bench code
+branch: Saturation dynamics | legacy sets exceed 90% | ceiling effects compress dynamic range | Goodhart optimization pressure
+branch: Contamination vectors | raw web crawl scrapes | public code repo harnesses | synthetic distillation from teachers
+branch: Detection methodologies | syntactic n-gram shingle filtering | Min-K% Prob membership inference | canary GUID probe checks
+branch: Decontamination pipelines | pre-tokenization shingle purge | split clean vs dirty evaluation | report dirty set score delta
+branch: Evaluation reproducibility | 0-shot versus 5-shot sensitivity | logit scoring vs regex parsing | pin exact harness git commit

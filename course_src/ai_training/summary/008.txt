@@ -1,7 +1,7 @@
 center: Scaling Laws
-branch: Power Law Formulations | kaplan favored parameter scaling | chinchilla proved balanced growth | twenty tokens per parameter rule
-branch: Iso Compute Frontier | minimum loss per budget | twenty billion compute optimal | eight billion overtrained choice
-branch: Overtraining Economics | training compute paid once | serving cost paid forever | smaller models slash inference bills
-branch: Data Constrained Regimes | four epochs incur minimal loss | diminishing returns after four epochs | sixteen epochs risk stagnation
-branch: Small To Large Transfer | maximal update parametrization | invariant learning rates across width | cheap hyperparameter tuning on proxies
-branch: Caveats And Emergence | discontinuous metrics create mirage | continuous metrics show smooth scaling | pretraining loss versus downstream tasks
+branch: Power law formulations | C ≈ 6ND compute budget | Kaplan favored parameter scaling | Chinchilla 20 tokens/param rule
+branch: Iso-compute frontier | 20B on 400B tokens optimal | 8.03B on 1T overtrained | +0.0057 negligible loss penalty
+branch: Overtraining economics | training compute paid once | serving cost paid forever | cuts weights to 16 GB
+branch: Data-constrained scaling | 4 epochs has negligible loss | diminishing returns after 4 epochs | 16 epochs risks stagnation
+branch: Hyperparameter transfer | Maximal Update Parametrization | constant updates across width | cheap 40M proxy tuning
+branch: Emergence caveats | discontinuous metrics create mirage | continuous metrics scale smoothly | downstream tasks vs loss

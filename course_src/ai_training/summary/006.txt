@@ -1,7 +1,7 @@
 center: Training Memory Accounting
-branch: Analytical Sizing | sixteen bytes per parameter | megatron activation scaling law | ephemeral logits buffer spike
-branch: PyTorch Profiling | max memory allocated | memory snapshot visualizer | pytorch org memory viz
-branch: Mixed Precision Impact | bf16 cuts activations half | fp32 master weights retained | enables consumer gpu training
-branch: Checkpointing Tradeoff | saves only layer boundaries | drops activation memory drastically | adds thirty three percent compute
-branch: Micro Batch Tuning | gradient accumulation slices activations | static states remain unchanged | matches large batch math
-branch: Hardware Realities | gpt two fits eight gb | one b fits h one hundred | allocator fragmentation headroom
+branch: Analytical sizing | 16 bytes per parameter | 1.99 GB for GPT-2 | 16.00 GB for 1B
+branch: Activation scaling | quadratic attention explodes | FlashAttention removes quadratic term | saves over 6 GB
+branch: Checkpointing tradeoff | retains layer boundary inputs | cuts activations up to 94% | 33.3% compute penalty
+branch: Ephemeral workspaces | 8.41 GB logits spike | chunked cross-entropy saves VRAM | lazy Adam allocation
+branch: Gradient accumulation | smaller micro-batches | linear activation reduction | invariant optimizer states
+branch: Profiling tools | max memory allocated | snapshot trace export | pytorch.org memory viz

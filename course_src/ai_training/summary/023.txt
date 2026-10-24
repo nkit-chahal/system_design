@@ -1,6 +1,7 @@
 center: LoRA and QLoRA
-branch: Core Mechanism | low rank matrix factorization | frozen base with delta W | zero initialization of B
-branch: Parameter and Memory Math | 42M params at rank 16 | 80 MiB adapter weights | 671 MB optimizer memory
-branch: QLoRA Innovations | 4 bit NormalFloat weights | double quantization scales | paged optimizers for OOM
-branch: Learning Dynamics | learns less on reasoning | forgets less pretraining knowledge | DoRA and rsLoRA variants
-branch: Serving and Deployment | offline merge for latency | unmerged for multi tenant | matches full fine tuning
+branch: Parameterization mechanics | low-rank decomposition B A | B initialized to zero | freezes base model weights
+branch: Parameter and memory math | 41.94M parameters at r=16 | 80.0 MiB BF16 adapter weights | 0.67 GB AdamW memory
+branch: QLoRA innovations | 4-bit NormalFloat NF4 base | Double Quantization saves 0.37 bits/param | Paged Optimizers prevent OOM
+branch: Capability tradeoffs | Biderman learns and forgets less | lower ceiling on reasoning | superior base capability retention
+branch: Architectural variants | DoRA decouples magnitude direction | LoRA+ scales learning rates | rsLoRA stabilizes high rank
+branch: Serving deployment | offline merge into weights | zero runtime inference overhead | unmerged for multi-tenant serving

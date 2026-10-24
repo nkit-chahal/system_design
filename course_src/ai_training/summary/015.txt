@@ -1,7 +1,7 @@
 center: Expert Parallelism
-branch: Training Specifics | router backpropagation gradients | four all to all collectives | optimizer memory for idle experts
-branch: Load Balancing Levers | switch transformer auxiliary loss | st moe router z loss | megablocks dropless execution
-branch: Auxiliary Loss Free Balancing | deepseek v3 dynamic biases | biased routing top k selection | unbiased gating output weights
-branch: Fundamental Asymmetry | flops scale with active weights | memory scales with total weights | compute efficient but memory hungry
-branch: Combining Parallelism | data parallel dense attention | expert parallel sparse mlp | intra node nvlink dispatch
-branch: Layout Decision | eight experts top two active | ep equals eight within node | dp equals thirty two inter node
+branch: Router training dynamics | continuous softmax routing gradients | positive feedback router collapse | ST-MoE router z-loss
+branch: Dropless load balancing | Switch Transformer auxiliary loss | MegaBlocks block-sparse dMoE | eliminates padding waste
+branch: Auxiliary-loss-free routing | DeepSeek-V3 dynamic routing bias | top-k selection with biases | unbiased gating output weights
+branch: Fundamental MoE asymmetry | compute scales with active params | memory scales with total params | 16 bytes for all experts
+branch: All-to-All communication | 4 All-to-Alls per layer | 17.2 GB per step Mixtral | strictly intra-node NVLink
+branch: Cluster layout decision | 8 experts with top-2 active | EP=8 within each node | DP=32 across InfiniBand

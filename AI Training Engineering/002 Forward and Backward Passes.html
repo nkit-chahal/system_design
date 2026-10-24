@@ -352,7 +352,7 @@ optimizer.zero_grad(set_to_none=<span class="hljs-keyword">True</span>)
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the forward and backward passes: step phases, backpropagation arithmetic, cross-entropy gradient, the 6ND FLOP rule, autograd graph recording, and distributed cluster budgeting." loading="lazy" decoding="async" src="images/002-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Forward and backward passes summary</figcaption></div></figure>
 <ul>
 <li>A single training step consists of four sequential phases: forward activation evaluation (<math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mn>2</mn><mi>N</mi><mi>D</mi></mrow></math> FLOPs), loss evaluation against vocabulary targets, backward backpropagation (<math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mn>4</mn><mi>N</mi><mi>D</mi></mrow></math> FLOPs), and master weight optimization.</li>
 <li>The backward pass costs twice the forward pass because each linear layer requires two matrix multiplications: one to propagate gradients to inputs (<math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>G</mi><msup><mi>W</mi><mo>&#x022A4;</mo></msup></mrow></math>), and one to calculate parameter updates (<math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><msup><mi>X</mi><mo>&#x022A4;</mo></msup><mi>G</mi></mrow></math>).</li>

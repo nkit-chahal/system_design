@@ -168,7 +168,10 @@ branch: Capacity | ~426K tokens on one H100 | 170 chat requests
 ```
 
 Four to six branches, two or three leaves each, each label at most five words. Write labels as
-plain text: no underscores, subscripts, or LaTeX (write "KV heads", not "H_kv").
+plain text: no underscores, subscripts, or LaTeX (write "KV heads", not "H_kv"). Use digits and
+the usual abbreviations exactly as the lesson does: "16 bytes per parameter", "BF16 and FP8",
+"5.5 days on 256 H100s", never "sixteen bytes" or "bf sixteen". Prefer the lesson's concrete
+numbers and names over adjectives.
 
 ## Facts to keep consistent across lessons
 

@@ -1,7 +1,7 @@
 center: ZeRO and FSDP
-branch: ZeRO Stages | stage one shards optimizer | stage two shards gradients | stage three shards parameters
-branch: Communication Tradeoff | three psi traffic total | one point five times ddp | all gather and reduce scatter
-branch: Prefetching Dynamics | forward layer prefetch | backward layer prefetch | hide communication behind gemm
-branch: PyTorch FSDP2 | composable fully shard | native dtensor parameters | mixed precision policies
-branch: Hybrid Sharding | shard within eight gpu node | replicate across thirty two nodes | isolate gathers to nvlink
-branch: Offloading Tiers | cpu host adam | nvme ssd zero infinity | pcie bandwidth bottleneck
+branch: ZeRO partitioning tiers | ZeRO-1 shards optimizer states | ZeRO-2 shards gradients | ZeRO-3 shards model parameters
+branch: Communication volume | 3Ψ total traffic | 1.5× baseline DDP | forward and backward all-gathers
+branch: Stream prefetching | dedicated CUDA communication streams | layer i+1 prefetch | hides communication behind GEMMs
+branch: PyTorch FSDP2 | composable fully shard API | native DTensor parameter sharding | torch compile integration
+branch: Hybrid sharding HSDP | shard 8 GPUs intra-node | replicate across 32 nodes | confines 1.5× to NVLink
+branch: Memory savings for 8B | 128.5 GB DDP baseline | 16.1 GB on 8-way FSDP | 0.50 GB on 256 GPUs

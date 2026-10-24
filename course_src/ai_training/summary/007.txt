@@ -1,7 +1,7 @@
 center: Training FLOPs Time and MFU
-branch: Compute Accounting | two ND forward four ND backward | eight ND with full recomputation | quadratic attention term at long contexts
-branch: MFU Versus HFU | palm paper efficiency definitions | mfu measures algorithmic progress | hfu counts redundant recomputations
-branch: MFU Bottlenecks | memory bound normalization and activations | inter node collective communication | pipeline bubbles and dataloader starvation
-branch: Operational Telemetry | tokens per second per gpu | inverted formula monitors mfu | eight thousand two hundred tokens per h100
-branch: Planning Decision | target forty percent mfu | thirty percent wastes thirty four thousand dollars | adds nearly two full days
-branch: Running Scenario | four point eight e twenty two flops | five point five days on two hundred fifty six h100s | one hundred one thousand dollars
+branch: 6ND compute accounting | 2ND forward and 4ND backward | 8ND with full recomputation | 12Lsh attention overhead
+branch: MFU versus HFU | MFU measures algorithmic progress | HFU rewards redundant recomputation | 38% to 45% frontier MFU
+branch: Efficiency bottlenecks | memory-bound non-GEMMs | inter-node network synchronization | pipeline bubble stalls
+branch: Operational telemetry | tokens per second per GPU | 8,211 tokens/s per H100 | inverted formula monitors MFU
+branch: 8B pretraining baseline | ≈ 4.82e22 FLOPs | 5.51 days on 256 H100s | $101,491 at $3/GPU-hour
+branch: Low MFU penalty | target 40% MFU | 30% MFU wastes $33,830 | adds 1.84 days delay

@@ -1,7 +1,7 @@
 center: Tokenizers
-branch: Subword Tokenization Algorithms | byte pair encoding | byte level bpe | unigram and wordpiece
-branch: Pre Tokenization Regex | isolates punctuation marks | groups digits uniformly | prevents degenerate merges
-branch: Vocabulary Size Tradeoffs | compression saves context length | embedding matrix parameter tax | unchunked logits memory spike
-branch: Multilingual Fertility | closing non latin disparity | tokens per word equity | lower serving latency
-branch: Chat Templates And Roles | begin of text token | structured header ids | end of turn delimiters
-branch: Architecture Selection | reuse llama three tokenizer | ecosystem tool compatibility | optimal pretraining choice
+branch: Byte-Level BPE | 256 initial byte tokens | iterative greedy pair merges | zero out-of-vocabulary tokens
+branch: Vocabulary parameter tax | 128,256 vocabulary size | 1.05B parameters in embeddings | 16.81 GB AdamW memory
+branch: Ephemeral logits spike | 4.20 GB unchunked FP32 logits | fused chunked cross-entropy | avoids peak activation spike
+branch: Compression and fertility | 17% better English compression | Hindi drops 4.6 to 1.85 | lowers serving latency
+branch: Pre-tokenization regex | isolates punctuation marks | groups digits up to 3 | prevents unnatural merges
+branch: Engineering decision | reuse Llama 3 tokenizer | vLLM and TensorRT-LLM compatibility | eliminates custom tokenizer bugs

@@ -1,6 +1,7 @@
 center: Training Checkpointing
-branch: Exact Resumption | weights master weights and optimizer | lr scheduler and dataloader offset | rng states across all devices
-branch: Distributed Checkpointing | pytorch distributed checkpoint dcp | independent rank local shards | eliminates rank zero bottleneck
-branch: Asynchronous Saving | fast gpu to host staging | non blocking background disk flush | zero gpu compute stalls
-branch: Optimal Frequency | young daly optimal interval formula | balances save overhead and rework | square root of failure product
-branch: Storage Pipeline | fast local nvme staging | shared parallel cluster storage | rolling window and cloud archive
+branch: Resumable checkpoint contents | 16 bytes per parameter | Adam momentum and variance | DataLoader offset and RNG states
+branch: Distributed DCP sharding | PyTorch Distributed Checkpoint DCP | independent per-rank shard writes | eliminates rank-0 memory bottleneck
+branch: Asynchronous save staging | < 250 ms host staging | non-blocking background disk flush | zero GPU compute stalls
+branch: Dynamic resharding | global metadata index | alters GPU count on resume | changes parallelism mesh layouts
+branch: Young-Daly optimal frequency | balances save overhead against rework | Young-Daly square root formula | ~30 minute optimal interval
+branch: Three-tier storage lifecycle | ephemeral local NVMe cache | rolling 3 saves on Lustre | permanent S3 milestone archives

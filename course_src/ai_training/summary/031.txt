@@ -1,7 +1,7 @@
-center: Job Scheduling
-branch: Gang Scheduling | all or nothing admission | prevents distributed deadlock | synchronous barrier requirement
-branch: Slurm Architecture | slurmctld and slurmd | multi factor priority scoring | backfill and fair share decay
-branch: Multi Node Launch | srun with one task per node | torchrun spawns local ranks | c10d rendezvous over tcp
-branch: Kubernetes Stack | pytorchjob and jobset | kueue multi tenant queues | volcano podgroup coscheduling
-branch: Preemption Flow | sigterm warning grace period | emergency distributed checkpoint | automatic requeue zero loss
-branch: Scheduling Choice | slurm for bare metal scale | kubernetes for shared platforms | hybrid enterprise deployments
+center: Distributed Job Scheduling
+branch: Gang scheduling requirements | all-or-nothing resource binding | prevents distributed barrier deadlock | exclusive node allocation
+branch: Slurm supercomputing stack | slurmctld and slurmd daemons | multi-factor priority fair-share decay | backfill scheduling maximizes utilization
+branch: Multi-node launch flow | srun ntasks-per-node=1 | torchrun forks 8 local ranks | c10d TCP store rendezvous
+branch: Kubernetes AI orchestration | Kubeflow PyTorchJob and JobSet | Kueue multi-tenant gang queuing | Volcano PodGroup coscheduling
+branch: Graceful preemption flow | SIGTERM 10-minute grace period | emergency distributed checkpoint save | automatic requeue zero loss
+branch: Cluster utilization targets | 80% to 85% utilization target | hockey-stick queue wait curves | Slurm bare-metal vs Kubernetes
