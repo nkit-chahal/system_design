@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="350" viewBox="0 0 800 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="20" y="26" class="b">Ten 2,000-token prompts arrive at once on an idle H100 (prefill at ≈ 31,000 tokens/s)</text>
+  <line x1="110" y1="300.0" x2="660" y2="300.0" class="grid"/>
+  <line x1="105" y1="300.0" x2="110" y2="300.0" class="axis"/><text x="101" y="304.0" text-anchor="end" class="sm">0</text>
+  <line x1="110" y1="265.7" x2="660" y2="265.7" class="grid"/>
+  <line x1="105" y1="265.7" x2="110" y2="265.7" class="axis"/><text x="101" y="269.7" text-anchor="end" class="sm">100</text>
+  <line x1="110" y1="231.4" x2="660" y2="231.4" class="grid"/>
+  <line x1="105" y1="231.4" x2="110" y2="231.4" class="axis"/><text x="101" y="235.4" text-anchor="end" class="sm">200</text>
+  <line x1="110" y1="197.1" x2="660" y2="197.1" class="grid"/>
+  <line x1="105" y1="197.1" x2="110" y2="197.1" class="axis"/><text x="101" y="201.1" text-anchor="end" class="sm">300</text>
+  <line x1="110" y1="162.9" x2="660" y2="162.9" class="grid"/>
+  <line x1="105" y1="162.9" x2="110" y2="162.9" class="axis"/><text x="101" y="166.9" text-anchor="end" class="sm">400</text>
+  <line x1="110" y1="128.6" x2="660" y2="128.6" class="grid"/>
+  <line x1="105" y1="128.6" x2="110" y2="128.6" class="axis"/><text x="101" y="132.6" text-anchor="end" class="sm">500</text>
+  <line x1="110" y1="94.3" x2="660" y2="94.3" class="grid"/>
+  <line x1="105" y1="94.3" x2="110" y2="94.3" class="axis"/><text x="101" y="98.3" text-anchor="end" class="sm">600</text>
+  <line x1="110" y1="60.0" x2="660" y2="60.0" class="grid"/>
+  <line x1="105" y1="60.0" x2="110" y2="60.0" class="axis"/><text x="101" y="64.0" text-anchor="end" class="sm">700</text>
+  <path d="M110,50 L110,300 L670,300" class="axis"/>
+  <text x="40" y="180.0" text-anchor="middle" class="sm" transform="rotate(-90 40 180.0)">TTFT at the server (ms)</text>
+  <rect x="124" y="277.7" width="40" height="22.3" class="orange"/>
+  <text x="144" y="271.7" text-anchor="middle" class="sm">65</text>
+  <text x="144" y="318" text-anchor="middle" class="sm">1</text>
+  <rect x="178" y="277.7" width="40" height="22.3" class="purple"/>
+  <rect x="178" y="255.4" width="40" height="22.3" class="orange"/>
+  <text x="198" y="249.4" text-anchor="middle" class="sm">130</text>
+  <text x="198" y="318" text-anchor="middle" class="sm">2</text>
+  <rect x="232" y="255.4" width="40" height="44.6" class="purple"/>
+  <rect x="232" y="233.1" width="40" height="22.3" class="orange"/>
+  <text x="252" y="227.1" text-anchor="middle" class="sm">195</text>
+  <text x="252" y="318" text-anchor="middle" class="sm">3</text>
+  <rect x="286" y="233.1" width="40" height="66.9" class="purple"/>
+  <rect x="286" y="210.9" width="40" height="22.3" class="orange"/>
+  <text x="306" y="204.9" text-anchor="middle" class="sm">260</text>
+  <text x="306" y="318" text-anchor="middle" class="sm">4</text>
+  <rect x="340" y="210.9" width="40" height="89.1" class="purple"/>
+  <rect x="340" y="188.6" width="40" height="22.3" class="orange"/>
+  <text x="360" y="182.6" text-anchor="middle" class="sm">325</text>
+  <text x="360" y="318" text-anchor="middle" class="sm">5</text>
+  <rect x="394" y="188.6" width="40" height="111.4" class="purple"/>
+  <rect x="394" y="166.3" width="40" height="22.3" class="orange"/>
+  <text x="414" y="160.3" text-anchor="middle" class="sm">390</text>
+  <text x="414" y="318" text-anchor="middle" class="sm">6</text>
+  <rect x="448" y="166.3" width="40" height="133.7" class="purple"/>
+  <rect x="448" y="144.0" width="40" height="22.3" class="orange"/>
+  <text x="468" y="138.0" text-anchor="middle" class="sm">455</text>
+  <text x="468" y="318" text-anchor="middle" class="sm">7</text>
+  <rect x="502" y="144.0" width="40" height="156.0" class="purple"/>
+  <rect x="502" y="121.7" width="40" height="22.3" class="orange"/>
+  <text x="522" y="115.7" text-anchor="middle" class="sm">520</text>
+  <text x="522" y="318" text-anchor="middle" class="sm">8</text>
+  <rect x="556" y="121.7" width="40" height="178.3" class="purple"/>
+  <rect x="556" y="99.4" width="40" height="22.3" class="orange"/>
+  <text x="576" y="93.4" text-anchor="middle" class="sm">585</text>
+  <text x="576" y="318" text-anchor="middle" class="sm">9</text>
+  <rect x="610" y="99.4" width="40" height="200.6" class="purple"/>
+  <rect x="610" y="77.1" width="40" height="22.3" class="orange"/>
+  <text x="630" y="71.1" text-anchor="middle" class="sm">650</text>
+  <text x="630" y="318" text-anchor="middle" class="sm">10</text>
+  <text x="390" y="338" text-anchor="middle" class="sm">request, in order of service</text>
+  <line x1="652" y1="177.4" x2="664" y2="177.4" stroke="#000" stroke-width="1.6"/>
+  <text x="668" y="181.4" class="sm">median ≈ 360 ms</text>
+  <text x="668" y="81.1" class="sm">slowest 650 ms</text>
+  <text x="668" y="281.7" class="sm">idle: 65 ms</text>
+  <line x1="652" y1="277.7" x2="664" y2="277.7" stroke="#82b366" stroke-width="1.6"/>
+  <line x1="652" y1="77.1" x2="664" y2="77.1" stroke="#000" stroke-width="1.6"/>
+  <rect x="120" y="70" width="16" height="12" class="purple"/><text x="142" y="81" class="sm">waiting for earlier prefills</text>
+  <rect x="120" y="92" width="16" height="12" class="orange"/><text x="142" y="103" class="sm">own prefill, 65 ms</text>
+</svg>

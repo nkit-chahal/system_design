@@ -1,0 +1,308 @@
+<h2>Introduction</h2>
+<p>As soon as a model runs on more than one replica, something has to decide which replica serves each request. For a web service this is an old, solved problem: put a load balancer in front, spread requests evenly, and every server stays equally busy. That works because web requests are short, similar in cost, and stateless, so any server is as good as any other.</p>
+<p>LLM requests break all three assumptions. One request may carry a 100-token question and another a 30,000-token document, so their cost differs by more than 100×. Each request occupies its replica for seconds or minutes while tokens stream out. Most importantly, replicas are not interchangeable: each one holds a <strong>prefix cache</strong> of recent prompts in GPU memory (Lesson 24, Prefix Caching), so the same request can be nearly free on one replica and expensive on another.</p>
+<p>A <strong>request router</strong> (also called an inference gateway or endpoint picker) is the component that makes this choice using LLM-specific signals: queue length, KV cache usage, and which prefixes each replica already holds. Figure 1 shows the idea.</p>
+<fig src="025-router-overview.svg" caption="A router scores replicas by load and by how much of the prompt each has cached">A new request whose prompt starts with system prompt S1 and the history of chat 42 arrives at the router. Replica 1 is busy with 9 waiting requests and a 91% full KV cache. Replica 2 has 1 waiting request, a 55% full cache, and already holds 7,800 of the 8,000 prompt tokens, so the router sends the request there. Replica 3 is idle but would have to prefill all 8,000 tokens again, about 260 ms of work.</fig>
+<p>In this lesson, we look at why LLM routing differs from web load balancing, compare the main routing policies, work through the tension between cache hits and even load, and cover the parts of routing that sit around the core choice: multiple models and LoRA adapters, priority classes, disaggregated serving, and retries that do not waste GPU time.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Routing questions usually start once a team has outgrown a single replica. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: Which model are we serving, and on what hardware?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct in BF16 on vLLM, with prefix caching on. We run 8 replicas, each on one H100.</p>
+<p><strong>Candidate</strong>: What does the traffic look like?<br>
+<strong>Interviewer</strong>: About 1,000 requests per minute on average, about 16.7 per second, rising to about 2,000 per minute, 33 per second, at the daily peak. Most are multi-turn chat with about 2,000 prompt tokens and 500 output tokens. About 5% are questions about uploaded documents with 30,000-token prompts.</p>
+<p><strong>Candidate</strong>: How much of each prompt is shared between requests?<br>
+<strong>Interviewer</strong>: Each of our 50 customer apps has its own 1,500-token system prompt. The largest customer sends 30% of all traffic. Every chat turn also resends the conversation so far.</p>
+<p><strong>Candidate</strong>: What latency do we need?<br>
+<strong>Interviewer</strong>: The p95 time to first token should stay under 500 ms, and the p95 time per output token under 25 ms.</p>
+<p><strong>Candidate</strong>: Is anything else running on the fleet?<br>
+<strong>Interviewer</strong>: Twelve enterprise customers use their own LoRA adapters on the same base model, and a nightly batch job summarizes support tickets.</p>
+<p><strong>Candidate</strong>: Do we know what one replica can handle?<br>
+<strong>Interviewer</strong>: One replica meets both targets up to about 5 requests per second of this mix, about 53 concurrent streams (Lesson 19, GPU Utilization).</p>
+<p>So the fleet can serve about 8 × 5 = 40 requests per second and runs at 33 at the daily peak, about 83% utilization. The question underneath is: <em>how do we spread 33 requests per second across 8 replicas so that no replica overloads, while still sending each request to a replica that already holds its prefix?</em> To answer it, we first need to see why the usual load balancing tools fall short.</p>
+
+<h2>Why LLM Routing Is Different</h2>
+<h3>Requests differ by 100× or more in cost</h3>
+<p>A web load balancer treats every request as one unit of work. For an LLM, the work depends on the number of tokens, and token counts vary enormously. Figure 2 compares three requests from our traffic by the KV cache each holds (128 KiB per token for Llama 3.1 8B, from Lesson 3, KV Cache) and by the prefill compute each needs.</p>
+<fig src="025-request-cost-spread.svg" caption="Three requests from the same traffic differ by more than 200× in memory and compute">Horizontal bars of the KV cache held by one request. A short question of 150 tokens holds about 19 MiB and needs about 3 ms of prefill. A chat turn of 2,500 tokens holds about 313 MiB and needs about 65 ms. A document question of 32,000 tokens holds about 3.9 GiB and needs about 1 s of prefill. One document request holds as much cache as 13 chat turns or 213 short questions.</fig>
+<p>For the prefill times we use a rough throughput figure. A forward pass costs about 2 FLOPs per parameter per token, so Llama 3.1 8B needs about 2 × 8.03B ≈ 16 GFLOPs per prompt token. If prefill reaches half of the H100's 989 TFLOPS of dense BF16 compute, it processes about <tex>495 \times 10^{12} \div (16 \times 10^{9})</tex> ≈ 30,800 tokens per second. A 2,000-token prompt then takes about 65 ms and a 30,000-token prompt about 1 s. A router that counts requests sees a short question and a document as the same thing, even though one costs over 200 times more.</p>
+
+<h3>Streams are long-lived</h3>
+<p>A web request finishes in milliseconds. A chat request stays on its replica until the last token is sent: at about 21 ms per decode step (Lesson 19), streaming 500 tokens takes about 10.5 seconds. <strong>Little's law</strong> tells us how many requests are in flight at once:</p>
+<texblock>L = \lambda \times W = 33 \text{ req/s} \times 10.5 \text{ s} \approx 350 \text{ requests in flight}</texblock>
+<p>That is about 43 per replica at the daily peak. Every routing decision commits a replica for the life of the stream; we cannot move a request later without moving its KV cache too. Mistakes therefore persist for seconds, not milliseconds. Balancing at the connection level (layer 4) is even worse, because one HTTP/2 connection from an API client can carry hundreds of requests to whichever replica it first landed on.</p>
+
+<h3>Replicas hold state</h3>
+<p>With prefix caching, a replica keeps the KV blocks of recent prompts and reuses them when a new prompt starts with the same tokens. In our traffic this matters a lot. Consider the fifth turn of a conversation: 1,500 tokens of system prompt plus about 6,300 tokens of history plus a 200-token new message. On the replica that served turn four, only the 200 new tokens need prefill, about 7 ms. On any other replica, all 8,000 tokens need prefill, about 260 ms, which is over half of the 500 ms TTFT budget.</p>
+<p>With 8 replicas and a cache-blind policy, the next turn lands on the right replica only 1 time in 8. Routing is how a fleet turns per-replica prefix caching into fleet-wide cache hits.</p>
+<callout kind="tip" title="Interview tip">State the three differences up front: requests vary 100× in cost, streams hold a replica for seconds, and replicas carry cache state. Each one rules out a familiar policy, which gives your answer a clear structure.</callout>
+
+<h2>Routing Policies</h2>
+<h3>Round robin and random</h3>
+<p><strong>Round robin</strong> sends request <tex>i</tex> to replica <tex>i \bmod N</tex>. Random routing picks a replica uniformly. Both spread request counts evenly and need no state, which is why they are the defaults in most load balancers. Both are blind to cost and to cache contents.</p>
+<p>Figure 3 shows how badly cost blindness can go. Twelve requests arrive in a repeating pattern of one document question followed by three chat turns. Round robin over four replicas sends every document to the same replica, because the pattern repeats every four requests. Each replica receives three requests, yet one holds 96,000 tokens and the others 7,500 each.</p>
+<fig src="025-round-robin-imbalance.svg" caption="Round robin balances request counts, not work">Two bar charts of in-flight tokens on four replicas. Under round robin, R1 holds 96K tokens because it received all three 32K-token documents, while R2 to R4 hold 7.5K each. Under least outstanding tokens, the documents spread out and the replicas hold 32K, 34.5K, 15K and 37K tokens.</fig>
+<p>The aligned pattern is contrived, but real traffic is lumpy in the same way: a customer's batch script sends ten documents in a row, and a random policy will occasionally stack them.</p>
+
+<h3>Least outstanding requests and the power of two choices</h3>
+<p><strong>Least outstanding requests</strong> sends each request to the replica with the fewest requests in flight. The router can count these itself, adding one when it forwards a request and subtracting one when the stream ends, so the signal is always fresh. It adapts to slow replicas, which build up in-flight requests and stop receiving new ones.</p>
+<p>Scanning every replica is fine for 8 replicas, but a fleet with many router instances has a subtler problem: if every router sends to the same least-loaded replica at the same moment, they all pile onto it. The <strong>power of two choices</strong> fixes this by sampling two replicas at random and picking the less loaded one. Mitzenmacher showed that two choices give an exponential improvement over one random choice, while a third choice adds only a constant factor [1]. Envoy's least-request load balancer uses this method by default [2].</p>
+<p>In Figure 3, however, least outstanding requests would behave exactly like round robin: every replica has three requests in flight. Counting requests is better than counting nothing, but it still treats a document like a short question.</p>
+
+<h3>Least load by tokens or KV cache usage</h3>
+<p>The fix is to measure load in the units that matter. Two sources of load information are common:</p>
+<ul>
+<li><strong>Router-side token accounting</strong>: the router tokenizes the prompt and tracks, per replica, the outstanding tokens of every request it has sent, prompt tokens plus expected output. This is fresh and cheap, and it is what the right side of Figure 3 uses.</li>
+<li><strong>Engine metrics</strong>: the router polls each replica's metrics endpoint. vLLM exposes <code>vllm:num_requests_running</code>, <code>vllm:num_requests_waiting</code>, and <code>vllm:kv_cache_usage_perc</code> [3]. These reflect the engine's true state, including requests sent by other routers, but they are only as fresh as the last poll.</li>
+</ul>
+<p>The waiting count is usually the most direct sign of trouble: a replica with requests waiting is already adding queue time to their TTFT. KV cache usage near 100% warns that the engine will soon preempt requests (Lesson 3). Many routers combine both into one load score.</p>
+
+<h3>Prefix-aware routing with consistent hashing</h3>
+<p>Load-based policies spread work well but scatter prefixes. The simplest way to keep a prefix on one replica is to hash it. The router computes a key from the start of the prompt, such as a hash of the first block of tokens or of the system prompt, and maps the key to a replica with <strong>consistent hashing</strong>, as Figure 4 shows.</p>
+<fig src="025-prefix-hash-ring.svg" caption="Consistent hashing sends every request with the same prefix to the same replica">A ring with four replicas placed at hashed positions. Four prefix keys, hash of sys S1, sys S2, chat 42 and sys S3, sit at their own positions; each walks clockwise to the next replica, so sys S1 maps to R2, sys S2 to R3, chat 42 to R4 and sys S3 to R1.</fig>
+<p>Consistent hashing has a useful property: when one of <tex>N</tex> replicas joins or leaves, only about <tex>1/N</tex> of the keys move [2], so an autoscaling event (Lesson 22, Autoscaling) does not wipe out every replica's cache at once. Its weakness is choosing what to hash. Hashing only the first block lumps together every tenant that shares a generic opening line; hashing the whole prompt never matches anything, because every prompt ends differently.</p>
+
+<h3>Cache-aware routing</h3>
+<p>A more precise approach matches each prompt against what each replica actually holds. The router splits the prompt into blocks, hashes each block together with all the blocks before it, and asks how many leading blocks each replica already has. Routers learn cache contents in one of two ways:</p>
+<ul>
+<li><strong>Approximate tracking</strong>: the router remembers which prompts it sent where. SGLang's engine already organizes its own cache as a radix tree [5], and SGLang's router keeps an approximate radix tree of past prompts for each worker, held in the router's memory rather than queried from the workers [4]. This needs nothing from the engine but drifts when the engine evicts blocks the router still believes are cached.</li>
+<li><strong>Exact tracking from KV events</strong>: engines publish an event whenever they store or evict a block, and the router keeps an index of them. NVIDIA Dynamo's KV router consumes such events by default and falls back to approximate prediction without them [6].</li>
+</ul>
+<p>With a match length per replica, the router still has to weigh cache hits against load. Dynamo's router scores each worker by the prompt blocks it would still have to prefill, multiplied by a tunable weight, plus the KV blocks it is already decoding, and picks the lowest cost [6]. In general form:</p>
+<texblock>\text{cost}_i = w \times (\text{prompt tokens} - \text{cached tokens}_i) + \text{load}_i</texblock>
+<p>A large <tex>w</tex> chases cache hits and helps time to first token; a small <tex>w</tex> spreads decode work and helps inter-token latency. SGLang's router makes the trade with explicit thresholds instead, shown in Figure 5: while the fleet is balanced it follows the cache, and once the gap between the busiest and idlest worker exceeds both an absolute and a relative threshold, it switches to shortest-queue routing until balance returns [4].</p>
+<fig src="025-cache-aware-decision.svg" caption="Cache-aware routing in the style of SGLang's router">A flowchart. A request first checks whether load is imbalanced, meaning max minus min exceeds an absolute threshold and max exceeds a relative multiple of min. If yes, it goes to the least-loaded replica. If no, the router checks whether the best prefix match exceeds the cache threshold; if yes it routes to the replica with the longest match, otherwise to the replica with the most free cache. In every case the router records the prompt in that replica's prefix tree.</fig>
+
+<h3>Session affinity for multi-turn chat</h3>
+<p>For chat, the simplest proxy for the prefix is the conversation itself. <strong>Session affinity</strong> hashes a session or user ID from a request header, so every turn of a conversation lands on the same replica. The vLLM production stack router offers this as <code>--routing-logic session</code> with <code>--session-key</code> naming the header [7]. Session affinity needs no tokenizer and no cache tracking, which makes it a good first step. Its limits are that it knows nothing about load, so a few very long sessions can pile onto one replica, and it does not share system prompts across sessions.</p>
+<table>
+<thead><tr><th>Policy</th><th>Signal used</th><th>Cache hits</th><th>Load balance</th><th>Main weakness</th></tr></thead>
+<tbody>
+<tr><td>Round robin / random</td><td>None</td><td>About 1/N by chance</td><td>Even counts, uneven work</td><td>Blind to cost and cache</td></tr>
+<tr><td>Least outstanding requests (or two choices)</td><td>In-flight count</td><td>About 1/N</td><td>Good for similar requests</td><td>Treats a document like a short question</td></tr>
+<tr><td>Least load (tokens, KV usage, queue)</td><td>Token accounting or engine metrics</td><td>About 1/N</td><td>Best</td><td>Scatters prefixes across replicas</td></tr>
+<tr><td>Prefix hash (consistent hashing)</td><td>Hash of the prompt start</td><td>High for stable prefixes</td><td>Poor for hot prefixes</td><td>Choice of what to hash; hot spots</td></tr>
+<tr><td>Session affinity</td><td>Session ID header</td><td>High within a conversation</td><td>Poor for long sessions</td><td>No load awareness, no cross-session sharing</td></tr>
+<tr><td>Cache-aware with load guard</td><td>Per-replica prefix match plus load</td><td>High</td><td>Good, bounded by thresholds</td><td>Router state; needs a tokenizer or KV events</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Request routing policies for LLM serving</p>
+
+<h3>The tension between cache hits and load balance</h3>
+<p>Every cache-seeking policy runs into the same problem: popular prefixes concentrate load. Our largest customer sends 30% of traffic, all starting with system prompt S1. At the daily peak, pure prefix hashing sends all of it, 0.3 × 33 ≈ 10 requests per second, to one replica that can serve about 5. That replica's queue grows by about 5 requests every second. After one minute it holds about 300 waiting requests, so a new arrival waits about 300 ÷ 5 = 60 seconds. Meanwhile the other seven replicas share the remaining 23 requests per second, about 3.3 each, below capacity. The left side of Figure 6 shows this.</p>
+<fig src="025-hot-prefix-bounded.svg" caption="A hot prefix overloads one replica unless the router bounds each replica's load">Two bar charts of requests per second on eight replicas, with replica capacity at about 5. With pure prefix hashing, R1 receives all 9.9 requests per second of the largest tenant, about twice its capacity, while R2 to R8 receive 3.3 each. With bounded load at 1.2 times the average, the largest tenant's traffic fills R1 up to the bound of 4.95 and spills onto R2, R3 and R4, and no replica exceeds the bound.</fig>
+<p>The key insight is to compare what each choice costs. A cache miss on the 1,500-token system prompt costs about 1,500 ÷ 30,800 ≈ 49 ms of extra prefill, once. A queue costs every waiting request its full wait. Whenever the queue on the cached replica would add more than about 50 ms, sending the request elsewhere is cheaper, even though it misses the cache. Routers bound the tension in a few ways:</p>
+<ul>
+<li><strong>Bounded loads</strong>: consistent hashing with bounded loads caps every replica at <tex>c</tex> times the average load and forwards the overflow to the next replica on the ring [8]. The bound must stay under capacity: at the daily peak the average replica carries about 4.1 requests per second against a capacity of about 5, so <tex>c</tex> can be at most about 1.2. With about 43 requests in flight per replica and <tex>c = 1.2</tex>, the cap is <tex>\lceil 1.2 \times 43 \rceil = 52</tex> requests in flight, just under the 53 streams a replica holds at its latency targets, or about 4.95 requests per second in the rate terms of Figure 6. The hot prefix spills onto as many replicas as it needs, and each spill replica pays one cold prefill before it, too, holds the prefix. The right side of Figure 6 shows the result.</li>
+<li><strong>Imbalance thresholds</strong>: SGLang's router abandons cache affinity whenever the load gap exceeds its thresholds, as in Figure 5 [4].</li>
+<li><strong>Weighted cost</strong>: Dynamo-style scoring lets load outweigh a cache hit once the queue is long enough [6].</li>
+<li><strong>Joint scheduling</strong>: Preble, a research system, schedules prompts across GPUs by weighing prefix reuse and load together rather than one after the other [9].</li>
+</ul>
+
+<h4>Which policy fits our deployment?</h4>
+<p>Our traffic is dominated by multi-turn chat with long, growing histories, so a cache hit is worth up to about 260 ms of prefill on a 500 ms budget. That rules out cache-blind policies. Pure prefix hashing is ruled out by the 30% tenant. We choose <strong>cache-aware routing with a load bound</strong>: send each request to the replica with the longest cached prefix among replicas whose in-flight load is below 1.2 times the average, and measure load in outstanding tokens rather than requests so document questions count for what they cost. The bound turns the hot tenant into a prefix shared by a few replicas instead of a hot spot on one.</p>
+<p>We do not need to build this ourselves. On Kubernetes with vLLM, the Gateway API Inference Extension and llm-d provide cache- and load-aware endpoint picking; on SGLang, its router's <code>cache_aware</code> policy does this; Dynamo provides a KV-aware router for vLLM, SGLang, and TensorRT-LLM workers (see the next section). If we need something running this week, session affinity on a conversation ID captures most of the history hits and is a one-line configuration change.</p>
+
+<h2>Beyond Picking a Replica</h2>
+<h3>Routers you can deploy</h3>
+<p>Several open-source routers implement the policies above. Their interfaces change quickly, so check the current documentation before relying on a flag:</p>
+<ul>
+<li><strong>Kubernetes Gateway API Inference Extension</strong>: extends a Kubernetes Gateway with an <code>InferencePool</code> resource, a set of model server pods that is used in place of a Service. For each request, the Gateway asks an <strong>Endpoint Picker</strong> (EPP), through Envoy's external processing protocol, which pod to use. The picker bases the choice on model server metrics such as KV cache usage, queue length, prefix cache state and LoRA adapter availability, and supports serving priority between workloads [10].</li>
+<li><strong>llm-d</strong>: a Kubernetes-native serving stack that builds on the Inference Extension's endpoint picker, adding prefix-cache-aware and load-aware scorers that can be combined per workload, and scheduling for disaggregated prefill and decode [11].</li>
+<li><strong>vLLM production stack router</strong>: offers routing logics including <code>roundrobin</code>, <code>session</code>, <code>prefixaware</code>, <code>kvaware</code>, <code>loadaware</code>, <code>priority</code>, and disaggregated prefill modes through <code>--routing-logic</code> [7].</li>
+<li><strong>SGLang router</strong> (now the SGLang Model Gateway): policies <code>random</code>, <code>round_robin</code>, <code>power_of_two</code>, <code>cache_aware</code> (the default) and <code>bucket</code>, plus retries, circuit breakers and prefill/decode disaggregation [4].</li>
+<li><strong>NVIDIA Dynamo</strong>: a distributed serving framework whose router "routes requests based on worker load and KV cache overlap" for vLLM, SGLang and TensorRT-LLM workers [12].</li>
+</ul>
+
+<h3>Routing across models and LoRA adapters</h3>
+<p>The first routing decision is often not which replica but which pool. The <code>model</code> field of an OpenAI-style request names the model, and the router maps it to the replicas that serve it. In the Inference Extension, each base model gets its own <code>InferencePool</code> [10].</p>
+<p>LoRA adapters complicate this, because they share a base model but not GPU memory. In vLLM, a client selects an adapter by putting its name in the <code>model</code> field [13], and a request for an adapter that is not loaded on its replica must wait for it to be swapped in. With our twelve adapters, sending every adapter to every replica would make each replica swap constantly. A better plan gives each adapter a home group of two or three replicas, routes adapter requests only within that group, and still applies load and cache scoring inside it: the same affinity-with-a-bound idea, applied to adapters instead of prefixes. Lesson 37, Multi-LoRA and Multi-Tenant Serving, covers how engines batch many adapters and how to size the groups.</p>
+
+<h3>Priority classes: interactive versus batch</h3>
+<p>The nightly summarization job does not need a 500 ms TTFT, but it can easily fill every replica's KV cache and push interactive users into preemption. Routers handle this with <strong>priority classes</strong>:</p>
+<ul>
+<li>At the router, keep separate queues and admit batch requests only while the fleet has headroom, for example while no replica has requests waiting. The vLLM production stack router has a <code>priority</code> routing logic that reads a priority header, <code>x-request-priority</code> by default [7]. The Inference Extension ranks latency-sensitive workloads such as chat above latency-tolerant ones such as summarization [10].</li>
+<li>Inside the engine, vLLM's <code>--scheduling-policy priority</code> orders waiting requests by a per-request priority value, with lower values served first and ties broken by arrival time [14].</li>
+<li>Better still, give batch work its own time window or its own replicas, so the two classes never compete for the same KV cache. Lesson 39, Batch and Offline Inference, covers running batch work next to interactive traffic.</li>
+</ul>
+
+<h3>Routing with disaggregated prefill and decode</h3>
+<p>Some deployments split prefill and decode onto separate GPU pools, because prefill is compute-bound and decode is memory-bound, and running them together lets each interfere with the other [15]. Lesson 34, Disaggregated Prefill and Decode, covers the architecture and the KV cache transfer; here we only need its consequence for routing, which becomes two decisions, shown in Figure 7. The prefill worker should be chosen by cache match, since prefix hits save prefill compute. The decode worker should be chosen by load and free KV memory, since decode is where requests live for seconds.</p>
+<fig src="025-pd-routing.svg" caption="With disaggregated serving, the router picks a prefill worker and a decode worker separately">A client sends a request to the router, which makes two decisions. It sends the prompt to prefill worker P1, which already caches the prefix, rather than P2 with no match or the busy P3. It assigns decoding to D1, whose KV cache is 40% full, rather than D2 at 88% or D3 at 93%. The KV cache is transferred from P1 to D1, and D1 streams tokens back to the client.</fig>
+<p>SGLang's router expresses this directly: in prefill/decode mode it accepts separate <code>--prefill-policy</code> and <code>--decode-policy</code> settings, for example <code>cache_aware</code> for prefill and <code>power_of_two</code> for decode [4].</p>
+
+<h3>Retries, timeouts, and fallbacks without duplicate work</h3>
+<p>A router is also where failures are handled, and LLM streams change the rules. Figure 8 shows the key boundary: the first token.</p>
+<fig src="025-retry-window.svg" caption="Retries are safe only before the first token reaches the client">A timeline of one request: queue, prefill, the first token, then a stream of tokens with one long stall. Before the first token, the band is labeled safe to retry elsewhere because nothing has been sent to the client. After the first token, the band warns that a retry would repeat or duplicate output. Below the timeline, a TTFT timeout covers the time before the first token, and an idle-gap timeout covers the stall between tokens.</fig>
+<ul>
+<li><strong>Retry only before streaming starts.</strong> If a replica refuses a request, returns an overload error, or produces no first token within a deadline, nothing has reached the client yet, and the router can retry on another replica. After the first token, a retry would regenerate the answer from scratch and send the client a second, different beginning. Return an error instead, or have the client resume by sending the partial answer back as context.</li>
+<li><strong>Use two timeouts, not one.</strong> A TTFT timeout bounds the wait for the first token, and an idle-gap timeout bounds the wait between tokens. A single total timeout cannot tell a stuck request from a long answer.</li>
+<li><strong>Cancel what you abandon.</strong> When a timeout fires or a client disconnects, close the upstream connection so the engine stops generating. Otherwise the GPU keeps producing tokens nobody will read, and the timed-out request still holds its KV cache.</li>
+<li><strong>Budget retries.</strong> Under overload, naive retries multiply load exactly when the fleet can least afford it. Google's SRE book recommends capping each request at three attempts and keeping retries below about 10% of a client's requests, which limits load growth to about 1.1× instead of nearly 3× [16]. Use exponential backoff with jitter, and eject replicas that keep failing with a circuit breaker; SGLang's router provides both [4].</li>
+<li><strong>Hedge sparingly.</strong> Hedged requests, sending a second copy after a short delay and using whichever answers first, are a classic tail-latency tool [17]. For an LLM each copy repeats the prefill, so hedge only short requests, only after the p95 TTFT has passed, and cancel the loser immediately.</li>
+<li><strong>Fall back deliberately.</strong> When a pool is saturated, the router can overflow to another region, to a smaller model, or to a hosted API, as long as the product accepts the change in quality or cost.</li>
+</ul>
+
+<h2>In Practice</h2>
+<p>The first tab is a self-contained sketch of a cache-aware router with a load bound. It hashes prompts into 16-token blocks, keeps an approximate LRU view of each replica's cache, filters out replicas above 1.2 times the average load, and picks the lowest cost from the formula above. Its simulation replays our traffic shape at the daily peak (50 system prompts, 600 conversations, one tenant with 30% of them, about 350 requests in flight) and compares it with a cache-blind least-load policy; with seed 0 it prints about 60% of prompt tokens reused for the cache-blind policy and 84% for the cache-aware one, with requests spread evenly in both cases. The second tab starts SGLang's router with the same policy in front of existing workers.</p>
+<codetabs>
+<tab label="Routing sketch" lang="python">
+import hashlib
+import random
+from collections import OrderedDict, deque
+from dataclasses import dataclass, field
+
+BLOCK = 16  # tokens per KV block; match the engine's block size
+
+
+def block_hashes(tokens: list[int]) -> list[str]:
+    """Chain-hash each full block, so a block's hash covers every token before it."""
+    hashes, prev = [], ""
+    for i in range(0, len(tokens) - len(tokens) % BLOCK, BLOCK):
+        data = (prev + ",".join(map(str, tokens[i:i + BLOCK]))).encode()
+        prev = hashlib.sha1(data).hexdigest()
+        hashes.append(prev)
+    return hashes
+
+
+@dataclass
+class Replica:
+    name: str
+    max_blocks: int = 26_600  # x 16 tokens = ~426K tokens, one H100 (Lesson 3)
+    blocks: OrderedDict = field(default_factory=OrderedDict)  # router's guess of the cache
+    inflight_requests: int = 0
+    inflight_tokens: int = 0
+
+    def cached_blocks(self, hashes: list[str]) -> int:
+        n = 0
+        for h in hashes:
+            if h not in self.blocks:
+                break
+            n += 1
+        return n
+
+    def remember(self, hashes: list[str]) -> None:
+        for h in hashes:
+            self.blocks[h] = True
+            self.blocks.move_to_end(h)
+        while len(self.blocks) > self.max_blocks:  # approximate LRU eviction
+            self.blocks.popitem(last=False)
+
+
+class CacheAwareRouter:
+    def __init__(self, replicas, load_bound=1.2, load_weight=0.1, cache_weight=1.0):
+        self.replicas = replicas
+        self.load_bound = load_bound      # c in "consistent hashing with bounded loads"
+        self.load_weight = load_weight    # cost of one outstanding token, in prefill tokens
+        self.cache_weight = cache_weight  # 0 turns this into plain least-outstanding-tokens
+
+    def route(self, prompt: list[int], expected_output: int = 500) -> tuple[Replica, int]:
+        hashes = block_hashes(prompt)
+        avg = sum(r.inflight_requests for r in self.replicas) / len(self.replicas)
+        cap = self.load_bound * avg + 1
+        allowed = [r for r in self.replicas if r.inflight_requests < cap] or self.replicas
+
+        def cost(r: Replica) -> float:
+            uncached = len(prompt) - BLOCK * r.cached_blocks(hashes)
+            return self.cache_weight * uncached + self.load_weight * r.inflight_tokens
+
+        best = min(allowed, key=lambda r: (cost(r), r.inflight_requests))
+        cached_tokens = BLOCK * best.cached_blocks(hashes)
+        best.remember(hashes)
+        best.inflight_requests += 1
+        best.inflight_tokens += len(prompt) + expected_output
+        return best, cached_tokens
+
+    def finish(self, replica: Replica, prompt_len: int, expected_output: int = 500) -> None:
+        replica.inflight_requests -= 1
+        replica.inflight_tokens -= prompt_len + expected_output
+
+
+def simulate(cache_weight: float, requests: int = 4_000) -> None:
+    random.seed(0)
+    new = lambda n: [random.randrange(128_000) for _ in range(n)]
+    router = CacheAwareRouter([Replica(f"R{i}") for i in range(1, 9)], cache_weight=cache_weight)
+    system_prompts = [new(1_500) for _ in range(50)]
+    chats = [[0 if random.random() < 0.3 else random.randrange(1, 50), []] for _ in range(600)]
+    active, sent, reused, total = deque(), {}, 0, 0
+    for _ in range(requests):
+        chat = random.choice(chats)          # tenant 0 owns 30% of conversations
+        if len(chat[1]) > 8_000:
+            chat[1] = []                     # conversation over; start a new one
+        chat[1] += new(200)                  # the user's new turn
+        prompt = system_prompts[chat[0]] + chat[1]
+        replica, cached = router.route(prompt)
+        chat[1] += new(100)                  # the model's reply joins the history
+        reused, total = reused + cached, total + len(prompt)
+        sent[replica.name] = sent.get(replica.name, 0) + 1
+        active.append((replica, len(prompt)))
+        if len(active) > 350:                # Little's law: ~350 in flight at 33 req/s
+            router.finish(*active.popleft())
+    print(f"cache_weight={cache_weight}: prompt tokens reused {reused / total:.0%},",
+          f"requests per replica {min(sent.values())}-{max(sent.values())}")
+
+
+if __name__ == "__main__":
+    simulate(cache_weight=0.0)  # least outstanding tokens, blind to the cache
+    simulate(cache_weight=1.0)  # cache-aware with a bounded load
+</tab>
+<tab label="SGLang router" lang="bash">
+# Cache-aware routing in front of SGLang workers that are already running.
+python -m sglang_router.launch_router \
+  --worker-urls http://worker1:30000 http://worker2:30000 http://worker3:30000 \
+  --policy cache_aware \
+  --cache-threshold 0.5 \
+  --balance-abs-threshold 32 \
+  --balance-rel-threshold 1.5
+
+# The threshold values above are examples, not recommendations; defaults differ
+# between versions, so check --help. Disaggregated mode takes separate policies:
+python -m sglang_router.launch_router \
+  --pd-disaggregation \
+  --prefill http://prefill1:30001 9001 \
+  --decode http://decode1:30011 \
+  --prefill-policy cache_aware \
+  --decode-policy power_of_two
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Running several router instances for availability: each sees only its own traffic, so approximate cache views diverge; randomized choices such as the power of two choices keep them from herding [1].</li>
+<li>Sharing caches across replicas with CPU or remote KV stores, which makes affinity less critical because a miss on the GPU can still be a hit in the shared tier (Lesson 24, Prefix Caching).</li>
+<li>Routing by predicted latency rather than by load counters, which llm-d lists as an experimental scheduling mode [11].</li>
+<li>Zone and region awareness: keep a request in the client's zone unless that zone is saturated, since cross-region round trips add tens of milliseconds to every token stream.</li>
+<li>Draining a replica before a rollout: stop sending it new requests, let its streams finish, and only then restart it, so in-flight users are not cut off (Lesson 40, Reliability and Rollouts).</li>
+<li>How the router's own metrics, such as cache hit rate per replica and spill rate past the load bound, feed the dashboards in Lesson 29, Queue Depth, and Lesson 32, Lab - A Dashboard That Explains Latency Spikes.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="025-summary.png" caption="Request routing summary" optional="1">Mind map summarizing the request routing lesson: why LLM routing differs, the main policies, the tension between cache hits and load, and the concerns around routing such as adapters, priorities, disaggregation and retries.</fig>
+<ul>
+<li>LLM routing differs from web load balancing because requests differ by more than 100× in cost, streams hold a replica for seconds, and each replica's prefix cache makes some placements far cheaper than others.</li>
+<li>Round robin and least outstanding requests balance request counts, not work. Measuring load in outstanding tokens, queue length, or KV cache usage fixes that.</li>
+<li>Cache-aware routing sends a request to the replica holding the longest matching prefix; for an 8,000-token chat history that saves about 250 ms of prefill on an H100.</li>
+<li>Hot prefixes concentrate load. Bound it: cap each replica at about 1.2× the average load, kept below capacity, or switch to least-load routing past an imbalance threshold. A cache miss costs tens of milliseconds once; a queue costs seconds for everyone.</li>
+<li>Route models and LoRA adapters to home groups of replicas, give batch traffic lower priority, and in disaggregated setups pick the prefill worker by cache match and the decode worker by free KV memory.</li>
+<li>Retry only before the first token, use separate TTFT and idle-gap timeouts, cancel abandoned work, and keep retries within a budget of about 10%.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Mitzenmacher. The Power of Two Choices in Randomized Load Balancing. <a href="https://www.eecs.harvard.edu/~michaelm/postscripts/tpds2001.pdf" rel="noopener noreferrer" target="_blank">https://www.eecs.harvard.edu/~michaelm/postscripts/tpds2001.pdf</a>.<br>
+[2] Envoy documentation: Supported load balancers. <a href="https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/load_balancing/load_balancers" rel="noopener noreferrer" target="_blank">https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/load_balancing/load_balancers</a>.<br>
+[3] vLLM documentation: Metrics. <a href="https://docs.vllm.ai/en/latest/usage/metrics.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/usage/metrics.html</a>.<br>
+[4] SGLang documentation: SGLang Model Gateway. <a href="https://docs.sglang.io/advanced_features/sgl_model_gateway.html" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/advanced_features/sgl_model_gateway.html</a>.<br>
+[5] Zheng et al. SGLang: Efficient Execution of Structured Language Model Programs. <a href="https://arxiv.org/abs/2312.07104" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2312.07104</a>.<br>
+[6] NVIDIA Dynamo documentation: Router Guide. <a href="https://docs.nvidia.com/dynamo/v1.1.0/user-guides/kv-cache-aware-routing.md" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/dynamo/v1.1.0/user-guides/kv-cache-aware-routing.md</a>.<br>
+[7] vLLM Production Stack. <a href="https://github.com/vllm-project/production-stack" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/production-stack</a>.<br>
+[8] Mirrokni, Thorup, and Zadimoghaddam. Consistent Hashing with Bounded Loads. <a href="https://arxiv.org/abs/1608.01350" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1608.01350</a>.<br>
+[9] Srivatsa et al. Preble: Efficient Distributed Prompt Scheduling for LLM Serving. <a href="https://arxiv.org/abs/2407.00023" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.00023</a>.<br>
+[10] Kubernetes Gateway API Inference Extension. <a href="https://gateway-api-inference-extension.sigs.k8s.io/" rel="noopener noreferrer" target="_blank">https://gateway-api-inference-extension.sigs.k8s.io/</a>.<br>
+[11] Guy et al. Intelligent Inference Scheduling with llm-d. <a href="https://llm-d.ai/blog/intelligent-inference-scheduling-with-llm-d" rel="noopener noreferrer" target="_blank">https://llm-d.ai/blog/intelligent-inference-scheduling-with-llm-d</a>.<br>
+[12] NVIDIA Dynamo: A Datacenter Scale Distributed Inference Serving Framework. <a href="https://github.com/ai-dynamo/dynamo" rel="noopener noreferrer" target="_blank">https://github.com/ai-dynamo/dynamo</a>.<br>
+[13] vLLM documentation: LoRA Adapters. <a href="https://docs.vllm.ai/en/latest/features/lora.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/lora.html</a>.<br>
+[14] vLLM documentation: Engine Arguments. <a href="https://docs.vllm.ai/en/latest/configuration/engine_args.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/engine_args.html</a>.<br>
+[15] Zhong et al. DistServe: Disaggregating Prefill and Decoding for Goodput-optimized Large Language Model Serving. <a href="https://arxiv.org/abs/2401.09670" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.09670</a>.<br>
+[16] Google SRE Book: Handling Overload. <a href="https://sre.google/sre-book/handling-overload/" rel="noopener noreferrer" target="_blank">https://sre.google/sre-book/handling-overload/</a>.<br>
+[17] Dean and Barroso. The Tail at Scale. <a href="https://research.google/pubs/pub40801/" rel="noopener noreferrer" target="_blank">https://research.google/pubs/pub40801/</a>.</p>

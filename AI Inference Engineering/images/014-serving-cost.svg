@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="282" viewBox="0 0 840 282" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{stroke:#000;stroke-width:1.2;fill:none}
+    .grid{stroke:#ddd;stroke-width:1;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="24" class="b">Dollars per million output tokens (decode-bound best case, assumed $3.00 per H100-hour)</text>
+  <text x="220" y="59" text-anchor="end">Llama 3.1 70B, BF16</text>
+  <text x="220" y="75" text-anchor="end" class="sm">4 × H100 per replica</text>
+  <rect x="230" y="44" width="426.7" height="28" class="gray"/>
+  <text x="664.7" y="63">$0.40</text>
+  <text x="220" y="103" text-anchor="end">Llama 3.1 70B, FP8</text>
+  <text x="220" y="119" text-anchor="end" class="sm">4 × H100 per replica</text>
+  <rect x="230" y="88" width="291.2" height="28" class="gray"/>
+  <text x="529.2" y="107">$0.27</text>
+  <text x="220" y="147" text-anchor="end">Llama 3.1 8B, BF16</text>
+  <text x="220" y="163" text-anchor="end" class="sm">1 × H100 per replica</text>
+  <rect x="230" y="132" width="112.3" height="28" class="green"/>
+  <text x="350.3" y="151">$0.11</text>
+  <text x="220" y="191" text-anchor="end">Llama 3.1 8B, FP8</text>
+  <text x="220" y="207" text-anchor="end" class="sm">1 × H100 per replica</text>
+  <rect x="230" y="176" width="100.3" height="28" class="green"/>
+  <text x="338.3" y="195">$0.09</text>
+  <path d="M230,222 L710,222" class="axis"/>
+  <line x1="230.0" y1="222" x2="230.0" y2="227" stroke="#000" stroke-width="1"/>
+  <text x="230.0" y="242" text-anchor="middle" class="sm">$0.00</text>
+  <line x1="336.7" y1="222" x2="336.7" y2="227" stroke="#000" stroke-width="1"/>
+  <text x="336.7" y="242" text-anchor="middle" class="sm">$0.10</text>
+  <line x1="443.3" y1="222" x2="443.3" y2="227" stroke="#000" stroke-width="1"/>
+  <text x="443.3" y="242" text-anchor="middle" class="sm">$0.20</text>
+  <line x1="550.0" y1="222" x2="550.0" y2="227" stroke="#000" stroke-width="1"/>
+  <text x="550.0" y="242" text-anchor="middle" class="sm">$0.30</text>
+  <line x1="656.7" y1="222" x2="656.7" y2="227" stroke="#000" stroke-width="1"/>
+  <text x="656.7" y="242" text-anchor="middle" class="sm">$0.40</text>
+  <text x="16" y="268" class="sm">Full KV cache of 2,500-token chats; every configuration runs about 21.5 ms per step. Prefill and tensor-parallel traffic are ignored.</text>
+</svg>

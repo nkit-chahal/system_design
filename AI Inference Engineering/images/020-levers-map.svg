@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="330" viewBox="0 0 840 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <rect x="40" y="16" width="760" height="48" rx="6" class="white"/>
+  <text x="420" y="45" text-anchor="middle" class="b">$ per 1M tokens = GPU $ per hour ÷ (tokens/s × utilization × 3,600) × 1,000,000</text>
+
+  <path d="M160,64 L160,104" class="edge"/>
+  <path d="M420,64 L420,104" class="edge"/>
+  <path d="M680,64 L680,104" class="edge"/>
+
+  <!-- Column 1: price -->
+  <rect x="40" y="106" width="240" height="196" rx="6" class="gray"/>
+  <text x="160" y="132" text-anchor="middle" class="b">Lower GPU $ per hour</text>
+  <text x="58" y="166">• Reserved or committed</text>
+  <text x="70" y="184">capacity</text>
+  <text x="58" y="212">• Spot capacity (can be</text>
+  <text x="70" y="230">reclaimed at short notice)</text>
+  <text x="58" y="258">• Right-size the GPU type</text>
+
+  <!-- Column 2: throughput -->
+  <rect x="300" y="106" width="240" height="196" rx="6" class="orange"/>
+  <text x="420" y="132" text-anchor="middle" class="b">Raise tokens per second</text>
+  <text x="318" y="166">• Bigger batches, up to the SLO</text>
+  <text x="318" y="192">• FP8 weights and KV cache</text>
+  <text x="318" y="218">• Smaller or distilled model</text>
+  <text x="318" y="244">• Prefix caching</text>
+  <text x="318" y="270">• Speculative decoding</text>
+
+  <!-- Column 3: utilization -->
+  <rect x="560" y="106" width="240" height="196" rx="6" class="green"/>
+  <text x="680" y="132" text-anchor="middle" class="b">Raise utilization</text>
+  <text x="578" y="166">• Autoscale with traffic</text>
+  <text x="578" y="192">• Batch jobs in quiet hours</text>
+  <text x="578" y="218">• Share GPUs across small</text>
+  <text x="590" y="236">models</text>
+
+  <text x="40" y="322" class="sm">Utilization here is the fleet-level factor: average served load ÷ provisioned capacity. Each lever acts mainly on one term.</text>
+</svg>

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="372" viewBox="0 0 760 372" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .note{font-size:12px;fill:#666}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .axis{stroke:#000;stroke-width:1.2;fill:none}
+    .grid{stroke:#ddd;stroke-width:1}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="20" y="24" class="b">Llama 3.1 70B in BF16, one request: lower bound on the time per decode step</text>
+
+  <!-- y = 280 - 9 * ms -->
+  <line x1="100" y1="235" x2="700" y2="235" class="grid"/>
+  <line x1="100" y1="190" x2="700" y2="190" class="grid"/>
+  <line x1="100" y1="145" x2="700" y2="145" class="grid"/>
+  <line x1="100" y1="100" x2="700" y2="100" class="grid"/>
+  <line x1="100" y1="55" x2="700" y2="55" class="grid"/>
+  <path d="M100,50 V280 H700" class="axis"/>
+  <text x="92" y="284" text-anchor="end" class="sm">0</text>
+  <text x="92" y="239" text-anchor="end" class="sm">5</text>
+  <text x="92" y="194" text-anchor="end" class="sm">10</text>
+  <text x="92" y="149" text-anchor="end" class="sm">15</text>
+  <text x="92" y="104" text-anchor="end" class="sm">20</text>
+  <text x="92" y="59" text-anchor="end" class="sm">25</text>
+  <text x="44" y="168" text-anchor="middle" class="sm" transform="rotate(-90 44 168)">milliseconds per decode step</text>
+
+  <!-- TP=2: 21.06 + 1.61 -->
+  <rect x="175" y="90.5" width="90" height="189.5" class="orange"/>
+  <rect x="175" y="76" width="90" height="14.5" class="purple"/>
+  <text x="220" y="68" text-anchor="middle" class="b">22.7 ms · 44 tok/s</text>
+  <text x="220" y="190" text-anchor="middle" class="sm">21.1</text>
+  <!-- TP=4: 10.53 + 1.61 -->
+  <rect x="355" y="185.2" width="90" height="94.8" class="orange"/>
+  <rect x="355" y="170.7" width="90" height="14.5" class="purple"/>
+  <text x="400" y="163" text-anchor="middle" class="b">12.1 ms · 82 tok/s</text>
+  <text x="400" y="237" text-anchor="middle" class="sm">10.5</text>
+  <!-- TP=8: 5.27 + 1.61 -->
+  <rect x="535" y="232.6" width="90" height="47.4" class="orange"/>
+  <rect x="535" y="218.1" width="90" height="14.5" class="purple"/>
+  <text x="580" y="210" text-anchor="middle" class="b">6.9 ms · 145 tok/s</text>
+  <text x="580" y="261" text-anchor="middle" class="sm">5.3</text>
+
+  <text x="220" y="300" text-anchor="middle">TP = 2</text>
+  <text x="400" y="300" text-anchor="middle">TP = 4</text>
+  <text x="580" y="300" text-anchor="middle">TP = 8</text>
+  <text x="220" y="318" text-anchor="middle" class="sm">communication 7%</text>
+  <text x="400" y="318" text-anchor="middle" class="sm">communication 13%</text>
+  <text x="580" y="318" text-anchor="middle" class="sm">communication 23%</text>
+
+  <rect x="100" y="334" width="16" height="12" class="orange"/><text x="122" y="345" class="sm">reading weights: 141 GB ÷ TP at 3.35 TB/s</text>
+  <rect x="400" y="334" width="16" height="12" class="purple"/><text x="422" y="345" class="sm">160 all-reduces × 10 µs (assumed)</text>
+  <text x="100" y="365" class="note">Arithmetic lower bounds on NVLink, not measurements. Four times the GPUs give 3.3 times the speed.</text>
+</svg>

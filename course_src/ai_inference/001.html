@@ -1,0 +1,129 @@
+<h2>Introduction</h2>
+<p>Training a large language model is a project. Serving it is a business. A model is trained once, but every chat message, code completion, and agent step afterwards is an <strong>inference</strong> request that must be answered quickly, reliably, and cheaply, often thousands of times per second. For most companies that deploy LLMs, inference is where the GPUs, the latency complaints, and the cloud bill end up.</p>
+<p>Inference engineering is the discipline of running models in production: choosing how a model is served, on which hardware, with which optimizations, and how to keep it healthy under real traffic. It sits between machine learning and systems engineering. You need to understand how a transformer generates tokens, how GPU memory and bandwidth limit it, and how classic distributed-systems ideas such as queues, load balancing, autoscaling, and observability apply when every request holds gigabytes of state on a GPU.</p>
+<fig src="001-request-lifecycle.svg" caption="The life of an inference request, with the lessons that cover each part">A request flows from the client through an API gateway (Lesson 26) and a router (Lesson 25) to an engine replica on GPUs (Lessons 9 to 11). Inside the replica, a scheduler queue (Lessons 7 and 29) feeds prefill (Lessons 2 and 4) and a token-by-token decode loop (Lessons 2 and 5), both backed by the KV cache in GPU memory (Lessons 3, 8 and 24). Tokens stream back to the client. Observability (Lessons 28 to 31) and an autoscaler (Lessons 22 and 23) support the system.</fig>
+<p>Figure 1 follows a single request through a typical serving stack. Every box in it is a lesson in this course. In this first lesson, we set up the vocabulary, the numbers that bound every design, a framework for answering inference design questions, and a map of the course.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Most inference design discussions, in interviews and at work, start from a vague request such as "we want to serve an open model for our product". Here is a typical exchange that turns it into something we can design for:</p>
+<p><strong>Candidate</strong>: What is the product, and who waits for the output?<br>
+<strong>Interviewer</strong>: A chat assistant inside our app. Users read the answer as it streams.</p>
+<p><strong>Candidate</strong>: Which model, and do we need to fine-tune it?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct for now, as released. We may try a 70B model later.</p>
+<p><strong>Candidate</strong>: What do requests look like?<br>
+<strong>Interviewer</strong>: About 2,000 prompt tokens, most of them a shared system prompt and chat history, and about 500 output tokens.</p>
+<p><strong>Candidate</strong>: How much traffic?<br>
+<strong>Interviewer</strong>: Around 1,000 requests per minute on average. Product launches can bring short spikes of ten times that.</p>
+<p><strong>Candidate</strong>: What latency do users need?<br>
+<strong>Interviewer</strong>: The first words should appear within about half a second, and the text should stream at least as fast as people read.</p>
+<p><strong>Candidate</strong>: What hardware and budget do we have?<br>
+<strong>Interviewer</strong>: NVIDIA H100 GPUs in the cloud. The budget is whatever it takes to meet the targets, but we want to know the cost per million tokens.</p>
+<p>This scenario is the <strong>running example</strong> of the course. Each lesson returns to it and answers one part of the underlying question: <em>how do we serve this model to these users, within these latency targets, at the lowest cost, and how do we know it is working?</em></p>
+
+<h2>The Vocabulary of Inference</h2>
+<h3>Two phases: prefill and decode</h3>
+<p>An LLM answers in two phases. In <strong>prefill</strong>, it reads the whole prompt in one parallel pass and computes the first output token. In <strong>decode</strong>, it generates the rest of the answer one token at a time, each step feeding the previous token back in. The two phases stress the hardware in opposite ways: prefill is limited by arithmetic, decode by memory bandwidth. Lesson 2, Prefill vs Decode, explains why, and almost every optimization in this course targets one phase or the other.</p>
+<p>To avoid redoing work at every decode step, the model stores the attention keys and values of all previous tokens in the <strong>KV cache</strong>. The cache grows with every token and lives in GPU memory, so it, rather than the model weights, usually decides how many users one GPU can serve (Lesson 3, KV Cache).</p>
+
+<h3>The latency of a streamed answer</h3>
+<p>Because answers stream, "latency" is not one number. Figure 2 breaks a single response into its parts.</p>
+<fig src="001-latency-anatomy.svg" caption="The anatomy of a streamed response">A timeline starts when the request arrives. It waits in a queue, then prefill runs, and the first token appears; this span is the time to first token. Tokens then arrive one per decode step, separated by the time per output token. End-to-end latency equals TTFT plus TPOT times the number of output tokens minus one; for example, 0.3 seconds plus 25 milliseconds times 499 is 12.8 seconds for a 500-token answer.</fig>
+<texblock>\text{end-to-end latency} = \text{TTFT} + \text{TPOT} \times (\text{output tokens} - 1)</texblock>
+<p>For our 500-token answers, end-to-end latency is dominated by decoding: even a fast first token of 0.3 s is followed by about 12.5 s of streaming at 25 ms per token. Users judge responsiveness by the first number and reading comfort by the second, so we track them separately.</p>
+
+<table>
+<thead><tr><th>Metric</th><th>What it measures</th><th>Who cares</th><th>Lesson</th></tr></thead>
+<tbody>
+<tr><td>Time to first token (TTFT)</td><td>From request arrival to the first streamed token: queueing plus prefill</td><td>Users: "is it responding?"</td><td>4</td></tr>
+<tr><td>Time per output token (TPOT), also inter-token latency (ITL)</td><td>The gap between streamed tokens during decode</td><td>Users: "can I read along?"</td><td>5</td></tr>
+<tr><td>End-to-end latency</td><td>From request to last token</td><td>Non-streaming callers, agents</td><td>5, 28</td></tr>
+<tr><td>Throughput</td><td>Total tokens (or requests) per second across all users</td><td>The team paying for GPUs</td><td>5, 20</td></tr>
+<tr><td>Goodput</td><td>Throughput counting only requests that met the latency targets</td><td>Everyone</td><td>5</td></tr>
+<tr><td>p50 / p95 / p99</td><td>The median and the tail of any latency metric</td><td>On-call engineers, SLO owners</td><td>28</td></tr>
+<tr><td>Cost per million tokens</td><td>GPU cost divided by tokens served</td><td>Finance, product pricing</td><td>20</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: The metrics used throughout the course</p>
+
+<h2>The Numbers That Bound Every Design</h2>
+<p>A few pieces of arithmetic explain most of inference performance. You should be able to do them on a whiteboard for any model and GPU. For Llama 3.1 8B in BF16 on one H100, they are:</p>
+<ul>
+<li><strong>Weights</strong>: 8.03 billion parameters [4] × 2 bytes ≈ 16 GB. Every decode step must read all of them from memory.</li>
+<li><strong>Decode speed limit</strong>: the H100 reads memory at 3.35 TB/s [5], so one decode step takes at least 16 GB ÷ 3.35 TB/s ≈ 4.8 ms. A single stream can never exceed about 200 tokens per second, no matter how much compute the GPU has.</li>
+<li><strong>Prefill cost</strong>: a forward pass costs about 2 FLOPs per parameter per token, so a 2,000-token prompt needs 2 × 8.03 × 10⁹ × 2,000 ≈ 32 TFLOPs. At 50% of the H100's 989 dense BF16 TFLOPS, that is about 65 ms.</li>
+<li><strong>KV cache</strong>: 128 KiB per token, about 312 MiB for a 2,500-token conversation. About 52 GiB of free memory holds roughly 426,000 tokens, so about 170 such conversations fit at once (Lesson 3).</li>
+</ul>
+<p>These numbers already tell a story. Prefill is cheap per request but scales with prompt length. Decode is bounded by memory reads [3], so the way to use a GPU well is to <strong>batch</strong> many users into each decode step: the weights are read once per step for everyone. Batching is limited by the KV cache, and a fuller batch makes each step slower for every user. Most of Stages 1 to 4 elaborate this trade-off between per-user speed and total throughput.</p>
+<callout kind="tip" title="Interview tip">Before proposing any design, write down the weights size, the KV cache bytes per token, the GPU's memory bandwidth and its compute. Ten seconds of arithmetic tells you whether a model fits, how fast a single stream can be, and roughly how many users one GPU can carry.</callout>
+
+<h2>A Framework for Inference Design Questions</h2>
+<p>Like the ML system design framework in the Generative AI chapters, inference questions have a reliable structure. Figure 3 shows the seven steps we follow in every lab and in most real projects.</p>
+<fig src="001-design-framework.svg" caption="A framework for inference design questions">Seven steps in a row: clarify requirements, model the workload, choose model and precision (Stage 3), choose engine and configuration (Stage 2), size the hardware (Stage 4), design for production (Stage 5), and observe and iterate (Stage 6). A dashed feedback arrow returns from step 7 to step 2: measurements from production update the workload model.</fig>
+
+<h4>1. Clarify requirements</h4>
+<p>Pin down the model and its quality bar, the latency targets as percentiles [9] (for example p95 TTFT under 500 ms), traffic volume and its peaks, and the budget. "Low latency" is not a requirement; "p95 TTFT under 500 ms at 1,000 requests per minute" is.</p>
+<h4>2. Model the workload</h4>
+<p>Describe the traffic in tokens, not just requests: the distribution of prompt and output lengths, how much of each prompt is shared between requests, and how bursty arrivals are. A workload of short prompts and long answers is decode-heavy; retrieval-augmented generation with long documents is prefill-heavy. The design differs.</p>
+<h4>3. Choose the model and its precision</h4>
+<p>The smallest model that meets the quality bar is usually the biggest cost lever. Quantization (Lesson 13), distillation (Lesson 14), and speculative decoding (Lesson 15) make a given model cheaper and faster, provided an evaluation shows the quality held.</p>
+<h4>4. Choose the engine and its configuration</h4>
+<p>vLLM [6], SGLang [7], and TensorRT-LLM [8] all implement continuous batching [2] and paged KV caches [1]. Their differences, and the handful of settings that control capacity and latency, are the subject of Stage 2.</p>
+<h4>5. Size the hardware</h4>
+<p>Budget GPU memory (Lesson 17), decide whether one GPU is enough or the model must be split (Lesson 18), estimate per-GPU capacity at the latency target, and convert it into a GPU count and a cost per million tokens (Lessons 19–21).</p>
+<h4>6. Design for production</h4>
+<p>Traffic is not constant. Autoscaling, cold starts, prefix caching, request routing, and rate limiting (Stage 5) decide whether the system survives a spike and how much idle capacity we pay for.</p>
+<h4>7. Observe and iterate</h4>
+<p>Measure latency percentiles, queue depth, GPU behavior, and tokens per request (Stage 6). Real traffic always differs from the plan, and the measurements feed back into the workload model.</p>
+
+<h2>How the Course Is Organized</h2>
+<p>The course follows the seven stages in Figure 4. Stages 1 to 6 follow the inference roadmap: each has a few concept lessons and ends with a hands-on lab that applies them. Stage 7 covers advanced serving designs that come up once the basics are in place. If GPUs are new to you, read Lesson 33, GPU Architecture and Attention Kernels, alongside Stage 1.</p>
+<fig src="001-roadmap.svg" caption="The seven stages of the course and their labs">Seven columns, one per stage. Stage 1, how a model generates: prefill vs decode, KV cache, time to first token, tokens per second. Stage 2, serving engines: continuous batching, PagedAttention, vLLM, SGLang, TensorRT-LLM. Stage 3, smaller and faster models: quantization, distillation, speculative decoding. Stage 4, GPU math and cost: VRAM budgeting, tensor parallelism, GPU utilization, cost per million tokens. Stage 5, production serving: autoscaling, cold starts, prefix caching, request routing, rate limiting. Stage 6, observability: latency percentiles, queue depth, GPU metrics, token accounting. Stages 1 to 6 each end with a lab. Stage 7, advanced serving: GPU architecture and kernels, disaggregated prefill and decode, mixture-of-experts serving, long context, multi-LoRA serving, structured output, batch inference, and reliability.</fig>
+<table>
+<thead><tr><th>Stage</th><th>Question it answers</th><th>Lab</th></tr></thead>
+<tbody>
+<tr><td>1. How a model generates</td><td>Where do latency and memory go when a model produces tokens?</td><td>Serve an open model locally and measure TTFT and throughput across prompt lengths</td></tr>
+<tr><td>2. Serving engines</td><td>How do engines batch users and manage the KV cache, and which engine fits?</td><td>Benchmark the same model on two engines with 50 concurrent users</td></tr>
+<tr><td>3. Smaller and faster models</td><td>How do we make a model cheaper without breaking it?</td><td>Cut model memory by half and prove quality held on an evaluation set</td></tr>
+<tr><td>4. GPU math and cost</td><td>How many GPUs, of which kind, and at what cost per token?</td><td>Calculate the GPUs needed for 1,000 requests per minute under a 2 s latency SLA</td></tr>
+<tr><td>5. Production serving</td><td>How does the system behave when traffic changes?</td><td>Survive a 10× traffic spike without the p99 latency exploding</td></tr>
+<tr><td>6. Observability</td><td>How do we know what is happening, and why?</td><td>Build a dashboard that explains latency spikes before users notice</td></tr>
+<tr><td>7. Advanced serving</td><td>How do large deployments go further: disaggregation, mixture-of-experts, long context, many adapters, structured output, batch jobs, and safe rollouts?</td><td>None; each lesson ends with a design decision</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Course stages and labs</p>
+
+<h3>How to use the labs</h3>
+<p>Every lab offers two paths. The small path runs on a laptop or a consumer GPU with a model of 0.5B to 3B parameters; it is enough to see every effect the course describes, just at smaller numbers. The full path uses a cloud H100 with Llama 3.1 8B, matching the running example. vLLM and SGLang run on Linux; on Windows, use WSL2, or use Ollama for the first lab. Labs show expected results either as arithmetic you can check or as clearly labelled illustrations; your own measurements are the real results.</p>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Why serving cost is driven by output tokens more than input tokens, and how API pricing reflects it (Lesson 20).</li>
+<li>Disaggregated serving, which runs prefill and decode on separate GPU pools so each can be tuned for its bottleneck (Lesson 34).</li>
+<li>Mixture-of-experts models, which activate only part of their weights per token and change the memory and parallelism math (Lesson 35).</li>
+<li>Reasoning models that generate thousands of hidden tokens per answer, which shifts the workload heavily toward decode.</li>
+<li>Agentic workloads, where many short calls share long prefixes, making prefix caching and cache-aware routing central (Lessons 24 and 25).</li>
+<li>Serving on non-NVIDIA accelerators (AMD GPUs, Google TPUs, AWS Inferentia), and how engine support differs.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="001-summary.png" caption="Introduction summary" optional="1">Mind map summarizing the course introduction: the two phases, the key metrics, the numbers that bound a design, the seven-step framework, and the seven stages.</fig>
+<ul>
+<li>Inference is the ongoing cost of every deployed model; inference engineering decides its latency, reliability, and price.</li>
+<li>Generation has two phases: compute-bound prefill and memory-bound decode, with the KV cache holding each request's state in GPU memory.</li>
+<li>A streamed answer has a time to first token and a time per output token; end-to-end latency is TTFT + TPOT × (tokens − 1).</li>
+<li>Four numbers bound every design: weight bytes, KV cache bytes per token, memory bandwidth, and compute. For Llama 3.1 8B on an H100: 16 GB, 128 KiB, 3.35 TB/s, 989 TFLOPS.</li>
+<li>Answer design questions in seven steps: requirements, workload, model, engine, hardware, production, observability.</li>
+<li>The course follows six roadmap stages, each ending in a lab on the same running example, plus a seventh stage of advanced serving topics.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Kwon et al. Efficient Memory Management for Large Language Model Serving with PagedAttention. <a href="https://arxiv.org/abs/2309.06180" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.06180</a>.<br>
+[2] Yu et al. Orca: A Distributed Serving System for Transformer-Based Generative Models. OSDI 2022. <a href="https://www.usenix.org/conference/osdi22/presentation/yu" rel="noopener noreferrer" target="_blank">https://www.usenix.org/conference/osdi22/presentation/yu</a>.<br>
+[3] Pope et al. Efficiently Scaling Transformer Inference. <a href="https://arxiv.org/abs/2211.05102" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.05102</a>.<br>
+[4] Llama Team, AI @ Meta. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[5] NVIDIA H100 Tensor Core GPU. <a href="https://www.nvidia.com/en-us/data-center/h100/" rel="noopener noreferrer" target="_blank">https://www.nvidia.com/en-us/data-center/h100/</a>.<br>
+[6] vLLM documentation. <a href="https://docs.vllm.ai/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/</a>.<br>
+[7] SGLang documentation. <a href="https://docs.sglang.io/" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/</a>.<br>
+[8] TensorRT-LLM documentation. <a href="https://nvidia.github.io/TensorRT-LLM/" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/</a>.<br>
+[9] Google SRE Book: Service Level Objectives. <a href="https://sre.google/sre-book/service-level-objectives/" rel="noopener noreferrer" target="_blank">https://sre.google/sre-book/service-level-objectives/</a>.</p>

@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="414" viewBox="0 0 840 414" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .thick{fill:none;stroke:#000;stroke-width:2.4;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .ref{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="20" y="26" class="b">A user streaming tokens while an 8,000-token prompt arrives at t = 33 ms (64 users decoding, idealized)</text>
+  <text x="20" y="69">Shared GPU,</text>
+  <text x="20" y="85" class="sm">no chunking</text>
+  <rect x="180.0" y="52" width="16.5" height="24" class="orange"/>
+  <rect x="196.5" y="52" width="16.5" height="24" class="orange"/>
+  <rect x="213.0" y="52" width="16.5" height="24" class="orange"/>
+  <rect x="229.5" y="52" width="444.0" height="24" class="red"/>
+  <text x="451.5" y="69" text-anchor="middle" class="sm">prefill 8,000 tokens + 64 decodes: 296 ms</text>
+  <rect x="673.5" y="52" width="16.5" height="24" class="orange"/>
+  <rect x="690.0" y="52" width="16.5" height="24" class="orange"/>
+  <rect x="706.5" y="52" width="16.5" height="24" class="orange"/>
+  <rect x="723.0" y="52" width="16.5" height="24" class="orange"/>
+  <rect x="739.5" y="52" width="16.5" height="24" class="orange"/>
+  <rect x="756.0" y="52" width="16.5" height="24" class="orange"/>
+  <path d="M229.5,84 L229.5,92 L673.5,92 L673.5,84" class="axis"/>
+  <text x="451.5" y="108" text-anchor="middle" class="sm">the user's longest gap: 296 ms</text>
+  <text x="20" y="153">Shared GPU,</text>
+  <text x="20" y="169" class="sm">2,048-token chunks</text>
+  <rect x="180.0" y="136" width="16.5" height="24" class="orange"/>
+  <rect x="196.5" y="136" width="16.5" height="24" class="orange"/>
+  <rect x="213.0" y="136" width="16.5" height="24" class="orange"/>
+  <rect x="229.5" y="136" width="106.5" height="24" class="yellow"/>
+  <text x="282.75" y="153" text-anchor="middle" class="sm">71 ms</text>
+  <rect x="336.0" y="136" width="113.1" height="24" class="yellow"/>
+  <text x="392.54999999999995" y="153" text-anchor="middle" class="sm">75 ms</text>
+  <rect x="449.1" y="136" width="119.7" height="24" class="yellow"/>
+  <text x="508.95000000000005" y="153" text-anchor="middle" class="sm">80 ms</text>
+  <rect x="568.8" y="136" width="114.8" height="24" class="yellow"/>
+  <text x="626.175" y="153" text-anchor="middle" class="sm">76 ms</text>
+  <rect x="683.5" y="136" width="16.5" height="24" class="orange"/>
+  <rect x="700.0" y="136" width="16.5" height="24" class="orange"/>
+  <rect x="716.5" y="136" width="16.5" height="24" class="orange"/>
+  <rect x="733.0" y="136" width="16.5" height="24" class="orange"/>
+  <rect x="749.5" y="136" width="16.5" height="24" class="orange"/>
+  <text x="456.525" y="180" text-anchor="middle" class="sm">four gaps of 71–80 ms in a row; each step carries a chunk and the 64 decodes</text>
+  <text x="20" y="231">Disaggregated:</text>
+  <text x="20" y="247" class="sm">prefill GPU</text>
+  <rect x="229.5" y="214" width="435.0" height="24" class="red"/>
+  <text x="447.0" y="231" text-anchor="middle" class="sm">prefill 8,000 tokens alone: ≈ 290 ms</text>
+  <rect x="664.5" y="214" width="6.0" height="24" class="blue"/>
+  <path d="M667.5,238 L667.5,258" class="edge"/>
+  <text x="675.0" y="226" class="sm">KV transfer:</text>
+  <text x="675.0" y="241" class="sm">2.3 ms on NVLink</text>
+  <text x="20" y="279" class="sm">decode GPU</text>
+  <rect x="180.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="196.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="213.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="229.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="246.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="262.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="279.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="295.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="312.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="328.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="345.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="361.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="378.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="394.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="411.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="427.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="444.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="460.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="477.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="493.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="510.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="526.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="543.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="559.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="576.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="592.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="609.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="625.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="642.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="658.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="675.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="691.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="708.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="724.5" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="741.0" y="262" width="16.5" height="24" class="orange"/>
+  <rect x="757.5" y="262" width="16.5" height="24" class="orange"/>
+  <text x="451.5" y="306" text-anchor="middle" class="sm">decode never pauses: every gap stays ≈ 11 ms</text>
+  <path d="M180,326 L780.0,326" class="axis"/>
+  <line x1="180.0" y1="326" x2="180.0" y2="331" class="axis"/>  <text x="180.0" y="346" text-anchor="middle" class="sm">0</text>
+  <line x1="255.0" y1="326" x2="255.0" y2="331" class="axis"/>  <text x="255.0" y="346" text-anchor="middle" class="sm">50</text>
+  <line x1="330.0" y1="326" x2="330.0" y2="331" class="axis"/>  <text x="330.0" y="346" text-anchor="middle" class="sm">100</text>
+  <line x1="405.0" y1="326" x2="405.0" y2="331" class="axis"/>  <text x="405.0" y="346" text-anchor="middle" class="sm">150</text>
+  <line x1="480.0" y1="326" x2="480.0" y2="331" class="axis"/>  <text x="480.0" y="346" text-anchor="middle" class="sm">200</text>
+  <line x1="555.0" y1="326" x2="555.0" y2="331" class="axis"/>  <text x="555.0" y="346" text-anchor="middle" class="sm">250</text>
+  <line x1="630.0" y1="326" x2="630.0" y2="331" class="axis"/>  <text x="630.0" y="346" text-anchor="middle" class="sm">300</text>
+  <line x1="705.0" y1="326" x2="705.0" y2="331" class="axis"/>  <text x="705.0" y="346" text-anchor="middle" class="sm">350</text>
+  <line x1="780.0" y1="326" x2="780.0" y2="331" class="axis"/>  <text x="780.0" y="346" text-anchor="middle" class="sm">400</text>
+  <text x="798.0" y="346" class="sm">ms</text>
+  <rect x="20" y="366" width="18" height="12" rx="0" class="orange"/>
+  <text x="44" y="377" class="sm">decode-only step (≈ 11 ms)</text>
+  <rect x="220" y="366" width="18" height="12" rx="0" class="red"/>
+  <text x="244" y="377" class="sm">step with the whole prompt</text>
+  <rect x="420" y="366" width="18" height="12" rx="0" class="yellow"/>
+  <text x="444" y="377" class="sm">chunk + decodes</text>
+  <rect x="570" y="366" width="18" height="12" rx="0" class="blue"/>
+  <text x="594" y="377" class="sm">KV cache transfer</text>
+  <text x="20" y="400" class="sm">Step times from Lesson 2's model: 50% MFU and full HBM bandwidth on one H100, Llama 3.1 8B.</text>
+</svg>

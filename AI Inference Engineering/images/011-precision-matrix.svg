@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="268" viewBox="0 0 820 268" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Header -->
+  <g class="sm b">
+    <rect x="220" y="14" width="112" height="44" class="gray"/><text x="276" y="33" text-anchor="middle">FP8 weights</text><text x="276" y="49" text-anchor="middle">and activations</text>
+    <rect x="340" y="14" width="112" height="44" class="gray"/><text x="396" y="41" text-anchor="middle">FP8 KV cache</text>
+    <rect x="460" y="14" width="112" height="44" class="gray"/><text x="516" y="33" text-anchor="middle">NVFP4 or</text><text x="516" y="49" text-anchor="middle">MXFP4 weights</text>
+    <rect x="580" y="14" width="112" height="44" class="gray"/><text x="636" y="33" text-anchor="middle">NVFP4</text><text x="636" y="49" text-anchor="middle">KV cache</text>
+    <rect x="700" y="14" width="112" height="44" class="gray"/><text x="756" y="33" text-anchor="middle">INT4 weights</text><text x="756" y="49" text-anchor="middle">(AWQ, GPTQ)</text>
+  </g>
+
+  <!-- Ada -->
+  <text x="12" y="88" class="b">Ada Lovelace</text><text x="12" y="104" class="sm">L40S, L20</text>
+  <rect x="220" y="68" width="112" height="40" class="green"/><text x="276" y="93" text-anchor="middle">yes</text>
+  <rect x="340" y="68" width="112" height="40" class="green"/><text x="396" y="93" text-anchor="middle">yes</text>
+  <rect x="460" y="68" width="112" height="40" class="red"/><text x="516" y="93" text-anchor="middle">no</text>
+  <rect x="580" y="68" width="112" height="40" class="red"/><text x="636" y="93" text-anchor="middle">no</text>
+  <rect x="700" y="68" width="112" height="40" class="green"/><text x="756" y="93" text-anchor="middle">yes</text>
+
+  <!-- Hopper -->
+  <text x="12" y="134" class="b">Hopper</text><text x="12" y="150" class="sm">H100, H200</text>
+  <rect x="220" y="114" width="112" height="40" class="green"/><text x="276" y="139" text-anchor="middle">yes</text>
+  <rect x="340" y="114" width="112" height="40" class="green"/><text x="396" y="139" text-anchor="middle">yes</text>
+  <rect x="460" y="114" width="112" height="40" class="red"/><text x="516" y="139" text-anchor="middle">no</text>
+  <rect x="580" y="114" width="112" height="40" class="red"/><text x="636" y="139" text-anchor="middle">no</text>
+  <rect x="700" y="114" width="112" height="40" class="green"/><text x="756" y="139" text-anchor="middle">yes</text>
+
+  <!-- Blackwell -->
+  <text x="12" y="180" class="b">Blackwell</text><text x="12" y="196" class="sm">B200, B300</text>
+  <rect x="220" y="160" width="112" height="40" class="green"/><text x="276" y="185" text-anchor="middle">yes</text>
+  <rect x="340" y="160" width="112" height="40" class="green"/><text x="396" y="185" text-anchor="middle">yes</text>
+  <rect x="460" y="160" width="112" height="40" class="green"/><text x="516" y="185" text-anchor="middle">yes</text>
+  <rect x="580" y="160" width="112" height="40" class="green"/><text x="636" y="185" text-anchor="middle">yes</text>
+  <rect x="700" y="160" width="112" height="40" class="green"/><text x="756" y="185" text-anchor="middle">yes</text>
+
+  <text x="12" y="230" class="sm">Llama 3.1 8B weights: 16.1 GB in BF16, 8.0 GB in FP8, about 4.5 GB in NVFP4 (4.5 bits per value with one FP8 scale per 16 values).</text>
+  <text x="12" y="252" class="sm">Source: TensorRT-LLM quantization hardware support matrix, late 2026. INT4 column: W4A16 AWQ and GPTQ.</text>
+</svg>

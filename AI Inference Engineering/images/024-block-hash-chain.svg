@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="360" viewBox="0 0 860 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+    <pattern id="redhatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a8a6" stroke-width="3"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dedge{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .grid{stroke:#e3e3e3;stroke-width:1}
+    .guide{stroke:#666;stroke-width:1;stroke-dasharray:5 4;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="22" class="b">Request B's prompt in 16-token blocks</text>
+  <rect x="20" y="34" width="96" height="40" rx="4" class="blue"/>
+  <text x="68" y="51" text-anchor="middle" class="b sm">B0</text>
+  <text x="68" y="66" text-anchor="middle" class="sm">system</text>
+  <text x="68" y="94" text-anchor="middle" class="sm">h0 = H(salt,</text>
+  <text x="68" y="109" text-anchor="middle" class="sm">tokens 0–15)</text>
+  <rect x="33" y="122" width="70" height="24" rx="4" class="green"/>
+  <text x="68" y="138" text-anchor="middle" class="sm">hit</text>
+  <rect x="130" y="34" width="96" height="40" rx="4" class="blue"/>
+  <text x="178" y="51" text-anchor="middle" class="b sm">B1</text>
+  <text x="178" y="66" text-anchor="middle" class="sm">system</text>
+  <text x="178" y="94" text-anchor="middle" class="sm">h1 = H(h0,</text>
+  <text x="178" y="109" text-anchor="middle" class="sm">tokens 16–31)</text>
+  <rect x="143" y="122" width="70" height="24" rx="4" class="green"/>
+  <text x="178" y="138" text-anchor="middle" class="sm">hit</text>
+  <rect x="240" y="34" width="96" height="40" rx="4" class="blue"/>
+  <text x="288" y="51" text-anchor="middle" class="b sm">B2</text>
+  <text x="288" y="66" text-anchor="middle" class="sm">system</text>
+  <text x="288" y="94" text-anchor="middle" class="sm">h2 = H(h1,</text>
+  <text x="288" y="109" text-anchor="middle" class="sm">tokens 32–47)</text>
+  <rect x="253" y="122" width="70" height="24" rx="4" class="green"/>
+  <text x="288" y="138" text-anchor="middle" class="sm">hit</text>
+  <rect x="390" y="34" width="96" height="40" rx="4" class="blue"/>
+  <text x="438" y="51" text-anchor="middle" class="b sm">B92</text>
+  <text x="438" y="66" text-anchor="middle" class="sm">system</text>
+  <text x="438" y="94" text-anchor="middle" class="sm">h92 = H(h91,</text>
+  <text x="438" y="109" text-anchor="middle" class="sm">1,472–1,487)</text>
+  <rect x="403" y="122" width="70" height="24" rx="4" class="green"/>
+  <text x="438" y="138" text-anchor="middle" class="sm">hit</text>
+  <rect x="500" y="34" width="96" height="40" rx="4" class="orange"/>
+  <text x="548" y="51" text-anchor="middle" class="b sm">B93</text>
+  <text x="548" y="66" text-anchor="middle" class="sm">sys + user</text>
+  <text x="548" y="94" text-anchor="middle" class="sm">h93 = H(h92,</text>
+  <text x="548" y="109" text-anchor="middle" class="sm">1,488–1,503)</text>
+  <rect x="513" y="122" width="70" height="24" rx="4" class="red"/>
+  <text x="548" y="138" text-anchor="middle" class="sm">miss: stop</text>
+  <rect x="650" y="34" width="96" height="40" rx="4" class="orange"/>
+  <text x="698" y="51" text-anchor="middle" class="b sm">B124</text>
+  <text x="698" y="66" text-anchor="middle" class="sm">user</text>
+  <text x="698" y="94" text-anchor="middle" class="sm">h124 = H(h123,</text>
+  <text x="698" y="109" text-anchor="middle" class="sm">1,984–1,999)</text>
+  <rect x="663" y="122" width="70" height="24" rx="4" class="white"/>
+  <text x="698" y="138" text-anchor="middle" class="sm">computed</text>
+  <path d="M116,54 L128,54" class="edge"/>
+  <path d="M226,54 L238,54" class="edge"/>
+  <path d="M486,54 L498,54" class="edge"/>
+  <text x="362" y="60" text-anchor="middle" style="font-size:22px">⋯</text>
+  <text x="622" y="60" text-anchor="middle" style="font-size:22px">⋯</text>
+  <text x="760" y="51" class="sm">parent hash</text>
+  <text x="760" y="66" class="sm">feeds the next</text>
+  <rect x="20" y="176" width="250" height="132" rx="4" class="group"/>
+  <text x="145" y="196" text-anchor="middle" class="b">cached block hashes</text>
+  <rect x="36" y="206" width="90" height="20" class="blue"/><text x="81" y="221" text-anchor="middle" class="sm">h0</text>
+  <path d="M126,216 L156,216" class="edge"/>
+  <rect x="158" y="206" width="96" height="20" class="white"/><text x="206" y="221" text-anchor="middle" class="sm">block #4711</text>
+  <rect x="36" y="230" width="90" height="20" class="blue"/><text x="81" y="245" text-anchor="middle" class="sm">h1</text>
+  <path d="M126,240 L156,240" class="edge"/>
+  <rect x="158" y="230" width="96" height="20" class="white"/><text x="206" y="245" text-anchor="middle" class="sm">block #82</text>
+  <rect x="36" y="254" width="90" height="20" class="blue"/><text x="81" y="269" text-anchor="middle" class="sm">⋯</text>
+  <rect x="36" y="278" width="90" height="20" class="blue"/><text x="81" y="293" text-anchor="middle" class="sm">h92</text>
+  <path d="M126,288 L156,288" class="edge"/>
+  <rect x="158" y="278" width="96" height="20" class="white"/><text x="206" y="293" text-anchor="middle" class="sm">block #3005</text>
+  <text x="296" y="196" class="sm">The scheduler hashes the prompt block by block and looks each hash up in order.</text>
+  <text x="296" y="217" class="sm">Because each hash includes its parent, a match on h92 means all 1,488 tokens before</text>
+  <text x="296" y="238" class="sm">it match too. The first miss (B93, where user tokens begin) ends the walk: 93 hits,</text>
+  <text x="296" y="259" class="sm">so prefill starts at token 1,488 and computes 512 tokens.</text>
+  <text x="296" y="280" class="sm">Only full blocks are cached. Extra keys (LoRA adapter, image hashes, cache salt)</text>
+  <text x="296" y="301" class="sm">enter the hash, so different adapters or tenants never share blocks.</text>
+  <rect x="296" y="330" width="16" height="12" class="blue"/><text x="318" y="341" class="sm">system prompt tokens</text>
+  <rect x="470" y="330" width="16" height="12" class="orange"/><text x="492" y="341" class="sm">block containing user tokens</text>
+</svg>

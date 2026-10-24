@@ -2,6 +2,7 @@ import os, glob, re, json
 
 DIRS = [
     'Python Course',
+    'AI Inference Engineering',
     'Behavioral Interview',
     'Coding Interview Patterns',
     'Generative AI System Design Interview',
@@ -13,6 +14,7 @@ DIRS = [
 
 CATEGORY_COLORS = {
     'Python Course': '#05673d',
+    'AI Inference Engineering': '#0ea5e9',
     'Behavioral Interview': '#f59e0b',
     'Coding Interview Patterns': '#3b82f6',
     'Generative AI System Design Interview': '#8b5cf6',
@@ -27,6 +29,12 @@ def generate_index():
     for dir_name in DIRS:
         files = sorted(glob.glob(os.path.join(dir_name, '*.html')))
         current_subgroup = 'General'
+        # Generated courses can declare groups (e.g. stages) in course.json
+        course_meta_path = os.path.join(dir_name, 'course.json')
+        declared_subgroups = {}
+        if os.path.exists(course_meta_path):
+            with open(course_meta_path, encoding='utf-8') as meta_file:
+                declared_subgroups = json.load(meta_file).get('subgroups', {})
         for f in files:
             fname = os.path.basename(f)
             if fname.lower() == 'index.html':
@@ -45,7 +53,7 @@ def generate_index():
                 elif clean_title.lower() == 'introduction':
                     current_subgroup = 'General'
             else:
-                current_subgroup = dir_name
+                current_subgroup = declared_subgroups.get(fname, dir_name)
             size_bytes = os.path.getsize(f)
             size_kb = round(size_bytes / 1024, 1)
             read_time = max(3, min(30, int(size_kb / 150) + 4))

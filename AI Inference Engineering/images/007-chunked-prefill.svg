@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="330" viewBox="0 0 840 330" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1}
+    .tok{stroke:#82b366;stroke-width:2.5}
+    .red{fill:none;stroke:#b85450;stroke-width:1.5}
+    .brk{fill:none;stroke:#000;stroke-width:1}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="24" class="b">Without chunked prefill: the 32K-token prompt runs as one step</text>
+  <text x="16" y="55" class="sm">GPU steps</text><text x="16" y="87" class="sm">a user's tokens</text>
+  <rect x="150.0" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="159.8" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="169.7" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="179.5" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="189.3" y="36" width="501.7" height="28" class="purple"/>
+  <text x="440.2" y="55" text-anchor="middle">prefill 32,768 tokens in one step: ≥ 532 ms</text>
+  <rect x="691.0" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="700.9" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="710.7" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="720.5" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="730.4" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="740.2" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="750.0" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="759.9" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="769.7" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="779.5" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="789.4" y="36" width="9.8" height="28" class="orange"/>
+  <rect x="799.2" y="36" width="9.8" height="28" class="orange"/>
+  <path class="tok" d="M159.8,74 V90 M169.7,74 V90 M179.5,74 V90 M189.3,74 V90 M691.0,74 V90 M700.9,74 V90 M710.7,74 V90 M720.5,74 V90 M730.4,74 V90 M740.2,74 V90 M750.0,74 V90 M759.9,74 V90 M769.7,74 V90 M779.5,74 V90 M789.4,74 V90 M799.2,74 V90 M809.0,74 V90"/>
+  <path class="red" d="M189.3,96 V102 H691.0 V96"/>
+  <text x="440.2" y="118" text-anchor="middle" class="sm b">64 running users get no tokens for 532 ms</text>
+  <text x="16" y="150" class="b">With chunked prefill (2,048-token budget): 17 chunks, each sharing a step with the decodes</text>
+  <text x="16" y="181" class="sm">GPU steps</text><text x="16" y="213" class="sm">a user's tokens</text>
+  <rect x="150.0" y="162" width="9.8" height="28" class="orange"/>
+  <rect x="159.8" y="162" width="9.8" height="28" class="orange"/>
+  <rect x="169.7" y="162" width="9.8" height="28" class="orange"/>
+  <rect x="179.5" y="162" width="9.8" height="28" class="orange"/>
+  <rect x="189.3" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="189.3" y="162" width="4" height="28" class="orange"/>
+  <rect x="220.8" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="220.8" y="162" width="4" height="28" class="orange"/>
+  <rect x="252.2" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="252.2" y="162" width="4" height="28" class="orange"/>
+  <rect x="283.6" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="283.6" y="162" width="4" height="28" class="orange"/>
+  <rect x="315.1" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="315.1" y="162" width="4" height="28" class="orange"/>
+  <rect x="346.5" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="346.5" y="162" width="4" height="28" class="orange"/>
+  <rect x="377.9" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="377.9" y="162" width="4" height="28" class="orange"/>
+  <rect x="409.4" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="409.4" y="162" width="4" height="28" class="orange"/>
+  <rect x="440.8" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="440.8" y="162" width="4" height="28" class="orange"/>
+  <rect x="472.2" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="472.2" y="162" width="4" height="28" class="orange"/>
+  <rect x="503.6" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="503.6" y="162" width="4" height="28" class="orange"/>
+  <rect x="535.1" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="535.1" y="162" width="4" height="28" class="orange"/>
+  <rect x="566.5" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="566.5" y="162" width="4" height="28" class="orange"/>
+  <rect x="597.9" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="597.9" y="162" width="4" height="28" class="orange"/>
+  <rect x="629.4" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="629.4" y="162" width="4" height="28" class="orange"/>
+  <rect x="660.8" y="162" width="31.4" height="28" class="purple"/>
+  <rect x="660.8" y="162" width="4" height="28" class="orange"/>
+  <rect x="692.2" y="162" width="16.7" height="28" class="purple"/>
+  <rect x="692.2" y="162" width="4" height="28" class="orange"/>
+  <rect x="708.9" y="162" width="9.8" height="28" class="orange"/>
+  <rect x="718.8" y="162" width="9.8" height="28" class="orange"/>
+  <rect x="728.6" y="162" width="9.8" height="28" class="orange"/>
+  <rect x="738.4" y="162" width="9.8" height="28" class="orange"/>
+  <rect x="748.3" y="162" width="9.8" height="28" class="orange"/>
+  <rect x="758.1" y="162" width="9.8" height="28" class="orange"/>
+  <rect x="767.9" y="162" width="9.8" height="28" class="orange"/>
+  <rect x="777.8" y="162" width="9.8" height="28" class="orange"/>
+  <rect x="787.6" y="162" width="9.8" height="28" class="orange"/>
+  <rect x="797.4" y="162" width="9.8" height="28" class="orange"/>
+  <path class="tok" d="M159.8,200 V216 M169.7,200 V216 M179.5,200 V216 M189.3,200 V216 M220.8,200 V216 M252.2,200 V216 M283.6,200 V216 M315.1,200 V216 M346.5,200 V216 M377.9,200 V216 M409.4,200 V216 M440.8,200 V216 M472.2,200 V216 M503.6,200 V216 M535.1,200 V216 M566.5,200 V216 M597.9,200 V216 M629.4,200 V216 M660.8,200 V216 M692.2,200 V216 M708.9,200 V216 M718.8,200 V216 M728.6,200 V216 M738.4,200 V216 M748.3,200 V216 M758.1,200 V216 M767.9,200 V216 M777.8,200 V216 M787.6,200 V216 M797.4,200 V216 M807.3,200 V216"/>
+  <path class="brk" d="M189.3,222 V228 H708.9 V222"/>
+  <text x="449.1" y="244" text-anchor="middle" class="sm b">document prefilled in ≈ 0.55 s while every user still gets a token about every 33 ms</text>
+  <path class="axis" d="M150,262 H810.1"/>
+  <path class="axis" d="M150.0,262 v5 M244.3,262 v5 M338.6,262 v5 M432.9,262 v5 M527.2,262 v5 M621.5,262 v5 M715.8,262 v5 M810.1,262 v5"/>
+  <g class="sm" text-anchor="middle"><text x="150.0" y="281">0</text><text x="244.3" y="281">100</text><text x="338.6" y="281">200</text><text x="432.9" y="281">300</text><text x="527.2" y="281">400</text><text x="621.5" y="281">500</text><text x="715.8" y="281">600</text><text x="810.1" y="281">700</text></g>
+  <text x="16" y="281" class="sm">time (ms)</text>
+  <rect x="150" y="300" width="18" height="12" class="orange"/><text x="174" y="311" class="sm">decode tokens of 64 running users</text>
+  <rect x="400" y="300" width="18" height="12" class="purple"/><text x="424" y="311" class="sm">prefill of the 32K document</text>
+  <path class="tok" d="M612,298 V314"/><text x="622" y="311" class="sm">token delivered to a user</text>
+</svg>

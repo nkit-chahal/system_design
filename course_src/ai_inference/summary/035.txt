@@ -1,0 +1,7 @@
+center: Mixture-of-Experts Serving
+branch: How MoE works | router picks top-k experts | shared experts | 8 of 256 in DeepSeek-V3
+branch: Total vs active | 671B total, 37B active | memory follows total | compute follows active
+branch: Decode cost | experts touched grow with batch | 87% at batch 64 | 9.1 GB per token
+branch: Parallelism | tensor parallel slices experts | expert parallel, DP attention | dispatch and combine
+branch: Load balance | busiest GPU sets the step | redundant hot experts | EPLB
+branch: Deployment | not on 8 H100s | 8 H200s with EP 8 | wide EP with P/D split

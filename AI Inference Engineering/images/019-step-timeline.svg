@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Scenario labels -->
+  <text x="16" y="52" class="b">A: eager mode</text>
+  <text x="16" y="70" class="sm">no CUDA graphs</text>
+  <text x="16" y="86" class="sm">≈ 7.5 ms per step</text>
+  <text x="16" y="132" class="b">B: CUDA graphs</text>
+  <text x="16" y="150" class="sm">one launch per step</text>
+  <text x="16" y="166" class="sm">≈ 6.2 ms per step</text>
+  <text x="16" y="212" class="b">C: graphs + async</text>
+  <text x="16" y="230" class="sm">CPU runs a step ahead</text>
+  <text x="16" y="246" class="sm">≈ 4.1 ms per step</text>
+
+  <!-- Lane labels -->
+  <text x="190" y="56" text-anchor="end" class="sm">CPU</text>
+  <text x="190" y="84" text-anchor="end" class="sm">GPU</text>
+  <text x="190" y="136" text-anchor="end" class="sm">CPU</text>
+  <text x="190" y="164" text-anchor="end" class="sm">GPU</text>
+  <text x="190" y="216" text-anchor="end" class="sm">CPU</text>
+  <text x="190" y="244" text-anchor="end" class="sm">GPU</text>
+
+  <!-- A: eager -->
+  <rect x="200.0" y="40" width="40.0" height="22" class="purple"/>
+  <rect x="240.0" y="40" width="220.0" height="22" class="gray"/>
+  <rect x="460.0" y="40" width="40.0" height="22" class="purple"/>
+  <rect x="500.0" y="40" width="40.0" height="22" class="purple"/>
+  <rect x="540.0" y="40" width="220.0" height="22" class="gray"/>
+  <rect x="760.0" y="40" width="40.0" height="22" class="purple"/>
+  <rect x="200.0" y="68" width="44.0" height="22" class="red"/>
+  <rect x="244.0" y="68" width="216.0" height="22" class="red"/>
+  <rect x="244.0" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="262.8" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="281.6" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="300.4" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="319.2" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="338.0" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="356.8" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="375.6" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="394.4" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="413.2" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="432.0" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="450.8" y="68" width="9.2" height="22" class="orange"/>
+  <rect x="460.0" y="68" width="84.0" height="22" class="red"/>
+  <rect x="544.0" y="68" width="216.0" height="22" class="red"/>
+  <rect x="544.0" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="562.8" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="581.6" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="600.4" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="619.2" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="638.0" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="656.8" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="675.6" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="694.4" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="713.2" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="732.0" y="68" width="14.0" height="22" class="orange"/>
+  <rect x="750.8" y="68" width="9.2" height="22" class="orange"/>
+  <rect x="760.0" y="68" width="40.0" height="22" class="red"/>
+  <!-- B: CUDA graphs -->
+  <rect x="200.0" y="120" width="40.0" height="22" class="purple"/>
+  <rect x="240.0" y="120" width="8.0" height="22" class="gray"/>
+  <rect x="408.0" y="120" width="40.0" height="22" class="purple"/>
+  <rect x="448.0" y="120" width="40.0" height="22" class="purple"/>
+  <rect x="488.0" y="120" width="8.0" height="22" class="gray"/>
+  <rect x="656.0" y="120" width="40.0" height="22" class="purple"/>
+  <rect x="696.0" y="120" width="40.0" height="22" class="purple"/>
+  <rect x="736.0" y="120" width="8.0" height="22" class="gray"/>
+  <rect x="200.0" y="148" width="48.0" height="22" class="red"/>
+  <rect x="248.0" y="148" width="160.0" height="22" class="orange"/>
+  <rect x="408.0" y="148" width="88.0" height="22" class="red"/>
+  <rect x="496.0" y="148" width="160.0" height="22" class="orange"/>
+  <rect x="656.0" y="148" width="88.0" height="22" class="red"/>
+  <rect x="744.0" y="148" width="56.0" height="22" class="orange"/>
+  <!-- C: graphs + async scheduling -->
+  <rect x="200.0" y="200" width="40.0" height="22" class="purple"/>
+  <rect x="240.0" y="200" width="8.0" height="22" class="gray"/>
+  <rect x="256.0" y="200" width="40.0" height="22" class="purple"/>
+  <rect x="296.0" y="200" width="8.0" height="22" class="gray"/>
+  <rect x="412.0" y="200" width="40.0" height="22" class="purple"/>
+  <rect x="456.0" y="200" width="40.0" height="22" class="purple"/>
+  <rect x="496.0" y="200" width="8.0" height="22" class="gray"/>
+  <rect x="576.0" y="200" width="40.0" height="22" class="purple"/>
+  <rect x="620.0" y="200" width="40.0" height="22" class="purple"/>
+  <rect x="660.0" y="200" width="8.0" height="22" class="gray"/>
+  <rect x="740.0" y="200" width="40.0" height="22" class="purple"/>
+  <rect x="200.0" y="228" width="48.0" height="22" class="red"/>
+  <rect x="248.0" y="228" width="160.0" height="22" class="orange"/>
+  <rect x="408.0" y="228" width="4.0" height="22" class="red"/>
+  <rect x="412.0" y="228" width="160.0" height="22" class="orange"/>
+  <rect x="572.0" y="228" width="4.0" height="22" class="red"/>
+  <rect x="576.0" y="228" width="160.0" height="22" class="orange"/>
+  <rect x="736.0" y="228" width="4.0" height="22" class="red"/>
+  <rect x="740.0" y="228" width="60.0" height="22" class="orange"/>
+
+
+  <!-- In-block labels -->
+  <text x="350" y="55" text-anchor="middle" class="sm">launch ~300 kernels</text>
+  <text x="650" y="55" text-anchor="middle" class="sm">launch ~300 kernels</text>
+  <text x="328" y="163" text-anchor="middle" class="sm">one graph</text>
+  <text x="576" y="163" text-anchor="middle" class="sm">one graph</text>
+  <text x="328" y="243" text-anchor="middle" class="sm">step 1</text>
+  <text x="492" y="243" text-anchor="middle" class="sm">step 2</text>
+  <text x="656" y="243" text-anchor="middle" class="sm">step 3</text>
+
+  <line x1="16" y1="106" x2="820" y2="106" stroke="#999" stroke-dasharray="5 4"/>
+  <line x1="16" y1="186" x2="820" y2="186" stroke="#999" stroke-dasharray="5 4"/>
+
+  <!-- Time axis -->
+  <path d="M200,268 L800,268" class="axis"/>
+  <path d="M200,268V278M240,268V274M280,268V274M320,268V274M360,268V274M400,268V278M440,268V274M480,268V274M520,268V274M560,268V274M600,268V278M640,268V274M680,268V274M720,268V274M760,268V274M800,268V278" stroke="#000" stroke-width="1"/>
+  <text x="200" y="294" text-anchor="middle" class="sm">0</text>
+  <text x="400" y="294" text-anchor="middle" class="sm">5</text>
+  <text x="600" y="294" text-anchor="middle" class="sm">10</text>
+  <text x="800" y="294" text-anchor="middle" class="sm">15 ms</text>
+
+  <!-- Legend -->
+  <rect x="200" y="314" width="18" height="12" class="orange"/><text x="224" y="325" class="sm">GPU kernel</text>
+  <rect x="310" y="314" width="18" height="12" class="red"/><text x="334" y="325" class="sm">GPU idle (gap)</text>
+  <rect x="440" y="314" width="18" height="12" class="purple"/><text x="464" y="325" class="sm">CPU: schedule, sample, outputs</text>
+  <rect x="660" y="314" width="18" height="12" class="gray"/><text x="684" y="325" class="sm">CPU: launch kernels</text>
+  <text x="200" y="344" class="sm">Illustrative timings for a small-batch decode loop; real values depend on model, batch and engine.</text>
+</svg>

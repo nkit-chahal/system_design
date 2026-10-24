@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .floor{fill:none;stroke:#000;stroke-width:2}
+    .meas{fill:none;stroke:#d79b00;stroke-width:2;stroke-dasharray:7 5}
+    .dot{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.5}
+    .tick{stroke:#000;stroke-width:1}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Legend -->
+  <path d="M70,14 L104,14" class="floor"/>
+  <text x="112" y="18" class="sm">derived floor (arithmetic below)</text>
+  <path d="M330,14 L364,14" class="meas"/>
+  <circle cx="347" cy="14" r="4" class="dot"/>
+  <text x="372" y="18" class="sm">typical measured shape (illustrative, not a measurement)</text>
+
+  <!-- Panel 1: TTFT -->
+  <text x="200" y="46" text-anchor="middle" class="b">Time to first token</text>
+  <path d="M70,60 L70,260 L340,260" class="axis"/>
+  <text transform="translate(18,160) rotate(-90)" text-anchor="middle" class="sm">TTFT</text>
+  <path d="M66,255 L70,255 M66,127 L70,127" class="tick"/>
+  <text x="62" y="259" text-anchor="end" class="sm">4.8 ms</text>
+  <text x="62" y="131" text-anchor="end" class="sm">133 ms</text>
+  <path d="M70,260 L70,264 M135,260 L135,264 M200,260 L200,264 M265,260 L265,264 M330,260 L330,264" class="tick"/>
+  <text x="70" y="278" text-anchor="middle" class="sm">0</text>
+  <text x="135" y="278" text-anchor="middle" class="sm">2K</text>
+  <text x="200" y="278" text-anchor="middle" class="sm">4K</text>
+  <text x="265" y="278" text-anchor="middle" class="sm">6K</text>
+  <text x="330" y="278" text-anchor="middle" class="sm">8K</text>
+  <text x="200" y="296" text-anchor="middle" class="sm">prompt tokens</text>
+
+  <polyline points="70,255.2 79.4,255.2 330,127" class="floor"/>
+  <polyline points="70,245 135,200 200,152 265,110 330,68" class="meas"/>
+  <circle cx="74.1" cy="242.2" r="4" class="dot"/>
+  <circle cx="86.3" cy="233.8" r="4" class="dot"/>
+  <circle cx="135" cy="200" r="4" class="dot"/>
+  <circle cx="330" cy="68" r="4" class="dot"/>
+  <text x="206" y="214" class="sm">memory-bound</text>
+  <text x="206" y="229" class="sm">below ~295 tokens,</text>
+  <text x="206" y="244" class="sm">compute-bound above</text>
+
+  <!-- Panel 2: TPOT -->
+  <text x="620" y="46" text-anchor="middle" class="b">Time per output token</text>
+  <path d="M490,60 L490,260 L760,260" class="axis"/>
+  <text transform="translate(438,160) rotate(-90)" text-anchor="middle" class="sm">TPOT</text>
+  <path d="M486,135 L490,135" class="tick"/>
+  <text x="482" y="139" text-anchor="end" class="sm">5 ms</text>
+  <text x="482" y="264" text-anchor="end" class="sm">0</text>
+  <path d="M490,260 L490,264 M555,260 L555,264 M620,260 L620,264 M685,260 L685,264 M750,260 L750,264" class="tick"/>
+  <text x="490" y="278" text-anchor="middle" class="sm">0</text>
+  <text x="555" y="278" text-anchor="middle" class="sm">2K</text>
+  <text x="620" y="278" text-anchor="middle" class="sm">4K</text>
+  <text x="685" y="278" text-anchor="middle" class="sm">6K</text>
+  <text x="750" y="278" text-anchor="middle" class="sm">8K</text>
+  <text x="620" y="296" text-anchor="middle" class="sm">prompt tokens</text>
+
+  <polyline points="490,140.1 750,132" class="floor"/>
+  <polyline points="490,104 750,93.6" class="meas"/>
+  <circle cx="494.1" cy="103.8" r="4" class="dot"/>
+  <circle cx="506.3" cy="103.4" r="4" class="dot"/>
+  <circle cx="555" cy="101.4" r="4" class="dot"/>
+  <circle cx="750" cy="93.6" r="4" class="dot"/>
+  <text x="620" y="166" text-anchor="middle" class="sm">floor: 4.80 ms at 128 tokens, 5.12 ms at 8,192</text>
+  <text x="620" y="214" text-anchor="middle" class="sm">nearly flat: 8K tokens of cache add 1 GiB</text>
+  <text x="620" y="230" text-anchor="middle" class="sm">to the 16 GB of weights read every step</text>
+
+  <!-- Derivation -->
+  <text x="16" y="322" class="sm">TTFT floor = max(16.06 GB ÷ 3.35 TB/s, 2 × 8.03B × n ÷ 989 TFLOPS): 4.8 ms up to ~295 tokens, 33 ms at 2,048, 133 ms at 8,192.</text>
+  <text x="16" y="340" class="sm">TPOT floor = (16.06 GB + context × 128 KiB) ÷ 3.35 TB/s. Both: Llama 3.1 8B in BF16 on one H100 at 100% efficiency.</text>
+</svg>

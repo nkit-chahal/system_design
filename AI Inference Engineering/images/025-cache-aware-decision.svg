@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="370" viewBox="0 0 840 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Start -->
+  <rect x="16" y="34" width="140" height="56" rx="6" class="purple"/>
+  <text x="86" y="58" text-anchor="middle" class="b">request</text>
+  <text x="86" y="76" text-anchor="middle" class="sm">tokenized prompt</text>
+  <path d="M156,62 L204,62" class="edge"/>
+
+  <!-- Q1 -->
+  <rect x="206" y="30" width="280" height="64" rx="6" class="orange"/>
+  <text x="346" y="55" text-anchor="middle" class="b">Is the load imbalanced?</text>
+  <text x="346" y="76" text-anchor="middle" class="sm">max − min &gt; abs and max &gt; rel × min</text>
+  <path d="M486,62 L564,62" class="edge"/>
+  <text x="525" y="54" text-anchor="middle" class="sm b">yes</text>
+
+  <!-- A1 -->
+  <rect x="566" y="34" width="250" height="56" rx="6" class="gray"/>
+  <text x="691" y="58" text-anchor="middle" class="b">least-loaded replica</text>
+  <text x="691" y="76" text-anchor="middle" class="sm">shortest queue, ignore the cache</text>
+
+  <!-- Q1 -> Q2 -->
+  <path d="M346,94 L346,144" class="edge"/>
+  <text x="356" y="124" class="sm b">no</text>
+
+  <!-- Q2 -->
+  <rect x="206" y="146" width="280" height="64" rx="6" class="orange"/>
+  <text x="346" y="171" text-anchor="middle" class="b">Best prefix match above</text>
+  <text x="346" y="191" text-anchor="middle" class="b">the cache threshold?</text>
+  <path d="M486,178 L564,178" class="edge"/>
+  <text x="525" y="170" text-anchor="middle" class="sm b">yes</text>
+
+  <!-- A2 -->
+  <rect x="566" y="150" width="250" height="56" rx="6" class="green"/>
+  <text x="691" y="174" text-anchor="middle" class="b">replica with longest match</text>
+  <text x="691" y="192" text-anchor="middle" class="sm">reuse its cached prefix</text>
+
+  <!-- Q2 -> A3 -->
+  <path d="M346,210 L346,260" class="edge"/>
+  <text x="356" y="240" class="sm b">no</text>
+
+  <!-- A3 -->
+  <rect x="206" y="262" width="280" height="56" rx="6" class="gray"/>
+  <text x="346" y="286" text-anchor="middle" class="b">replica with most free cache</text>
+  <text x="346" y="304" text-anchor="middle" class="sm">smallest prefix tree</text>
+
+  <!-- Record -->
+  <rect x="566" y="262" width="250" height="56" rx="6" class="blue"/>
+  <text x="691" y="286" text-anchor="middle" class="b">record the prompt in that</text>
+  <text x="691" y="304" text-anchor="middle" class="b">replica's prefix tree</text>
+  <path d="M486,290 L564,290" class="edge"/>
+  <path d="M691,206 L691,260" class="edge"/>
+  <path d="M816,62 L830,62 L830,290 L818,290" class="edge"/>
+
+  <text x="16" y="352" class="sm">Thresholds are tunable. In SGLang's router: --balance-abs-threshold, --balance-rel-threshold, --cache-threshold.</text>
+</svg>

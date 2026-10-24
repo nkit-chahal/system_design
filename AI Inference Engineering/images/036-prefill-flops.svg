@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="370" viewBox="0 0 820 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e5e5e5;stroke-width:1}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="20" y="24" class="b">Prefill FLOPs for one prompt of Llama 3.1 8B</text>
+
+  <!-- grid and axes: x 90..770 for 0..131,072 tokens; y 310..50 for 0..7,000 TFLOPs -->
+  <path d="M90,272.9 L770,272.9 M90,235.7 L770,235.7 M90,198.6 L770,198.6 M90,161.4 L770,161.4 M90,124.3 L770,124.3 M90,87.1 L770,87.1 M90,50 L770,50" class="grid"/>
+  <path d="M90,46 L90,310 L774,310" class="axis"/>
+  <text x="82" y="314" text-anchor="end" class="sm">0</text>
+  <text x="82" y="240" text-anchor="end" class="sm">2,000</text>
+  <text x="82" y="166" text-anchor="end" class="sm">4,000</text>
+  <text x="82" y="91" text-anchor="end" class="sm">6,000</text>
+  <text x="26" y="180" class="sm" transform="rotate(-90 26 180)" text-anchor="middle">TFLOPs</text>
+  <path d="M260,310 L260,315 M430,310 L430,315 M600,310 L600,315 M770,310 L770,315" class="axis"/>
+  <text x="90" y="330" text-anchor="middle" class="sm">0</text>
+  <text x="260" y="330" text-anchor="middle" class="sm">32K</text>
+  <text x="430" y="330" text-anchor="middle" class="sm">64K</text>
+  <text x="600" y="330" text-anchor="middle" class="sm">96K</text>
+  <text x="770" y="330" text-anchor="middle" class="sm">128K</text>
+  <text x="430" y="352" text-anchor="middle" class="sm">prompt tokens</text>
+
+  <!-- curves -->
+  <path d="M90.0,310.0 L132.5,305.1 L175.0,300.2 L217.5,295.3 L260.0,290.5 L302.5,285.6 L345.0,280.7 L387.5,275.8 L430.0,270.9 L472.5,266.0 L515.0,261.1 L557.5,256.2 L600.0,251.4 L642.5,246.5 L685.0,241.6 L727.5,236.7 L770.0,231.8" fill="none" stroke="#d79b00" stroke-width="2.5"/>
+  <path d="M90.0,310.0 L132.5,309.3 L175.0,307.4 L217.5,304.1 L260.0,299.5 L302.5,293.7 L345.0,286.5 L387.5,278.0 L430.0,268.2 L472.5,257.1 L515.0,244.7 L557.5,230.9 L600.0,215.9 L642.5,199.6 L685.0,181.9 L727.5,163.0 L770.0,142.7" fill="none" stroke="#6c8ebf" stroke-width="2.5"/>
+  <path d="M90.0,310.0 L132.5,304.5 L175.0,297.6 L217.5,289.5 L260.0,280.0 L302.5,269.2 L345.0,257.2 L387.5,243.8 L430.0,229.1 L472.5,213.1 L515.0,195.8 L557.5,177.2 L600.0,157.3 L642.5,136.0 L685.0,113.5 L727.5,89.7 L770.0,64.5" fill="none" stroke="#000" stroke-width="2.5"/>
+
+  <!-- crossover -->
+  <circle cx="407.8" cy="273.5" r="5" fill="#fff" stroke="#000" stroke-width="1.5"/>
+  <text x="440" y="288" class="sm">attention = linear layers</text>
+  <text x="440" y="302" class="sm">at ≈ 61K tokens (984 TFLOPs each)</text>
+
+  <!-- annotations -->
+  <circle cx="260" cy="280" r="4" fill="#000"/>
+  <text x="150" y="262" class="sm">32K: 808 TFLOPs ≈ 1.6 s</text>
+  <circle cx="770" cy="64.5" r="4" fill="#000"/>
+  <text x="760" y="56" text-anchor="end" class="sm">128K: 6,609 TFLOPs ≈ 13.4 s at 50% MFU</text>
+  <text x="740" y="160" text-anchor="end" class="sm">attention: 4,504</text>
+  <text x="740" y="226" text-anchor="end" class="sm">linear layers: 2,105</text>
+
+  <!-- legend -->
+  <rect x="110" y="62" width="250" height="70" rx="4" class="gray"/>
+  <path d="M122,80 L150,80" stroke="#000" stroke-width="2.5"/><text x="158" y="84" class="sm">total</text>
+  <path d="M122,100 L150,100" stroke="#6c8ebf" stroke-width="2.5"/><text x="158" y="104" class="sm">attention: grows with n²</text>
+  <path d="M122,120 L150,120" stroke="#d79b00" stroke-width="2.5"/><text x="158" y="124" class="sm">linear layers: 2 N n</text>
+</svg>

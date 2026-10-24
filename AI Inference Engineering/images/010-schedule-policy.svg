@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="262" viewBox="0 0 820 262" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="50" class="b">Arrival order</text>
+  <rect x="190" y="30" width="140" height="32" rx="4" class="purple"/><text x="260" y="51" text-anchor="middle">R1: 0 cached</text>
+  <rect x="345" y="30" width="140" height="32" rx="4" class="blue"/><text x="415" y="51" text-anchor="middle">R2: 3,000 cached</text>
+  <rect x="500" y="30" width="140" height="32" rx="4" class="purple"/><text x="570" y="51" text-anchor="middle">R3: 120 cached</text>
+  <rect x="655" y="30" width="140" height="32" rx="4" class="blue"/><text x="725" y="51" text-anchor="middle">R4: 3,000 cached</text>
+
+  <text x="16" y="116" class="b">fcfs (default)</text>
+  <text x="16" y="134" class="sm">admit in arrival order</text>
+  <rect x="190" y="100" width="140" height="32" rx="4" class="purple"/><text x="260" y="121" text-anchor="middle">R1</text>
+  <rect x="345" y="100" width="140" height="32" rx="4" class="blue"/><text x="415" y="121" text-anchor="middle">R2</text>
+  <rect x="500" y="100" width="140" height="32" rx="4" class="purple"/><text x="570" y="121" text-anchor="middle">R3</text>
+  <rect x="655" y="100" width="140" height="32" rx="4" class="blue"/><text x="725" y="121" text-anchor="middle">R4</text>
+
+  <text x="16" y="186" class="b">lpm</text>
+  <text x="16" y="204" class="sm">longest match first</text>
+  <rect x="190" y="170" width="140" height="32" rx="4" class="blue"/><text x="260" y="191" text-anchor="middle">R2</text>
+  <rect x="345" y="170" width="140" height="32" rx="4" class="blue"/><text x="415" y="191" text-anchor="middle">R4</text>
+  <rect x="500" y="170" width="140" height="32" rx="4" class="purple"/><text x="570" y="191" text-anchor="middle">R3</text>
+  <rect x="655" y="170" width="140" height="32" rx="4" class="purple"/><text x="725" y="191" text-anchor="middle">R1</text>
+
+  <path d="M190,224 L795,224" class="edge"/>
+  <text x="190" y="242" class="sm">admitted first</text>
+  <text x="795" y="242" text-anchor="end" class="sm">admitted last</text>
+  <rect x="16" y="226" width="16" height="12" class="blue"/><text x="38" y="237" class="sm">matches the</text>
+  <text x="38" y="252" class="sm">tool prompt</text>
+</svg>

@@ -1,0 +1,7 @@
+center: GPU Architecture and Attention Kernels
+branch: The H100 | 132 SMs | four tensor cores each | warps of 32 threads
+branch: Memory hierarchy | up to 228 KB per SM | 50 MB L2 | HBM at 3.35 TB/s
+branch: Prefill attention | naive is memory-bound | FlashAttention tiling | online softmax
+branch: Decode attention | about 4 FLOPs per byte | split-KV Flash-Decoding | paged kernels, FlashInfer
+branch: Overhead | kernel fusion | CUDA graphs | torch.compile
+branch: Our deployment | verify engine defaults | profile first | FP8 cuts bytes

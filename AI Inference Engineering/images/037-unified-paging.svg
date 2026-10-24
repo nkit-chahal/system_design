@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="300" viewBox="0 0 820 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .white{fill:#fff;stroke:#666;stroke-width:1.2}
+    .reserved{fill:url(#hatch);stroke:#999;stroke-width:1}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="26" class="b">S-LoRA unified paging: one pool of pages, each page one hidden-size vector</text>
+  <text x="16" y="66">Unified pool</text>
+  <!-- 24 pages of 26px from x=130: r1 r1 X X r2 r1 X Y r2 r2 X Y r1 r2 r1, then 9 free -->
+  <g class="sm">
+    <rect x="130" y="48" width="26" height="28" class="blue"/><text x="143" y="67" text-anchor="middle">r1</text>
+    <rect x="156" y="48" width="26" height="28" class="blue"/><text x="169" y="67" text-anchor="middle">r1</text>
+    <rect x="182" y="48" width="26" height="28" class="orange"/><text x="195" y="67" text-anchor="middle">X</text>
+    <rect x="208" y="48" width="26" height="28" class="orange"/><text x="221" y="67" text-anchor="middle">X</text>
+    <rect x="234" y="48" width="26" height="28" class="blue"/><text x="247" y="67" text-anchor="middle">r2</text>
+    <rect x="260" y="48" width="26" height="28" class="blue"/><text x="273" y="67" text-anchor="middle">r1</text>
+    <rect x="286" y="48" width="26" height="28" class="orange"/><text x="299" y="67" text-anchor="middle">X</text>
+    <rect x="312" y="48" width="26" height="28" class="orange"/><text x="325" y="67" text-anchor="middle">Y</text>
+    <rect x="338" y="48" width="26" height="28" class="blue"/><text x="351" y="67" text-anchor="middle">r2</text>
+    <rect x="364" y="48" width="26" height="28" class="blue"/><text x="377" y="67" text-anchor="middle">r2</text>
+    <rect x="390" y="48" width="26" height="28" class="orange"/><text x="403" y="67" text-anchor="middle">X</text>
+    <rect x="416" y="48" width="26" height="28" class="orange"/><text x="429" y="67" text-anchor="middle">Y</text>
+    <rect x="442" y="48" width="26" height="28" class="blue"/><text x="455" y="67" text-anchor="middle">r1</text>
+    <rect x="468" y="48" width="26" height="28" class="blue"/><text x="481" y="67" text-anchor="middle">r2</text>
+    <rect x="494" y="48" width="26" height="28" class="blue"/><text x="507" y="67" text-anchor="middle">r1</text>
+    <rect x="520" y="48" width="26" height="28" class="white"/><rect x="546" y="48" width="26" height="28" class="white"/><rect x="572" y="48" width="26" height="28" class="white"/>
+    <rect x="598" y="48" width="26" height="28" class="white"/><rect x="624" y="48" width="26" height="28" class="white"/><rect x="650" y="48" width="26" height="28" class="white"/>
+    <rect x="676" y="48" width="26" height="28" class="white"/><rect x="702" y="48" width="26" height="28" class="white"/><rect x="728" y="48" width="26" height="28" class="white"/>
+  </g>
+  <text x="520" y="96" class="sm">9 free pages: any request or adapter can use them</text>
+  <text x="130" y="120" class="sm">rank-4 adapter X = 4 pages, rank-2 adapter Y = 2 pages; request 1 holds 5 tokens = 5 pages, request 2 holds 4</text>
+
+  <line x1="16" y1="140" x2="804" y2="140" stroke="#999" stroke-dasharray="5 4"/>
+
+  <text x="16" y="170" class="b">For contrast: fixed adapter slots sized for the largest rank (8)</text>
+  <text x="16" y="206">Slot 1</text>
+  <g>
+    <rect x="130" y="188" width="26" height="28" class="orange"/><rect x="156" y="188" width="26" height="28" class="orange"/><rect x="182" y="188" width="26" height="28" class="orange"/><rect x="208" y="188" width="26" height="28" class="orange"/>
+    <rect x="234" y="188" width="104" height="28" class="reserved"/>
+  </g>
+  <text x="352" y="207" class="sm">adapter X uses 4 of 8 pages</text>
+  <text x="16" y="246">Slot 2</text>
+  <g>
+    <rect x="130" y="228" width="26" height="28" class="orange"/><rect x="156" y="228" width="26" height="28" class="orange"/>
+    <rect x="182" y="228" width="156" height="28" class="reserved"/>
+  </g>
+  <text x="352" y="247" class="sm">adapter Y uses 2 of 8 pages; the KV cache cannot borrow the rest</text>
+
+  <rect x="130" y="272" width="16" height="12" class="blue"/><text x="152" y="283" class="sm">KV cache page (request 1 or 2)</text>
+  <rect x="350" y="272" width="16" height="12" class="orange"/><text x="372" y="283" class="sm">adapter weight page</text>
+  <rect x="510" y="272" width="16" height="12" class="reserved"/><text x="532" y="283" class="sm">reserved but unused</text>
+</svg>

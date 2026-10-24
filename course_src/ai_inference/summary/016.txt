@@ -1,0 +1,7 @@
+center: Halve Model Memory
+branch: Define quality first | GSM8K 1,319 problems | own task set | 1 point threshold
+branch: Variants | BF16 16.06 GB | FP8 dynamic 9.08 GB | W4A16 5.74 GB
+branch: Memory math | embeddings stay 16-bit | FP8 is 43% smaller | 4-bit is 64% smaller
+branch: Measuring memory | Model loading took | nvidia-smi barely changes | saved memory becomes cache
+branch: Deciding | paired comparison | 95% CI | flips
+branch: If it fails | another method | keep layers in BF16 | FP8 KV cache separately

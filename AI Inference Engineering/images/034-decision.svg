@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="870" height="376" viewBox="0 0 870 376" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .thick{fill:none;stroke:#000;stroke-width:2.4;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .ref{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="16" y="40" width="190" height="84" rx="6" class="yellow"/>
+  <text x="111.0" y="66" text-anchor="middle" class="sm">Can chunked prefill meet</text>
+  <text x="111.0" y="84" text-anchor="middle" class="sm">the TPOT targets, including</text>
+  <text x="111.0" y="102" text-anchor="middle" class="sm">any p99 gap target?</text>
+  <rect x="232" y="40" width="190" height="84" rx="6" class="yellow"/>
+  <text x="327.0" y="66" text-anchor="middle" class="sm">Is the fleet big enough</text>
+  <text x="327.0" y="84" text-anchor="middle" class="sm">to keep two pools busy,</text>
+  <text x="327.0" y="102" text-anchor="middle" class="sm">several GPUs each?</text>
+  <rect x="448" y="40" width="190" height="84" rx="6" class="yellow"/>
+  <text x="543.0" y="66" text-anchor="middle" class="sm">Can prefill and decode</text>
+  <text x="543.0" y="84" text-anchor="middle" class="sm">workers share NVLink</text>
+  <text x="543.0" y="102" text-anchor="middle" class="sm">or fast RDMA?</text>
+  <rect x="664" y="40" width="190" height="84" rx="6" class="green"/>
+  <text x="759.0" y="66" text-anchor="middle" class="sm b">Disaggregate:</text>
+  <text x="759.0" y="84" text-anchor="middle" class="sm">size each pool from prompt</text>
+  <text x="759.0" y="102" text-anchor="middle" class="sm">and output lengths</text>
+  <path d="M206,82.0 L230,82.0" class="edge"/>
+  <text x="219.0" y="74.0" text-anchor="middle" class="sm b">no</text>
+  <path d="M422,82.0 L446,82.0" class="edge"/>
+  <text x="435.0" y="74.0" text-anchor="middle" class="sm b">yes</text>
+  <path d="M638,82.0 L662,82.0" class="edge"/>
+  <text x="651.0" y="74.0" text-anchor="middle" class="sm b">yes</text>
+  <path d="M111.0,124 L111.0,188" class="edge"/>
+  <text x="119.0" y="160" class="sm b">yes</text>
+  <rect x="16" y="190" width="190" height="70" rx="6" class="gray"/>
+  <text x="111.0" y="212" text-anchor="middle" class="sm">Stay shared:</text>
+  <text x="111.0" y="230" text-anchor="middle" class="sm">tune the chunk budget,</text>
+  <text x="111.0" y="248" text-anchor="middle" class="sm">watch p99 gaps</text>
+  <path d="M327.0,124 L327.0,188" class="edge"/>
+  <text x="335.0" y="160" class="sm b">no</text>
+  <rect x="232" y="190" width="190" height="70" rx="6" class="gray"/>
+  <text x="327.0" y="212" text-anchor="middle" class="sm">Stay shared until</text>
+  <text x="327.0" y="230" text-anchor="middle" class="sm">the fleet grows; revisit</text>
+  <text x="327.0" y="248" text-anchor="middle" class="sm">at dozens of GPUs</text>
+  <path d="M543.0,124 L543.0,188" class="edge"/>
+  <text x="551.0" y="160" class="sm b">no</text>
+  <rect x="448" y="190" width="190" height="70" rx="6" class="gray"/>
+  <text x="543.0" y="212" text-anchor="middle" class="sm">Keep each prefill and</text>
+  <text x="543.0" y="230" text-anchor="middle" class="sm">decode pair inside one</text>
+  <text x="543.0" y="248" text-anchor="middle" class="sm">NVLink server first</text>
+  <path d="M111.0,260 L111.0,286" class="dash"/>
+  <rect x="16" y="288" width="190" height="44" rx="6" class="purple"/>
+  <text x="111.0" y="306" text-anchor="middle" class="sm b">Chat service</text>
+  <text x="111.0" y="323" text-anchor="middle" class="sm">2,000 in, 500 out</text>
+  <path d="M759.0,124 L759.0,188" class="dash"/>
+  <rect x="664" y="190" width="190" height="70" rx="6" class="purple"/>
+  <text x="759.0" y="212" text-anchor="middle" class="sm b">Document Q&amp;A</text>
+  <text x="759.0" y="230" text-anchor="middle" class="sm">4 prefill + 2 decode GPUs</text>
+  <text x="759.0" y="248" text-anchor="middle" class="sm">in one 8-GPU server</text>
+  <text x="16" y="362" class="sm">The chat service exits at the first question; the document service, at about 74% prefill work, reaches the last box.</text>
+</svg>

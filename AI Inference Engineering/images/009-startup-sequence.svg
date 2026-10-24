@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="196" viewBox="0 0 840 196" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="10" y="26" class="b">vllm serve: from process start to the first request</text>
+
+  <rect x="10" y="44" width="120" height="52" rx="6" class="gray"/>
+  <text x="70" y="66" text-anchor="middle">Load weights</text>
+  <text x="70" y="84" text-anchor="middle" class="sm">15 GiB in BF16</text>
+  <path d="M130,70 L148,70" class="edge"/>
+
+  <rect x="150" y="44" width="120" height="52" rx="6" class="gray"/>
+  <text x="210" y="66" text-anchor="middle">Profile memory</text>
+  <text x="210" y="84" text-anchor="middle" class="sm">dummy forward pass</text>
+  <path d="M270,70 L288,70" class="edge"/>
+
+  <rect x="290" y="44" width="120" height="52" rx="6" class="blue"/>
+  <text x="350" y="66" text-anchor="middle">KV block pool</text>
+  <text x="350" y="84" text-anchor="middle" class="sm">26,624 × 2 MiB</text>
+  <path d="M410,70 L428,70" class="edge"/>
+
+  <rect x="430" y="44" width="120" height="52" rx="6" class="orange"/>
+  <text x="490" y="66" text-anchor="middle">torch.compile</text>
+  <text x="490" y="84" text-anchor="middle" class="sm">cached on disk</text>
+  <path d="M550,70 L568,70" class="edge"/>
+
+  <rect x="570" y="44" width="120" height="52" rx="6" class="orange"/>
+  <text x="630" y="66" text-anchor="middle">CUDA graphs</text>
+  <text x="630" y="84" text-anchor="middle" class="sm">per batch size</text>
+  <path d="M690,70 L708,70" class="edge"/>
+
+  <rect x="710" y="44" width="120" height="52" rx="6" class="green"/>
+  <text x="770" y="66" text-anchor="middle">Ready</text>
+  <text x="770" y="84" text-anchor="middle" class="sm">/health returns 200</text>
+
+  <path d="M152,106 L152,114 L408,114 L408,106" fill="none" stroke="#000"/>
+  <text x="280" y="134" text-anchor="middle" class="sm">sized by --gpu-memory-utilization</text>
+  <text x="280" y="152" text-anchor="middle" class="sm">(or fixed by --kv-cache-memory-bytes)</text>
+  <path d="M432,106 L432,114 L688,114 L688,106" fill="none" stroke="#000"/>
+  <text x="560" y="134" text-anchor="middle" class="sm">skipped by --enforce-eager: faster start, slower decode</text>
+  <text x="560" y="152" text-anchor="middle" class="sm">compile cache: ~/.cache/vllm, can ship in the image</text>
+  <text x="10" y="184" class="sm">Weights and KV numbers are for Llama 3.1 8B on one H100 with --gpu-memory-utilization 0.90.</text>
+</svg>

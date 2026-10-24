@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="380" viewBox="0 0 840 380" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .gridl{stroke:#e3e3e3;stroke-width:1}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Panel 1: decode tokens per second, 0..12000 over 200 px (y 260 -> 60) -->
+  <text x="225" y="28" text-anchor="middle" class="b">Decode tokens per second per H100</text>
+  <path d="M70,226.7H390M70,193.3H390M70,160H390M70,126.7H390M70,93.3H390M70,60H390" class="gridl"/>
+  <path d="M70,52 L70,260 L390,260" class="axis"/>
+  <text x="62" y="264" text-anchor="end" class="sm">0</text>
+  <text x="62" y="197" text-anchor="end" class="sm">4,000</text>
+  <text x="62" y="131" text-anchor="end" class="sm">8,000</text>
+  <text x="62" y="64" text-anchor="end" class="sm">12,000</text>
+
+  <rect x="90" y="199.3" width="70" height="60.7" class="gray"/>
+  <text x="125" y="192" text-anchor="middle" class="b">3,640</text>
+  <rect x="190" y="166.8" width="70" height="93.2" class="orange"/>
+  <text x="225" y="160" text-anchor="middle" class="b">5,590</text>
+  <rect x="290" y="73.7" width="70" height="186.3" class="green"/>
+  <text x="325" y="67" text-anchor="middle" class="b">11,180</text>
+
+  <!-- Panel 2: requests per second, 0..10 over 200 px -->
+  <text x="625" y="28" text-anchor="middle" class="b">Chat-shaped requests per second per H100</text>
+  <path d="M470,220H790M470,180H790M470,140H790M470,100H790M470,60H790" class="gridl"/>
+  <path d="M470,52 L470,260 L790,260" class="axis"/>
+  <text x="462" y="264" text-anchor="end" class="sm">0</text>
+  <text x="462" y="184" text-anchor="end" class="sm">4</text>
+  <text x="462" y="104" text-anchor="end" class="sm">8</text>
+  <text x="462" y="64" text-anchor="end" class="sm">10</text>
+
+  <rect x="490" y="160" width="70" height="100" class="gray"/>
+  <text x="525" y="153" text-anchor="middle" class="b">5.0</text>
+  <rect x="590" y="128" width="70" height="132" class="orange"/>
+  <text x="625" y="121" text-anchor="middle" class="b">6.6</text>
+  <rect x="690" y="74" width="70" height="186" class="green"/>
+  <text x="725" y="67" text-anchor="middle" class="b">9.3</text>
+
+  <!-- Category labels -->
+  <g class="sm" text-anchor="middle">
+    <text x="125" y="280">Interactive</text><text x="125" y="295">53 streams</text><text x="125" y="310">14.6 ms step</text>
+    <text x="225" y="280">Offline</text><text x="225" y="295">BF16 KV, 170</text><text x="225" y="310">30.4 ms step</text>
+    <text x="325" y="280">Offline</text><text x="325" y="295">FP8 KV, 340</text><text x="325" y="310">30.4 ms step</text>
+    <text x="525" y="280">Interactive</text><text x="525" y="295">at the SLO</text>
+    <text x="625" y="280">Offline</text><text x="625" y="295">BF16 KV: 1.3×</text>
+    <text x="725" y="280">Offline</text><text x="725" y="295">FP8 KV: 1.9×</text>
+  </g>
+
+  <text x="420" y="342" text-anchor="middle" class="sm">Llama 3.1 8B, 2,250 tokens of average context, steps at 65% of the bandwidth bound (Lesson 19's model).</text>
+  <text x="420" y="360" text-anchor="middle" class="sm">Requests are 2,000 prompt + 500 output tokens; prefill at 32,000 tokens/s adds 62.5 ms of GPU time to each.</text>
+</svg>

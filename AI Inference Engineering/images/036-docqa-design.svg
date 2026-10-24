@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="400" viewBox="0 0 820 400" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- upload path (top) -->
+  <rect x="20" y="40" width="140" height="48" rx="6" class="white"/>
+  <text x="90" y="60" text-anchor="middle">upload a</text>
+  <text x="90" y="77" text-anchor="middle">100K-token doc</text>
+  <rect x="210" y="30" width="220" height="68" rx="6" class="orange"/>
+  <text x="320" y="52" text-anchor="middle" class="b">ingest pool (prefill)</text>
+  <text x="320" y="70" text-anchor="middle" class="sm">large chunks, no decoding users</text>
+  <text x="320" y="86" text-anchor="middle" class="sm">≈ 8.6 s of H100 time per doc</text>
+  <path d="M160,64 L208,64" class="edge"/>
+
+  <!-- KV store -->
+  <rect x="490" y="30" width="310" height="150" rx="6" class="blue"/>
+  <text x="645" y="52" text-anchor="middle" class="b">KV cache store</text>
+  <text x="645" y="74" text-anchor="middle" class="sm">CPU DRAM: ≈ 250 GB per GPU,</text>
+  <text x="645" y="90" text-anchor="middle" class="sm">≈ 38 documents per GPU in FP8</text>
+  <text x="645" y="114" text-anchor="middle" class="sm">NVMe or remote pool (Mooncake Store,</text>
+  <text x="645" y="130" text-anchor="middle" class="sm">LMCache): thousands of documents</text>
+  <text x="645" y="154" text-anchor="middle" class="sm">6.55 GB per 100K-token doc in FP8</text>
+  <path d="M430,64 L488,64" class="edge"/>
+  <text x="459" y="56" text-anchor="middle" class="sm">save</text>
+
+  <!-- question path (bottom) -->
+  <rect x="20" y="210" width="140" height="48" rx="6" class="white"/>
+  <text x="90" y="230" text-anchor="middle">ask questions</text>
+  <text x="90" y="247" text-anchor="middle" class="sm">≈ 5 per document</text>
+  <rect x="200" y="206" width="130" height="56" rx="6" class="purple"/>
+  <text x="265" y="229" text-anchor="middle">router</text>
+  <text x="265" y="247" text-anchor="middle" class="sm">document affinity</text>
+  <path d="M160,234 L198,234" class="edge"/>
+
+  <rect x="380" y="200" width="250" height="88" rx="6" class="orange"/>
+  <text x="505" y="222" text-anchor="middle" class="b">answer pool (decode)</text>
+  <text x="505" y="242" text-anchor="middle" class="sm">FP8 KV cache, prefix caching</text>
+  <text x="505" y="258" text-anchor="middle" class="sm">≈ 8 documents decoding per H100</text>
+  <text x="505" y="274" text-anchor="middle" class="sm">≥ 20 ms per step (lower bound)</text>
+  <path d="M330,234 L378,234" class="edge"/>
+  <path d="M600,180 L600,198" class="edge"/>
+  <text x="608" y="194" class="sm">load ≈ 0.13 s</text>
+
+  <rect x="660" y="210" width="140" height="68" rx="6" class="white"/>
+  <text x="730" y="236" text-anchor="middle">streamed</text>
+  <text x="730" y="254" text-anchor="middle">answer</text>
+  <path d="M630,244 L658,244" class="edge"/>
+
+  <!-- notes -->
+  <rect x="20" y="312" width="380" height="74" rx="6" class="green"/>
+  <text x="210" y="334" text-anchor="middle" class="sm">At upload: prefill the document once while the</text>
+  <text x="210" y="352" text-anchor="middle" class="sm">user is still reading, then save its cache.</text>
+  <text x="210" y="370" text-anchor="middle" class="sm">Long prefills never stall anyone's decode.</text>
+  <rect x="420" y="312" width="380" height="74" rx="6" class="green"/>
+  <text x="610" y="334" text-anchor="middle" class="sm">Each question: load the cache, prefill only the</text>
+  <text x="610" y="352" text-anchor="middle" class="sm">≈ 100-token question (≈ 14 ms), stream the answer.</text>
+  <text x="610" y="370" text-anchor="middle" class="sm">≈ 12.5 GPU-seconds per document in all.</text>
+</svg>

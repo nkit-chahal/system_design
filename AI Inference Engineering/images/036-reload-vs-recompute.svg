@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="370" viewBox="0 0 820 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e5e5e5;stroke-width:1}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="20" y="24" class="b">Time to have a prompt's KV cache ready on the GPU: recompute versus reload</text>
+
+  <!-- x 90..770 = 0..131,072 tokens; y 300..40 = 0..14 s -->
+  <path d="M90,262.9 L770,262.9 M90,225.7 L770,225.7 M90,188.6 L770,188.6 M90,151.4 L770,151.4 M90,114.3 L770,114.3 M90,77.1 L770,77.1 M90,40 L770,40" class="grid"/>
+  <path d="M90,36 L90,300 L774,300" class="axis"/>
+  <text x="82" y="304" text-anchor="end" class="sm">0</text>
+  <text x="82" y="230" text-anchor="end" class="sm">4</text>
+  <text x="82" y="155" text-anchor="end" class="sm">8</text>
+  <text x="82" y="81" text-anchor="end" class="sm">12</text>
+  <text x="30" y="170" class="sm" transform="rotate(-90 30 170)" text-anchor="middle">seconds</text>
+  <path d="M260,300 L260,305 M430,300 L430,305 M600,300 L600,305 M770,300 L770,305" class="axis"/>
+  <text x="90" y="320" text-anchor="middle" class="sm">0</text>
+  <text x="260" y="320" text-anchor="middle" class="sm">32K</text>
+  <text x="430" y="320" text-anchor="middle" class="sm">64K</text>
+  <text x="600" y="320" text-anchor="middle" class="sm">96K</text>
+  <text x="770" y="320" text-anchor="middle" class="sm">128K</text>
+  <text x="430" y="342" text-anchor="middle" class="sm">prompt tokens (Llama 3.1 8B, BF16 KV cache at 128 KiB per token)</text>
+
+  <path d="M90.0,300.0 L132.5,294.4 L175.0,287.5 L217.5,279.2 L260.0,269.7 L302.5,258.8 L345.0,246.6 L387.5,233.0 L430.0,218.2 L472.5,202.0 L515.0,184.5 L557.5,165.7 L600.0,145.6 L642.5,124.1 L685.0,101.3 L727.5,77.2 L770.0,51.8" fill="none" stroke="#b85450" stroke-width="2.5"/>
+  <path d="M90,300 L770,254.4" fill="none" stroke="#666" stroke-width="2.5" stroke-dasharray="7 4"/>
+  <path d="M90,300 L770,286.7" fill="none" stroke="#9673a6" stroke-width="2.5"/>
+  <path d="M90,300 L770,293.6" fill="none" stroke="#6c8ebf" stroke-width="2.5"/>
+
+  <circle cx="608.8" cy="141.2" r="4" fill="#b85450"/>
+  <text x="598" y="136" text-anchor="end" class="sm">100K: 8.55 s</text>
+  <rect x="110" y="142" width="300" height="74" rx="4" fill="#fff" stroke="#666" stroke-width="1.2"/>
+  <path d="M120,156 L144,156" stroke="#b85450" stroke-width="2.5"/><text x="152" y="160" class="sm">recompute (50% MFU): 13.4 s at 128K</text>
+  <path d="M120,172 L144,172" stroke="#666" stroke-width="2.5" stroke-dasharray="7 4"/><text x="152" y="176" class="sm">one NVMe drive, 7 GB/s: 2.5 s</text>
+  <path d="M120,188 L144,188" stroke="#9673a6" stroke-width="2.5"/><text x="152" y="192" class="sm">remote store, 24 GB/s: 0.72 s</text>
+  <path d="M120,204 L144,204" stroke="#6c8ebf" stroke-width="2.5"/><text x="152" y="208" class="sm">CPU DRAM, 50 GB/s: 0.34 s</text>
+
+  <rect x="110" y="50" width="330" height="80" rx="4" class="gray"/>
+  <text x="122" y="70" class="sm">Reload wins when the tier is faster than</text>
+  <text x="122" y="88" class="sm">KV bytes per token × prefill tokens per second:</text>
+  <text x="122" y="106" class="sm">≈ 3.9 GB/s at 2K tokens, ≈ 1.3 GB/s at 128K.</text>
+  <text x="122" y="122" class="sm">Every tier shown clears that bar.</text>
+</svg>

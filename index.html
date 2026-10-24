@@ -645,7 +645,7 @@ button { cursor: pointer; font-family: var(--font-main); border: none; backgroun
     <div class="brand-area">
       <div class="brand-logo">💎</div>
       <div class="brand-text">
-        <h1>Interview Prep Hub <span class="brand-badge">228 Lessons</span></h1>
+        <h1>Interview Prep Hub <span class="brand-badge" id="lesson-count">Lessons</span></h1>
       </div>
     </div>
     <div class="header-actions">
@@ -748,6 +748,7 @@ button { cursor: pointer; font-family: var(--font-main); border: none; backgroun
 
     const CAT_META = {
       'Python Course': { icon: '🐍', color: '#05673d', desc: '17 Core, Stats & SQL' },
+      'AI Inference Engineering': { icon: '🚀', color: '#0ea5e9', desc: '40 Serving, GPU & Cost Lessons' },
       'Behavioral Interview': { icon: '👥', color: '#f59e0b', desc: '15 Storytelling & Leadership' },
       'Coding Interview Patterns': { icon: '⚡', color: '#3b82f6', desc: '120 Algorithm Patterns' },
       'Generative AI System Design Interview': { icon: '🤖', color: '#8b5cf6', desc: '11 LLM & GenAI Designs' },
@@ -785,6 +786,7 @@ button { cursor: pointer; font-family: var(--font-main); border: none; backgroun
       $('prog-pct').textContent = pct + '%';
       $('prog-fill').style.width = pct + '%';
       $('prog-count').textContent = `${d} of ${total} Completed`;
+      $('lesson-count').textContent = `${total} Lessons`;
 
       let html = '';
       Object.entries(CAT_META).forEach(([cat, m]) => {

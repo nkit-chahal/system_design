@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="400" viewBox="0 0 860 400" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+    <pattern id="redhatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a8a6" stroke-width="3"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dedge{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .grid{stroke:#e3e3e3;stroke-width:1}
+    .guide{stroke:#666;stroke-width:1;stroke-dasharray:5 4;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="80" y="30" class="b">What utilization metrics show</text>
+  <text x="520" y="30" class="b">What users feel</text>
+  <line x1="80" y1="220.0" x2="400" y2="220.0" class="grid"/>
+  <line x1="80" y1="140.0" x2="400" y2="140.0" class="grid"/>
+  <line x1="80" y1="60.0" x2="400" y2="60.0" class="grid"/>
+  <path d="M80,54 L80,300 L406,300" class="axis"/>
+  <line x1="80.0" y1="300" x2="80.0" y2="305" class="tick"/>
+  <text x="80.0" y="319" text-anchor="middle" class="sm">0</text>
+  <line x1="167.3" y1="300" x2="167.3" y2="305" class="tick"/>
+  <text x="167.3" y="319" text-anchor="middle" class="sm">300</text>
+  <line x1="254.5" y1="300" x2="254.5" y2="305" class="tick"/>
+  <text x="254.5" y="319" text-anchor="middle" class="sm">600</text>
+  <line x1="341.8" y1="300" x2="341.8" y2="305" class="tick"/>
+  <text x="341.8" y="319" text-anchor="middle" class="sm">900</text>
+  <line x1="75" y1="300.0" x2="80" y2="300.0" class="tick"/>
+  <text x="71" y="304.0" text-anchor="end" class="sm">0%</text>
+  <line x1="75" y1="220.0" x2="80" y2="220.0" class="tick"/>
+  <text x="71" y="224.0" text-anchor="end" class="sm">50%</text>
+  <line x1="75" y1="140.0" x2="80" y2="140.0" class="tick"/>
+  <text x="71" y="144.0" text-anchor="end" class="sm">100%</text>
+  <line x1="75" y1="60.0" x2="80" y2="60.0" class="tick"/>
+  <text x="71" y="64.0" text-anchor="end" class="sm">150%</text>
+  <line x1="520" y1="220.0" x2="840" y2="220.0" class="grid"/>
+  <line x1="520" y1="140.0" x2="840" y2="140.0" class="grid"/>
+  <line x1="520" y1="60.0" x2="840" y2="60.0" class="grid"/>
+  <path d="M520,54 L520,300 L846,300" class="axis"/>
+  <line x1="520.0" y1="300" x2="520.0" y2="305" class="tick"/>
+  <text x="520.0" y="319" text-anchor="middle" class="sm">0</text>
+  <line x1="607.3" y1="300" x2="607.3" y2="305" class="tick"/>
+  <text x="607.3" y="319" text-anchor="middle" class="sm">300</text>
+  <line x1="694.5" y1="300" x2="694.5" y2="305" class="tick"/>
+  <text x="694.5" y="319" text-anchor="middle" class="sm">600</text>
+  <line x1="781.8" y1="300" x2="781.8" y2="305" class="tick"/>
+  <text x="781.8" y="319" text-anchor="middle" class="sm">900</text>
+  <line x1="515" y1="300.0" x2="520" y2="300.0" class="tick"/>
+  <text x="511" y="304.0" text-anchor="end" class="sm">0 s</text>
+  <line x1="515" y1="220.0" x2="520" y2="220.0" class="tick"/>
+  <text x="511" y="224.0" text-anchor="end" class="sm">1 s</text>
+  <line x1="515" y1="140.0" x2="520" y2="140.0" class="tick"/>
+  <text x="511" y="144.0" text-anchor="end" class="sm">2 s</text>
+  <line x1="515" y1="60.0" x2="520" y2="60.0" class="tick"/>
+  <text x="511" y="64.0" text-anchor="end" class="sm">3 s</text>
+  <line x1="167.3" y1="300" x2="167.3" y2="56" class="guide"/>
+  <line x1="607.3" y1="300" x2="607.3" y2="56" class="guide"/>
+  <text x="162.3" y="66" class="sm" text-anchor="end">53 in flight</text>
+  <text x="602.3" y="66" class="sm" text-anchor="end">53 in flight</text>
+  <line x1="799.9" y1="300" x2="799.9" y2="56" class="guide"/>
+  <text x="794.9" y="66" class="sm" text-anchor="end">KV cache full</text>
+  <polyline points="80.0,295.2 400.0,264.8" fill="none" stroke="#666" stroke-width="2.2"/>
+  <polyline points="80.0,156.0 400.0,156.0" fill="none" stroke="#6c8ebf" stroke-width="2.2"/>
+  <polyline points="80.0,300.0 83.5,151.2 91.6,141.6 400.0,141.6" fill="none" stroke="#b85450" stroke-width="2.2" stroke-dasharray="7 4"/>
+  <polyline points="80.0,300.0 210.9,60.0" fill="none" stroke="#82b366" stroke-width="2.8"/>
+  <text x="242.9" y="134.6" class="sm">GPU utilization (nvidia-smi)</text>
+  <text x="242.9" y="168.8" class="sm">GPU memory in use</text>
+  <text x="301.1" y="254.8" class="sm">CPU utilization</text>
+  <text x="190.5" y="111.2" class="sm">in-flight requests ÷ 53</text>
+  <polyline points="520.0,288.0 549.1,285.6 578.2,277.6 607.3,260.0 650.9,236.0 694.5,208.0 738.2,172.0 767.3,136.0 787.6,100.0 799.3,60.0" fill="none" stroke="#d79b00" stroke-width="2.8"/>
+  <line x1="520" y1="260.0" x2="840" y2="260.0" stroke="#b85450" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="525.8" y="254.0" class="sm">SLO: 500 ms</text>
+  <text x="688.7" y="194.0" class="sm" text-anchor="end">p95 TTFT</text>
+  <text x="240.0" y="340" text-anchor="middle" class="sm">offered load (requests/min to one replica)</text>
+  <text x="680.0" y="340" text-anchor="middle" class="sm">offered load (requests/min to one replica)</text>
+  <text x="16" y="388" class="sm">Illustrative shapes for one H100 replica serving Llama 3.1 8B chat requests (about 10.6 s each, so 300 requests/min ≈ 53 in flight).</text>
+</svg>

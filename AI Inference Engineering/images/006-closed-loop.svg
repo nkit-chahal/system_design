@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="316" viewBox="0 0 820 316" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .br{fill:none;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="24" class="b">Concurrency level C = 4: four workers, each sends its next request the moment the last one ends</text>
+
+  <g transform="translate(0,16)">
+  <!-- Ramp bracket -->
+  <path d="M110,52 L110,44 L200,44 L200,52" class="br"/>
+  <text x="155" y="38" text-anchor="middle" class="sm">staggered start (--ramp-seconds)</text>
+
+  <text x="16" y="79">worker 1</text>
+  <rect x="110" y="62" width="140" height="26" rx="3" class="purple"/>
+  <rect x="254" y="62" width="140" height="26" rx="3" class="purple"/>
+  <rect x="398" y="62" width="140" height="26" rx="3" class="purple"/>
+  <rect x="542" y="62" width="140" height="26" rx="3" class="purple"/>
+
+  <text x="16" y="117">worker 2</text>
+  <rect x="140" y="100" width="140" height="26" rx="3" class="purple"/>
+  <rect x="284" y="100" width="140" height="26" rx="3" class="purple"/>
+  <rect x="428" y="100" width="140" height="26" rx="3" class="purple"/>
+  <rect x="572" y="100" width="140" height="26" rx="3" class="purple"/>
+
+  <text x="16" y="155">worker 3</text>
+  <rect x="170" y="138" width="140" height="26" rx="3" class="purple"/>
+  <rect x="314" y="138" width="140" height="26" rx="3" class="purple"/>
+  <rect x="458" y="138" width="140" height="26" rx="3" class="purple"/>
+  <rect x="602" y="138" width="140" height="26" rx="3" class="purple"/>
+
+  <text x="16" y="193">worker 4</text>
+  <rect x="200" y="176" width="140" height="26" rx="3" class="purple"/>
+  <rect x="344" y="176" width="140" height="26" rx="3" class="purple"/>
+  <rect x="488" y="176" width="140" height="26" rx="3" class="purple"/>
+  <rect x="632" y="176" width="140" height="26" rx="3" class="purple"/>
+
+  <!-- Snapshot line -->
+  <path d="M470,56 L470,212" stroke="#000" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <text x="470" y="228" text-anchor="middle" class="sm">any instant: 4 requests in flight</text>
+
+  <path d="M110,244 L790,244" class="edge"/>
+  <text x="790" y="262" text-anchor="end" class="sm">time</text>
+
+  <text x="16" y="288">One level sends max(16, rounds × C) requests. Total throughput = output tokens of all requests ÷ wall time.</text>
+  </g>
+</svg>

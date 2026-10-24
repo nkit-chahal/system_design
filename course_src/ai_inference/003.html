@@ -1,0 +1,208 @@
+<h2>Introduction</h2>
+<p>A large language model generates text one token at a time. To pick the next token, every attention layer compares the newest token against <em>all</em> the tokens that came before it. Without help, this means the model reprocesses the entire conversation at every step: generating the 1,000th token would repeat the work already done for the first 999.</p>
+<p>The <strong>KV cache</strong> removes that repetition. The first time the model processes a token, it saves that token's attention <em>keys</em> and <em>values</em> in GPU memory. Every later step reads them back instead of recomputing them. This trade, spending memory to save compute, is what makes LLM generation fast enough to use. It also creates the central constraint of LLM serving: <strong>the KV cache, not the model weights, decides how many users a GPU can serve at once</strong>.</p>
+<fig src="003-recompute-vs-cache.svg" caption="Generating five tokens with and without a KV cache">Two grids of five steps by five tokens. Without a cache, every step recomputes keys and values for every previous token, forming a triangle of 15 computations. With a cache, each step computes keys and values only for the newest token and reads the rest from the cache.</fig>
+<p>In this lesson, we look at what the cache stores, how to calculate its size for any model, why a full cache also makes generation slower, and the techniques that serving teams use to shrink and manage it.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>KV cache questions in interviews usually start from a capacity problem. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: Which model are we serving, and at what precision?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct, with weights in BF16.</p>
+<p><strong>Candidate</strong>: What hardware do we have?<br>
+<strong>Interviewer</strong>: A single NVIDIA H100 with 80 GB of memory.</p>
+<p><strong>Candidate</strong>: What do typical requests look like?<br>
+<strong>Interviewer</strong>: Most are chat requests with about 2,000 prompt tokens and 500 output tokens. A few customers upload documents that fill a 32K-token context.</p>
+<p><strong>Candidate</strong>: Is there a latency target?<br>
+<strong>Interviewer</strong>: Users should see steady streaming output. We want as many concurrent users per GPU as possible without hurting that.</p>
+<p><strong>Candidate</strong>: Are we allowed to trade a little accuracy for memory, for example by storing the cache in lower precision?<br>
+<strong>Interviewer</strong>: Only if our evaluation set shows no meaningful quality drop.</p>
+<p>The question underneath is: <em>how many requests fit on this GPU at the same time, and what can we do to fit more?</em> To answer it, we need to know exactly what the cache holds.</p>
+
+<h2>How Attention Uses Keys and Values</h2>
+<h3>Self-attention in one equation</h3>
+<p>Each attention layer projects every token's hidden state <tex>x</tex> into three vectors: a query <tex>q = W_q x</tex>, a key <tex>k = W_k x</tex>, and a value <tex>v = W_v x</tex>. A token's output is a weighted average of the values of all the tokens it can see, where the weights come from comparing its query with their keys [1]:</p>
+<texblock>\text{Attention}(q, K, V) = \text{softmax}\left(\frac{q K^\top}{\sqrt{d}}\right) V</texblock>
+<p>Here <tex>K</tex> and <tex>V</tex> stack the keys and values of every visible token, and <tex>d</tex> is the size of one attention head.</p>
+
+<h3>Why past keys and values never change</h3>
+<p>Decoder-only LLMs use <strong>causal masking</strong>: a token can attend only to itself and to earlier tokens. Appending a new token therefore never changes the hidden states of earlier tokens, so their keys and values never change either. Anything that never changes can be computed once and stored.</p>
+<p>At each decode step, the model computes <tex>q</tex>, <tex>k</tex>, and <tex>v</tex> for the single new token, appends the new <tex>k</tex> and <tex>v</tex> to the cache, and attends over the whole cache. Figure 2 shows one step for one layer.</p>
+<fig src="003-decode-step-attention.svg" caption="One decode step in one attention layer with a KV cache">The new token "on" is projected into q, k and v. The new k and v rows are appended to the K and V caches, which already hold rows for "The", "cat" and "sat". The query is compared with all cached keys to produce scores, softmax turns them into weights, and the weights average the cached values into the output that flows to the next layer.</fig>
+<p>The cost shifts from compute to memory. Without a cache, producing <tex>n</tex> tokens repeats work that grows with <tex>n^2</tex>. With a cache, each step does a fixed amount of new compute, but it must <em>read</em> every cached key and value. Generation becomes a memory-bandwidth problem, which is why decode is called <em>memory-bound</em> [2] (we explore this in Lesson 2, Prefill vs Decode).</p>
+
+<h3>What exactly gets stored</h3>
+<p>For every token in a sequence, the cache stores one key vector and one value vector per <strong>KV head</strong>, in every layer. Figure 3 shows the layout for Llama 3.1 8B, which has 32 layers, 8 KV heads, and a head size of 128.</p>
+<fig src="003-per-token-footprint.svg" caption="The cache footprint of a single token in Llama 3.1 8B">One cached token fans out into 32 layers. Each layer stores a K block and a V block of 8 KV heads by 128 dimensions. The total is 2 times 32 times 8 times 128 times 2 bytes, which is 131,072 bytes or 128 KiB per token.</fig>
+
+<h2>Sizing the KV Cache</h2>
+<p>Multiply out the dimensions to get the size of one token's cache:</p>
+<texblock>\text{KV bytes per token} = 2 \times L \times H_{\text{kv}} \times d_{\text{head}} \times b</texblock>
+<p>The 2 counts keys and values, <tex>L</tex> is the number of layers, <tex>H_{\text{kv}}</tex> the number of KV heads, <tex>d_{\text{head}}</tex> the head dimension, and <tex>b</tex> the bytes per number (2 for BF16 or FP16, 1 for FP8). The size of one request is this number multiplied by its total tokens, prompt plus output:</p>
+<texblock>\text{KV bytes per request} = \text{KV bytes per token} \times (\text{prompt tokens} + \text{output tokens})</texblock>
+<p>All four values sit in the model's <code>config.json</code> as <code>num_hidden_layers</code>, <code>num_key_value_heads</code>, <code>head_dim</code> (or <code>hidden_size / num_attention_heads</code>), and the weight dtype. Table 1 applies the formula to well-known models.</p>
+<table>
+<thead><tr><th>Model</th><th>Layers</th><th>KV heads × head dim</th><th>KV per token (BF16)</th><th>KV for 32K tokens</th></tr></thead>
+<tbody>
+<tr><td>Llama 2 7B (multi-head)</td><td>32</td><td>32 × 128</td><td>512 KiB</td><td>16 GiB*</td></tr>
+<tr><td>Llama 3.1 8B (grouped-query)</td><td>32</td><td>8 × 128</td><td>128 KiB</td><td>4 GiB</td></tr>
+<tr><td>Qwen2.5 7B (grouped-query)</td><td>28</td><td>4 × 128</td><td>56 KiB</td><td>1.75 GiB</td></tr>
+<tr><td>Llama 3.1 70B (grouped-query)</td><td>80</td><td>8 × 128</td><td>320 KiB</td><td>10 GiB</td></tr>
+<tr><td>DeepSeek-V3 (latent attention)</td><td>61</td><td>one 576-dim latent</td><td>≈ 68.6 KiB</td><td>≈ 2.1 GiB</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: KV cache size per token. *Llama 2 supports only 4K tokens of context; the 32K column is for comparison.</p>
+<p>Two models of similar size can differ by almost 10× in cache cost. Llama 2 7B and Qwen2.5 7B have nearly the same number of weights, but Qwen's cache is about nine times smaller because it keeps only 4 KV heads and 28 layers. When you choose a model for serving, its cache footprint matters as much as its parameter count.</p>
+
+<h3>Worked example: one H100 serving Llama 3.1 8B</h3>
+<p>Now we can answer the interviewer. A serving engine such as vLLM loads the weights, reserves working memory for activations and CUDA graphs, and gives everything that remains to the KV cache. We set <code>--gpu-memory-utilization 0.90</code>, so vLLM uses 90% of GPU memory and leaves the rest free (recent vLLM versions default to 0.92).</p>
+<fig src="003-h100-kv-budget.svg" caption="Memory budget for Llama 3.1 8B on one H100">A horizontal bar splits the H100's memory into 15 GiB of weights, about 4.6 GiB of activations and CUDA graphs, about 52 GiB of KV cache and 8 GiB held back. 52 GiB divided by 128 KiB per token gives about 426,000 tokens, which serves about 170 chat requests of 2,500 tokens or 13 document requests of 32,768 tokens.</fig>
+<ul>
+<li><strong>Weights</strong>: 8 billion parameters × 2 bytes ≈ 15 GiB.</li>
+<li><strong>KV cache budget</strong>: roughly 52 GiB remains after weights and runtime overhead.</li>
+<li><strong>Tokens that fit</strong>: 1 GiB ÷ 128 KiB = 8,192 tokens, so 52 GiB holds about 52 × 8,192 ≈ 426,000 tokens.</li>
+<li><strong>Chat traffic</strong>: at 2,500 tokens per request, about 170 requests fit at once.</li>
+<li><strong>Long documents</strong>: at 32,768 tokens per request, only 13 fit.</li>
+</ul>
+<p>The weights take less than a quarter of the GPU, yet the cache caps concurrency. Long-context traffic is roughly 13 times more expensive than chat traffic on the same hardware, which is why many providers price long contexts differently.</p>
+<callout kind="tip" title="Interview tip">Say the numbers out loud: "128 KiB per token, about 8,000 tokens per GiB, so 52 GiB of free memory holds roughly 426K tokens." Interviewers care that you can size the cache from first principles more than that you recall a benchmark.</callout>
+
+<h3>Why a full cache also makes decode slow</h3>
+<p>The cache costs time as well as space. At every decode step, attention reads the keys and values of every token of every request in the batch. Once the cache is full, one step on our H100 must read about 56 GB of cache plus 16 GB of weights. At the H100's 3.35 TB/s of memory bandwidth, that is about 21 ms per step even with perfect efficiency, which caps each stream near 46 tokens per second. Packing more requests into the cache raises total throughput but slows every individual stream. We return to this trade-off in Lesson 5, Tokens per Second.</p>
+
+<h2>Shrinking the KV Cache</h2>
+<p>Since the cache limits both capacity and speed, a whole family of techniques tries to make it smaller. They differ in where they act: some change the model architecture, some change the number format, and some change which tokens are kept.</p>
+
+<h4>Fewer KV heads: MQA, GQA, and MLA</h4>
+<p>In the original multi-head attention (MHA), every query head has its own key and value head. <strong>Multi-query attention</strong> (MQA) shares a single KV head across all query heads [3]. <strong>Grouped-query attention</strong> (GQA) is the middle ground: query heads are split into groups and each group shares one KV head [4]. Llama 3.1 8B uses 32 query heads and 8 KV heads, so its cache is a quarter of the MHA size.</p>
+<fig src="003-mha-gqa-mqa.svg" caption="How MHA, GQA, and MQA map query heads to cached KV heads">Three panels with eight query heads each. MHA connects each query head to its own KV head, so the cache is 100%. GQA connects groups of four query heads to two KV heads, so the cache is 25%. MQA connects all eight query heads to one KV head, so the cache is 12.5%.</fig>
+<p><strong>Multi-head latent attention</strong> (MLA), introduced in DeepSeek-V2 [5], goes further: it caches one small compressed latent vector per token per layer and reconstructs keys and values from it. This is why DeepSeek-V3, a 671B-parameter model, needs less cache per token than Llama 3.1 8B. All three techniques are fixed when the model is trained, so as a serving engineer you get them by choosing the model, not by flipping a flag.</p>
+
+<h4>Lower precision: FP8 and INT4 caches</h4>
+<p>The cache can be stored in fewer bits than the weights. An FP8 cache halves the memory per token, from 128 KiB to 64 KiB for Llama 3.1 8B, which doubles the tokens that fit. vLLM enables it with <code>--kv-cache-dtype fp8</code> and supports the <code>fp8_e4m3</code> and <code>fp8_e5m2</code> formats [7]. Research methods such as KIVI push keys and values down to 2 bits [8]. The risk is accuracy, especially on long contexts and reasoning tasks, so measure it on your own evaluation set before shipping.</p>
+
+<h4>Bounded attention: sliding windows and local layers</h4>
+<p>If a layer only attends to the last <tex>w</tex> tokens, its cache never grows beyond <tex>w</tex> tokens. Mistral 7B used a 4,096-token sliding window in every layer [11]. Newer models such as Gemma 2 and Gemma 3 mix cheap local-window layers with a few full-attention layers, so most layers have a small, fixed cache. Like GQA, this is an architectural choice.</p>
+
+<h4>Token eviction and compression</h4>
+<p>Another family keeps the architecture but drops tokens that matter little. StreamingLLM keeps a few initial "attention sink" tokens plus a recent window [9]. H2O keeps the "heavy hitter" tokens that receive the most attention [10]. SnapKV compresses a long prompt by selecting the positions that the final prompt tokens attend to [14]. These methods can cut memory dramatically but may lose details the model needs later, such as a fact buried in the middle of a document.</p>
+
+<h4>Offloading to CPU memory and SSD</h4>
+<p>Instead of throwing tokens away, the cache can move to cheaper, slower memory. Tools such as LMCache store caches in CPU memory or on local and remote disks so they can be reused across requests, for example for a long shared document [13]. Offloading saves recomputation but adds transfer time, so it pays off when the same prefix is reused often.</p>
+
+<table>
+<thead><tr><th>Technique</th><th>Typical saving</th><th>Needs a different model?</th><th>Quality risk</th></tr></thead>
+<tbody>
+<tr><td>GQA / MQA</td><td>4–8× vs MHA</td><td>Yes, chosen at training time</td><td>Low (built into training)</td></tr>
+<tr><td>MLA</td><td>Larger than GQA</td><td>Yes</td><td>Low</td></tr>
+<tr><td>FP8 KV cache</td><td>2×</td><td>No, an engine flag</td><td>Low; verify on evals</td></tr>
+<tr><td>2–4 bit KV cache</td><td>4–8×</td><td>No</td><td>Medium</td></tr>
+<tr><td>Sliding window / local layers</td><td>Caps growth at the window size</td><td>Yes</td><td>Low (built into training)</td></tr>
+<tr><td>Token eviction (H2O, SnapKV)</td><td>Up to 10× or more</td><td>No</td><td>Medium to high on retrieval tasks</td></tr>
+<tr><td>Offloading (CPU, SSD)</td><td>Frees GPU memory</td><td>No</td><td>None, but adds latency</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: KV cache reduction techniques</p>
+
+<h4>Which technique fits our deployment?</h4>
+<p>For Llama 3.1 8B on one H100, the model choice is fixed, and it already uses GQA. The most practical lever is an <strong>FP8 KV cache</strong>: it requires no retraining, roughly doubles capacity to about 850,000 tokens, and usually costs little accuracy. We enable it, then confirm on the evaluation set that quality holds, as the interviewer required. Eviction methods are riskier for document question answering, where any token might matter, so we leave them out. If the team later chooses a new model, cache size per token becomes part of the comparison.</p>
+
+<h2>Managing the Cache inside a Serving Engine</h2>
+<h3>Contiguous versus paged allocation</h3>
+<p>Early serving systems reserved one contiguous chunk of memory per request, sized for the longest sequence it might reach. Because no one knows in advance how long a response will be, most of that reservation sits empty. The PagedAttention paper measured that such systems wasted 60–80% of their KV cache memory [6].</p>
+<fig src="003-contiguous-vs-paged.svg" caption="Contiguous reservation versus paged allocation of the KV cache">In the contiguous layout, three requests each reserve 16 slots but use 5, 2 and 9 of them, so two thirds of the memory is idle. In the paged layout, the same 16 blocks of data are allocated from a shared pool on demand, leaving free blocks for new requests.</fig>
+<p><strong>Paged allocation</strong> borrows the idea of virtual memory from operating systems. The cache is split into fixed-size blocks (16 tokens per block by default in vLLM), handed out as tokens arrive. A per-request block table maps logical positions to physical blocks, so a request's cache does not need to be contiguous. Waste drops to at most one partly filled block per request. We study this in detail in Lesson 8, PagedAttention.</p>
+
+<h3>When the cache runs out: preemption</h3>
+<p>Requests grow as they generate, so a full cache must still find room for the next token. The scheduler then <strong>preempts</strong> a request: it frees that request's blocks and later rebuilds its cache by recomputing the prompt and the tokens generated so far. vLLM's current engine preempts by recomputation by default. Frequent preemption is a warning sign that the server is admitting more requests than its cache can hold, and it shows up as latency spikes for the preempted users.</p>
+
+<h3>Sharing the cache across requests</h3>
+<p>Many requests start with the same text, such as a system prompt, few-shot examples, or a document that several users ask about. Because the cache for a given prefix is always the same, an engine can compute it once and let many requests point to the same blocks. This is <strong>prefix caching</strong>, and it can remove most of the prefill work for chat applications with long system prompts. Lesson 24 covers it in depth.</p>
+
+<h2>In Practice</h2>
+<p>The first tab computes the cache size of any Hugging Face model from its config. The second starts vLLM with an FP8 cache; its startup log reports the cache capacity directly. The third shows the speed difference the cache makes, using a small model that runs on a laptop; the Transformers cache guide covers the other cache classes [12].</p>
+<codetabs>
+<tab label="KV calculator" lang="python">
+from transformers import AutoConfig
+
+def kv_bytes_per_token(model_id: str, bytes_per_value: int = 2) -> int:
+    cfg = AutoConfig.from_pretrained(model_id)
+    cfg = getattr(cfg, "text_config", cfg)  # multimodal models nest the LLM config
+    head_dim = getattr(cfg, "head_dim", None) or cfg.hidden_size // cfg.num_attention_heads
+    kv_heads = getattr(cfg, "num_key_value_heads", None) or cfg.num_attention_heads
+    return 2 * cfg.num_hidden_layers * kv_heads * head_dim * bytes_per_value
+
+per_token = kv_bytes_per_token("Qwen/Qwen2.5-7B-Instruct")
+print(f"{per_token / 1024:.0f} KiB per token")                    # 56 KiB
+print(f"{per_token * 32_768 / 2**30:.2f} GiB per 32K request")    # 1.75 GiB
+
+free_gib = 52  # what remains after weights and runtime overhead
+print(f"{free_gib * 2**30 // per_token:,} tokens fit in {free_gib} GiB")
+</tab>
+<tab label="vLLM" lang="bash">
+# Serve with an FP8 KV cache (half the memory per token).
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --max-model-len 32768 \
+  --gpu-memory-utilization 0.90 \
+  --kv-cache-dtype fp8
+
+# The startup log reports cache capacity. Look for lines like:
+#   GPU KV cache size: <N> tokens
+#   Maximum concurrency for 32,768 tokens per request: <X>x
+</tab>
+<tab label="With vs without cache" lang="python">
+import time
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model_id = "Qwen/Qwen2.5-0.5B-Instruct"
+tok = AutoTokenizer.from_pretrained(model_id)
+model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto", device_map="auto")
+inputs = tok("Explain how a KV cache works. " * 40, return_tensors="pt").to(model.device)
+
+for use_cache in (True, False):
+    start = time.perf_counter()
+    model.generate(**inputs, max_new_tokens=200, min_new_tokens=200,
+                   do_sample=False, use_cache=use_cache)
+    print(f"use_cache={use_cache}: {time.perf_counter() - start:.1f}s")
+# Expect the no-cache run to be several times slower, and the gap
+# to widen as you lengthen the prompt or max_new_tokens.
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Cross-layer attention, which lets adjacent layers share one KV cache to shrink it further [15].</li>
+<li>Disaggregated serving, where prefill and decode run on different GPUs and the KV cache is transferred between them over fast interconnects.</li>
+<li>How attention kernels such as FlashAttention and FlashInfer read a paged cache efficiently.</li>
+<li>Why the cache makes beam search and parallel sampling cheaper: candidates share the prompt's blocks and copy a block only when they diverge.</li>
+<li>Why per-token cache cost, not parameter count, should drive pricing for long-context requests.</li>
+<li>Choosing <code>--max-model-len</code>: a lower limit does not shrink each token's cost, but it lets the scheduler admit requests with confidence that they can finish.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="003-summary.png" caption="KV cache summary" optional="1">Mind map summarizing the KV cache lesson: what is cached, how to size it, how to shrink it, and how serving engines manage it.</fig>
+<ul>
+<li>The KV cache stores each token's attention keys and values so that decoding does not recompute them. It turns generation from a compute problem into a memory problem.</li>
+<li>Size per token is <code>2 × layers × KV heads × head dim × bytes</code>: 128 KiB for Llama 3.1 8B in BF16, or about 8,000 tokens per GiB.</li>
+<li>On one H100, Llama 3.1 8B fits about 426,000 cached tokens: about 170 chat requests or 13 requests at 32K context.</li>
+<li>A full cache also slows every decode step, because each step reads the whole cache from memory.</li>
+<li>Architecture (GQA, MLA, sliding windows) sets the baseline cost. FP8 caches halve it without retraining. Eviction and offloading trade accuracy or latency for more room.</li>
+<li>Serving engines allocate the cache in pages, preempt requests when it fills, and share it across requests with common prefixes.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Vaswani et al. Attention Is All You Need. <a href="https://arxiv.org/abs/1706.03762" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1706.03762</a>.<br>
+[2] Pope et al. Efficiently Scaling Transformer Inference. <a href="https://arxiv.org/abs/2211.05102" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.05102</a>.<br>
+[3] Shazeer. Fast Transformer Decoding: One Write-Head is All You Need. <a href="https://arxiv.org/abs/1911.02150" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1911.02150</a>.<br>
+[4] Ainslie et al. GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints. <a href="https://arxiv.org/abs/2305.13245" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.13245</a>.<br>
+[5] DeepSeek-AI. DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model. <a href="https://arxiv.org/abs/2405.04434" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2405.04434</a>.<br>
+[6] Kwon et al. Efficient Memory Management for Large Language Model Serving with PagedAttention. <a href="https://arxiv.org/abs/2309.06180" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.06180</a>.<br>
+[7] vLLM documentation: Quantized KV Cache. <a href="https://docs.vllm.ai/en/latest/features/quantization/quantized_kvcache.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/quantization/quantized_kvcache.html</a>.<br>
+[8] Liu et al. KIVI: A Tuning-Free Asymmetric 2bit Quantization for KV Cache. <a href="https://arxiv.org/abs/2402.02750" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2402.02750</a>.<br>
+[9] Xiao et al. Efficient Streaming Language Models with Attention Sinks. <a href="https://arxiv.org/abs/2309.17453" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.17453</a>.<br>
+[10] Zhang et al. H2O: Heavy-Hitter Oracle for Efficient Generative Inference of Large Language Models. <a href="https://arxiv.org/abs/2306.14048" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2306.14048</a>.<br>
+[11] Jiang et al. Mistral 7B. <a href="https://arxiv.org/abs/2310.06825" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2310.06825</a>.<br>
+[12] Hugging Face Transformers documentation: Cache strategies. <a href="https://huggingface.co/docs/transformers/en/kv_cache" rel="noopener noreferrer" target="_blank">https://huggingface.co/docs/transformers/en/kv_cache</a>.<br>
+[13] LMCache. <a href="https://github.com/LMCache/LMCache" rel="noopener noreferrer" target="_blank">https://github.com/LMCache/LMCache</a>.<br>
+[14] Li et al. SnapKV: LLM Knows What You are Looking for Before Generation. <a href="https://arxiv.org/abs/2404.14469" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2404.14469</a>.<br>
+[15] Brandon et al. Reducing Transformer Key-Value Cache Size with Cross-Layer Attention. <a href="https://arxiv.org/abs/2405.12981" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2405.12981</a>.</p>

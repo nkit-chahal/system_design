@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Column 1: BF16 weights -->
+  <text x="100" y="30" text-anchor="middle" class="b">BF16 weights</text>
+  <text x="100" y="48" text-anchor="middle" class="sm">2 bytes each</text>
+  <rect x="30" y="62" width="140" height="32" rx="4" class="blue"/><text x="100" y="83" text-anchor="middle">0.12</text>
+  <rect x="30" y="102" width="140" height="32" rx="4" class="blue"/><text x="100" y="123" text-anchor="middle">−0.53</text>
+  <rect x="30" y="142" width="140" height="32" rx="4" class="blue"/><text x="100" y="163" text-anchor="middle">0.98</text>
+  <rect x="30" y="182" width="140" height="32" rx="4" class="blue"/><text x="100" y="203" text-anchor="middle">−0.07</text>
+
+  <!-- Arrow 1 -->
+  <path d="M176,138 L324,138" class="edge"/>
+  <text x="250" y="128" text-anchor="middle" class="b">quantize</text>
+  <text x="250" y="158" text-anchor="middle">q = round(w / s)</text>
+
+  <!-- Column 2: INT8 codes -->
+  <text x="400" y="30" text-anchor="middle" class="b">INT8 codes</text>
+  <text x="400" y="48" text-anchor="middle" class="sm">1 byte each</text>
+  <rect x="330" y="62" width="140" height="32" rx="4" class="orange"/><text x="400" y="83" text-anchor="middle">16</text>
+  <rect x="330" y="102" width="140" height="32" rx="4" class="orange"/><text x="400" y="123" text-anchor="middle">−69</text>
+  <rect x="330" y="142" width="140" height="32" rx="4" class="orange"/><text x="400" y="163" text-anchor="middle">127</text>
+  <rect x="330" y="182" width="140" height="32" rx="4" class="orange"/><text x="400" y="203" text-anchor="middle">−9</text>
+
+  <!-- Arrow 2 -->
+  <path d="M476,138 L604,138" class="edge"/>
+  <text x="540" y="128" text-anchor="middle" class="b">dequantize</text>
+  <text x="540" y="158" text-anchor="middle">ŵ = s × q</text>
+
+  <!-- Column 3: dequantized values -->
+  <text x="705" y="30" text-anchor="middle" class="b">Used in the matmul</text>
+  <text x="705" y="48" text-anchor="middle" class="sm">value (rounding error)</text>
+  <rect x="610" y="62" width="190" height="32" rx="4" class="green"/><text x="705" y="83" text-anchor="middle">0.123 (0.003)</text>
+  <rect x="610" y="102" width="190" height="32" rx="4" class="green"/><text x="705" y="123" text-anchor="middle">−0.532 (0.002)</text>
+  <rect x="610" y="142" width="190" height="32" rx="4" class="green"/><text x="705" y="163" text-anchor="middle">0.980 (0.000)</text>
+  <rect x="610" y="182" width="190" height="32" rx="4" class="green"/><text x="705" y="203" text-anchor="middle">−0.069 (0.001)</text>
+
+  <!-- Shared scale -->
+  <rect x="210" y="236" width="400" height="38" rx="6" class="gray"/>
+  <text x="410" y="260" text-anchor="middle">one shared scale: s = max|w| / 127 = 0.98 / 127 ≈ 0.00772</text>
+
+  <text x="410" y="304" text-anchor="middle">Memory per weight: 2 bytes → 1 byte, plus one scale per tensor, channel, or group.</text>
+</svg>

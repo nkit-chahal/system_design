@@ -1,0 +1,326 @@
+<h2>Introduction</h2>
+<p>Open a terminal on almost any inference server, run <code>nvidia-smi</code>, and the <strong>GPU-Util</strong> column will probably read close to 100%. It is tempting to conclude that the GPU is full and to order more hardware. That conclusion is often wrong. GPU-Util measures how much of the time <em>some</em> kernel was running, not how much of the chip that kernel used. A tiny kernel that keeps a handful of the H100's 132 streaming multiprocessors busy reports the same 100% as a matrix multiply that saturates all of them.</p>
+<p>GPUs are the largest line item in an inference budget (Lesson 20, Cost per Million Tokens), so misjudging how full they are means buying hardware we do not need or leaving throughput on the table. Figure 1 shows two workloads that nvidia-smi ranks in the wrong order.</p>
+<fig src="019-busy-vs-working.svg" caption="Two workloads that GPU-Util ranks in the wrong order">Two grids of streaming multiprocessors over one sample period. In workload A, one small kernel keeps a quarter of the SMs busy for the whole period, so nvidia-smi reports 100% while SM activity is 25%. In workload B, full-GPU kernels run 60% of the time with idle gaps, so GPU-Util and SM activity both read 60%. B does 2.4 times more work.</fig>
+<p>In this lesson, we pin down what GPU-Util reports, replace it with counters that look inside the chip, and introduce model FLOPs utilization (MFU) and model bandwidth utilization (MBU), which say how close we are to the hardware's limits. We work both for Llama 3.1 8B on an H100, list what drags utilization down, weigh the levers that raise it against their latency cost, and show how to profile a serving engine.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Utilization questions usually arrive disguised as a capacity argument. Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: Which model, hardware, and serving engine are we talking about?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct in BF16, one copy per H100 SXM GPU, served with vLLM.</p>
+<p><strong>Candidate</strong>: What does the traffic look like?<br>
+<strong>Interviewer</strong>: Chat requests with about 2,000 prompt tokens and 500 output tokens. At the daily peak, each GPU handles about 5 requests per second.</p>
+<p><strong>Candidate</strong>: What are the latency targets?<br>
+<strong>Interviewer</strong>: p95 time to first token under 500 ms, and at least 40 tokens per second for every user, so p95 time per output token under 25 ms.</p>
+<p><strong>Candidate</strong>: What do the dashboards show today?<br>
+<strong>Interviewer</strong>: nvidia-smi reports GPU-Util between 95% and 100% all day. The team says the GPUs are maxed out and wants to buy more before next month's launch.</p>
+<p><strong>Candidate</strong>: What tools can we use to dig in?<br>
+<strong>Interviewer</strong>: The DCGM exporter and vLLM's Prometheus metrics in production, and a staging machine where we can run profilers.</p>
+<p>The question underneath is: <em>how much of this GPU's capacity are we really using, and can it serve more traffic without breaking the latency targets?</em> To answer it, we need a better definition of utilization than nvidia-smi's.</p>
+
+<h2>What "GPU Utilization" Really Measures</h2>
+<h3>The nvidia-smi definition</h3>
+<p>NVIDIA defines the GPU-Util figure precisely: it is the "percent of time over the past sample period during which one or more kernels was executing on the GPU", with a sample period between 1/6 of a second and 1 second depending on the product [1]. DCGM reports the same quantity as <code>DCGM_FI_DEV_GPU_UTIL</code> (field 203), and it is the default "GPU utilization" panel on most dashboards.</p>
+<p>The test is yes-or-no over time: any running kernel makes that instant busy, however little of the GPU it occupies. A memory copy, a single-block reduction, or a communication kernel waiting for its peers counts the same as a full-chip matrix multiply. The "memory utilization" column has the same weakness: it is the fraction of time memory was read or written, not the share of bandwidth used [1].</p>
+
+<h3>What is inside the GPU</h3>
+<p>An H100 has 132 <strong>streaming multiprocessors</strong> (SMs), each holding up to 64 resident <strong>warps</strong> of 32 threads [2], with tensor cores for matrix math and CUDA cores for everything else. All SMs share 80 GB of HBM3 at 3.35 TB/s. The hardware spreads a kernel's thread blocks across the SMs, so a kernel with fewer blocks than SMs leaves part of the chip dark for as long as it runs. Lesson 33, GPU Architecture and Attention Kernels, covers the hardware in depth.</p>
+<p>"Is the GPU busy?" therefore splits into several questions: are kernels running (time), how many SMs do they cover (space), how many warps sit on each SM (depth), are the tensor cores and memory doing work, and how much of that work becomes tokens? Figure 2 lines up the metrics that answer each one.</p>
+<fig src="019-metric-ladder.svg" caption="Utilization metrics, from coarse to strict">A five-row table of metrics. GPU-Util asks whether any kernel was running and is fooled by one tiny kernel. SM activity asks what share of SMs had work, but stalled warps still count. SM occupancy asks how many warps sit on each SM, but higher is not always faster. Tensor and DRAM activity ask whether the math pipes or memory were busy, but busy cycles are not useful work. MFU and MBU ask how much model work was done against the peak and need a FLOP and byte model.</fig>
+
+<h3>Hardware counters that look inside</h3>
+<p>NVIDIA's Data Center GPU Manager (DCGM) reads the GPU's hardware performance counters and exposes them as <strong>profiling metrics</strong> [3]. Five matter for inference:</p>
+<ul>
+<li><strong>Graphics engine activity</strong> (<code>DCGM_FI_PROF_GR_ENGINE_ACTIVE</code>, field 1001): time the compute engine was active, with GPU-Util's blind spot.</li>
+<li><strong>SM activity</strong> (<code>DCGM_FI_PROF_SM_ACTIVE</code>, field 1002): the fraction of time at least one warp was active on an SM, averaged over all SMs. A kernel that uses a fifth of the SMs for the whole interval scores 0.2. NVIDIA's guidance is that 0.8 or more is necessary, but not sufficient, for effective use, and that below 0.5 likely indicates ineffective use [3].</li>
+<li><strong>SM occupancy</strong> (<code>DCGM_FI_PROF_SM_OCCUPANCY</code>, field 1003): resident warps as a fraction of the SM's maximum. More warps help hide memory latency, but higher is not automatically faster [3].</li>
+<li><strong>Tensor pipe activity</strong> (<code>DCGM_FI_PROF_PIPE_TENSOR_ACTIVE</code>, field 1004): the fraction of cycles the tensor-core pipe was active, the closest hardware signal to "doing matrix math".</li>
+<li><strong>DRAM activity</strong> (<code>DCGM_FI_PROF_DRAM_ACTIVE</code>, field 1005): the fraction of cycles the memory interface was sending or receiving data. NVIDIA notes that about 0.8 is the practical peak [3].</li>
+</ul>
+<p>Table 1 summarizes them. For workload A in Figure 1, SM activity would read 0.25 next to a GPU-Util of 100%, exposing the problem at once.</p>
+<table>
+<thead><tr><th>Metric</th><th>Source</th><th>What 100% means</th><th>Best used for</th></tr></thead>
+<tbody>
+<tr><td>GPU-Util</td><td>nvidia-smi; <code>DCGM_FI_DEV_GPU_UTIL</code></td><td>Some kernel ran for the whole sample period</td><td>Spotting idle GPUs</td></tr>
+<tr><td>SM activity</td><td><code>DCGM_FI_PROF_SM_ACTIVE</code></td><td>Every SM held at least one warp all the time</td><td>Kernels too small for the chip</td></tr>
+<tr><td>SM occupancy</td><td><code>DCGM_FI_PROF_SM_OCCUPANCY</code></td><td>Every SM held its maximum number of warps</td><td>Tuning memory-bound kernels</td></tr>
+<tr><td>Tensor activity</td><td><code>DCGM_FI_PROF_PIPE_TENSOR_ACTIVE</code></td><td>A tensor instruction issued every other cycle</td><td>Compute-heavy phases (prefill)</td></tr>
+<tr><td>DRAM activity</td><td><code>DCGM_FI_PROF_DRAM_ACTIVE</code></td><td>Memory interface busy every cycle (≈ 0.8 is the practical peak)</td><td>Memory-bound phases (decode)</td></tr>
+<tr><td>MFU, MBU</td><td>Computed from tokens per second</td><td>The model runs at the GPU's peak FLOPS or bandwidth</td><td>Distance from the hardware limit</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: GPU utilization metrics and what each one can tell you</p>
+<callout kind="info" title="Same IDs, new names">This course uses the names the DCGM exporter publishes. The newest DCGM field reference lists the same field IDs under names ending in <code>_RATIO</code>, such as <code>DCGM_FI_PROF_SM_UTIL_RATIO</code> for field 1002 [4]; the IDs themselves are stable. Lesson 30, GPU Metrics, covers the full catalogue and how to chart it.</callout>
+<p>These counters still measure <em>activity</em>, not useful work: tensor cores can be busy multiplying padding, and memory can be busy re-reading data a better kernel would have kept on chip. To learn how much of the GPU turns into tokens, we need ratios defined by the model itself.</p>
+
+<h2>MFU and MBU: Utilization in Model Terms</h2>
+<h3>Model FLOPs utilization</h3>
+<p><strong>Model FLOPs utilization</strong> (MFU) was introduced in the PaLM paper as an implementation-independent measure of efficiency: the observed throughput divided by the throughput the hardware could reach at peak FLOPS, counting only the operations the model requires [5]. For inference it becomes:</p>
+<texblock>\text{MFU} = \frac{\text{tokens per second} \;\times\; \text{FLOPs per token}}{\text{peak FLOPS}}</texblock>
+<p>A dense transformer with <tex>N</tex> parameters needs about <tex>2N</tex> FLOPs per token in the forward pass, one multiply and one add per weight. For Llama 3.1 8B that is 2 × 8.03 billion ≈ 16.06 GFLOPs per token. Attention over the context adds a little more: for a 2,000-token prompt, about 0.5 GFLOPs per token on average, or 3%, so we leave it out of quick estimates.</p>
+<p>Because MFU counts only the FLOPs <em>needed</em> for the tokens users receive, it excludes wasted work such as padding, recomputation after preemption, or redundant math, which makes it more honest than any hardware counter.</p>
+
+<h3>Model bandwidth utilization</h3>
+<p>Decode is limited by memory bandwidth, not by FLOPs (Lesson 2, Prefill vs Decode). Each decode step must stream every weight and every cached key and value through the memory system once. <strong>Model bandwidth utilization</strong> (MBU), defined by the Databricks inference team, measures how close a step comes to that limit [6]:</p>
+<texblock>\text{MBU} = \frac{(\text{weight bytes} + \text{KV cache bytes}) \div \text{TPOT}}{\text{peak memory bandwidth}}</texblock>
+<p>TPOT, the time per output token, equals one decode step for a batch of requests. The numerator is the bandwidth the model <em>needs</em>, so MBU is the decode lower bound from Lesson 3, KV Cache, turned into a ratio: a step that took exactly as long as reading its bytes at full speed would score 100%.</p>
+
+<h3>Which ratio applies: the roofline</h3>
+<p>The two ratios are the two sides of the <strong>roofline model</strong> [7]. A workload's <strong>arithmetic intensity</strong> is the number of FLOPs it performs per byte it moves. Below the GPU's ridge point, a workload is limited by bandwidth; above it, by compute. For an H100 in BF16, the ridge sits at 989 TFLOPS ÷ 3.35 TB/s ≈ 295 FLOPs per byte.</p>
+<ul>
+<li><strong>Prefill</strong> pushes thousands of prompt tokens through each read of the weights. A 2,000-token prompt does 2,000 × 16.06 GFLOPs ≈ 32 TFLOPs of work for about 16.3 GB of weight and KV traffic, roughly 2,000 FLOPs per byte, far above the ridge. MFU is the right lens.</li>
+<li><strong>Decode</strong> at batch size <tex>B</tex> does <tex>B \times 2N</tex> FLOPs per step while reading the weights once plus every request's KV cache. With 2,250 tokens of context per request, that is about 1 FLOP per byte at batch 1 and about 29 at batch 64. Both sit far left of the ridge, so MBU is the right lens.</li>
+</ul>
+<fig src="019-roofline.svg" caption="The H100 roofline with prefill and decode placed on it">A log-log roofline chart for an H100 in BF16. A slanted memory roof at 3.35 terabytes per second meets a flat compute roof at 989 TFLOPS at about 295 FLOPs per byte. Decode at batch 1 sits at about 1 FLOP per byte and 2.2 TFLOPS, just under the memory roof (MBU 68%). Decode at batch 64 sits at about 29 FLOPs per byte and 64 TFLOPS (MBU 65%). Prefill sits near 2,000 FLOPs per byte and 514 TFLOPS, under the compute roof (MFU 52%).</fig>
+<p>Figure 3 places our three examples on the roofline. The slanted roof caps decode: at batch 1, the best possible is 3.35 TB/s × 0.98 FLOPs per byte ≈ 3.3 TFLOPS, or 0.33% of peak. No kernel tuning lifts decode MFU above that; only higher arithmetic intensity does, through bigger batches or fewer bytes per token.</p>
+
+<h3>Worked example: prefill MFU</h3>
+<p>Suppose a prefill-only benchmark on our H100 (2,000-token prompts, one output token each, many prompts in flight) measures <strong>32,000 prompt tokens per second</strong>. This is an example measurement for the arithmetic; Lesson 6, Lab - Measure TTFT and Throughput, shows how to take your own.</p>
+<ul>
+<li><strong>FLOPs per token</strong>: 2 × 8.03 billion = 16.06 GFLOPs.</li>
+<li><strong>Achieved compute</strong>: 32,000 × 16.06 GFLOPs ≈ 514 TFLOPS.</li>
+<li><strong>MFU</strong>: 514 ÷ 989 ≈ <strong>52%</strong>.</li>
+</ul>
+<p>For comparison, Pope et al. reached 76% MFU processing input tokens at large batch for PaLM 540B [8]. An 8B model has smaller matrices and proportionally more time in attention and normalization, so half of peak is reasonable, with room left.</p>
+
+<h3>Worked example: decode at batch 1</h3>
+<p>Now run a single request: a 2,000-token prompt that generates 500 tokens. Suppose we measure <strong>140 tokens per second</strong>, a TPOT of 7.14 ms. The context grows from 2,000 to 2,500 tokens during decode, so it averages about 2,250 tokens.</p>
+<ul>
+<li><strong>Weight bytes per step</strong>: 8.03 billion × 2 bytes = 16.06 GB.</li>
+<li><strong>KV bytes per step</strong>: 2,250 tokens × 128 KiB ≈ 0.29 GB.</li>
+<li><strong>Bandwidth needed</strong>: 16.35 GB × 140 steps per second ≈ 2.29 TB/s.</li>
+<li><strong>MBU</strong>: 2.29 ÷ 3.35 ≈ <strong>68%</strong>.</li>
+<li><strong>MFU</strong>: 140 × 16.06 GFLOPs ≈ 2.25 TFLOPS, or <strong>0.23%</strong> of 989 TFLOPS.</li>
+</ul>
+<p>The same GPU is at 68% of its memory limit and 0.23% of its compute limit, while nvidia-smi reads close to 100%. All three are correct answers to different questions; only MBU says how close decode is to its real limit. The Lesson 3 lower bound agrees: 16.35 GB ÷ 3.35 TB/s ≈ 4.9 ms per step, at most about 205 tokens per second, against the 140 we measured.</p>
+
+<h3>Worked example: decode at batch 64</h3>
+<p>Now 64 requests decode together, and we measure a TPOT of <strong>16 ms</strong>. Each user sees 62.5 tokens per second, and the GPU produces 4,000 tokens per second in total.</p>
+<ul>
+<li><strong>Bytes per step</strong>: 16.06 GB of weights + 64 × 0.29 GB of KV cache ≈ 34.9 GB.</li>
+<li><strong>Bandwidth needed</strong>: 34.9 GB ÷ 16 ms ≈ 2.18 TB/s, so MBU ≈ <strong>65%</strong>.</li>
+<li><strong>MFU</strong>: 4,000 × 16.06 GFLOPs ≈ 64 TFLOPS, or <strong>6.5%</strong>. The roof allows at most about 10% at this intensity.</li>
+</ul>
+<fig src="019-worked-ratios.svg" caption="GPU-Util, MFU and MBU for the three worked examples">A bar chart with three groups. Prefill at 32,000 prompt tokens per second: GPU-Util about 100%, MFU 52%. Decode at batch 1, 140 tokens per second: GPU-Util about 100%, MFU 0.23%, MBU 68%. Decode at batch 64, 4,000 tokens per second: GPU-Util about 100%, MFU 6.5%, MBU 65%. GPU-Util is illustrative.</fig>
+<p>Figure 4 puts the three cases side by side. Batching multiplied decode throughput, and with it MFU, by about 28× (0.23% to 6.5%), while MBU barely moved: the weights are read once per step whether 1 or 64 requests share them. This is the whole economic case for batching, and it is invisible in GPU-Util, which reads near 100% in all three cases.</p>
+<p>This explains a common puzzle: small-batch decode shows high GPU-Util and tiny MFU at once. The GPU is genuinely busy streaming 16 GB of weights to produce one token, while its tensor cores, which supply almost all of its FLOPS, wait for data.</p>
+<callout kind="tip" title="Interview tip">When someone says "the GPU is at 100%", ask "100% of what?" Then compute MBU for decode and MFU for prefill from tokens per second. Two lines of arithmetic usually settle the argument.</callout>
+
+<h2>What Lowers Utilization</h2>
+<p>Utilization is lost in two ways. Either the GPU sits idle between kernels, leaving gaps on the timeline, or kernels run but do little useful work per byte or per FLOP. Figure 5 shows the first kind for a small-batch decode loop.</p>
+<fig src="019-step-timeline.svg" caption="Where a small-batch decode loop loses GPU time (illustrative timings)">Three CPU and GPU timelines over 15 milliseconds. In eager mode, the CPU schedules, launches about 300 kernels one by one, and samples, and the GPU shows many small gaps plus long idle periods, for about 7.5 ms per step. With CUDA graphs, one launch replaces the many, the GPU runs one dense block, and idle periods remain only while the CPU schedules and samples, for about 6.2 ms per step. With CUDA graphs and asynchronous scheduling, the CPU prepares the next step while the GPU runs the current one, leaving only tiny gaps, for about 4.1 ms per step.</fig>
+
+<h4>Small batches</h4>
+<p>As the worked examples showed, a decode step costs almost the same at batch 1 and at batch 64, so small batches waste most of each weight read. Batches stay small when traffic is light, when <code>--max-num-seqs</code> caps the number of running requests too low, or when the KV cache is too small to admit more requests (Lesson 3, KV Cache).</p>
+
+<h4>CPU and Python overhead</h4>
+<p>Every step, the scheduler picks requests and builds input tensors; after the forward pass, the engine samples, detokenizes, checks stop conditions and streams text. If this CPU work runs <em>between</em> GPU steps, the GPU waits, and the smaller the model and batch, the larger the share of time lost.</p>
+
+<h4>Kernel launch gaps and missing CUDA graphs</h4>
+<p>One decode step of an 8B model runs hundreds of small kernels (normalization, projections, attention, activations, residual adds) across 32 layers, and each launch costs CPU time. NVIDIA's CUDA Graphs article measured a 2.9 µs kernel costing 9.6 µs per kernel when launched one at a time with synchronization, and 3.4 µs when the same kernels were captured into a graph [9]. When kernels are this short, launch overhead rather than the GPU sets the pace. <strong>CUDA graphs</strong> record a whole step once and replay it with a single launch. vLLM captures graphs by default, and <code>--enforce-eager</code> disables them [10]: handy for debugging, costly in production. Lesson 33 also covers kernel fusion, which removes launches altogether.</p>
+
+<h4>Communication in tensor parallelism</h4>
+<p>With Megatron-style tensor parallelism, each layer ends its attention and MLP blocks with an all-reduce across GPUs [11], so a 70B model's 80 layers mean 160 all-reduces per decode step. The messages are small, so fixed latency dominates; a GPU waiting for its peers does no math while its communication kernels keep GPU-Util high. vLLM's tuning guide warns that a larger tensor-parallel size may cause excessive synchronization overhead [12]; Lesson 18, Tensor Parallelism, covers when the trade pays.</p>
+
+<h4>Padding</h4>
+<p>Engines that batch fixed-shape tensors pad short sequences up to the longest one. A batch holding a 200-token prompt and a 2,000-token prompt pads the short one with 1,800 tokens, and the GPU computes all of them. Tensor activity looks excellent, but MFU, which counts only real tokens, exposes the waste. Continuous batching with packed, variable-length batches avoids almost all padding (Lesson 7, Continuous Batching).</p>
+
+<h4>Preemption</h4>
+<p>When the KV cache fills up, vLLM preempts requests and later recomputes them when space frees up [12]. Recomputation keeps every hardware counter busy while producing no new tokens. Frequent preemption shows up as busy GPUs, falling throughput, a rising <code>vllm:num_preemptions_total</code> counter, and latency spikes for the preempted users.</p>
+
+<h4>Idle time between requests</h4>
+<p>Finally, the GPU may simply have nothing to do: overnight, a GPU sized for the daytime peak runs small batches or none. Here GPU-Util is honest, and the fix lies in the fleet: scale replicas with load (Lesson 22, Autoscaling) or fill quiet hours with batch work (Lesson 39, Batch and Offline Inference). Lesson 20 turns this idle time into cost.</p>
+<table>
+<thead><tr><th>Cause</th><th>How it shows up</th><th>Fix</th></tr></thead>
+<tbody>
+<tr><td>Small batches</td><td>Few running requests; MBU fine, MFU tiny</td><td>Admit more requests: raise <code>--max-num-seqs</code>, free KV cache room</td></tr>
+<tr><td>CPU and Python overhead</td><td>Gaps between steps on the Nsight timeline</td><td>Asynchronous scheduling; keep per-step Python work small</td></tr>
+<tr><td>Launch gaps</td><td>Many tiny kernels; high GPU-Util, low SM activity</td><td>CUDA graphs (never run production with <code>--enforce-eager</code>)</td></tr>
+<tr><td>Tensor-parallel communication</td><td>NCCL kernels on the timeline; high GPU-Util, low tensor activity</td><td>Smaller TP size; more replicas instead</td></tr>
+<tr><td>Padding</td><td>Tensor activity high, MFU low</td><td>Continuous batching with packed sequences</td></tr>
+<tr><td>Preemption</td><td>Preemption counter rising; throughput falls under load</td><td>More KV room (FP8 cache); lower <code>--max-num-seqs</code></td></tr>
+<tr><td>Idle time</td><td>Low GPU-Util and a low request rate</td><td>Autoscaling; batch jobs in quiet hours</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Common causes of low utilization, their symptoms, and fixes</p>
+
+<h2>Raising Utilization, and What It Costs</h2>
+<p>Most ways of raising utilization trade per-request latency for throughput, but a few are free, so we start there.</p>
+
+<h3>Free wins: remove the gaps</h3>
+<p>Keep CUDA graphs on and keep the CPU off the critical path. Recent vLLM versions enable <strong>asynchronous scheduling</strong> (<code>--async-scheduling</code>) unless an incompatible option is set: the scheduler prepares step <em>n</em>+1 while the GPU runs step <em>n</em>, which the documentation says "helps to avoid gaps in GPU utilization" [10]. The third timeline in Figure 5 shows the effect. Both shorten every step, improving latency and throughput together.</p>
+
+<h3>Bigger batches</h3>
+<p>Raising the number of requests that decode together is the most powerful lever, and it is not free. Each extra request adds its KV cache to every step's reads, so every user's TPOT grows. Figure 6 uses the decode lower bound at a fixed 65% MBU to show the trade for our model. Going from batch 1 to batch 64 raises throughput from about 130 to about 4,000 tokens per second, while TPOT grows from 7.5 ms to 16 ms. Somewhere past batch 128, TPOT crosses our 25 ms target even before any prompt work is added.</p>
+<fig src="019-batch-sweep.svg" caption="Throughput and TPOT as the batch grows (illustrative model)">Two stacked charts against batch size from 1 to 160. Top: output tokens per second rise steeply and then flatten, from about 130 at batch 1 to about 4,000 at batch 64 and 5,500 at batch 160, with decode MFU at 0.2%, 6.5% and 9.0%. Bottom: time per output token for pure decode rises linearly from 7.5 ms to 29 ms and crosses a 25 ms target near batch 128. A marker at about 53 requests shows steps stretched to about 21 ms once prompt chunks are mixed in at 5 requests per second.</fig>
+
+<h3>Mixing prefill into decode steps</h3>
+<p><strong>Chunked prefill</strong> splits long prompts into chunks and runs them in the same step as ongoing decodes, so prompt processing uses the compute that memory-bound decode steps leave idle [13]. vLLM enables it by default where possible. Its main knob, <code>--max-num-batched-tokens</code>, caps the tokens per step. vLLM's tuning guide notes that smaller values such as 2,048 give better inter-token latency, larger values give better TTFT, and values above 8,192 favor throughput, especially for small models on large GPUs [12].</p>
+<p>In our deployment, 5 requests per second bring 10,000 prompt tokens per second. At 32,000 prompt tokens per second, they take 31% of GPU time. Spread over the decode steps, that stretches each step from about 14.5 ms of pure decode to about 21 ms, with about 53 requests decoding at once (the purple marker in Figure 6). The same model also shows how sharp the edge is: at 5.5 requests per second, the average step grows to about 26 ms, already over target.</p>
+
+<h3>Fewer bytes per token, more work per byte</h3>
+<p>Lower-precision weights and KV cache (Lesson 13, Quantization - FP8, INT8 and 4-bit) cut the bytes each decode step must read. With FP8 weights and an FP8 KV cache, a batch-64 step reads about 9.1 GB + 9.4 GB ≈ 18.5 GB instead of 34.9 GB (the FP8 checkpoint keeps embeddings and the output layer in BF16), so at the same MBU it takes about half as long. Throughput rises and latency falls together, at the cost of a quality check.</p>
+<p>Speculative decoding (Lesson 15, Speculative Decoding) attacks the other side: a draft model proposes several tokens and the large model verifies them in one pass, so each weight read yields more than one token. The original paper reports 2–3× faster generation on T5-XXL [14]. It helps most at small batch, where compute sits idle.</p>
+<table>
+<thead><tr><th>Lever</th><th>What it raises</th><th>Latency cost</th></tr></thead>
+<tbody>
+<tr><td>CUDA graphs on</td><td>Fewer launch gaps</td><td>None; slower startup while graphs are captured</td></tr>
+<tr><td>Asynchronous scheduling</td><td>No CPU gaps between steps</td><td>None</td></tr>
+<tr><td>Larger batches (<code>--max-num-seqs</code>)</td><td>Decode MFU and throughput</td><td>Higher TPOT for every user</td></tr>
+<tr><td>Chunked prefill, larger <code>--max-num-batched-tokens</code></td><td>Overlap of prefill compute with decode</td><td>Longer decode steps; better TTFT</td></tr>
+<tr><td>FP8 weights and KV cache</td><td>Tokens per byte read</td><td>None if quality holds; must be verified</td></tr>
+<tr><td>Speculative decoding</td><td>Tokens per weight read at small batch</td><td>Lower latency at small batch; little gain at high load</td></tr>
+<tr><td>Replicas instead of tensor parallelism</td><td>No all-reduce waits</td><td>Slower steps for models that need several GPUs</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Levers that raise utilization and what they cost in latency</p>
+
+<h4>Which utilization target fits our deployment?</h4>
+<p>Back to the interviewer's GPUs. A GPU-Util of 95–100% told us nothing. Suppose staging confirms the example measurements: about 52% MFU in prefill and 65% MBU in decode, with CUDA graphs and asynchronous scheduling on and no long CPU gaps on the Nsight timeline. Then the GPUs are busy where it matters, on memory bandwidth during decode, and low decode MFU is the roofline at work, not a defect.</p>
+<p>So we do not optimize for a utilization number. We optimize for <strong>goodput</strong>: the most requests per second each GPU serves while p95 TTFT and TPOT stay within target. MFU and MBU are diagnostics; the latency targets decide where to stop batching. At 5 requests per second our steps take about 21 ms against a 25 ms target, and half a request per second more breaks it. The team is right, for the wrong reason: at this target, the GPUs are nearly full.</p>
+<p>Before buying more GPUs, we change the bytes rather than the batch: enable FP8 weights and an FP8 KV cache, confirm quality on the evaluation set, and re-measure. In the simple model of Figure 6, halving the bytes lets the same GPU carry about 8 requests per second at a similar step time; real gains are usually smaller, so we measure before counting on it. Prefix caching (Lesson 24, Prefix Caching) can also shrink the 31% of GPU time spent on prefill.</p>
+
+<h2>Profiling: Finding Where the Time Goes</h2>
+<p>When MFU or MBU is lower than expected, profile from coarse to fine, as Figure 7 shows. Each step is more expensive to run than the last, so go deeper only when the step before points there.</p>
+<fig src="019-profiling-workflow.svg" caption="A coarse-to-fine profiling workflow">Four boxes in a row with arrows: 1, fleet view with DCGM metrics, asking whether the GPU is idle or busy; 2, model ratios, MFU for prefill and MBU for decode, asking how far from the roof; 3, an Nsight Systems timeline, asking where the holes are; 4, kernels with the PyTorch profiler or Nsight Compute, asking which kernel dominates. A fifth box, fix one thing, loops back to step 1.</fig>
+
+<h3>Fleet view and model ratios</h3>
+<p>DCGM metrics sampled every second tell us whether a GPU is idle, busy but shallow (high GPU-Util, low SM activity), or genuinely working (high DRAM or tensor activity). Next, compute MFU and MBU from the engine's token counters, such as <code>rate(vllm:generation_tokens_total[1m])</code>. Recent vLLM versions started with <code>--enable-mfu-metrics</code> also export their own FLOP and byte estimates as counters [15]; dividing their rates by the GPU's peaks gives MFU and an MBU-style ratio over time.</p>
+
+<h3>Nsight Systems: the timeline</h3>
+<p>Nsight Systems (<code>nsys</code>) records CPU threads, CUDA API calls, kernels, memory copies and NCCL communication on a single timeline [16]. Gaps between kernels, long CPU sections before each step, and NCCL kernels waiting for peers are visible at a glance. vLLM's profiling guide recommends <code>--trace-fork-before-exec=true</code> so that worker processes are traced, <code>--cuda-graph-trace=node</code> so that kernels inside CUDA graphs appear individually, and <code>--capture-range=cudaProfilerApi</code> so that a running server is captured only while a benchmark has profiling switched on [17].</p>
+
+<h3>PyTorch profiler: which operators and which code</h3>
+<p>The PyTorch profiler records CPU and CUDA time per operator, summarizes it in a table, and exports a trace that opens in Perfetto or <code>chrome://tracing</code> [18]. It answers "which operations dominate GPU time, and how much CPU time surrounds them?" vLLM can run it inside the server through <code>--profiler-config</code> and the <code>/start_profile</code> and <code>/stop_profile</code> endpoints [17], as the In Practice section shows. For a single kernel's memory throughput and tensor-core use, Nsight Compute goes one level deeper.</p>
+<callout kind="warn" title="Profile small, measure clean">Traces grow fast; vLLM's guide advises sending only a few requests while profiling [17]. Profilers also slow the engine down, so take throughput and latency numbers from a separate, unprofiled run.</callout>
+
+<h2>In Practice</h2>
+<p>The first tab computes MFU and MBU from measured throughput, using this lesson's example numbers; replace them with your own. The second collects DCGM counters, captures an Nsight Systems timeline of a running vLLM server during a short benchmark, and shows the in-server PyTorch profiler. The third profiles a small Hugging Face model on any CUDA GPU, a quick way to see CPU overhead in eager-mode decoding.</p>
+<codetabs>
+<tab label="MFU and MBU" lang="python">
+"""MFU and MBU from measured throughput: Llama 3.1 8B in BF16 on one H100 SXM."""
+PARAMS = 8.03e9                 # parameters
+WEIGHT_BYTES = PARAMS * 2       # BF16 weights
+KV_BYTES_PER_TOKEN = 131_072    # 128 KiB per token (Lesson 3, KV Cache)
+PEAK_FLOPS = 989e12             # dense BF16
+PEAK_BW = 3.35e12               # HBM3 bytes per second
+
+
+def mfu(tokens_per_s: float) -> float:
+    """Useful model FLOPs per second as a share of peak (2 FLOPs per parameter per token)."""
+    return tokens_per_s * 2 * PARAMS / PEAK_FLOPS
+
+
+def mbu(tpot_s: float, batch: int, avg_context_tokens: int) -> float:
+    """Bytes one decode step must read, divided by the step time, as a share of peak bandwidth."""
+    step_bytes = WEIGHT_BYTES + batch * avg_context_tokens * KV_BYTES_PER_TOKEN
+    return step_bytes / tpot_s / PEAK_BW
+
+
+# Example measurements from this lesson; replace them with your own.
+print(f"prefill    MFU {mfu(32_000):.1%}")                                         # 52.0%
+print(f"decode@1   MBU {mbu(1 / 140, 1, 2_250):.1%}   MFU {mfu(140):.2%}")         # 68.3%  0.23%
+print(f"decode@64  MBU {mbu(0.016, 64, 2_250):.1%}   MFU {mfu(64 / 0.016):.1%}")   # 65.2%  6.5%
+
+# The memory roof caps decode MFU at (FLOPs per byte x bandwidth) / peak FLOPS.
+for batch in (1, 64):
+    step_bytes = WEIGHT_BYTES + batch * 2_250 * KV_BYTES_PER_TOKEN
+    intensity = batch * 2 * PARAMS / step_bytes
+    print(f"batch {batch:>2}: {intensity:5.1f} FLOPs/byte, "
+          f"MFU ceiling {intensity * PEAK_BW / PEAK_FLOPS:.2%}")                   # 0.33%, 9.97%
+</tab>
+<tab label="DCGM and Nsight" lang="bash">
+# 1. Hardware counters once per second: GPU-Util (203), graphics engine (1001),
+#    SM activity (1002), SM occupancy (1003), tensor (1004) and DRAM (1005) activity.
+dcgmi dmon -e 203,1001,1002,1003,1004,1005 -d 1000
+
+# 2. Nsight Systems timeline of a running server, captured only while profiling is on.
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+nsys profile \
+  --trace-fork-before-exec=true \
+  --cuda-graph-trace=node \
+  --capture-range=cudaProfilerApi \
+  --capture-range-end repeat \
+  vllm serve meta-llama/Llama-3.1-8B-Instruct --profiler-config.profiler cuda
+
+# In a second shell: a short benchmark that switches profiling on and off.
+# The report is written when the server stops; open it in the Nsight Systems GUI.
+vllm bench serve --backend vllm --model meta-llama/Llama-3.1-8B-Instruct \
+  --dataset-name random --random-input-len 2000 --random-output-len 500 \
+  --num-prompts 20 --profile
+
+# 3. Or use the PyTorch profiler inside the server: start, send a few requests, stop.
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --profiler-config '{"profiler": "torch", "torch_profiler_dir": "./vllm_profile"}'
+curl -X POST http://localhost:8000/start_profile
+#   ... send a handful of chat requests ...
+curl -X POST http://localhost:8000/stop_profile
+</tab>
+<tab label="PyTorch profiler" lang="python">
+import torch
+from torch.profiler import ProfilerActivity, profile, record_function
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model_id = "Qwen/Qwen2.5-0.5B-Instruct"   # small enough for a laptop GPU
+tok = AutoTokenizer.from_pretrained(model_id)
+model = AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16, device_map="cuda")
+inputs = tok("Explain GPU utilization. " * 80, return_tensors="pt").to("cuda")
+
+model.generate(**inputs, max_new_tokens=8)   # warm-up: first calls are slow
+torch.cuda.synchronize()
+
+with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+    with record_function("decode_64_tokens"):
+        model.generate(**inputs, max_new_tokens=64, min_new_tokens=64, do_sample=False)
+    torch.cuda.synchronize()
+
+print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=12))
+prof.export_chrome_trace("trace.json")       # open in ui.perfetto.dev
+# Compare the total CUDA time with the wall time of "decode_64_tokens".
+# If the GPU time is far below the wall time, the CPU sets the pace, not the GPU.
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Hardware FLOPs utilization (HFU) versus MFU: HFU also counts recomputed work, which is why the PaLM authors preferred MFU as the consistent measure [5].</li>
+<li>Goodput, the rate a GPU can serve within both TTFT and TPOT constraints, as the target DistServe optimizes by running prefill and decode on separate GPUs [19] (Lesson 34, Disaggregated Prefill and Decode).</li>
+<li>Why MBU rarely approaches 100%: DCGM itself treats about 0.8 as the practical peak of DRAM activity [3], so a decode at 65–70% MBU has little kernel-level headroom left.</li>
+<li>Clocks and power: a GPU held below its boost clock by power or thermal limits cannot reach the datasheet peak, so its MFU looks lower. DCGM reports SM clock and power draw too.</li>
+<li>Mixture-of-experts models: MFU should count only the active parameters per token, and MBU depends on how many experts a batch touches (Lesson 35, Mixture-of-Experts Serving).</li>
+<li>Sharing one GPU among several low-traffic models or adapters, which raises fleet utilization without changing any kernel (Lesson 37, Multi-LoRA and Multi-Tenant Serving).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="019-summary.png" caption="GPU utilization summary" optional="1">Mind map summarizing the GPU utilization lesson: why GPU-Util misleads, the DCGM counters, MFU and MBU with worked numbers, causes of lost utilization, levers and their latency cost, and the profiling workflow.</fig>
+<ul>
+<li>nvidia-smi's GPU-Util is the fraction of time any kernel was running. A kernel that uses a few SMs reads 100%, so it can only tell you whether a GPU is idle.</li>
+<li>DCGM's SM activity, SM occupancy, tensor activity and DRAM activity (fields 1002–1005) look inside the chip, but they measure activity, not useful work.</li>
+<li>MFU = tokens/s × 2N ÷ peak FLOPS judges compute-bound prefill; MBU = (weight + KV bytes) ÷ TPOT ÷ peak bandwidth judges memory-bound decode.</li>
+<li>For Llama 3.1 8B on an H100: prefill at 32,000 tokens/s is 52% MFU; decode at batch 1 (140 tokens/s) is 68% MBU but 0.23% MFU; decode at batch 64 (4,000 tokens/s) is 65% MBU and 6.5% MFU.</li>
+<li>Utilization leaks through small batches, CPU and Python overhead, kernel launch gaps without CUDA graphs, tensor-parallel communication, padding, preemption and idle time.</li>
+<li>CUDA graphs and asynchronous scheduling are free; bigger batches and larger prefill chunks cost TPOT; FP8 and speculative decoding change the bytes or work per token.</li>
+<li>Optimize for goodput under the latency targets, use MFU and MBU as diagnostics, and profile coarse to fine: DCGM, model ratios, Nsight Systems, then kernels.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] NVIDIA. nvidia-smi documentation. <a href="https://docs.nvidia.com/deploy/nvidia-smi/index.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/deploy/nvidia-smi/index.html</a>.<br>
+[2] NVIDIA. NVIDIA Hopper Architecture In-Depth. <a href="https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/" rel="noopener noreferrer" target="_blank">https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/</a>.<br>
+[3] NVIDIA DCGM documentation: Feature Overview (Profiling Metrics). <a href="https://docs.nvidia.com/datacenter/dcgm/latest/user-guide/feature-overview.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/datacenter/dcgm/latest/user-guide/feature-overview.html</a>.<br>
+[4] NVIDIA DCGM documentation: Field Identifiers. <a href="https://docs.nvidia.com/datacenter/dcgm/latest/reference/field-identifiers.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/datacenter/dcgm/latest/reference/field-identifiers.html</a>.<br>
+[5] Chowdhery et al. PaLM: Scaling Language Modeling with Pathways. <a href="https://arxiv.org/abs/2204.02311" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2204.02311</a>.<br>
+[6] Agarwal et al. LLM Inference Performance Engineering: Best Practices. Databricks blog. <a href="https://www.databricks.com/blog/llm-inference-performance-engineering-best-practices" rel="noopener noreferrer" target="_blank">https://www.databricks.com/blog/llm-inference-performance-engineering-best-practices</a>.<br>
+[7] Williams et al. Roofline: An Insightful Visual Performance Model for Multicore Architectures. <a href="https://doi.org/10.1145/1498765.1498785" rel="noopener noreferrer" target="_blank">https://doi.org/10.1145/1498765.1498785</a>.<br>
+[8] Pope et al. Efficiently Scaling Transformer Inference. <a href="https://arxiv.org/abs/2211.05102" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.05102</a>.<br>
+[9] Gray. Getting Started with CUDA Graphs. NVIDIA Technical Blog. <a href="https://developer.nvidia.com/blog/cuda-graphs/" rel="noopener noreferrer" target="_blank">https://developer.nvidia.com/blog/cuda-graphs/</a>.<br>
+[10] vLLM documentation: Engine Arguments. <a href="https://docs.vllm.ai/en/latest/configuration/engine_args.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/engine_args.html</a>.<br>
+[11] Shoeybi et al. Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism. <a href="https://arxiv.org/abs/1909.08053" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1909.08053</a>.<br>
+[12] vLLM documentation: Optimization and Tuning. <a href="https://docs.vllm.ai/en/latest/configuration/optimization.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/optimization.html</a>.<br>
+[13] Agrawal et al. Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve. <a href="https://arxiv.org/abs/2403.02310" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2403.02310</a>.<br>
+[14] Leviathan et al. Fast Inference from Transformers via Speculative Decoding. <a href="https://arxiv.org/abs/2211.17192" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.17192</a>.<br>
+[15] vLLM documentation: Production Metrics. <a href="https://docs.vllm.ai/en/latest/usage/metrics.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/usage/metrics.html</a>.<br>
+[16] NVIDIA. Nsight Systems User Guide. <a href="https://docs.nvidia.com/nsight-systems/UserGuide/index.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/nsight-systems/UserGuide/index.html</a>.<br>
+[17] vLLM documentation: Profiling vLLM. <a href="https://docs.vllm.ai/en/latest/contributing/profiling.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/contributing/profiling.html</a>.<br>
+[18] PyTorch documentation: PyTorch Profiler recipe. <a href="https://docs.pytorch.org/tutorials/recipes/recipes/profiler_recipe.html" rel="noopener noreferrer" target="_blank">https://docs.pytorch.org/tutorials/recipes/recipes/profiler_recipe.html</a>.<br>
+[19] Zhong et al. DistServe: Disaggregating Prefill and Decoding for Goodput-optimized Large Language Model Serving. <a href="https://arxiv.org/abs/2401.09670" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.09670</a>.</p>

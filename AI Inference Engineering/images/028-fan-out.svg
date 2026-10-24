@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="320" viewBox="0 0 760 320" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .axis{stroke:#000;stroke-width:1.2}
+    .grid{stroke:#ccc;stroke-width:1;stroke-dasharray:4 4}
+    .pt{fill:#f8cecc;stroke:#b85450;stroke-width:1.5}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <!-- x = 80 + 6 N; y = 260 - 3 * percent -->
+  <text x="16" y="24" class="b">Chance that at least one of N calls is slower than its p99</text>
+
+  <line x1="80" y1="40" x2="80" y2="260" class="axis"/>
+  <line x1="80" y1="260" x2="690" y2="260" class="axis"/>
+  <line x1="80" y1="200" x2="680" y2="200" class="grid"/>
+  <line x1="80" y1="140" x2="680" y2="140" class="grid"/>
+  <line x1="80" y1="80" x2="680" y2="80" class="grid"/>
+  <g class="sm" text-anchor="end">
+    <text x="72" y="264">0%</text><text x="72" y="204">20%</text><text x="72" y="144">40%</text><text x="72" y="84">60%</text>
+  </g>
+  <g class="sm" text-anchor="middle">
+    <text x="86" y="278">1</text><text x="200" y="278">20</text><text x="320" y="278">40</text>
+    <text x="440" y="278">60</text><text x="560" y="278">80</text><text x="680" y="278">100</text>
+  </g>
+  <text x="380" y="296" text-anchor="middle" class="sm">N: calls per user request, agent task, or chat session</text>
+
+  <path d="M86.0,257.0 L92.0,254.0 L98.0,251.1 L110.0,245.3 L122.0,239.6 L140.0,231.3 L170.0,218.0 L200.0,205.4 L230.0,193.3 L260.0,181.9 L320.0,160.7 L380.0,141.5 L440.0,124.1 L500.0,108.5 L560.0,94.3 L620.0,81.4 L680.0,69.8" fill="none" stroke="#6c8ebf" stroke-width="2.5"/>
+
+  <circle cx="140" cy="231.3" r="4.5" class="pt"/>
+  <text x="152" y="250" class="sm b">10-step agent task: 9.6%</text>
+  <circle cx="200" cy="205.4" r="4.5" class="pt"/>
+  <text x="95" y="186" class="sm b">20-turn chat: 18.2%</text>
+  <circle cx="680" cy="69.8" r="4.5" class="pt"/>
+  <text x="672" y="56" text-anchor="end" class="sm b">100-way fan-out: 63.4%</text>
+
+  <text x="16" y="314" class="sm">P(at least one call slower than p99) = 1 − 0.99<tspan dy="-5" font-size="9">N</tspan><tspan dy="5">, assuming independent calls.</tspan></text>
+</svg>

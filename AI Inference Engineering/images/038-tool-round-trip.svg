@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="310" viewBox="0 0 820 310" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- 0.5 px per ms, x0 = 40 -->
+  <text x="16" y="24" class="b">One order lookup in a 2,000-token conversation, Llama 3.1 8B on an H100</text>
+
+  <!-- Markers -->
+  <line x1="290" y1="52" x2="290" y2="178" stroke="#b85450" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="290" y="48" text-anchor="middle" class="sm">500 ms TTFT target</text>
+  <line x1="638.5" y1="52" x2="638.5" y2="130" stroke="#000" stroke-width="1.5"/>
+  <text x="638.5" y="48" text-anchor="middle" class="sm b">first visible token ≈ 1.2 s</text>
+
+  <!-- Phase labels -->
+  <path d="M40,82 v-6 h407.5 v6" fill="none" stroke="#000" stroke-width="1"/>
+  <text x="244" y="70" text-anchor="middle" class="sm">request 1</text>
+  <path d="M447.5,82 v-6 h150 v6" fill="none" stroke="#000" stroke-width="1"/>
+  <text x="522" y="70" text-anchor="middle" class="sm">client runs the tool</text>
+  <path d="M597.5,82 v-6 h202.5 v6" fill="none" stroke="#000" stroke-width="1"/>
+  <text x="720" y="70" text-anchor="middle" class="sm">request 2</text>
+
+  <!-- Bar -->
+  <rect x="40" y="90" width="32.5" height="40" class="orange"/>
+  <rect x="72.5" y="90" width="375" height="40" class="orange"/>
+  <text x="260" y="115" text-anchor="middle" class="sm">decode tool call: 30 tokens × 25 ms ≈ 0.75 s</text>
+  <rect x="447.5" y="90" width="150" height="40" class="gray"/>
+  <text x="522" y="108" text-anchor="middle" class="sm">lookup_order</text>
+  <text x="522" y="123" text-anchor="middle" class="sm">≈ 300 ms (assumed)</text>
+  <rect x="597.5" y="90" width="41" height="40" class="orange"/>
+  <rect x="638.5" y="90" width="161.5" height="40" class="green"/>
+  <text x="719" y="115" text-anchor="middle" class="sm">answer streams</text>
+
+  <!-- Small-segment labels -->
+  <path d="M56,130 L56,144" stroke="#000" stroke-width="1"/>
+  <text x="40" y="158" class="sm">prefill 2,000 tokens ≈ 65 ms</text>
+  <path d="M618,130 L618,144" stroke="#000" stroke-width="1"/>
+  <text x="624" y="158" text-anchor="end" class="sm">prefill 2,530 tokens ≈ 82 ms</text>
+
+  <!-- Axis -->
+  <line x1="40" y1="190" x2="800" y2="190" stroke="#000" stroke-width="1"/>
+  <path d="M40,190 v5 M165,190 v5 M290,190 v5 M415,190 v5 M540,190 v5 M665,190 v5 M790,190 v5" stroke="#000" stroke-width="1"/>
+  <g text-anchor="middle">
+    <text x="40" y="208" class="sm">0</text><text x="165" y="208" class="sm">250</text><text x="290" y="208" class="sm">500</text><text x="415" y="208" class="sm">750</text><text x="540" y="208" class="sm">1,000</text><text x="665" y="208" class="sm">1,250</text><text x="790" y="208" class="sm">1,500</text>
+  </g>
+  <text x="800" y="224" text-anchor="end" class="sm">time (ms)</text>
+
+  <text x="16" y="242">With prefix caching, turn 2 computes only the 530 new tokens: ≈ 17 ms instead of 82 ms.</text>
+  <text x="16" y="264">At 32K tokens of context, the turn-2 re-prefill alone would take ≈ 1.06 s without the cache.</text>
+  <text x="16" y="292" class="sm">Prefill ≈ 32 µs per token (Lesson 1 estimate); decode at the 25 ms TPOT target; tool time assumed. Queueing not shown.</text>
+</svg>

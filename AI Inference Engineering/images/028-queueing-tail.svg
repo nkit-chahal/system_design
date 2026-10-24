@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="330" viewBox="0 0 760 330" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .axis{stroke:#000;stroke-width:1.2}
+    .grid{stroke:#ccc;stroke-width:1;stroke-dasharray:4 4}
+    .pt{fill:#f8cecc;stroke:#b85450;stroke-width:1.5}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <!-- x = 80 + 600 * utilization; y = 260 - 20 * seconds -->
+  <text x="16" y="24" class="b">Time in system for a simple queue (M/M/1) with a 100 ms service time</text>
+
+  <line x1="80" y1="50" x2="80" y2="260" class="axis"/>
+  <line x1="80" y1="260" x2="690" y2="260" class="axis"/>
+  <line x1="80" y1="220" x2="680" y2="220" class="grid"/>
+  <line x1="80" y1="180" x2="680" y2="180" class="grid"/>
+  <line x1="80" y1="140" x2="680" y2="140" class="grid"/>
+  <line x1="80" y1="100" x2="680" y2="100" class="grid"/>
+  <line x1="80" y1="60" x2="680" y2="60" class="grid"/>
+  <g class="sm" text-anchor="end">
+    <text x="72" y="264">0</text><text x="72" y="224">2 s</text><text x="72" y="184">4 s</text>
+    <text x="72" y="144">6 s</text><text x="72" y="104">8 s</text><text x="72" y="64">10 s</text>
+  </g>
+  <g class="sm" text-anchor="middle">
+    <text x="80" y="278">0</text><text x="200" y="278">20%</text><text x="320" y="278">40%</text>
+    <text x="440" y="278">60%</text><text x="560" y="278">80%</text><text x="680" y="278">100%</text>
+  </g>
+  <text x="380" y="298" text-anchor="middle" class="sm">utilization (arrival rate ÷ service rate)</text>
+
+  <path d="M80.0,258.0 L140.0,257.8 L200.0,257.5 L260.0,257.1 L320.0,256.7 L380.0,256.0 L440.0,255.0 L500.0,253.3 L530.0,252.0 L560.0,250.0 L590.0,246.7 L608.0,243.3 L620.0,240.0 L632.0,235.0 L644.0,226.7 L650.0,220.0" fill="none" stroke="#6c8ebf" stroke-width="2.5"/>
+  <path d="M80.0,250.8 L140.0,249.8 L200.0,248.5 L260.0,246.8 L320.0,244.6 L380.0,241.6 L440.0,237.0 L500.0,229.3 L530.0,223.2 L560.0,213.9 L578.0,205.8 L590.0,198.6 L602.0,189.2 L614.0,176.3 L620.0,167.9 L626.0,157.7 L632.0,144.9 L638.0,128.4 L644.0,106.5 L650.0,75.8" fill="none" stroke="#b85450" stroke-width="2.5"/>
+  <text x="630" y="110" text-anchor="end" class="sm b" style="fill:#b85450">p99</text>
+  <text x="660" y="226" class="sm b" style="fill:#3d5a8a">mean</text>
+
+  <circle cx="380" cy="241.6" r="4.5" class="pt"/><text x="380" y="230" text-anchor="middle" class="sm">50%: 0.92 s</text>
+  <circle cx="560" cy="213.9" r="4.5" class="pt"/><text x="552" y="204" text-anchor="end" class="sm">80%: 2.3 s</text>
+  <circle cx="620" cy="167.9" r="4.5" class="pt"/><text x="612" y="160" text-anchor="end" class="sm">90%: 4.6 s</text>
+
+  <text x="16" y="322" class="sm">p99 = ln(100) × mean ≈ 4.6 × 0.1 s ÷ (1 − utilization). Real LLM engines batch, so the numbers differ; the shape does not.</text>
+</svg>

@@ -1,0 +1,304 @@
+<h2>Introduction</h2>
+<p>A GPU has a fixed amount of memory, and a serving engine must fit everything it needs into that memory before it can answer the first request. The model's weights are the obvious tenant, but they are not the only one. The engine also needs room for the KV cache, for the temporary tensors of each forward pass, for captured CUDA graphs, and for the CUDA runtime and communication libraries themselves. Whatever is left after all of that decides how many requests the GPU can serve at once.</p>
+<p><strong>VRAM budgeting</strong> is the habit of adding up these pieces before you deploy. It tells you which GPU can serve a model, how long a context it supports, how many users fit at once, and why a server just crashed with an out-of-memory error. Figure 1 shows every piece and the rule that sizes it.</p>
+<fig src="017-memory-map.svg" caption="Everything that occupies GPU memory while a model is served">A stacked bar representing one GPU. From the bottom: weights, activations and workspace, fragmentation, CUDA graphs, and the KV cache, which together form vLLM's budget of U times M. Above them sit the CUDA context and libraries and the free headroom, which lie outside the budget in the remaining 1 minus U share. Labels on the right give the sizing rule for each piece.</fig>
+<p>In this lesson, we size each piece, look at exactly how vLLM turns <code>--gpu-memory-utilization</code> into a KV cache budget, and work through budgets for Llama 3.1 8B on three GPUs and Llama 3.1 70B on one to eight H100s. We finish with a capacity-planning worksheet, a guide to the startup log and its out-of-memory errors, and a small budget calculator.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Memory questions in interviews usually arrive as "which GPU do we need?" Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: Which models are we serving, and at what precision?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct now, and Llama 3.1 70B Instruct next quarter. Both in BF16, unless our evaluation set shows that lower precision is safe.</p>
+<p><strong>Candidate</strong>: Which GPUs can we choose from?<br>
+<strong>Interviewer</strong>: Our cloud offers the L4 with 24 GB, the A100 with 80 GB, and the H100 with 80 GB. Finance wants the cheapest option that works.</p>
+<p><strong>Candidate</strong>: What does the traffic look like?<br>
+<strong>Interviewer</strong>: Chat requests with about 2,000 prompt tokens and 500 output tokens, 1,000 requests per minute on average and about 33 per second at the daily peak, spread over a fleet of GPUs. A few enterprise customers upload documents of up to 32K tokens.</p>
+<p><strong>Candidate</strong>: Is there a latency target?<br>
+<strong>Interviewer</strong>: p95 time to first token of at most 500 ms, and p95 time per output token of at most 25 ms, so every stream gets at least 40 tokens per second.</p>
+<p><strong>Candidate</strong>: Has memory caused problems so far?<br>
+<strong>Interviewer</strong>: Last week someone changed a flag and the server refused to start with a memory error. Nobody could explain the log.</p>
+<p>The question underneath is: <em>for each model and GPU, how much memory is left for the KV cache once everything else is loaded, and is that enough for our context length, our concurrency, and our speed target?</em> We start by listing what has to fit.</p>
+
+<h2>What Lives in GPU Memory</h2>
+<p>Every serving engine fills GPU memory with the same pieces. Some are fixed by the model, some grow with the engine's configuration, and one, the KV cache, gets whatever is left.</p>
+
+<h3>Model weights</h3>
+<p>The weights are fixed by the model and its number format:</p>
+<texblock>W = \frac{P \times b_{\text{w}}}{\text{TP}}</texblock>
+<p>Here <tex>P</tex> is the parameter count, <tex>b_{\text{w}}</tex> the bytes per parameter (2 for BF16, 1 for FP8, about 0.5 for 4-bit), and TP the tensor-parallel size, the number of GPUs that split every layer (Lesson 18, Tensor Parallelism). Llama 3.1 8B has 8.03 billion parameters, so its BF16 weights take 16.06 GB, or 14.96 GiB. Llama 3.1 70B has 70.55 billion, which is 141.1 GB or 131.4 GiB [1].</p>
+<p>Two details trip people up. GPU memory is reported in GiB (<tex>2^{30}</tex> bytes) while model files are quoted in GB (<tex>10^{9}</tex> bytes), a 7% difference. And quantized checkpoints rarely shrink every tensor. In a published FP8 checkpoint of Llama 3.1 8B, the 6.98 billion parameters of the linear layers take one byte each, but the input embedding and the output layer (1.05 billion parameters) stay in BF16, so the weights take 9.08 GB rather than 8.03 GB [2]. The safest weight figure is the size of the checkpoint's files.</p>
+
+<h3>KV cache</h3>
+<p>Lesson 3, KV Cache, derived the cost of one cached token: <tex>2 \times L \times H_{\text{kv}} \times d_{\text{head}} \times b</tex>, which is 128 KiB for Llama 3.1 8B and 320 KiB for Llama 3.1 70B in BF16. With tensor parallelism each GPU stores only its share of the KV heads, so the cost per GPU is divided by TP until every GPU holds a single KV head. The cache is the only piece sized backwards: the engine sets everything else aside first and gives the cache the remainder.</p>
+
+<h3>Activations and workspace</h3>
+<p>Each forward pass creates temporary tensors: hidden states, attention projections, the wide intermediate output of the MLP, and the logits used for sampling. They live for one step, but the engine must keep room for the largest step it will run: at most <code>max_num_batched_tokens</code> tokens from at most <code>max_num_seqs</code> sequences (Lesson 7, Continuous Batching). For Llama 3.1 8B, the MLP's gate and up projections alone produce <tex>T</tex> × 2 × 14,336 values for <tex>T</tex> tokens, 0.44 GiB at 8,192 tokens in BF16, and the logits add 128,256 scores per sequence. Attention adds little, because FlashAttention-style kernels never build the full score matrix [3].</p>
+<p>vLLM chooses these limits per GPU. For <code>vllm serve</code> on GPUs with at least 70 GiB other than the A100 (the H100 and H200), the defaults are 8,192 batched tokens and 1,024 sequences; on smaller GPUs and on the A100 they are 2,048 and 256 [4]. The same model therefore needs less activation memory on an L4 than on an H100.</p>
+
+<h3>CUDA graphs</h3>
+<p>A <strong>CUDA graph</strong> records a step's whole sequence of kernels once and replays it with a single launch, removing per-kernel CPU overhead [5]. Each graph serves one batch size and keeps fixed input and output buffers in a shared pool, so graph memory grows with the number and size of the captured batch sizes. By default vLLM captures batch sizes 1, 2 and 4, then multiples of 8 up to 256 and multiples of 16 up to 512, about 50 graphs on most GPUs. You can shrink the list with <code>--max-cudagraph-capture-size</code> or turn graphs off with <code>--enforce-eager</code>, which saves their memory but makes decoding slower [6]. Lesson 33, GPU Architecture and Attention Kernels, explains how graphs and kernels work.</p>
+
+<h3>CUDA context and libraries</h3>
+<p>Every process that uses a GPU pays for a CUDA context, and libraries add their own buffers: cuBLAS workspaces for matrix multiplication and, with tensor parallelism, NCCL communicators and the engine's all-reduce buffers. Together they typically take several hundred MiB to about a GiB per GPU, depending on the driver, the libraries, and the TP size. vLLM creates them before its first memory snapshot, so they come out of the share it leaves free, not out of the KV cache budget [7].</p>
+
+<h3>Fragmentation</h3>
+<p>PyTorch's caching allocator keeps freed blocks for reuse. When tensors of many sizes come and go, free memory splits into pieces too small for the next request, and an allocation can fail while gigabytes are nominally free. Engines limit the damage by allocating the KV cache once at startup and handing it out in fixed-size blocks, so cache waste is at most one partly filled block per request [8] (Lesson 8, PagedAttention). PyTorch's <code>expandable_segments:True</code> option (set in <code>PYTORCH_ALLOC_CONF</code>) reduces fragmentation in many workloads [9], but check your engine's documentation before changing allocator settings.</p>
+
+<h3>Headroom</h3>
+<p>The last piece is deliberate: memory the engine promises not to touch. In vLLM it is the <tex>1 - U</tex> share of the GPU, where <tex>U</tex> is <code>--gpu-memory-utilization</code>. It holds the CUDA context and libraries, any other process on the GPU, fragmentation, and any spike the engine did not see while it profiled. Table 1 summarizes the pieces.</p>
+<table>
+<thead><tr><th>Piece</th><th>Size rule</th><th>Llama 3.1 8B on one H100</th><th>Main knobs</th></tr></thead>
+<tbody>
+<tr><td>Weights</td><td>parameters × bytes ÷ TP</td><td>15 GiB</td><td>quantization, TP size</td></tr>
+<tr><td>KV cache</td><td>the remainder of U × M</td><td>≈ 52 GiB</td><td><code>--gpu-memory-utilization</code>, <code>--kv-cache-dtype</code></td></tr>
+<tr><td>Activations and workspace</td><td>grows with tokens and sequences per step</td><td rowspan="2">≈ 4.6 GiB together</td><td><code>--max-num-batched-tokens</code>, <code>--max-num-seqs</code></td></tr>
+<tr><td>CUDA graphs</td><td>grows with captured batch sizes</td><td><code>--max-cudagraph-capture-size</code>, <code>--enforce-eager</code></td></tr>
+<tr><td>CUDA context, cuBLAS, NCCL</td><td>fixed per process, larger with TP</td><td rowspan="3">≈ 8 GiB together</td><td>TP size, processes per GPU</td></tr>
+<tr><td>Fragmentation</td><td>free memory split into unusable pieces</td><td>allocator settings</td></tr>
+<tr><td>Free headroom</td><td>(1 − U) × M minus the two rows above</td><td><code>--gpu-memory-utilization</code></td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: The pieces of GPU memory during inference, with Lesson 3's H100 budget (M = visible memory, U = 0.90)</p>
+
+<h2>How Engines Size the KV Cache</h2>
+<h3>vLLM: measure everything, give the cache the rest</h3>
+<p>vLLM never asks you for a KV cache size. It measures everything else and gives the cache the remainder. As implemented in vLLM v0.32 [7], the rule is:</p>
+<texblock>\text{KV budget} = U \times M - W - A_{\text{peak}} - G - N</texblock>
+<p><tex>M</tex> is the total memory of the GPU, <tex>U</tex> is <code>--gpu-memory-utilization</code>, <tex>W</tex> the weights loaded on this GPU, <tex>A_{\text{peak}}</tex> the peak activation memory measured during a profiling step of <code>max_num_batched_tokens</code> dummy tokens, <tex>G</tex> the estimated CUDA graph memory, and <tex>N</tex> any other memory the process allocated after its first snapshot. Figure 2 shows the startup sequence that produces each number, the log line that reports it, and the error you see when that step fails.</p>
+<fig src="017-vllm-startup.svg" caption="How vLLM sizes the KV cache at startup, with the log line and error of each step">Seven steps run top to bottom: start CUDA and NCCL and snapshot free memory; load the weights; profile one step; estimate CUDA graph memory; size the KV cache; check that one max_model_len request fits; allocate the cache and capture graphs. Beside each step is the log line it prints, such as "Model loading took W GiB memory" and "Available KV cache memory: K GiB", and, for five of the steps, the error printed when it fails, such as "No available memory for the cache blocks."</fig>
+<p>Four details matter in practice:</p>
+<ul>
+<li><strong>U is a share of the whole GPU, per instance.</strong> Startup fails if less than <tex>U \times M</tex> is free, so two instances can share a GPU only if their shares plus both CUDA contexts fit on the card.</li>
+<li><strong>The default changed.</strong> Since vLLM v0.20 the default is 0.92; earlier releases used 0.90. Lesson 3 and this lesson set 0.90 explicitly, so their numbers do not depend on the version.</li>
+<li><strong>CUDA graphs now come out of the budget.</strong> Since v0.21, vLLM estimates graph memory before it sizes the cache and subtracts it. Setting <code>VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0</code> restores the older behavior, in which graphs were captured after the cache was allocated and had to fit inside the headroom.</li>
+<li><strong>You can skip the calculation.</strong> <code>--kv-cache-memory-bytes</code> sets the cache size per GPU directly and ignores U. At the end of startup, vLLM logs a suggested value for it based on what it measured [7].</li>
+</ul>
+<p>On the H100 from Lesson 3, the budget is 0.90 × 79.6 GiB = 71.6 GiB. Subtracting 15 GiB of weights and about 4.6 GiB of activations and CUDA graphs leaves about 52 GiB for the cache. The remaining 8 GiB holds the CUDA context and libraries and the free headroom. At the current default of 0.92, the budget grows by 1.6 GiB, which is about 13,000 more tokens.</p>
+
+<h3>SGLang and TensorRT-LLM</h3>
+<p>Other engines follow the same "measure, then give the cache the rest" idea with a different denominator, as Figure 3 shows. SGLang's <code>--mem-fraction-static</code> is "the fraction of the memory used for static allocation (model weights and KV cache memory pool)"; activations and CUDA graphs must fit in what remains [10]. TensorRT-LLM's KV cache configuration takes <code>free_gpu_memory_fraction</code>, which by default gives 90% of the free GPU memory to the cache [11]. So 0.9 means three different things in three engines; when you change engines, derive the budget again instead of copying the setting.</p>
+<fig src="017-engine-fractions.svg" caption="What the memory fraction covers in vLLM, SGLang, and TensorRT-LLM">Three bars of the same GPU. In vLLM, the utilization fraction of total memory covers weights, activations, CUDA graphs and the KV cache. In SGLang, the static fraction of total memory covers only the weights and the KV pool, and activations and CUDA graphs use the rest. In TensorRT-LLM, the weights and runtime load first, and the free-memory fraction of what is still free becomes the KV cache.</fig>
+
+<h2>Worked Budgets</h2>
+<h3>Llama 3.1 8B on an L4, an A100, and an H100</h3>
+<p>We budget the 8B model on each GPU at U = 0.90. Two inputs are assumptions that the startup log replaces with measurements: visible memory, which is a little less than the label because the driver reserves part of each card (about 22 GiB on the L4, 79.2 GiB on the A100, and Lesson 3's 79.6 GiB on the H100), and runtime memory for activations and CUDA graphs. For runtime we use Lesson 3's 4.6 GiB on both 80 GB cards, which is conservative for the A100 because it gets vLLM's smaller batch defaults, and assume 1.5 GiB on the L4.</p>
+<ul>
+<li><strong>L4</strong>: 0.90 × 22 = 19.8 GiB. After 15 GiB of weights and 1.5 GiB of runtime, 3.3 GiB is left: about 27,000 tokens, or 10 chat requests of 2,500 tokens. A single 32K-token document does not fit.</li>
+<li><strong>A100</strong>: 0.90 × 79.2 = 71.3 GiB, leaving 51.7 GiB: about 423,000 tokens, 169 chat requests, or 12 full documents.</li>
+<li><strong>H100</strong>: about 52 GiB, 426,000 tokens, 170 chat requests, or 13 documents (Lesson 3). Figure 4 draws all three to one scale.</li>
+</ul>
+<fig src="017-8b-three-gpus.svg" caption="Llama 3.1 8B budgets on an L4, an A100, and an H100, drawn to one scale">Three horizontal bars at the same scale. Every GPU spends 15 GiB on weights. The L4 has only about 3.3 GiB of KV cache, about 27,000 tokens or 10 chat requests, with a full-cache decode step of at least 65 milliseconds. The A100 has about 51.7 GiB, 423,000 tokens or 169 requests at 36 milliseconds per step. The H100 has about 52 GiB, 426,000 tokens or 170 requests at 21 milliseconds per step.</fig>
+<p>The budget also sets speed. A decode step must read the weights and every cached token, so memory bandwidth bounds its duration (Lesson 3) [12]. When the cache is full, a step reads almost the entire budget, so a simple rule follows: <strong>a full GPU needs about its used memory divided by its bandwidth per decode step</strong>. The L4 reads 19.6 GB at 300 GB/s, at least 65 ms per step or about 15 tokens per second per stream. The A100 reads 71.6 GB at 2.0 TB/s, about 36 ms or 28 tokens per second. The H100 reads 72 GB at 3.35 TB/s, about 21 ms or 46 tokens per second.</p>
+<p>The A100 and the H100 hold the same number of tokens: capacity depends on memory size, not GPU generation, and what the H100 buys is speed. The L4 fails on both counts: in BF16 the weights take 68% of the card, and even an empty cache cannot beat 16.06 GB ÷ 300 GB/s ≈ 54 ms per step, or 19 tokens per second.</p>
+
+<h3>Llama 3.1 70B in BF16 and FP8 on one to eight H100s</h3>
+<p>The 70B model weighs 131.4 GiB in BF16. Its published FP8 checkpoint is 72.66 GB, or 67.7 GiB, because the embedding and output layer again stay in BF16 [13]. Tensor parallelism divides both the weights and the KV heads across the GPUs. We assume 5 GiB of runtime memory per GPU, a little more than for the 8B model, to cover larger activations and the NCCL buffers that tensor parallelism adds. Table 2 and Figure 5 show the result for each configuration at U = 0.90, which gives every GPU a 71.6 GiB budget.</p>
+<table>
+<thead><tr><th>GPUs (TP)</th><th>Weights</th><th>Weights per GPU</th><th>KV cache per GPU</th><th>KV per token per GPU</th><th>Tokens per replica</th><th>Chat requests</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>BF16</td><td>131.4 GiB</td><td>none</td><td>320 KiB</td><td>none</td><td>0</td><td>Does not load: the weights exceed the whole GPU</td></tr>
+<tr><td>1</td><td>FP8</td><td>67.7 GiB</td><td>none</td><td>320 KiB</td><td>none</td><td>0</td><td>Loads, but weights and runtime exceed the budget</td></tr>
+<tr><td>2</td><td>BF16</td><td>65.7 GiB</td><td>0.9 GiB</td><td>160 KiB</td><td>≈ 6,100</td><td>2</td><td>Starts only with a tiny max_model_len</td></tr>
+<tr><td>2</td><td>FP8</td><td>33.8 GiB</td><td>32.8 GiB</td><td>160 KiB</td><td>≈ 215K</td><td>85</td><td>Fits</td></tr>
+<tr><td>4</td><td>BF16</td><td>32.9 GiB</td><td>33.8 GiB</td><td>80 KiB</td><td>≈ 443K</td><td>177</td><td>Fits</td></tr>
+<tr><td>4</td><td>FP8</td><td>16.9 GiB</td><td>49.7 GiB</td><td>80 KiB</td><td>≈ 652K</td><td>260</td><td>Fits</td></tr>
+<tr><td>8</td><td>BF16</td><td>16.4 GiB</td><td>50.2 GiB</td><td>40 KiB</td><td>≈ 1.32M</td><td>526</td><td>Fits</td></tr>
+<tr><td>8</td><td>FP8</td><td>8.5 GiB</td><td>58.2 GiB</td><td>40 KiB</td><td>≈ 1.53M</td><td>610</td><td>Fits</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Llama 3.1 70B on H100s at --gpu-memory-utilization 0.90, assuming 5 GiB of runtime memory per GPU</p>
+<fig src="017-70b-configs.svg" caption="Llama 3.1 70B memory per GPU on one, two, four, and eight H100s">Eight bars, one per configuration, drawn to the scale of one H100. With one GPU, BF16 weights overflow the card and FP8 weights plus runtime overflow the 71.6 GiB budget. With two GPUs, BF16 leaves only about 6,000 tokens of cache, while FP8 leaves 215,000. Four GPUs give 443,000 tokens in BF16 and 652,000 in FP8; eight give 1.32 million and 1.53 million.</fig>
+<p>The three failures fail for different reasons, and each produces a different message:</p>
+<ul>
+<li><strong>One GPU, BF16</strong>: 131.4 GiB of weights cannot fit in 79.6 GiB. vLLM stops while loading with "Failed to load model - not enough GPU memory."</li>
+<li><strong>One GPU, FP8</strong>: the weights fit on the card, but weights plus runtime need 72.7 GiB, more than the 71.6 GiB budget, so vLLM stops with "No available memory for the cache blocks." Raising U to 0.95 frees about 3 GiB, roughly 9,700 tokens: fewer than four chat requests. That runs, but it is not a serving configuration.</li>
+<li><strong>Two GPUs, BF16</strong>: 65.7 GiB of weights per GPU leaves 0.9 GiB of cache, about 6,100 tokens. The model's default context of 131,072 tokens fails the startup check, and so would an 8K limit.</li>
+</ul>
+<p>Notice the jump from four to eight GPUs in BF16: the cache triples, from 443,000 to 1.32 million tokens, because each GPU frees 16.4 GiB of weights and also stores half as much per token. When weights dominate the budget, capacity grows faster than the GPU count.</p>
+
+<h3>max_model_len versus concurrency</h3>
+<p><code>--max-model-len</code> is the longest sequence, prompt plus output, that the server will accept. Because vLLM hands out the cache in blocks on demand (Lesson 8), the limit does not reserve memory for each request. It does two other things. At startup, vLLM checks that at least one request of that length fits in the cache and refuses to start otherwise. It also reports the worst case, how many requests of exactly that length would fit, in the line "Maximum concurrency for … tokens per request" [14]. Figure 6 shows those numbers for the H100.</p>
+<fig src="017-maxlen-concurrency.svg" caption="Worst-case concurrency reported by vLLM for different --max-model-len values">A bar chart for Llama 3.1 8B on one H100 with 426,000 cached tokens. The worst-case concurrency is 104 at 4,096 tokens, 52 at 8,192, 13 at 32,768, and 3.25 at 131,072. A dashed line at about 170 marks how many real 2,500-token chat requests fit under every limit. A row below shows that an L4 holds 6.6 and 3.3 requests at the two shorter limits and fails to start at the two longer ones.</fig>
+<p>The limit does not change how many chat requests fit: about 170 at any of these settings. What it changes is risk. With a 131,072-token limit, three maximal requests can fill the whole cache, and the scheduler must preempt other users to let them grow (Lesson 3); with 32,768, it takes 13. The other ceiling is <code>max_num_seqs</code>: if the cache could hold more requests than that, it becomes the limit. vLLM also accepts <code>--max-model-len auto</code> (or -1), which picks the longest length that fits the cache [15]. Set the limit to the longest request you mean to serve, and control how many long requests run at once with routing and rate limits (Lesson 25, Request Routing; Lesson 26, Rate Limiting).</p>
+
+<h3>How quantization changes the budget</h3>
+<p>Lesson 13 covers quantization methods and how to check their accuracy. For the budget, what matters is which piece shrinks. Figure 7 applies three options to the L4, where the weights take most of the card.</p>
+<fig src="017-quantization-l4.svg" caption="How quantizing the weights and the KV cache changes an L4's budget for Llama 3.1 8B">Four bars for one L4. BF16 weights of 15 GiB leave 3.3 GiB of cache, about 27,000 tokens. FP8 weights of 8.5 GiB leave 9.8 GiB, about 81,000 tokens with a BF16 cache or 161,000 with an FP8 cache. INT4 weights of 5.3 GiB with an FP8 cache leave 13 GiB, about 212,000 tokens. The single-stream speed bound rises from 19 to 33 to 52 tokens per second.</fig>
+<ul>
+<li><strong>FP8 weights</strong> cut the weights from 15 to 8.5 GiB, so the cache grows from 3.3 to 9.8 GiB and holds three times as many tokens.</li>
+<li><strong>An FP8 KV cache</strong> (<code>--kv-cache-dtype fp8</code>) halves the cost per token to 64 KiB, doubling the tokens again to about 161,000 [16].</li>
+<li><strong>4-bit weights</strong> (a W4A16 checkpoint of about 5.74 GB [17]) with an FP8 cache leave 13 GiB of cache, about 212,000 tokens.</li>
+</ul>
+<p>Smaller weights also raise the single-stream speed bound, from 19 tokens per second in BF16 to 33 in FP8 and 52 in INT4. On the H100 the 8B weights take only 19% of the memory, so FP8 weights add just 6.5 GiB (12%) to the cache, while an FP8 cache doubles it. The rule is to <strong>quantize the piece that dominates</strong>: the weights when the model barely fits, the cache when the model is small relative to the GPU. For the 70B model, FP8 weights are what make two GPUs viable at all.</p>
+
+<h2>A Capacity-Planning Worksheet</h2>
+<p>The same ten lines answer every budgeting question. Table 3 runs them for three of our configurations; the In Practice section turns them into code.</p>
+<table>
+<thead><tr><th>Step</th><th>How to get it</th><th>L4, 8B BF16</th><th>H100, 8B BF16</th><th>4 × H100, 70B BF16 (per GPU)</th></tr></thead>
+<tbody>
+<tr><td>A. Visible memory</td><td><code>torch.cuda.mem_get_info()</code> or <code>nvidia-smi</code></td><td>22.0 GiB</td><td>79.6 GiB</td><td>79.6 GiB</td></tr>
+<tr><td>B. Engine budget</td><td>U × A, with U = 0.90</td><td>19.8 GiB</td><td>71.6 GiB</td><td>71.6 GiB</td></tr>
+<tr><td>C. Weights per GPU</td><td>checkpoint size ÷ TP</td><td>15.0 GiB</td><td>15.0 GiB</td><td>32.9 GiB</td></tr>
+<tr><td>D. Runtime</td><td>activations and CUDA graphs, from the log</td><td>1.5 GiB*</td><td>4.6 GiB</td><td>5.0 GiB*</td></tr>
+<tr><td>E. KV budget per GPU</td><td>B − C − D</td><td>3.3 GiB</td><td>52.0 GiB</td><td>33.8 GiB</td></tr>
+<tr><td>F. KV per token per GPU</td><td>2 × L × (H<sub>kv</sub> ÷ TP) × d × bytes</td><td>128 KiB</td><td>128 KiB</td><td>80 KiB</td></tr>
+<tr><td>G. Cached tokens</td><td>E ÷ F</td><td>≈ 27K</td><td>≈ 426K</td><td>≈ 443K</td></tr>
+<tr><td>H. Chat requests</td><td>G ÷ 2,500</td><td>10</td><td>170</td><td>177</td></tr>
+<tr><td>I. 32K documents</td><td>G ÷ 32,768</td><td>fails at startup</td><td>13</td><td>13</td></tr>
+<tr><td>J. Full-cache step</td><td>(C + E) ÷ bandwidth</td><td>≥ 65 ms</td><td>≥ 21 ms</td><td>≥ 21 ms plus all-reduces</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Capacity-planning worksheet. *Assumed; replace with the value from your startup log.</p>
+<callout kind="tip" title="Interview tip">Walk the worksheet out loud: "80 GiB times 0.9 is 72; minus 15 of weights and about 5 of runtime leaves 52; at 128 KiB per token that is about 426K tokens, or 170 chats." Then add the speed line: a full H100 needs about 21 ms per step. Interviewers want to see both capacity and speed fall out of the same budget.</callout>
+
+<h4>Which configuration fits our deployment?</h4>
+<p>Each GPU must first be able to meet a 25 ms step at all. The <strong>L4 is out</strong>: reading its BF16 weights alone takes 54 ms, FP8 weights still take 30 ms, and even 4-bit weights (19 ms) leave room for only about 1.8 GB of cache per 25 ms step. The <strong>A100</strong> holds 169 chats, but a full cache takes at least 36 ms per step; to stay under 25 ms it can read at most 50 GB per step, so it must keep its cache well under two-thirds full, and real steps are slower than the bound. The <strong>H100</strong> reads a full cache in about 21 ms. Lesson 19 finds that, at our latency targets, one H100 sustains about 53 concurrent streams, or about 5 requests per second. Those 53 chats use only about 16 GiB of the 52 GiB cache, so for the 8B model on an H100 the latency target, not memory, sets the concurrency.</p>
+<p>We choose <strong>H100s with BF16 weights, <code>--gpu-memory-utilization 0.90</code> set explicitly, and <code>--max-model-len 32768</code></strong>. The spare 36 GiB of cache is what lets the same GPU accept the customers' 32K documents: about eight of them fit on top of 53 chats, so we cap concurrent long-document requests at that level, and we do not need an FP8 cache at this traffic. At about 5 requests per second per GPU, the daily peak of 33 requests per second needs several H100s; Lesson 20, Cost per Million Tokens, turns that into a fleet and a price. For the 70B model next quarter, memory alone allows <strong>four H100s with TP = 4 in BF16</strong> (177 chats), but Lesson 18, Tensor Parallelism, shows that the 25 ms target favors a single TP = 8 replica on eight.</p>
+
+<h2>Debugging Out-of-Memory Errors</h2>
+<h3>Read the startup log first</h3>
+<p>Most memory problems can be diagnosed from five lines that vLLM prints while it starts, in roughly this order (Figure 2):</p>
+<ul>
+<li><code>Model loading took &lt;W&gt; GiB memory and &lt;t&gt; seconds</code>: the weights on this GPU. If it is far above checkpoint size ÷ TP, the weights loaded in a wider format or the quantization did not apply.</li>
+<li><code>Estimated CUDA graph memory: &lt;G&gt; GiB total</code>: what graph capture will cost, already subtracted from the budget.</li>
+<li><code>Available KV cache memory: &lt;K&gt; GiB</code>: the budget after everything else. This is step E of the worksheet.</li>
+<li><code>GPU KV cache size: &lt;N&gt; tokens, Maximum concurrency for &lt;L&gt; tokens per request: &lt;X&gt;x</code>: the cache in tokens, and the worst-case concurrency at max_model_len. N should equal K divided by the cost per token per GPU.</li>
+<li><code>Graph capturing finished in &lt;s&gt; secs, took &lt;G&gt; GiB</code>: the real graph memory. vLLM then prints the actual and estimated values side by side, plus a summary line splitting memory into weights, peak activations, and CUDA graphs [7].</li>
+</ul>
+<p>If "Available KV cache memory" drops after an upgrade or a flag change, compare the other lines between the old and new logs to find the piece that grew.</p>
+
+<h3>Match the error to the step</h3>
+<ol>
+<li><strong>"Free memory on device … is less than desired GPU memory utilization"</strong> (step 1): something else already holds memory on the GPU, such as another engine, a notebook, or a leftover process. Free the GPU or lower U.</li>
+<li><strong>"Failed to load model - not enough GPU memory"</strong> (step 2): the weights per GPU are too large. Quantize, raise the TP size, or, as a slow last resort, offload part of the weights to CPU memory with <code>--cpu-offload-gb</code> [6].</li>
+<li><strong>"No available memory for the cache blocks"</strong> (step 5): weights and runtime used the whole budget. Raise U a little, lower <code>--max-num-batched-tokens</code> or <code>--max-num-seqs</code>, capture fewer CUDA graphs, quantize, or add GPUs.</li>
+<li><strong>"To serve at least one request with the model's max seq len …"</strong> (step 6): the cache cannot hold one request of max_model_len. The message includes an estimated maximum length that would fit. Lower <code>--max-model-len</code>, use an FP8 cache, or add memory.</li>
+<li><strong>"CUDA out of memory" after startup</strong>: something outgrew its estimate, such as graph capture, an unusually shaped request, or another process on the GPU. Lower U to widen the headroom, cap the batch limits, and give each engine its own GPU.</li>
+</ol>
+<p>Item 4 is the most common startup failure on small GPUs. On an L4 at U = 0.90 with no context limit, Llama 3.1 8B asks for its full 131,072-token context, which needs 16 GiB of cache while about 3.3 GiB is available. The error suggests a maximum length of about 27,000 tokens; setting <code>--max-model-len</code> to 16,384, or to <code>auto</code>, lets the server start.</p>
+<callout kind="warn" title="Do not fix every error by raising U">Setting <code>--gpu-memory-utilization 0.98</code> on an H100 leaves 1.6 GiB for the CUDA context, NCCL buffers, and everything the profiler did not see. The server starts, then crashes on the first unusual request. Keep a few GiB of headroom on 80 GB cards, and fix the piece that is actually too large.</callout>
+
+<h2>In Practice</h2>
+<p>The first tab is the worksheet as a function. It takes checkpoint sizes rather than parameter counts, so quantized checkpoints are handled correctly, and it reproduces the numbers in Tables 2 and 3. The second tab starts vLLM in three configurations from this lesson. The third shows how to read the GPU's real memory and pull the budget lines out of a vLLM log.</p>
+<codetabs>
+<tab label="Budget calculator" lang="python">
+GiB = 2**30
+
+# Layers, KV heads and head size from config.json; checkpoint sizes in GB (10^9 bytes).
+MODELS = {
+    "llama-3.1-8b": dict(layers=32, kv_heads=8, head_dim=128, gb={"bf16": 16.06, "fp8": 9.08}),
+    "llama-3.1-70b": dict(layers=80, kv_heads=8, head_dim=128, gb={"bf16": 141.11, "fp8": 72.66}),
+}
+# Visible GiB (check torch.cuda.mem_get_info() on your machine) and bandwidth in GB/s.
+GPUS = {"L4": (22.0, 300), "A100-80GB": (79.2, 2_000), "H100-80GB": (79.6, 3_350)}
+
+
+def budget(model, gpu, precision="bf16", tp=1, util=0.90, kv_bytes=2,
+           runtime_gib=4.6, request_tokens=2_500, max_model_len=32_768):
+    m = MODELS[model]
+    mem_gib, bw_gbs = GPUS[gpu]
+    weights = m["gb"][precision] * 1e9 / tp / GiB
+    kv_gib = util * mem_gib - weights - runtime_gib
+    heads = max(1, m["kv_heads"] // tp)          # KV heads stored on each GPU
+    per_token = 2 * m["layers"] * heads * m["head_dim"] * kv_bytes
+    tokens = int(kv_gib * GiB // per_token) if kv_gib > 0 else 0
+    step_ms = (weights + kv_gib) * GiB / (bw_gbs * 1e9) * 1e3 if tokens else None
+    if weights > mem_gib:
+        verdict = "weights do not fit"
+    elif tokens == 0:
+        verdict = "no room for the KV cache"
+    elif tokens < max_model_len:
+        verdict = f"max_model_len {max_model_len:,} does not fit"
+    else:
+        verdict = "fits"
+    return dict(weights_gib=round(weights, 1), kv_gib=round(kv_gib, 1), tokens=tokens,
+                requests=tokens // request_tokens,
+                full_step_ms=round(step_ms, 1) if step_ms else None, verdict=verdict)
+
+
+if __name__ == "__main__":
+    for gpu, runtime in (("L4", 1.5), ("A100-80GB", 4.6), ("H100-80GB", 4.6)):
+        print(gpu, budget("llama-3.1-8b", gpu, runtime_gib=runtime))
+    # H100-80GB: kv_gib 52.1, tokens 426,663, requests 170, full_step_ms 21.5
+    for tp in (1, 2, 4, 8):
+        for precision in ("bf16", "fp8"):
+            result = budget("llama-3.1-70b", "H100-80GB", precision, tp, runtime_gib=5.0)
+            print(f"70B TP={tp} {precision}:", result)
+    # TP=4 bf16: kv_gib 33.8, tokens 442,830, requests 177
+</tab>
+<tab label="vLLM" lang="bash">
+# Llama 3.1 8B on one H100: the configuration chosen in this lesson.
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --gpu-memory-utilization 0.90 \
+  --max-model-len 32768
+
+# Llama 3.1 8B on one L4: FP8 weights and an FP8 KV cache.
+vllm serve RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8 \
+  --gpu-memory-utilization 0.90 \
+  --kv-cache-dtype fp8 \
+  --max-model-len 32768
+
+# Llama 3.1 70B in BF16 across four H100s.
+vllm serve meta-llama/Llama-3.1-70B-Instruct \
+  --tensor-parallel-size 4 \
+  --gpu-memory-utilization 0.90 \
+  --max-model-len 32768
+
+# Not sure what context fits? Let vLLM choose the longest that does.
+vllm serve meta-llama/Llama-3.1-8B-Instruct --max-model-len auto
+</tab>
+<tab label="Inspect memory" lang="bash">
+# What the CUDA runtime sees: total and free memory on GPU 0, in GiB.
+python -c "import torch; f, t = torch.cuda.mem_get_info(); print(f'{t/2**30:.1f} GiB total, {f/2**30:.1f} GiB free')"
+
+# Memory per GPU and the processes holding it.
+nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free --format=csv
+nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+
+# Pull the budget lines out of a vLLM startup log.
+grep -E "Model loading took|Estimated CUDA graph memory|Available KV cache memory|KV cache size|Graph capturing finished" vllm.log
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>LoRA serving reserves GPU buffers sized by <code>--max-loras</code> and <code>--max-lora-rank</code>; a rank higher than any adapter needs wastes memory that would otherwise go to the cache [18] (Lesson 37, Multi-LoRA and Multi-Tenant Serving).</li>
+<li>Speculative decoding (Lesson 15) puts a draft model's weights, and its own KV cache, on the same GPU as the target model, so the budget must include both.</li>
+<li>vLLM's sleep mode offloads the weights to CPU memory and discards the KV cache, freeing most of the GPU between workloads, for example when training and inference share GPUs [19].</li>
+<li>Multi-Instance GPU (MIG) splits an H100 into up to seven isolated instances of 10 GB each [20]. Each instance is a small GPU with its own budget, which suits small models that would leave most of a full card idle.</li>
+<li>Track "Available KV cache memory" across deployments: an engine upgrade that changes a default, such as vLLM's switch from 0.90 to 0.92, silently changes capacity.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="017-summary.png" caption="VRAM budgeting summary" optional="1">Mind map summarizing the VRAM budgeting lesson: the pieces of GPU memory, how vLLM sizes the KV cache, worked budgets for the 8B and 70B models, and how to debug out-of-memory errors.</fig>
+<ul>
+<li>GPU memory holds weights, the KV cache, activations, CUDA graphs, the CUDA context and libraries, fragmentation, and deliberate headroom. The KV cache gets whatever is left.</li>
+<li>vLLM computes the cache as <code>U × M − weights − peak activations − CUDA graphs − other</code>, where U is <code>--gpu-memory-utilization</code>, a share of the whole GPU per instance. The default is 0.92 since v0.20.</li>
+<li>Llama 3.1 8B in BF16 leaves about 52 GiB of cache on an H100 (426K tokens, 170 chats), about 51.7 GiB on an A100, and only 3.3 GiB on an L4 (27K tokens, 10 chats).</li>
+<li>A full GPU needs about its used memory divided by its bandwidth per decode step: roughly 21 ms on an H100, 36 ms on an A100, and 65 ms on an L4.</li>
+<li>Llama 3.1 70B does not fit on one H100 in either BF16 or FP8. It needs at least two H100s in FP8 (215K tokens) or four in BF16 (443K tokens), and eight GPUs triple the BF16 cache to 1.32M tokens.</li>
+<li><code>--max-model-len</code> reserves nothing, but it must fit at startup and it sets how many long requests can crowd out short ones.</li>
+<li>Diagnose memory errors from the startup log: each failing step prints its own message, and each message points to one piece of the budget.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Grattafiori et al. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[2] Red Hat AI. Meta-Llama-3.1-8B-Instruct-FP8 (model card). <a href="https://huggingface.co/RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8" rel="noopener noreferrer" target="_blank">https://huggingface.co/RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8</a>.<br>
+[3] Dao et al. FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. <a href="https://arxiv.org/abs/2205.14135" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2205.14135</a>.<br>
+[4] vLLM source code: engine arguments and per-GPU batch defaults (vllm/engine/arg_utils.py). <a href="https://github.com/vllm-project/vllm/blob/main/vllm/engine/arg_utils.py" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm/blob/main/vllm/engine/arg_utils.py</a>.<br>
+[5] NVIDIA Technical Blog. Getting Started with CUDA Graphs. <a href="https://developer.nvidia.com/blog/cuda-graphs/" rel="noopener noreferrer" target="_blank">https://developer.nvidia.com/blog/cuda-graphs/</a>.<br>
+[6] vLLM documentation: Conserving Memory. <a href="https://docs.vllm.ai/en/latest/configuration/conserving_memory.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/conserving_memory.html</a>.<br>
+[7] vLLM source code: GPU worker memory profiling (vllm/v1/worker/gpu_worker.py). <a href="https://github.com/vllm-project/vllm/blob/main/vllm/v1/worker/gpu_worker.py" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm/blob/main/vllm/v1/worker/gpu_worker.py</a>.<br>
+[8] Kwon et al. Efficient Memory Management for Large Language Model Serving with PagedAttention. <a href="https://arxiv.org/abs/2309.06180" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.06180</a>.<br>
+[9] PyTorch documentation: CUDA semantics, memory management. <a href="https://docs.pytorch.org/docs/stable/notes/cuda.html" rel="noopener noreferrer" target="_blank">https://docs.pytorch.org/docs/stable/notes/cuda.html</a>.<br>
+[10] SGLang documentation: Server Arguments. <a href="https://docs.sglang.io/docs/advanced_features/server_arguments" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/server_arguments</a>.<br>
+[11] TensorRT-LLM documentation: How to Change KV Cache Behavior. <a href="https://nvidia.github.io/TensorRT-LLM/latest/examples/kvcacheconfig.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/latest/examples/kvcacheconfig.html</a>.<br>
+[12] Pope et al. Efficiently Scaling Transformer Inference. <a href="https://arxiv.org/abs/2211.05102" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.05102</a>.<br>
+[13] Red Hat AI. Meta-Llama-3.1-70B-Instruct-FP8 (model card). <a href="https://huggingface.co/RedHatAI/Meta-Llama-3.1-70B-Instruct-FP8" rel="noopener noreferrer" target="_blank">https://huggingface.co/RedHatAI/Meta-Llama-3.1-70B-Instruct-FP8</a>.<br>
+[14] vLLM documentation: Parallelism and Scaling. <a href="https://docs.vllm.ai/en/latest/serving/parallelism_scaling.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/serving/parallelism_scaling.html</a>.<br>
+[15] vLLM documentation: Engine Arguments. <a href="https://docs.vllm.ai/en/latest/configuration/engine_args.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/engine_args.html</a>.<br>
+[16] vLLM documentation: Quantized KV Cache. <a href="https://docs.vllm.ai/en/latest/features/quantization/quantized_kvcache.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/quantization/quantized_kvcache.html</a>.<br>
+[17] Hugging Quants. Meta-Llama-3.1-8B-Instruct-AWQ-INT4 (model card). <a href="https://huggingface.co/hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4" rel="noopener noreferrer" target="_blank">https://huggingface.co/hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4</a>.<br>
+[18] vLLM documentation: LoRA Adapters. <a href="https://docs.vllm.ai/en/latest/features/lora.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/lora.html</a>.<br>
+[19] vLLM documentation: Sleep Mode. <a href="https://docs.vllm.ai/en/latest/features/sleep_mode.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/sleep_mode.html</a>.<br>
+[20] NVIDIA. H100 Tensor Core GPU. <a href="https://www.nvidia.com/en-us/data-center/h100/" rel="noopener noreferrer" target="_blank">https://www.nvidia.com/en-us/data-center/h100/</a>.</p>

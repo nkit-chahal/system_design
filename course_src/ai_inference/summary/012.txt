@@ -1,0 +1,7 @@
+center: Benchmark Two Engines
+branch: Fairness checklist | same weights and BF16 | prefix caching off | same memory fraction
+branch: Setup | vLLM on port 8000 | SGLang on port 30000 | one engine at a time
+branch: Load generators | vllm bench serve | SGLang bench serving | range ratio differs
+branch: Results | median of 3 runs | min to max range | p95 targets
+branch: Reading differences | overlapping ranges are ties | reverse the order | p99 needs more data
+branch: Workload fit | shared prefixes | structured output | long contexts

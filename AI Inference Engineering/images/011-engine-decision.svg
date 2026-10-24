@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="362" viewBox="0 0 820 362" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <rect x="270" y="12" width="200" height="32" rx="16" class="white"/>
+  <text x="370" y="33" text-anchor="middle">Choose an engine</text>
+  <path d="M370,44 L370,64" class="edge"/>
+
+  <!-- Q1 -->
+  <rect x="180" y="66" width="380" height="44" rx="6" class="purple"/>
+  <text x="370" y="93" text-anchor="middle">Must it run on non-NVIDIA hardware?</text>
+  <path d="M560,88 L618,88" class="edge"/>
+  <text x="589" y="80" text-anchor="middle" class="sm">yes</text>
+  <rect x="620" y="66" width="180" height="44" rx="6" class="green"/>
+  <text x="710" y="93" text-anchor="middle" class="b">vLLM or SGLang</text>
+  <path d="M370,110 L370,144" class="edge"/>
+  <text x="380" y="132" class="sm">no</text>
+
+  <!-- Q2 -->
+  <rect x="180" y="146" width="380" height="50" rx="6" class="purple"/>
+  <text x="370" y="166" text-anchor="middle">Is most prompt volume a shared prefix?</text>
+  <text x="370" y="185" text-anchor="middle" class="sm">multi-turn chat, agents, shared documents</text>
+  <path d="M560,171 L618,171" class="edge"/>
+  <text x="589" y="163" text-anchor="middle" class="sm">yes</text>
+  <rect x="620" y="149" width="180" height="44" rx="6" class="green"/>
+  <text x="710" y="176" text-anchor="middle" class="b">SGLang</text>
+  <path d="M370,196 L370,230" class="edge"/>
+  <text x="380" y="218" class="sm">no</text>
+
+  <!-- Q3 -->
+  <rect x="180" y="232" width="380" height="52" rx="6" class="purple"/>
+  <text x="370" y="253" text-anchor="middle" class="sm">Large, fixed NVIDIA fleet, and does a benchmark on</text>
+  <text x="370" y="271" text-anchor="middle" class="sm">your workload show ≥ 20% more throughput at the same p95?</text>
+  <path d="M560,258 L618,258" class="edge"/>
+  <text x="589" y="250" text-anchor="middle" class="sm">yes</text>
+  <rect x="620" y="236" width="180" height="44" rx="6" class="green"/>
+  <text x="710" y="263" text-anchor="middle" class="b">TensorRT-LLM</text>
+  <path d="M370,284 L370,314" class="edge"/>
+  <text x="380" y="304" class="sm">no</text>
+
+  <rect x="270" y="316" width="200" height="36" rx="6" class="green"/>
+  <text x="370" y="339" text-anchor="middle" class="b">vLLM</text>
+  <text x="490" y="339" class="sm">the default for most teams</text>
+</svg>

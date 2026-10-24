@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="228" viewBox="0 0 840 228" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{stroke:#000;stroke-width:1.2;fill:none}
+    .grid{stroke:#ddd;stroke-width:1;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="215" y="30" text-anchor="middle" class="sm">Q1</text>
+  <text x="271" y="30" text-anchor="middle" class="sm">Q2</text>
+  <text x="327" y="30" text-anchor="middle" class="sm">Q3</text>
+  <text x="383" y="30" text-anchor="middle" class="sm">Q4</text>
+  <text x="439" y="30" text-anchor="middle" class="sm">Q5</text>
+  <text x="495" y="30" text-anchor="middle" class="sm">Q6</text>
+  <text x="551" y="30" text-anchor="middle" class="sm">Q7</text>
+  <text x="607" y="30" text-anchor="middle" class="sm">Q8</text>
+  <text x="663" y="30" text-anchor="middle" class="sm">Q9</text>
+  <text x="719" y="30" text-anchor="middle" class="sm">Q10</text>
+  <text x="16" y="68" class="b">BF16 baseline</text>
+  <rect x="190" y="44" width="50" height="36" rx="4" class="green"/>
+  <text x="215" y="67" text-anchor="middle">right</text>
+  <rect x="246" y="44" width="50" height="36" rx="4" class="green"/>
+  <text x="271" y="67" text-anchor="middle">right</text>
+  <rect x="302" y="44" width="50" height="36" rx="4" class="green"/>
+  <text x="327" y="67" text-anchor="middle">right</text>
+  <rect x="358" y="44" width="50" height="36" rx="4" class="green"/>
+  <text x="383" y="67" text-anchor="middle">right</text>
+  <rect x="414" y="44" width="50" height="36" rx="4" class="green"/>
+  <text x="439" y="67" text-anchor="middle">right</text>
+  <rect x="470" y="44" width="50" height="36" rx="4" class="green"/>
+  <text x="495" y="67" text-anchor="middle">right</text>
+  <rect x="526" y="44" width="50" height="36" rx="4" class="red"/>
+  <text x="551" y="67" text-anchor="middle">wrong</text>
+  <rect x="582" y="44" width="50" height="36" rx="4" class="green"/>
+  <text x="607" y="67" text-anchor="middle">right</text>
+  <rect x="638" y="44" width="50" height="36" rx="4" class="green"/>
+  <text x="663" y="67" text-anchor="middle">right</text>
+  <rect x="694" y="44" width="50" height="36" rx="4" class="red"/>
+  <text x="719" y="67" text-anchor="middle">wrong</text>
+  <text x="758" y="68">8/10 correct</text>
+  <text x="16" y="118" class="b">Quantized model</text>
+  <rect x="190" y="94" width="50" height="36" rx="4" class="green"/>
+  <text x="215" y="117" text-anchor="middle">right</text>
+  <rect x="246" y="94" width="50" height="36" rx="4" class="green"/>
+  <text x="271" y="117" text-anchor="middle">right</text>
+  <rect x="302" y="94" width="50" height="36" rx="4" class="red"/>
+  <text x="327" y="117" text-anchor="middle">wrong</text>
+  <rect x="358" y="94" width="50" height="36" rx="4" class="green"/>
+  <text x="383" y="117" text-anchor="middle">right</text>
+  <rect x="414" y="94" width="50" height="36" rx="4" class="green"/>
+  <text x="439" y="117" text-anchor="middle">right</text>
+  <rect x="470" y="94" width="50" height="36" rx="4" class="green"/>
+  <text x="495" y="117" text-anchor="middle">right</text>
+  <rect x="526" y="94" width="50" height="36" rx="4" class="green"/>
+  <text x="551" y="117" text-anchor="middle">right</text>
+  <rect x="582" y="94" width="50" height="36" rx="4" class="green"/>
+  <text x="607" y="117" text-anchor="middle">right</text>
+  <rect x="638" y="94" width="50" height="36" rx="4" class="green"/>
+  <text x="663" y="117" text-anchor="middle">right</text>
+  <rect x="694" y="94" width="50" height="36" rx="4" class="red"/>
+  <text x="719" y="117" text-anchor="middle">wrong</text>
+  <text x="758" y="118">8/10 correct</text>
+  <rect x="298" y="38" width="58" height="98" rx="6" fill="none" stroke="#000" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="327" y="154" text-anchor="middle" class="sm">correct → wrong</text>
+  <rect x="522" y="38" width="58" height="98" rx="6" fill="none" stroke="#000" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="551" y="154" text-anchor="middle" class="sm">wrong → correct</text>
+  <text x="16" y="188">Accuracy is 80% for both models, yet 2 of 10 answers changed. Users who asked Q3 now get a wrong answer.</text>
+  <rect x="16" y="202" width="18" height="14" rx="3" class="green"/><text x="40" y="214" class="sm">correct</text>
+  <rect x="110" y="202" width="18" height="14" rx="3" class="red"/><text x="134" y="214" class="sm">wrong</text>
+  <text x="200" y="214" class="sm">Illustrative example.</text>
+</svg>

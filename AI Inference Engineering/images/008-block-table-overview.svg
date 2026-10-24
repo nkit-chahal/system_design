@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .empty{fill:#fff;stroke:#999;stroke-width:1;stroke-dasharray:3 2}
+    .free{fill:#f5f5f5;stroke:#999;stroke-width:1}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="26" class="b">Logical blocks (4 tokens each, for drawing)</text>
+  <text x="372" y="26" class="b">Block tables</text>
+  <text x="560" y="26" class="b">Physical KV block pool</text>
+  <text x="16" y="52" class="b">Request A</text>
+  <text x="44" y="79" text-anchor="end" class="sm">0</text>
+  <rect x="56" y="62" width="58" height="24" class="orange"/>
+  <text x="85" y="79" text-anchor="middle" class="sm">The</text>
+  <rect x="118" y="62" width="58" height="24" class="orange"/>
+  <text x="147" y="79" text-anchor="middle" class="sm">quick</text>
+  <rect x="180" y="62" width="58" height="24" class="orange"/>
+  <text x="209" y="79" text-anchor="middle" class="sm">brown</text>
+  <rect x="242" y="62" width="58" height="24" class="orange"/>
+  <text x="271" y="79" text-anchor="middle" class="sm">fox</text>
+  <text x="44" y="109" text-anchor="end" class="sm">1</text>
+  <rect x="56" y="92" width="58" height="24" class="orange"/>
+  <text x="85" y="109" text-anchor="middle" class="sm">jumps</text>
+  <rect x="118" y="92" width="58" height="24" class="orange"/>
+  <text x="147" y="109" text-anchor="middle" class="sm">over</text>
+  <rect x="180" y="92" width="58" height="24" class="orange"/>
+  <text x="209" y="109" text-anchor="middle" class="sm">the</text>
+  <rect x="242" y="92" width="58" height="24" class="orange"/>
+  <text x="271" y="109" text-anchor="middle" class="sm">lazy</text>
+  <text x="44" y="139" text-anchor="end" class="sm">2</text>
+  <rect x="56" y="122" width="58" height="24" class="orange"/>
+  <text x="85" y="139" text-anchor="middle" class="sm">dog</text>
+  <rect x="118" y="122" width="58" height="24" class="empty"/>
+  <rect x="180" y="122" width="58" height="24" class="empty"/>
+  <rect x="242" y="122" width="58" height="24" class="empty"/>
+  <text x="16" y="184" class="b">Request B</text>
+  <text x="44" y="211" text-anchor="end" class="sm">0</text>
+  <rect x="56" y="194" width="58" height="24" class="purple"/>
+  <text x="85" y="211" text-anchor="middle" class="sm">To</text>
+  <rect x="118" y="194" width="58" height="24" class="purple"/>
+  <text x="147" y="211" text-anchor="middle" class="sm">be</text>
+  <rect x="180" y="194" width="58" height="24" class="purple"/>
+  <text x="209" y="211" text-anchor="middle" class="sm">or</text>
+  <rect x="242" y="194" width="58" height="24" class="purple"/>
+  <text x="271" y="211" text-anchor="middle" class="sm">not</text>
+  <text x="44" y="241" text-anchor="end" class="sm">1</text>
+  <rect x="56" y="224" width="58" height="24" class="purple"/>
+  <text x="85" y="241" text-anchor="middle" class="sm">to</text>
+  <rect x="118" y="224" width="58" height="24" class="purple"/>
+  <text x="147" y="241" text-anchor="middle" class="sm">be</text>
+  <rect x="180" y="224" width="58" height="24" class="empty"/>
+  <rect x="242" y="224" width="58" height="24" class="empty"/>
+  <rect x="372" y="62" width="96" height="24" class="white"/>
+  <text x="420" y="79" text-anchor="middle">0 → 7</text>
+  <path d="M306,74 L370,74" class="edge"/>
+  <rect x="372" y="92" width="96" height="24" class="white"/>
+  <text x="420" y="109" text-anchor="middle">1 → 1</text>
+  <path d="M306,104 L370,104" class="edge"/>
+  <rect x="372" y="122" width="96" height="24" class="white"/>
+  <text x="420" y="139" text-anchor="middle">2 → 4</text>
+  <path d="M306,134 L370,134" class="edge"/>
+  <rect x="372" y="194" width="96" height="24" class="white"/>
+  <text x="420" y="211" text-anchor="middle">0 → 2</text>
+  <path d="M306,206 L370,206" class="edge"/>
+  <rect x="372" y="224" width="96" height="24" class="white"/>
+  <text x="420" y="241" text-anchor="middle">1 → 6</text>
+  <path d="M306,236 L370,236" class="edge"/>
+  <text x="420" y="168" text-anchor="middle" class="sm">table A</text>
+  <text x="420" y="270" text-anchor="middle" class="sm">table B</text>
+  <path d="M470,104 L540,104" class="edge"/>
+  <path d="M470,218 L540,218" class="edge"/>
+  <text x="505" y="96" text-anchor="middle" class="sm">lookup</text>
+  <text x="505" y="210" text-anchor="middle" class="sm">lookup</text>
+  <rect x="546" y="36" width="284" height="262" rx="4" class="group"/>
+  <text x="590" y="61" text-anchor="end" class="sm">block 0</text>
+  <rect x="598" y="44" width="220" height="24" class="free"/>
+  <text x="708" y="61" text-anchor="middle" class="sm">free</text>
+  <text x="590" y="89" text-anchor="end" class="sm">block 1</text>
+  <rect x="598" y="72" width="52" height="24" class="orange"/>
+  <text x="624" y="89" text-anchor="middle" class="sm">jumps</text>
+  <rect x="654" y="72" width="52" height="24" class="orange"/>
+  <text x="680" y="89" text-anchor="middle" class="sm">over</text>
+  <rect x="710" y="72" width="52" height="24" class="orange"/>
+  <text x="736" y="89" text-anchor="middle" class="sm">the</text>
+  <rect x="766" y="72" width="52" height="24" class="orange"/>
+  <text x="792" y="89" text-anchor="middle" class="sm">lazy</text>
+  <text x="590" y="117" text-anchor="end" class="sm">block 2</text>
+  <rect x="598" y="100" width="52" height="24" class="purple"/>
+  <text x="624" y="117" text-anchor="middle" class="sm">To</text>
+  <rect x="654" y="100" width="52" height="24" class="purple"/>
+  <text x="680" y="117" text-anchor="middle" class="sm">be</text>
+  <rect x="710" y="100" width="52" height="24" class="purple"/>
+  <text x="736" y="117" text-anchor="middle" class="sm">or</text>
+  <rect x="766" y="100" width="52" height="24" class="purple"/>
+  <text x="792" y="117" text-anchor="middle" class="sm">not</text>
+  <text x="590" y="145" text-anchor="end" class="sm">block 3</text>
+  <rect x="598" y="128" width="220" height="24" class="free"/>
+  <text x="708" y="145" text-anchor="middle" class="sm">free</text>
+  <text x="590" y="173" text-anchor="end" class="sm">block 4</text>
+  <rect x="598" y="156" width="52" height="24" class="orange"/>
+  <text x="624" y="173" text-anchor="middle" class="sm">dog</text>
+  <rect x="654" y="156" width="52" height="24" class="empty"/>
+  <rect x="710" y="156" width="52" height="24" class="empty"/>
+  <rect x="766" y="156" width="52" height="24" class="empty"/>
+  <text x="590" y="201" text-anchor="end" class="sm">block 5</text>
+  <rect x="598" y="184" width="220" height="24" class="free"/>
+  <text x="708" y="201" text-anchor="middle" class="sm">free</text>
+  <text x="590" y="229" text-anchor="end" class="sm">block 6</text>
+  <rect x="598" y="212" width="52" height="24" class="purple"/>
+  <text x="624" y="229" text-anchor="middle" class="sm">to</text>
+  <rect x="654" y="212" width="52" height="24" class="purple"/>
+  <text x="680" y="229" text-anchor="middle" class="sm">be</text>
+  <rect x="710" y="212" width="52" height="24" class="empty"/>
+  <rect x="766" y="212" width="52" height="24" class="empty"/>
+  <text x="590" y="257" text-anchor="end" class="sm">block 7</text>
+  <rect x="598" y="240" width="52" height="24" class="orange"/>
+  <text x="624" y="257" text-anchor="middle" class="sm">The</text>
+  <rect x="654" y="240" width="52" height="24" class="orange"/>
+  <text x="680" y="257" text-anchor="middle" class="sm">quick</text>
+  <rect x="710" y="240" width="52" height="24" class="orange"/>
+  <text x="736" y="257" text-anchor="middle" class="sm">brown</text>
+  <rect x="766" y="240" width="52" height="24" class="orange"/>
+  <text x="792" y="257" text-anchor="middle" class="sm">fox</text>
+  <text x="590" y="285" text-anchor="end" class="sm">block 8</text>
+  <rect x="598" y="268" width="220" height="24" class="free"/>
+  <text x="708" y="285" text-anchor="middle" class="sm">free</text>
+  <rect x="16" y="318" width="18" height="12" class="orange"/><text x="40" y="329" class="sm">request A</text>
+  <rect x="120" y="318" width="18" height="12" class="purple"/><text x="144" y="329" class="sm">request B</text>
+  <rect x="224" y="318" width="18" height="12" class="empty"/><text x="248" y="329" class="sm">slot not yet filled</text>
+  <rect x="376" y="318" width="18" height="12" class="free"/><text x="400" y="329" class="sm">free block</text>
+  <text x="490" y="329" class="sm">Blocks need not be contiguous or in order.</text>
+</svg>

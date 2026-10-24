@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="280" viewBox="0 0 840 280" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.mono{font-family:Consolas, Menlo, monospace;font-size:12px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .wire{stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Program -->
+  <text x="12" y="24" class="b">Program</text>
+  <rect x="12" y="34" width="392" height="196" rx="6" class="white"/>
+  <rect x="12" y="90" width="6" height="22" fill="#6c8ebf"/>
+  <rect x="12" y="112" width="6" height="110" fill="#d79b00"/>
+  <text x="26" y="60" class="mono">@function</text>
+  <text x="26" y="82" class="mono">def tips(s):</text>
+  <text x="55" y="104" class="mono">s += user(PROMPT)</text>
+  <text x="55" y="126" class="mono">forks = s.fork(2)</text>
+  <text x="55" y="148" class="mono">for f in forks:</text>
+  <text x="84" y="170" class="mono">f += assistant(gen("tip"))</text>
+  <text x="55" y="192" class="mono">s += user(forks[0]["tip"] + forks[1]["tip"])</text>
+  <text x="55" y="214" class="mono">s += assistant(gen("summary"))</text>
+  <text x="12" y="254" class="sm">gen() calls inside the loop run in parallel; the runtime sees three requests.</text>
+
+  <!-- Radix tree -->
+  <text x="430" y="24" class="b">Radix tree on the server</text>
+  <line x1="630" y1="60" x2="630" y2="84" class="wire"/>
+  <line x1="630" y1="128" x2="490" y2="180" class="wire"/>
+  <line x1="630" y1="128" x2="630" y2="180" class="wire"/>
+  <line x1="630" y1="128" x2="770" y2="180" class="wire"/>
+  <rect x="600" y="34" width="60" height="26" rx="13" class="white"/>
+  <text x="630" y="52" text-anchor="middle" class="sm">root</text>
+  <rect x="520" y="84" width="220" height="44" rx="6" class="blue"/>
+  <text x="630" y="102" text-anchor="middle">Shared prompt</text>
+  <text x="630" y="120" text-anchor="middle" class="sm">prefilled once, shared by all three</text>
+  <rect x="430" y="180" width="120" height="44" rx="6" class="orange"/>
+  <text x="490" y="198" text-anchor="middle">Branch 1</text>
+  <text x="490" y="216" text-anchor="middle" class="sm">gen tip</text>
+  <rect x="570" y="180" width="120" height="44" rx="6" class="orange"/>
+  <text x="630" y="198" text-anchor="middle">Branch 2</text>
+  <text x="630" y="216" text-anchor="middle" class="sm">gen tip</text>
+  <rect x="710" y="180" width="120" height="44" rx="6" class="orange"/>
+  <text x="770" y="198" text-anchor="middle">Summary call</text>
+  <text x="770" y="216" text-anchor="middle" class="sm">joined tips</text>
+  <text x="430" y="254" class="sm">Blue: computed once. Orange: computed per branch.</text>
+</svg>

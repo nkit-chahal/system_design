@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="330" viewBox="0 0 800 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .white{fill:#fff;stroke:#666;stroke-width:1.2}
+    .reserved{fill:url(#hatch);stroke:#999;stroke-width:1}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="26" class="b">Contiguous: reserve max_model_len slots for every request up front</text>
+  <text x="16" y="62">Request A</text>
+  <rect x="110" y="44" width="200" height="26" class="orange"/><rect x="310" y="44" width="440" height="26" class="reserved"/>
+  <text x="16" y="96">Request B</text>
+  <rect x="110" y="78" width="80" height="26" class="green"/><rect x="190" y="78" width="560" height="26" class="reserved"/>
+  <text x="16" y="130">Request C</text>
+  <rect x="110" y="112" width="360" height="26" class="purple"/><rect x="470" y="112" width="280" height="26" class="reserved"/>
+  <path d="M150,44 V70 M150,78 V104 M150,112 V138 M190,44 V70 M190,78 V104 M190,112 V138 M230,44 V70 M230,78 V104 M230,112 V138 M270,44 V70 M270,78 V104 M270,112 V138 M310,44 V70 M310,78 V104 M310,112 V138 M350,44 V70 M350,78 V104 M350,112 V138 M390,44 V70 M390,78 V104 M390,112 V138 M430,44 V70 M430,78 V104 M430,112 V138 M470,44 V70 M470,78 V104 M470,112 V138 M510,44 V70 M510,78 V104 M510,112 V138 M550,44 V70 M550,78 V104 M550,112 V138 M590,44 V70 M590,78 V104 M590,112 V138 M630,44 V70 M630,78 V104 M630,112 V138 M670,44 V70 M670,78 V104 M670,112 V138 M710,44 V70 M710,78 V104 M710,112 V138" stroke="#999" stroke-width="0.8" fill="none"/>
+  <text x="16" y="164">Only 16 of 48 reserved slots hold data. The other 67% is idle memory that no new request can use.</text>
+
+  <line x1="16" y1="184" x2="784" y2="184" stroke="#999" stroke-dasharray="5 4"/>
+
+  <text x="16" y="212" class="b">Paged: hand out fixed-size blocks from one shared pool as tokens arrive</text>
+  <!-- 24 blocks of 26px; 16 used (A5, B2, C9) interleaved, 8 free -->
+  <g>
+    <rect x="110" y="228" width="26" height="26" class="orange"/><rect x="136" y="228" width="26" height="26" class="purple"/><rect x="162" y="228" width="26" height="26" class="green"/><rect x="188" y="228" width="26" height="26" class="orange"/>
+    <rect x="214" y="228" width="26" height="26" class="purple"/><rect x="240" y="228" width="26" height="26" class="purple"/><rect x="266" y="228" width="26" height="26" class="orange"/><rect x="292" y="228" width="26" height="26" class="green"/>
+    <rect x="318" y="228" width="26" height="26" class="purple"/><rect x="344" y="228" width="26" height="26" class="purple"/><rect x="370" y="228" width="26" height="26" class="orange"/><rect x="396" y="228" width="26" height="26" class="purple"/>
+    <rect x="422" y="228" width="26" height="26" class="orange"/><rect x="448" y="228" width="26" height="26" class="purple"/><rect x="474" y="228" width="26" height="26" class="purple"/><rect x="500" y="228" width="26" height="26" class="purple"/>
+    <rect x="526" y="228" width="26" height="26" class="white"/><rect x="552" y="228" width="26" height="26" class="white"/><rect x="578" y="228" width="26" height="26" class="white"/><rect x="604" y="228" width="26" height="26" class="white"/>
+    <rect x="630" y="228" width="26" height="26" class="white"/><rect x="656" y="228" width="26" height="26" class="white"/><rect x="682" y="228" width="26" height="26" class="white"/><rect x="708" y="228" width="26" height="26" class="white"/>
+  </g>
+  <text x="16" y="246">Block pool</text>
+  <text x="526" y="274" class="sm">free blocks: room for new requests</text>
+  <text x="16" y="300">The same 16 blocks of data use a third of the memory. Waste is at most one partly filled block per request.</text>
+
+  <!-- Legend -->
+  <rect x="110" y="310" width="16" height="12" class="orange"/><text x="132" y="321" class="sm">A</text>
+  <rect x="160" y="310" width="16" height="12" class="green"/><text x="182" y="321" class="sm">B</text>
+  <rect x="210" y="310" width="16" height="12" class="purple"/><text x="232" y="321" class="sm">C</text>
+  <rect x="260" y="310" width="16" height="12" class="reserved"/><text x="282" y="321" class="sm">reserved but unused</text>
+</svg>

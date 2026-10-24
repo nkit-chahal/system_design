@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="340" viewBox="0 0 860 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="10" y="10" width="264" height="320" rx="4" class="group"/>
+  <text x="142" y="34" text-anchor="middle" class="lg b">Canary</text>
+  <rect x="82" y="48" width="120" height="40" rx="6" class="purple"/><text x="142" y="73" text-anchor="middle" class="b">Router</text>
+  <path d="M112,88 L79,144" class="edge"/>
+  <rect x="24" y="146" width="110" height="44" rx="6" class="gray"/><text x="79" y="173" text-anchor="middle" class="sm">7 old replicas</text>
+  <text x="79" y="208" text-anchor="middle" class="sm b">87.5%</text>
+  <path d="M172,88 L205,144" class="edge"/>
+  <rect x="150" y="146" width="110" height="44" rx="6" class="orange"/><text x="205" y="173" text-anchor="middle" class="sm">1 new replica</text>
+  <text x="205" y="208" text-anchor="middle" class="sm b">12.5%</text>
+  <text x="24" y="244" class="sm">Extra GPUs: 0 to 1</text>
+  <text x="24" y="266" class="sm">Exposure: one replica's share</text>
+  <text x="24" y="288" class="sm">Rollback: shift the weight</text>
+  <rect x="294" y="10" width="264" height="320" rx="4" class="group"/>
+  <text x="426" y="34" text-anchor="middle" class="lg b">Blue/green</text>
+  <rect x="366" y="48" width="120" height="40" rx="6" class="purple"/><text x="426" y="73" text-anchor="middle" class="b">Router</text>
+  <path d="M396,88 L363,144" class="dash"/>
+  <rect x="308" y="146" width="110" height="44" rx="6" class="gray"/><text x="363" y="173" text-anchor="middle" class="sm">7 old (blue)</text>
+  <text x="363" y="208" text-anchor="middle" class="sm b">0% after switch</text>
+  <path d="M456,88 L489,144" class="edge"/>
+  <rect x="434" y="146" width="110" height="44" rx="6" class="orange"/><text x="489" y="173" text-anchor="middle" class="sm">7 new (green)</text>
+  <text x="489" y="208" text-anchor="middle" class="sm b">100% at once</text>
+  <text x="308" y="244" class="sm">Extra GPUs: 7 during switch</text>
+  <text x="308" y="266" class="sm">Exposure: everyone at once</text>
+  <text x="308" y="288" class="sm">Rollback: switch back</text>
+  <rect x="578" y="10" width="264" height="320" rx="4" class="group"/>
+  <text x="710" y="34" text-anchor="middle" class="lg b">Shadow</text>
+  <rect x="650" y="48" width="120" height="40" rx="6" class="purple"/><text x="710" y="73" text-anchor="middle" class="b">Router</text>
+  <path d="M680,88 L647,144" class="edge"/>
+  <rect x="592" y="146" width="110" height="44" rx="6" class="gray"/><text x="647" y="173" text-anchor="middle" class="sm">7 old replicas</text>
+  <text x="647" y="208" text-anchor="middle" class="sm b">100%, to users</text>
+  <path d="M740,88 L773,144" class="dash"/>
+  <rect x="718" y="146" width="110" height="44" rx="6" class="orange"/><text x="773" y="173" text-anchor="middle" class="sm">1 new replica</text>
+  <text x="773" y="208" text-anchor="middle" class="sm b">copy, discarded</text>
+  <text x="592" y="244" class="sm">Extra GPUs: for the copies</text>
+  <text x="592" y="266" class="sm">Exposure: none</text>
+  <text x="592" y="288" class="sm">Cannot measure user reaction</text>
+  </svg>

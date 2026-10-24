@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="260" viewBox="0 0 780 260" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <rect x="16" y="88" width="96" height="44" rx="6" class="white"/>
+  <text x="64" y="107" text-anchor="middle">one cached</text>
+  <text x="64" y="124" text-anchor="middle">token</text>
+  <path d="M112,110 L144,110" class="edge"/>
+
+  <rect x="148" y="40" width="150" height="132" rx="4" class="group"/>
+  <text x="223" y="62" text-anchor="middle" class="b">Layer 1</text>
+  <rect x="163" y="74" width="120" height="34" rx="4" class="orange"/><text x="223" y="96" text-anchor="middle">K: 8 × 128</text>
+  <rect x="163" y="120" width="120" height="34" rx="4" class="blue"/><text x="223" y="142" text-anchor="middle">V: 8 × 128</text>
+
+  <rect x="314" y="40" width="150" height="132" rx="4" class="group"/>
+  <text x="389" y="62" text-anchor="middle" class="b">Layer 2</text>
+  <rect x="329" y="74" width="120" height="34" rx="4" class="orange"/><text x="389" y="96" text-anchor="middle">K: 8 × 128</text>
+  <rect x="329" y="120" width="120" height="34" rx="4" class="blue"/><text x="389" y="142" text-anchor="middle">V: 8 × 128</text>
+
+  <text x="497" y="112" text-anchor="middle" style="font-size:22px">⋯</text>
+
+  <rect x="530" y="40" width="150" height="132" rx="4" class="group"/>
+  <text x="605" y="62" text-anchor="middle" class="b">Layer 32</text>
+  <rect x="545" y="74" width="120" height="34" rx="4" class="orange"/><text x="605" y="96" text-anchor="middle">K: 8 × 128</text>
+  <rect x="545" y="120" width="120" height="34" rx="4" class="blue"/><text x="605" y="142" text-anchor="middle">V: 8 × 128</text>
+
+  <text x="148" y="22" class="sm">Llama 3.1 8B, BF16. Each box = 8 KV heads × 128 dims = 1,024 numbers.</text>
+
+  <text x="16" y="210">2 (K and V) × 32 layers × 8 KV heads × 128 dims × 2 bytes = <tspan class="b">131,072 bytes = 128 KiB per token</tspan></text>
+  <text x="16" y="240">× 2,500 tokens ≈ 312 MiB per request          × 32,768 tokens = 4 GiB per request</text>
+</svg>

@@ -1,0 +1,504 @@
+<h2>Introduction</h2>
+<p>Lessons 2 through 5 built a model of where a served LLM spends its time. A compute-heavy prefill reads the whole prompt and produces the first token. A memory-bound decode loop then produces every other token, one step at a time, re-reading the weights and the KV cache at each step. A model is only worth having if it predicts something you can check, and in this lab we check it.</p>
+<p>We serve an open model behind an OpenAI-compatible HTTP API, write a small streaming client that timestamps every token, and run two experiments. The first holds <strong>concurrency</strong>, the number of requests in flight at the same time, at one and grows the prompt from 128 to 8,192 tokens. The second holds the prompt fixed and raises concurrency from 1 to 64. Every request yields four numbers: time to first token (TTFT), inter-token latency (ITL), output tokens per second, and end-to-end latency. Figure 1 shows the setup.</p>
+<fig src="006-lab-setup.svg" caption="Lab setup: a streaming client and a benchmark tool driving one OpenAI-compatible server">On the left, two load generators: measure.py, the streaming client built in this lab, and vllm bench serve, used as a cross-check. Both send HTTP POST requests to a server machine that runs vLLM on port 8000 or Ollama on port 11434 on top of a GPU. Tokens stream back to measure.py, which writes requests.csv and levels.csv; plot.py turns those files into prompt_sweep.png and concurrency_sweep.png.</fig>
+<p>In this lab, we start a server, build the client, run both sweeps, plot the results, and cross-check our numbers against vLLM's own benchmark tool. Before each experiment we also work out from the hardware specifications what the curves should look like, so that a surprising result stands out instead of being taken at face value.</p>
+
+<h2>What You Need</h2>
+<p>There are two paths through the lab. The <strong>small path</strong> runs on a laptop or desktop GPU and shows every effect at a smaller scale. The <strong>full path</strong> uses the course's running example, Llama 3.1 8B Instruct on one H100, so your numbers can be compared directly with the arithmetic in Lessons 2 to 5.</p>
+<table>
+<thead><tr><th></th><th>Small path</th><th>Full path</th></tr></thead>
+<tbody>
+<tr><td>GPU</td><td>NVIDIA GPU with 8 GB or more, laptop or desktop</td><td>One H100 80 GB cloud instance</td></tr>
+<tr><td>Operating system</td><td>Windows 11 with Ollama natively, or vLLM inside WSL2; Linux works for both</td><td>Ubuntu 22.04 or 24.04 with NVIDIA drivers</td></tr>
+<tr><td>Server</td><td>Ollama, or vLLM on Linux/WSL2</td><td>vLLM 0.32</td></tr>
+<tr><td>Model</td><td><code>Qwen/Qwen2.5-1.5B-Instruct</code> in BF16 on vLLM (3.09 GB of weights), or <code>qwen2.5:1.5b-instruct-fp16</code> on Ollama</td><td><code>meta-llama/Llama-3.1-8B-Instruct</code> in BF16 (16.06 GB of weights; gated, accept the license first)</td></tr>
+<tr><td>Client</td><td>Python 3.11+ with <code>httpx</code>, <code>transformers</code> (tokenizer only), <code>matplotlib</code></td><td>Same</td></tr>
+<tr><td>Time</td><td>About an hour</td><td>One to two hours</td></tr>
+<tr><td>Cost</td><td>Nothing beyond your machine</td><td>About $6, assuming $3.00 per H100-hour for two hours</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Hardware and software for the two paths. The H100 price is an assumption; check your provider.</p>
+<p>Ollama's default <code>qwen2.5:1.5b</code> tag is a 4-bit Q4_K_M build of 986 MB. We use the <code>-fp16</code> tag so that the small path, like the full path, runs a 16-bit model. vLLM needs Python 3.11 to 3.14 on Linux; on Windows, run it inside WSL2.</p>
+
+<h2>Step 1: Start an OpenAI-Compatible Server</h2>
+<p>All three tabs start a server that speaks the OpenAI chat completions API [1][4], so the same client works against any of them. The first tab is the full path, the second the small path on vLLM, and the third the small path on Ollama under Windows PowerShell.</p>
+<codetabs>
+<tab label="vLLM (full path)" lang="bash">
+# Linux or WSL2. vLLM supports Python 3.11-3.14.
+uv venv --python 3.12 --seed
+source .venv/bin/activate
+uv pip install vllm --torch-backend=auto
+vllm download-kernels            # optional: precompiled kernels, faster first start
+
+export HF_TOKEN=hf_xxx           # Llama 3.1 is gated: accept its license on Hugging Face first
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --max-model-len 16384 \
+  --gpu-memory-utilization 0.90 \
+  --no-enable-prefix-caching \
+  --port 8000 2>&1 | tee server.log
+
+# In a second terminal:
+grep -E "Model loading took|KV cache size" server.log
+curl -s http://localhost:8000/v1/models
+</tab>
+<tab label="vLLM (small path)" lang="bash">
+vllm serve Qwen/Qwen2.5-1.5B-Instruct \
+  --max-model-len 16384 \
+  --gpu-memory-utilization 0.85 \
+  --no-enable-prefix-caching \
+  --port 8000 2>&1 | tee server.log
+</tab>
+<tab label="Ollama (PowerShell)" lang="bash">
+# Quit Ollama from the system tray first, so the server starts with these settings.
+$env:OLLAMA_CONTEXT_LENGTH = "16384"   # default is 4K on GPUs with less than 24 GiB
+$env:OLLAMA_NUM_PARALLEL = "4"         # default is 1: extra requests wait in a queue
+ollama pull qwen2.5:1.5b-instruct-fp16
+ollama serve
+
+# In a second terminal:
+curl.exe http://localhost:11434/v1/models
+</tab>
+</codetabs>
+<p>We set <code>--gpu-memory-utilization 0.90</code> explicitly so that the cache budget matches the arithmetic of Lesson 3, KV Cache; recent vLLM releases default to 0.92.</p>
+<p><strong>What you should see.</strong> vLLM logs a line <code>Model loading took … GiB memory</code> and a line <code>GPU KV cache size: … tokens, Maximum concurrency for 16,384 tokens per request: …x</code>. On the full path, the weights take about 15 GiB (the checkpoint is 16.06 GB), and the cache capacity should land near the 426,000 tokens that Lesson 3, KV Cache, derives for this GPU. The <code>/v1/models</code> call returns a JSON list containing your model's name.</p>
+<p>Two settings matter for measurement. vLLM enables prefix caching by default (Lesson 24, Prefix Caching). Our client sends the same prompt many times, and with caching on, every repeat would skip most of its prefill and report a TTFT far below what a fresh prompt costs. <code>--no-enable-prefix-caching</code> turns it off [2], and the client also puts a random tag at the start of each prompt as a second guard. On Ollama, the OpenAI-compatible API has no way to set the context window, so <code>OLLAMA_CONTEXT_LENGTH</code> raises it to 16,384 tokens to fit our longest prompt. Ollama's documentation notes that memory grows with the number of parallel requests times the context length [9][10]. For Qwen2.5-1.5B the cache costs 2 × 28 layers × 2 KV heads × 128 × 2 bytes = 28 KiB per token, so 4 × 16,384 tokens need 1.75 GiB, which fits easily.</p>
+
+<h2>Step 2: Build a Streaming Client</h2>
+<p>The client sends a chat request with <code>stream: true</code> and records a timestamp every time a chunk of text arrives. Figure 2 shows how the four metrics fall out of those timestamps.</p>
+<fig src="006-request-timeline.svg" caption="One streamed request: where TTFT, ITL, TPOT and end-to-end latency come from">The server lane shows a queue-plus-prefill block followed by nine decode steps. The client lane shows the send time, then a token arriving at the end of prefill and after each decode step, then the final [DONE] message. Brackets mark TTFT from send to first token, one ITL between two consecutive tokens, and end-to-end latency from send to the end of the stream. TPOT equals end-to-end latency minus TTFT, divided by output tokens minus one.</fig>
+<p><strong>Time to first token</strong> covers queueing, prefill (which itself produces the first token), and the trip back to the client (Lesson 4, Time to First Token). <strong>Inter-token latency</strong> is the gap between two consecutive chunks. <strong>Time per output token</strong> (TPOT) averages the decode phase of one request, and its inverse is that user's streaming speed (Lesson 5, Tokens per Second):</p>
+<texblock>\text{TPOT} = \frac{\text{E2E} - \text{TTFT}}{N_{\text{out}} - 1}, \qquad \text{per-user tokens/s} = \frac{1}{\text{TPOT}}</texblock>
+<p>TPOT and ITL answer different questions. TPOT is a per-request average, good for "how fast does text stream". The ITL distribution exposes stalls: a single 80 ms gap in a stream of 6 ms gaps means the request waited while the engine ran someone else's prefill (Lesson 7, Continuous Batching). We store the median and 99th-percentile gap of every request. We count output tokens from the <code>usage</code> block that the server sends at the end of the stream rather than counting chunks, because a server is allowed to pack several tokens into one chunk. The TPOT definition matches the one in <code>vllm bench serve</code>, so the cross-check in Step 6 compares like with like.</p>
+<p>For the concurrency sweep, the client runs a <strong>closed loop</strong>: C workers, each of which sends its next request the moment its previous one finishes, so exactly C requests are in flight (Figure 3). The workers start a little apart so that their requests do not all prefill and finish in lockstep.</p>
+<fig src="006-closed-loop.svg" caption="A closed loop at concurrency 4: each worker starts its next request as soon as the last one ends">Four worker lanes each contain back-to-back request bars. The workers start at staggered times. A vertical dashed line shows that at any instant four requests are in flight. One level sends max(16, rounds times C) requests, and total throughput is the output tokens of all requests divided by wall time.</fig>
+<p>The first tab installs the client's dependencies; the second is the whole client. It needs a Hugging Face tokenizer only to size prompts in tokens, and it never loads model weights.</p>
+<codetabs>
+<tab label="Install" lang="bash">
+python -m venv .venv-client
+source .venv-client/bin/activate      # Windows: .venv-client\Scripts\activate
+pip install httpx transformers matplotlib
+</tab>
+<tab label="measure.py" lang="python">
+"""measure.py: stream chat requests to an OpenAI-compatible server and time every token.
+
+  --mode prompt       concurrency 1, --repeats requests for each length in --prompt-lens
+  --mode concurrency  fixed --prompt-len and --output-len, one level per --concurrency value
+"""
+import argparse
+import asyncio
+import csv
+import json
+import os
+import time
+import uuid
+
+import httpx
+from transformers import AutoTokenizer
+
+FILLER = ("Serving engines batch requests, cache attention keys and values, and stream "
+          "tokens back to users as soon as each one is generated. ")
+INSTRUCTION = "\n\nWrite a long, detailed summary of the text above."
+FIELDS = ["experiment", "target_prompt_tokens", "concurrency", "status", "prompt_tokens",
+          "output_tokens", "ttft_ms", "tpot_ms", "itl_p50_ms", "itl_p99_ms", "e2e_ms",
+          "user_tok_s"]
+
+
+def pct(values, p):
+    """Percentile with linear interpolation (p in 0..100)."""
+    if not values:
+        return float("nan")
+    s = sorted(values)
+    k = (len(s) - 1) * p / 100
+    lo = int(k)
+    hi = min(lo + 1, len(s) - 1)
+    return s[lo] + (s[hi] - s[lo]) * (k - lo)
+
+
+def build_prompt(tok, target_tokens):
+    """User text whose chat-formatted prompt is close to target_tokens tokens."""
+    sample = [{"role": "user", "content": "[0123abcd] " + INSTRUCTION}]
+    wrapped = tok.apply_chat_template(sample, tokenize=False, add_generation_prompt=True)
+    overhead = len(tok(wrapped, add_special_tokens=False)["input_ids"])
+    body = max(target_tokens - overhead, 1)
+    filler_ids = tok(FILLER, add_special_tokens=False)["input_ids"]
+    ids = (filler_ids * (body // len(filler_ids) + 1))[:body]
+    return tok.decode(ids) + INSTRUCTION
+
+
+async def one_request(client, args, user_text):
+    # A fresh nonce at the start of every prompt defeats prefix caching.
+    payload = {
+        "model": args.model,
+        "messages": [{"role": "user", "content": f"[{uuid.uuid4().hex[:8]}] {user_text}"}],
+        "max_tokens": args.output_len,
+        "temperature": 0.0,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    if args.ignore_eos:  # vLLM and SGLang accept this extra field; Ollama does not document it
+        payload["ignore_eos"] = True
+    stamps, usage = [], {}
+    t_send = time.perf_counter()
+    async with client.stream("POST", "/chat/completions", json=payload) as resp:
+        resp.raise_for_status()
+        async for line in resp.aiter_lines():
+            if not line.startswith("data:"):
+                continue
+            data = line[len("data:"):].strip()
+            if data == "[DONE]":
+                break
+            chunk = json.loads(data)
+            if chunk.get("usage"):
+                usage = chunk["usage"]
+            choices = chunk.get("choices") or []
+            if choices and (choices[0].get("delta") or {}).get("content"):
+                stamps.append(time.perf_counter())
+    t_end = time.perf_counter()
+    if not stamps:
+        raise RuntimeError("no tokens received")
+    n_out = usage.get("completion_tokens") or len(stamps)
+    ttft = stamps[0] - t_send
+    e2e = t_end - t_send
+    tpot = (e2e - ttft) / (n_out - 1) if n_out > 1 else float("nan")
+    gaps = [b - a for a, b in zip(stamps, stamps[1:])]
+    return {
+        "status": "ok",
+        "prompt_tokens": usage.get("prompt_tokens", ""),
+        "output_tokens": n_out,
+        "ttft_ms": round(ttft * 1e3, 2),
+        "tpot_ms": round(tpot * 1e3, 3),
+        "itl_p50_ms": round(pct(gaps, 50) * 1e3, 3),
+        "itl_p99_ms": round(pct(gaps, 99) * 1e3, 3),
+        "e2e_ms": round(e2e * 1e3, 2),
+        "user_tok_s": round(1 / tpot, 1) if tpot == tpot and tpot > 0 else "",
+    }
+
+
+async def safe_request(client, args, user_text):
+    try:
+        return await one_request(client, args, user_text)
+    except (httpx.HTTPError, RuntimeError, json.JSONDecodeError) as exc:
+        print(f"  request failed: {exc!r}")
+        return {"status": "error"}
+
+
+async def run_level(client, args, user_text, concurrency, n_requests):
+    """Closed loop: `concurrency` workers each send their next request as soon as one ends."""
+    todo = asyncio.Queue()
+    for i in range(n_requests):
+        todo.put_nowait(i)
+    rows = []
+
+    async def worker(w):
+        await asyncio.sleep(w * args.ramp_seconds / concurrency)  # stagger the first wave
+        while True:
+            try:
+                todo.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            rows.append(await safe_request(client, args, user_text))
+
+    t0 = time.perf_counter()
+    await asyncio.gather(*(worker(w) for w in range(concurrency)))
+    return rows, time.perf_counter() - t0
+
+
+async def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--base-url", default="http://localhost:8000/v1")
+    ap.add_argument("--model", required=True, help="model name the server expects")
+    ap.add_argument("--tokenizer", help="Hugging Face tokenizer used to size prompts")
+    ap.add_argument("--mode", choices=["prompt", "concurrency"], required=True)
+    ap.add_argument("--prompt-lens", type=int, nargs="+", default=[128, 512, 2048, 8192])
+    ap.add_argument("--prompt-len", type=int, default=2000)
+    ap.add_argument("--output-len", type=int, default=128)
+    ap.add_argument("--concurrency", type=int, nargs="+", default=[1, 4, 16, 64])
+    ap.add_argument("--repeats", type=int, default=5, help="requests per prompt length")
+    ap.add_argument("--rounds", type=int, default=8, help="requests per level = rounds x concurrency")
+    ap.add_argument("--ramp-seconds", type=float, default=5.0)
+    ap.add_argument("--warmup", type=int, default=2)
+    ap.add_argument("--ignore-eos", action="store_true")
+    ap.add_argument("--out", default="requests.csv")
+    ap.add_argument("--levels-out", default="levels.csv")
+    args = ap.parse_args()
+
+    tok = AutoTokenizer.from_pretrained(args.tokenizer or args.model)
+    limits = httpx.Limits(max_connections=max(args.concurrency) + 8)
+    async with httpx.AsyncClient(base_url=args.base_url, timeout=None, limits=limits) as client:
+        warm_text = build_prompt(tok, 256)
+        for _ in range(args.warmup):  # first requests pay for graph capture and caches
+            await safe_request(client, args, warm_text)
+
+        rows, levels = [], []
+        if args.mode == "prompt":
+            for n in args.prompt_lens:
+                text = build_prompt(tok, n)
+                for _ in range(args.repeats):
+                    r = await safe_request(client, args, text)
+                    rows.append({"experiment": "prompt", "target_prompt_tokens": n, "concurrency": 1, **r})
+                ok = [r for r in rows if r["target_prompt_tokens"] == n and r["status"] == "ok"]
+                print(f"prompt {n:>5}: median TTFT {pct([r['ttft_ms'] for r in ok], 50):8.1f} ms, "
+                      f"median TPOT {pct([r['tpot_ms'] for r in ok], 50):6.2f} ms")
+        else:
+            text = build_prompt(tok, args.prompt_len)
+            for c in args.concurrency:
+                level, wall = await run_level(client, args, text, c, max(16, args.rounds * c))
+                ok = [r for r in level if r["status"] == "ok"]
+                total_out = sum(r["output_tokens"] for r in ok)
+                levels.append({
+                    "concurrency": c, "requests": len(level), "errors": len(level) - len(ok),
+                    "wall_s": round(wall, 2), "output_tokens": total_out,
+                    "throughput_tok_s": round(total_out / wall, 1),
+                    "ttft_p50_ms": round(pct([r["ttft_ms"] for r in ok], 50), 1),
+                    "ttft_p95_ms": round(pct([r["ttft_ms"] for r in ok], 95), 1),
+                    "ttft_p99_ms": round(pct([r["ttft_ms"] for r in ok], 99), 1),
+                    "tpot_p50_ms": round(pct([r["tpot_ms"] for r in ok], 50), 2),
+                    "tpot_p95_ms": round(pct([r["tpot_ms"] for r in ok], 95), 2),
+                    "user_tok_s_p50": round(pct([r["user_tok_s"] for r in ok if r["user_tok_s"] != ""], 50), 1),
+                })
+                print(levels[-1])
+                rows += [{"experiment": "concurrency", "target_prompt_tokens": args.prompt_len,
+                          "concurrency": c, **r} for r in level]
+
+    new_file = not os.path.exists(args.out)
+    with open(args.out, "a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=FIELDS, restval="")
+        if new_file:
+            w.writeheader()
+        w.writerows(rows)
+    if levels:
+        with open(args.levels_out, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(levels[0]))
+            w.writeheader()
+            w.writerows(levels)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+</tab>
+</codetabs>
+<p>The client uses <code>httpx</code> directly rather than an SDK [11], so every byte between the server and the timestamps is visible. Each request starts with a fresh eight-character tag, the prompt body is a filler paragraph repeated to the target length, and the chat template's own tokens are subtracted so that the server-side prompt lands close to the target. The CSV keeps the prompt token count that the server reports, which is the number to plot.</p>
+
+<h2>Step 3: Sweep Prompt Length at Concurrency 1</h2>
+<p>With one request at a time there is no batching and no queue, so TTFT is almost pure prefill and TPOT is almost pure decode. We send five requests at each of four prompt lengths, each generating 128 tokens. On vLLM, <code>--ignore-eos</code> keeps the model from stopping early, so every request decodes exactly 128 tokens.</p>
+<codetabs>
+<tab label="vLLM (full path)" lang="bash">
+python measure.py --mode prompt \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --prompt-lens 128 512 2048 8192 --output-len 128 --repeats 5 --ignore-eos
+</tab>
+<tab label="vLLM (small path)" lang="bash">
+python measure.py --mode prompt \
+  --model Qwen/Qwen2.5-1.5B-Instruct \
+  --prompt-lens 128 512 2048 8192 --output-len 128 --repeats 5 --ignore-eos
+</tab>
+<tab label="Ollama" lang="bash">
+python measure.py --mode prompt \
+  --base-url http://localhost:11434/v1 \
+  --model qwen2.5:1.5b-instruct-fp16 --tokenizer Qwen/Qwen2.5-1.5B-Instruct \
+  --prompt-lens 128 512 2048 8192 --output-len 128 --repeats 5
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> One line per prompt length, of the form <code>prompt  8192: median TTFT … ms, median TPOT … ms</code>, and 20 rows appended to <code>requests.csv</code>. Check two columns before looking at any latency: <code>prompt_tokens</code> should be within a few tokens of the target, and <code>output_tokens</code> should be 128 on vLLM. On Ollama, which does not support <code>ignore_eos</code>, output lengths can vary; TPOT still works because it is normalized per token.</p>
+<p>What should the numbers be? Lesson 2, Prefill vs Decode, gives two floors [6]. Prefill does about 2 floating-point operations per parameter per prompt token, and it must also read the weights at least once. Decode reads the weights plus the cache at every step. For Llama 3.1 8B in BF16 on an H100 (989 TFLOPS dense BF16, 3.35 TB/s):</p>
+<texblock>\text{TTFT} \geq \max\left(\frac{16.06\ \text{GB}}{3.35\ \text{TB/s}},\ \frac{2 \times 8.03 \times 10^{9} \times n}{989\ \text{TFLOPS}}\right), \qquad \text{TPOT} \geq \frac{16.06\ \text{GB} + \text{context} \times 128\ \text{KiB}}{3.35\ \text{TB/s}}</texblock>
+<table>
+<thead><tr><th>Prompt tokens</th><th>TTFT floor</th><th>Bound by</th><th>TPOT floor (128 output tokens)</th></tr></thead>
+<tbody>
+<tr><td>128</td><td>4.8 ms</td><td>reading the weights</td><td>4.80 ms (208 tokens/s)</td></tr>
+<tr><td>512</td><td>8.3 ms</td><td>compute</td><td>4.82 ms (208 tokens/s)</td></tr>
+<tr><td>2,048</td><td>33 ms</td><td>compute</td><td>4.88 ms (205 tokens/s)</td></tr>
+<tr><td>8,192</td><td>133 ms (151 ms with attention)</td><td>compute</td><td>5.12 ms (195 tokens/s)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Derived floors for Llama 3.1 8B in BF16 on one H100 at 100% efficiency. The TPOT context is the prompt plus 64 tokens, the average over 128 output tokens.</p>
+<p>The two TTFT terms cross at 989 ÷ 3.35 ≈ 295 tokens. Below that, prefill is memory-bound and TTFT barely moves; above it, every extra prompt token costs about 16 µs of compute, so TTFT grows in a straight line. The attention scores add a term that grows with the square of the prompt length, 2 × n² × 4,096 × 32 FLOPs, which is only 3% at 2,048 tokens but adds 18 ms, about 13%, at 8,192. TPOT, by contrast, should be nearly flat: an 8,192-token prompt adds 1 GiB of cache to read at each step, next to 16 GB of weights.</p>
+<p>Real measurements sit above these floors. HTTP handling, tokenization, scheduling, and kernels that run below peak FLOPs all add time, so expect measured TTFT to be a multiple of the floor at short prompts and TPOT to be somewhat above 4.8 ms. What should hold is the shape: flat, then linear for TTFT; nearly flat for TPOT. On the small path the same reasoning applies with Qwen2.5-1.5B's 3.09 GB of weights and your GPU's own bandwidth and FLOPS from its specification sheet.</p>
+
+<h2>Step 4: Sweep Concurrency</h2>
+<p>Now we fix the request shape at the course's running example, about 2,000 prompt tokens and 500 output tokens, and step concurrency through 1, 4, 16, and 64. Each level sends eight requests per worker, with a minimum of 16 (16 at concurrency 1, 512 at concurrency 64), so that the ramp-up and drain at the edges are a small share of the run.</p>
+<codetabs>
+<tab label="vLLM (full path)" lang="bash">
+python measure.py --mode concurrency \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --prompt-len 2000 --output-len 500 --concurrency 1 4 16 64 --ignore-eos
+</tab>
+<tab label="vLLM (small path)" lang="bash">
+python measure.py --mode concurrency \
+  --model Qwen/Qwen2.5-1.5B-Instruct \
+  --prompt-len 2000 --output-len 500 --concurrency 1 4 16 64 --ignore-eos
+</tab>
+<tab label="Ollama" lang="bash">
+python measure.py --mode concurrency \
+  --base-url http://localhost:11434/v1 \
+  --model qwen2.5:1.5b-instruct-fp16 --tokenizer Qwen/Qwen2.5-1.5B-Instruct \
+  --prompt-len 2000 --output-len 500 --concurrency 1 4 16 64
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> One printed dictionary per level and a <code>levels.csv</code> with one row per concurrency: requests, errors, wall time, total output tokens, throughput, p50, p95 and p99 TTFT, p50 and p95 TPOT, and median per-user tokens per second. The <code>errors</code> column should be zero. On the full path, the cache needs at most 64 × 2,500 = 160,000 tokens, well under the roughly 426,000 available, so vLLM should never have to preempt a request [7].</p>
+<p>Lesson 5, Tokens per Second, explains what to expect. Every decode step reads the weights once for the whole batch, plus the cache of every request in it. Adding requests shares the 16 GB weight read among more users, so total throughput rises; but each step also reads more cache, so every user's stream slows down. With an average context of 2,250 tokens (2,000 prompt plus half of 500 output), the decode-only ceilings are:</p>
+<table>
+<thead><tr><th>Concurrency</th><th>Cache read per step</th><th>Step time floor</th><th>Per-user ceiling</th><th>Total ceiling</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>0.29 GB</td><td>4.88 ms</td><td>205 tokens/s</td><td>205 tokens/s</td></tr>
+<tr><td>4</td><td>1.18 GB</td><td>5.15 ms</td><td>194 tokens/s</td><td>777 tokens/s</td></tr>
+<tr><td>16</td><td>4.72 GB</td><td>6.20 ms</td><td>161 tokens/s</td><td>2,580 tokens/s</td></tr>
+<tr><td>64</td><td>18.87 GB</td><td>10.43 ms</td><td>96 tokens/s</td><td>6,137 tokens/s</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Decode-only ceilings for Llama 3.1 8B on one H100, step time = (16.06 GB + C × 2,250 × 128 KiB) ÷ 3.35 TB/s</p>
+<p>These ceilings ignore prefill, and at high concurrency that is a large omission. At 64 users each request lasts at least 500 × 10.43 ms ≈ 5.2 s, so about 12 new requests start every second. Prefilling 12.3 × 2,000 tokens per second costs about 3.9 × 10¹⁴ FLOP/s, roughly 40% of the H100's peak. vLLM mixes those prefill chunks into decode steps, which lengthens the steps that carry them. Expect the measured total throughput at 64 users to fall clearly short of 6,137 tokens/s, and expect p99 ITL to show spikes that p50 ITL hides.</p>
+<p>On the Ollama path with <code>OLLAMA_NUM_PARALLEL=4</code>, levels 16 and 64 cannot run more than four requests at once. The rest wait in Ollama's queue, so throughput stops rising after 4 and TTFT climbs with the length of the queue. That is a correct measurement of a capped server, not a bug in the client.</p>
+
+<h2>Step 5: Plot the Results</h2>
+<p>The plotting script reads both CSV files and writes two images: <code>prompt_sweep.png</code> with TTFT and TPOT against prompt length, and <code>concurrency_sweep.png</code> with per-user speed, total throughput, and TTFT percentiles against concurrency. Per-user speed and total throughput sit on separate panels because they differ by a factor of up to 64 and should never share one axis.</p>
+<codetabs>
+<tab label="plot.py" lang="python">
+"""plot.py: turn requests.csv and levels.csv from measure.py into two PNG files."""
+import csv
+import os
+import statistics
+from collections import defaultdict
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+rows = [r for r in csv.DictReader(open("requests.csv")) if r["status"] == "ok"]
+
+# 1) Prompt-length sweep: TTFT and TPOT against the prompt tokens the server counted.
+by_len = defaultdict(list)
+for r in rows:
+    if r["experiment"] == "prompt":
+        by_len[int(r["target_prompt_tokens"])].append(r)
+if by_len:
+    lens = sorted(by_len)
+    x = [statistics.median(float(r["prompt_tokens"]) for r in by_len[n]) for n in lens]
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(10, 4))
+    a1.plot(x, [statistics.median(float(r["ttft_ms"]) for r in by_len[n]) for n in lens], "o-")
+    a1.set(title="Time to first token", ylabel="median TTFT (ms)")
+    a2.plot(x, [statistics.median(float(r["tpot_ms"]) for r in by_len[n]) for n in lens], "o-")
+    a2.set(title="Time per output token", ylabel="median TPOT (ms)")
+    for ax in (a1, a2):
+        ax.set(xlabel="prompt tokens (as counted by the server)", ylim=(0, None))
+        ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig("prompt_sweep.png", dpi=150)
+    print("wrote prompt_sweep.png")
+
+# 2) Concurrency sweep: one panel per measure, never two y-axes on one panel.
+if os.path.exists("levels.csv"):
+    levels = list(csv.DictReader(open("levels.csv")))
+    c = [int(r["concurrency"]) for r in levels]
+    fig, (b1, b2, b3) = plt.subplots(1, 3, figsize=(14, 4))
+    b1.plot(c, [float(r["user_tok_s_p50"]) for r in levels], "o-")
+    b1.set(title="Per-user speed", ylabel="median tokens/s per request")
+    b2.plot(c, [float(r["throughput_tok_s"]) for r in levels], "o-")
+    b2.set(title="Total throughput", ylabel="output tokens/s, all requests")
+    b3.plot(c, [float(r["ttft_p50_ms"]) for r in levels], "o-", label="p50")
+    b3.plot(c, [float(r["ttft_p95_ms"]) for r in levels], "s--", label="p95")
+    b3.axhline(500, color="gray", linestyle=":", label="p95 target (500 ms)")
+    b3.set(title="Time to first token", ylabel="TTFT (ms)")
+    b3.legend()
+    for ax in (b1, b2, b3):
+        ax.set_xscale("log", base=2)
+        ax.set_xticks(c, [str(v) for v in c])
+        ax.set(xlabel="concurrent requests", ylim=(0, None))
+        ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig("concurrency_sweep.png", dpi=150)
+    print("wrote concurrency_sweep.png")
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> Two PNG files in the working directory. The x-axis of the prompt sweep is the prompt length the server counted, not the target, so any truncation or template overhead is visible instead of hidden.</p>
+
+<h2>Step 6: Cross-Check with vllm bench serve</h2>
+<p>A homemade client can be wrong in ways that look plausible, so we repeat the concurrency-64 point with vLLM's own load generator. <code>vllm bench serve</code> sends synthetic prompts of exact token lengths, keeps a fixed number of requests in flight with <code>--max-concurrency</code>, and prints a summary [3]. The first tab reproduces Step 4's heaviest level; the second reproduces the 8,192-token point of Step 3.</p>
+<codetabs>
+<tab label="Concurrency 64" lang="bash">
+vllm bench serve \
+  --backend vllm \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --dataset-name random \
+  --random-input-len 2000 --random-output-len 500 \
+  --num-prompts 512 --max-concurrency 64 \
+  --temperature 0 --ignore-eos \
+  --percentile-metrics ttft,tpot,itl,e2el \
+  --metric-percentiles 50,95,99 \
+  --save-result --result-dir bench_results
+</tab>
+<tab label="8K prompt, concurrency 1" lang="bash">
+vllm bench serve \
+  --backend vllm \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --dataset-name random \
+  --random-input-len 8192 --random-output-len 128 \
+  --num-prompts 10 --max-concurrency 1 --num-warmups 2 \
+  --temperature 0 --ignore-eos \
+  --percentile-metrics ttft,tpot,itl,e2el \
+  --metric-percentiles 50,95,99
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> A block headed <code>Serving Benchmark Result</code> with lines such as <code>Successful requests</code>, <code>Failed requests</code>, <code>Request throughput (req/s)</code>, <code>Output token throughput (tok/s)</code>, and then mean, median, P50, P95, and P99 values for TTFT, TPOT, ITL, and E2EL in milliseconds. With <code>--save-result</code>, the same numbers land in a JSON file under <code>bench_results/</code>.</p>
+<p>Compare the median TTFT, median TPOT, and output token throughput with the matching row of <code>levels.csv</code>. Expect small differences for known reasons. The <code>vllm</code> backend calls <code>/v1/completions</code> with a raw prompt, while our client uses the chat endpoint, whose template adds a few dozen tokens. vLLM's P99 ITL pools every gap from every request, whereas our CSV stores a p99 per request. Our client also stagger-starts its workers. If the medians disagree by more than about 10%, find out why before trusting either tool: the usual culprits are prefix caching left on, a missing warmup, or a client machine that is itself saturated. On the small path, run the same commands with the Qwen model name. On the Ollama path the cross-check is optional: it needs a vLLM install, and Ollama does not list <code>ignore_eos</code> among its supported fields, so output lengths will vary.</p>
+<callout kind="info" title="Two defaults worth knowing">For the <code>random</code> dataset, <code>vllm bench serve</code> turns <code>ignore_eos</code> on by itself, and a <code>--random-range-ratio</code> of 0 (the default) gives every request exactly the requested lengths. It no longer forces greedy sampling, so pass <code>--temperature 0</code> to make runs comparable.</callout>
+
+<h2>Reading the Results</h2>
+<p>Start with the prompt sweep. Figure 4 shows the shape to look for, with the derived floors from Table 2 drawn as solid lines and a typical measured curve, which is illustrative, drawn dashed.</p>
+<fig src="006-prompt-length-shapes.svg" caption="Expected shapes for the prompt-length sweep: derived floors (solid) and a typical measured curve (dashed, illustrative)">Two panels against prompt tokens from 0 to 8K. Left, TTFT: the derived floor is flat at 4.8 ms up to about 295 tokens, then rises in a straight line to 133 ms at 8,192 tokens; an illustrative dashed measured curve sits above it with the same linear shape. Right, TPOT: the floor is nearly flat, from 4.80 ms at 128 tokens to 5.12 ms at 8,192; an illustrative dashed curve runs parallel above it.</fig>
+<p>If your TTFT curve is a straight line, prefill is compute-bound and the slope tells you the effective prefill speed: divide the extra tokens between two points by the extra milliseconds. Comparing that speed with the 2 × 8.03 × 10⁹ FLOPs per token in the formula gives the fraction of peak compute the engine reaches during prefill. If TTFT is flat across all four lengths, the prompts were probably served from a prefix cache or truncated; check the <code>prompt_tokens</code> column. If TPOT climbs steeply with prompt length, something other than weight reads dominates decode, for example a fallback attention kernel.</p>
+<p>Next, the concurrency sweep. Figure 5 sets the decode-only ceilings of Table 3 against an illustrative measured shape.</p>
+<fig src="006-concurrency-shapes.svg" caption="Expected shapes for the concurrency sweep: decode-only ceilings (solid) and a typical measured curve (dashed, illustrative)">Two panels against concurrency 1, 4, 16 and 64 on a log scale. Left, per-user speed: the ceiling falls from 205 to 194, 161 and 96 tokens per second; an illustrative dashed curve falls faster below it. Right, total throughput: the ceiling rises from 205 to 777, 2,580 and 6,137 tokens per second; the illustrative dashed curve rises more slowly and bends over at 64.</fig>
+<p>The two panels are the same trade-off seen from two sides: the engine buys total throughput with per-user speed. The ratio of your measured total throughput to the ceiling at each level is a good single number for "how close to the hardware limit is this engine". It is usually highest at moderate concurrency and drops at 64, where prefill work and scheduling eat into decode time. A curve that flattens early, around 4 or 16, points to a cap on batch size, such as Ollama's parallel limit or a low <code>--max-num-seqs</code>.</p>
+<p>The sweep also tells you how many users this GPU can carry at the course's running latency targets, p95 TTFT of at most 500 ms and p95 TPOT of at most 25 ms (at least 40 tokens/s per stream). The highest concurrency level that meets both is your measured capacity; add levels such as 32 and 48 to find the boundary more precisely. Lesson 19, GPU Utilization, estimates about 53 concurrent streams at about 21 ms per decode step for this model on an H100, or about 5 requests/s. That step time is more than twice the 9.5 ms bandwidth floor at 53 streams, because it includes prefill work and real kernel efficiency; your measurement is the check on that estimate.</p>
+<p>Finally, compare p50 and p95 TTFT. Figure 6 shows the two typical patterns.</p>
+<fig src="006-ttft-percentiles.svg" caption="Typical p50 and p95 TTFT against concurrency for a batching engine and for a server capped at four parallel requests (illustrative)">Two illustrative panels. Left, an engine that batches every request: p50 TTFT rises gently with concurrency while p95 pulls away, because a new prompt shares each step with many other requests and their prefills. Right, a server capped at four parallel requests: both percentiles stay low up to 4, then climb steeply at 16 and 64 because requests beyond 4 wait in a queue.</fig>
+<p>A batching engine admits new requests at every step (Lesson 7, Continuous Batching) [8], so TTFT grows slowly and p95 grows faster, because an unlucky request lands next to several long prefills. A capped server behaves like a queue: TTFT is fine until the cap, then grows with the number of waiting requests. Telling these two apart from the outside is exactly what queue-depth metrics are for (Lesson 29, Queue Depth), and why tail percentiles get their own lesson (Lesson 28, p50, p95 and p99 Latency).</p>
+<callout kind="tip" title="Interview tip">When asked to benchmark a model server, state the floors first: "16 GB of weights at 3.35 TB/s is 4.8 ms per decode step, so about 200 tokens/s per user at best; prefill is about 16 µs per prompt token." Then say what you would measure and which result would surprise you.</callout>
+
+<h2>Common Pitfalls</h2>
+<ul>
+<li><strong>Prefix cache hits.</strong> Repeating one prompt with caching on measures cache lookups, not prefill. Disable the cache or make every prompt unique, as the client does.</li>
+<li><strong>Cold start in the data.</strong> The first requests after startup can include graph capture and kernel compilation. Always send warmup requests and throw them away.</li>
+<li><strong>Counting chunks as tokens.</strong> A server may send several tokens in one chunk. Take token counts from the <code>usage</code> block, and check that <code>output_tokens</code> matches what you asked for.</li>
+<li><strong>Early stops.</strong> Without <code>ignore_eos</code>, a model can finish after 40 tokens of a requested 500, which inflates throughput per request and shortens E2E. Look at the <code>output_tokens</code> column before comparing runs.</li>
+<li><strong>Silent context limits.</strong> Ollama's default context is 4K tokens on GPUs with less than 24 GiB, so an 8K prompt does not fit unless you raise <code>OLLAMA_CONTEXT_LENGTH</code>. Confirm that <code>prompt_tokens</code> matches the target.</li>
+<li><strong>Comparing unequal precisions.</strong> Ollama's default tags are 4-bit; vLLM serves BF16 unless told otherwise. Compare engines only with the same weights and precision (Lesson 12, Lab - Benchmark Two Engines at 50 Concurrent Users).</li>
+<li><strong>A saturated client.</strong> One Python process handles 64 streams easily with <code>asyncio</code>, but a laptop on battery, or a client far from the server, adds its own latency. Run the client on the server machine or in the same zone.</li>
+<li><strong>Ramp and drain.</strong> Total throughput divides by wall time, which includes the first wave starting and the last requests finishing alone. Eight rounds per level keeps that edge effect small; very short runs overstate it.</li>
+</ul>
+
+<h2>Stretch Goals</h2>
+<ul>
+<li>Restart vLLM with <code>--kv-cache-dtype fp8</code> and rerun concurrency 64. The cache read per step halves, so the 64-user step-time floor drops from 10.43 ms to about 7.6 ms; see whether your measurement moves by a similar ratio.</li>
+<li>Re-enable prefix caching, give every request the same 1,500-token system prompt, and watch TTFT at concurrency 1 fall, since only the uncached remainder of each prompt needs prefill (Lesson 24, Prefix Caching).</li>
+<li>Vary <code>--max-num-batched-tokens</code>, which sets how many tokens one engine step may process, and observe the trade between TTFT and p99 ITL that chunked prefill creates [5].</li>
+<li>Replace the closed loop with open-loop arrivals: <code>vllm bench serve --request-rate 8</code> sends requests as a Poisson process whether or not earlier ones finished, which is closer to real traffic.</li>
+<li>Add <code>--goodput ttft:500 tpot:25</code> to <code>vllm bench serve</code> to count only requests that met the course's TTFT and TPOT targets, the first step towards the SLA sizing in Lesson 21, Lab - GPUs for 1,000 Requests per Minute Under a 2s SLA.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="006-summary.png" caption="Lab summary: measuring TTFT and throughput" optional="1">Mind map of the lab: the setup, the four metrics, the prompt-length sweep, the concurrency sweep, the cross-check, and the pitfalls.</fig>
+<ul>
+<li>A streaming client that timestamps each chunk yields TTFT, ITL, TPOT, and end-to-end latency; token counts come from the server's <code>usage</code> block.</li>
+<li>At concurrency 1, TTFT is flat below about 295 tokens and then grows linearly; for Llama 3.1 8B on an H100 the floor is 33 ms at 2,048 tokens and 133 ms at 8,192.</li>
+<li>TPOT barely depends on prompt length: the floor goes from 4.80 ms to 5.12 ms because 16 GB of weights dominate each step's reads.</li>
+<li>Raising concurrency trades per-user speed for total throughput; the decode-only ceilings are 205 tokens/s for one user and 6,137 tokens/s in total for 64.</li>
+<li>Prefill of new requests uses about 40% of the H100's peak compute at 64 users, so measured throughput falls well short of the decode-only ceiling.</li>
+<li>The highest concurrency that meets p95 TTFT ≤ 500 ms and p95 TPOT ≤ 25 ms is the GPU's measured capacity; Lesson 19 estimates about 53 streams for this setup.</li>
+<li>Prefix caching, warmup, early EOS, context limits, and parallel caps all distort results; <code>vllm bench serve</code> is an independent cross-check.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] vLLM documentation: OpenAI-Compatible Server. <a href="https://docs.vllm.ai/en/latest/serving/openai_compatible_server/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/serving/openai_compatible_server/</a>.<br>
+[2] vLLM documentation: vllm serve CLI reference. <a href="https://docs.vllm.ai/en/latest/cli/serve/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/cli/serve/</a>.<br>
+[3] vLLM documentation: vllm bench serve CLI reference. <a href="https://docs.vllm.ai/en/latest/cli/bench/serve/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/cli/bench/serve/</a>.<br>
+[4] Ollama documentation: OpenAI compatibility. <a href="https://docs.ollama.com/api/openai-compatibility" rel="noopener noreferrer" target="_blank">https://docs.ollama.com/api/openai-compatibility</a>.<br>
+[5] Agrawal et al. Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve. <a href="https://arxiv.org/abs/2403.02310" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2403.02310</a>.<br>
+[6] Pope et al. Efficiently Scaling Transformer Inference. <a href="https://arxiv.org/abs/2211.05102" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.05102</a>.<br>
+[7] Kwon et al. Efficient Memory Management for Large Language Model Serving with PagedAttention. <a href="https://arxiv.org/abs/2309.06180" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.06180</a>.<br>
+[8] Yu et al. Orca: A Distributed Serving System for Transformer-Based Generative Models. <a href="https://www.usenix.org/conference/osdi22/presentation/yu" rel="noopener noreferrer" target="_blank">https://www.usenix.org/conference/osdi22/presentation/yu</a>.<br>
+[9] Ollama documentation: FAQ (concurrent requests and environment variables). <a href="https://docs.ollama.com/faq" rel="noopener noreferrer" target="_blank">https://docs.ollama.com/faq</a>.<br>
+[10] Ollama documentation: Context length. <a href="https://docs.ollama.com/context-length" rel="noopener noreferrer" target="_blank">https://docs.ollama.com/context-length</a>.<br>
+[11] HTTPX documentation: Async support. <a href="https://www.python-httpx.org/async/" rel="noopener noreferrer" target="_blank">https://www.python-httpx.org/async/</a>.</p>

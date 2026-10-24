@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="346" viewBox="0 0 820 346" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .bar{fill:#fff;stroke:#6c8ebf;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="28" class="lg b">Little's law: L = λ × W</text>
+
+  <!-- Fleet panel -->
+  <text x="16" y="66" class="sm">arrivals</text>
+  <text x="16" y="82" class="b">λ = 16.7 req/s</text>
+  <path d="M16,96 L136,96" class="edge"/>
+  <rect x="138" y="52" width="210" height="150" rx="8" class="orange"/>
+  <text x="243" y="76" text-anchor="middle" class="b">Fleet of 5 replicas</text>
+  <!-- dots representing requests in flight -->
+  <g>
+    <circle cx="166" cy="98" r="5" class="purple"/><circle cx="182" cy="98" r="5" class="purple"/><circle cx="198" cy="98" r="5" class="purple"/><circle cx="214" cy="98" r="5" class="purple"/><circle cx="230" cy="98" r="5" class="purple"/><circle cx="246" cy="98" r="5" class="purple"/><circle cx="262" cy="98" r="5" class="purple"/><circle cx="278" cy="98" r="5" class="purple"/><circle cx="294" cy="98" r="5" class="purple"/><circle cx="310" cy="98" r="5" class="purple"/><circle cx="326" cy="98" r="5" class="purple"/>
+    <circle cx="166" cy="114" r="5" class="purple"/><circle cx="182" cy="114" r="5" class="purple"/><circle cx="198" cy="114" r="5" class="purple"/><circle cx="214" cy="114" r="5" class="purple"/><circle cx="230" cy="114" r="5" class="purple"/><circle cx="246" cy="114" r="5" class="purple"/><circle cx="262" cy="114" r="5" class="purple"/><circle cx="278" cy="114" r="5" class="purple"/><circle cx="294" cy="114" r="5" class="purple"/><circle cx="310" cy="114" r="5" class="purple"/><circle cx="326" cy="114" r="5" class="purple"/>
+  </g>
+  <text x="243" y="146" text-anchor="middle">each request stays W ≈ 10.8 s</text>
+  <text x="243" y="174" text-anchor="middle">L = 16.7 × 10.8</text>
+  <text x="243" y="192" text-anchor="middle" class="b">≈ 180 requests in flight</text>
+  <path d="M348,96 L398,96" class="edge"/>
+  <text x="350" y="82" class="sm">completions</text>
+
+  <!-- Split arrows to replicas -->
+  <line x1="410" y1="40" x2="410" y2="240" stroke="#999" stroke-dasharray="5 4"/>
+
+  <!-- Replica panel -->
+  <text x="430" y="66" class="b">Per replica: λ = 3.3 req/s, L ≈ 36 in flight</text>
+  <text x="430" y="90" class="sm">Limit: 53 in flight (--max-num-seqs); KV cache could hold ~170</text>
+  <g>
+    <text x="430" y="116" class="sm">Replica 1</text>
+    <rect x="500" y="104" width="290" height="16" class="bar"/><rect x="500" y="104" width="197" height="16" class="blue"/>
+    <text x="430" y="140" class="sm">Replica 2</text>
+    <rect x="500" y="128" width="290" height="16" class="bar"/><rect x="500" y="128" width="197" height="16" class="blue"/>
+    <text x="430" y="164" class="sm">Replica 3</text>
+    <rect x="500" y="152" width="290" height="16" class="bar"/><rect x="500" y="152" width="197" height="16" class="blue"/>
+    <text x="430" y="188" class="sm">Replica 4</text>
+    <rect x="500" y="176" width="290" height="16" class="bar"/><rect x="500" y="176" width="197" height="16" class="blue"/>
+    <text x="430" y="212" class="sm">Replica 5</text>
+    <rect x="500" y="200" width="290" height="16" class="bar"/><rect x="500" y="200" width="197" height="16" class="blue"/>
+  </g>
+  <text x="594" y="236" text-anchor="middle" class="sm">36 of 53 (68%)</text>
+  <text x="790" y="236" text-anchor="end" class="sm">53</text>
+
+  <!-- W breakdown -->
+  <rect x="16" y="256" width="788" height="74" rx="6" class="white"/>
+  <text x="32" y="282">W = 0.3 s to the first token + 499 tokens × 21 ms ≈ 10.8 s</text>
+  <text x="32" y="306">For the waiting queue alone: W<tspan font-size="10" dy="4">q</tspan><tspan dy="-4"> = L</tspan><tspan font-size="10" dy="4">q</tspan><tspan dy="-4"> ÷ λ, so 4 waiting at 3.3 req/s ≈ 1.2 s of extra TTFT</tspan></text>
+</svg>

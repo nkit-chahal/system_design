@@ -1,0 +1,250 @@
+<h2>Introduction</h2>
+<p>Every request to a large language model runs in two phases. First the model reads the whole prompt. Then it writes the answer, one token at a time. Both phases run the same network with the same weights, yet on a GPU they behave like two different programs with two different bottlenecks.</p>
+<p>The first phase is <strong>prefill</strong>. The model processes all prompt tokens in a single forward pass, fills the KV cache with their keys and values, and produces the first output token. The second phase is <strong>decode</strong>. Each decode step feeds the newest token back in and produces exactly one more token per sequence, until the answer is complete. Figure 1 shows the two phases for a chat request with a 2,000-token prompt and a 500-token answer.</p>
+<fig src="002-two-phases.svg" caption="The two phases of a request: one prefill pass, then one decode step per output token">On the left, 2,000 prompt tokens enter a single forward pass that writes the KV cache and produces token 1. On the right, a decode step takes one token per sequence and produces the next one, repeating 499 times; each step reads the whole KV cache and appends one entry. A footer notes that prefill is compute-bound at about 65 ms for 2,000 tokens on an H100, while decode is memory-bound at no less than 4.9 ms per step.</fig>
+<p>Prefill is limited by how fast the GPU can do arithmetic. Decode is limited by how fast it can read memory. Almost every serving technique in this course, from batching to quantization to disaggregated clusters, is a response to that split. In this lesson, we explain where the split comes from, quantify it with the roofline model, work through the numbers for Llama 3.1 8B on an H100, and look at how serving engines keep the two phases from hurting each other.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Interview questions about prefill and decode usually start from a symptom. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: Which model are we serving, and on what hardware?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct in BF16, one replica per NVIDIA H100 80 GB. Traffic averages about 1,000 requests per minute.</p>
+<p><strong>Candidate</strong>: What does the traffic look like?<br>
+<strong>Interviewer</strong>: Mostly chat: about 2,000 prompt tokens and 500 output tokens. About one request in ten is a retrieval question with an 8,000-token prompt.</p>
+<p><strong>Candidate</strong>: What latency targets do we have?<br>
+<strong>Interviewer</strong>: p95 time to first token of at most 500 ms and p95 time per output token of at most 25 ms. The stream should also look smooth: no gap between two tokens longer than 100 ms at p99.</p>
+<p><strong>Candidate</strong>: What is going wrong today?<br>
+<strong>Interviewer</strong>: At busy times, users say answers freeze for a moment in the middle of streaming. Oddly, our dashboards show the GPU's math units are idle most of the time.</p>
+<p><strong>Candidate</strong>: Are we free to change how the engine schedules work, or to add GPUs?<br>
+<strong>Interviewer</strong>: Yes to both, if you can justify it.</p>
+<p>The question underneath is: <em>why does one model behave like two different workloads, and how should we schedule them so that one does not stall the other?</em> To answer it, we first look at what each phase asks of the hardware.</p>
+
+<h2>Two Phases, Two Bottlenecks</h2>
+<h3>Prefill: the whole prompt in one pass</h3>
+<p>During prefill, the model already knows every input token, so it can process all of them at once. Causal masking makes each position attend only to earlier positions, which means the 2,000 positions can be computed in parallel without waiting for one another. The pass writes the keys and values of all 2,000 tokens into the KV cache (Lesson 3, KV Cache) and produces logits at every position. Only the logits at the last position matter: sampling them gives the first output token.</p>
+<p>This detail matters for latency. The first token comes out of the prefill pass itself, so the time to first token is mostly prefill time plus any waiting before it (Lesson 4, Time to First Token).</p>
+
+<h3>Decode: one token per step</h3>
+<p>Decode cannot be parallelized across positions, because token 3 depends on token 2. Each step takes the latest token of every sequence in the batch, runs it through all 32 layers, appends its keys and values to the cache, and attends over everything cached so far. A 500-token answer therefore needs one prefill pass and 499 decode steps. Each step does a small amount of math, but it must read every weight of the model and every cached key and value of every sequence in the batch.</p>
+
+<h3>Counting FLOPs: two per parameter per token</h3>
+<p>In a dense transformer, each weight takes part in one multiply and one add for every token that passes through it. A forward pass therefore costs about two floating-point operations (FLOPs) per parameter per token [1]:</p>
+<texblock>\text{FLOPs per token} \approx 2N + 4 \, L \, d_{\text{attn}} \, n_{\text{ctx}}</texblock>
+<p>Here <tex>N</tex> is the number of parameters, <tex>L</tex> the number of layers, <tex>d_{\text{attn}}</tex> the total width of the query heads (32 × 128 = 4,096 for Llama 3.1 8B), and <tex>n_{\text{ctx}}</tex> the number of earlier tokens the new token attends to. The second term counts the two attention products, <tex>q K^\top</tex> and the weighted sum of values. For Llama 3.1 8B, the first term is 2 × 8.03 billion ≈ 16 GFLOPs per token. The second term is 524,288 FLOPs per token of context: about 1.3 GFLOPs at a 2,500-token context, or 8% extra. (Strictly, the input embedding table is a lookup rather than a multiply, so the true weight term is about 7% lower; we keep the round rule.)</p>
+<p>For a whole 2,000-token prompt, the weight term is 2 × 8.03 billion × 2,000 ≈ 32.1 TFLOPs. With causal masking, the average token attends to about 1,000 others, so attention adds about 1 TFLOP, or 3%. Attention grows with the square of the prompt length, so this share rises to 13% at 8,000 tokens and about 53% at 32,768 tokens.</p>
+
+<h3>Matrix-matrix versus matrix-vector</h3>
+<p>Most of those FLOPs happen in the linear layers: the query, key, value, and output projections and the feed-forward network. Figure 2 shows what one 4,096 × 4,096 projection looks like in each phase. In prefill, the input is a matrix with one row per prompt token, so the layer is a <strong>matrix-matrix multiply</strong> (GEMM). In decode, the input is a single row per sequence, so with one sequence the layer is a <strong>matrix-vector multiply</strong> (GEMV).</p>
+<fig src="002-gemm-vs-gemv.svg" caption="The same weight matrix in prefill (matrix-matrix) and decode (matrix-vector)">Left panel: a 2,000 by 4,096 activation matrix multiplies a 4,096 by 4,096 weight matrix, which is read once (32 MiB) and used for about 67 GFLOP of math, roughly 1,000 FLOPs per byte moved. Right panel: a single 1 by 4,096 row multiplies the same weight matrix, which is still read once, but only 34 MFLOP of math is done, about 1 FLOP per byte.</fig>
+<p>Both multiplies must stream the same 32 MiB of weights from high-bandwidth memory (HBM) into the GPU's compute units. Prefill then reuses each weight 2,000 times. Decode with one sequence uses each weight once and throws it away. The ratio of math to memory traffic is the key to everything that follows.</p>
+
+<h2>Arithmetic Intensity and the Roofline</h2>
+<h3>FLOPs per byte</h3>
+<p>The <strong>arithmetic intensity</strong> of a computation is the number of FLOPs it performs per byte it moves to or from memory:</p>
+<texblock>I = \frac{\text{FLOPs}}{\text{bytes moved}}</texblock>
+<p>A BF16 weight is 2 bytes and takes part in 2 FLOPs per token, so a matrix-vector multiply has an intensity of about 1 FLOP per byte. A matrix-matrix multiply over <tex>n</tex> tokens reuses each weight <tex>n</tex> times, so its intensity grows with <tex>n</tex>. Counting the activations that must also be read and written, the projections of a 2,000-token prefill reach roughly 1,000 FLOPs per byte.</p>
+
+<h3>The H100 ridge point</h3>
+<p>The <strong>roofline model</strong> turns intensity into a speed limit [2]. A kernel cannot run faster than the GPU's peak compute, and it cannot run faster than memory can feed it:</p>
+<texblock>\text{attainable FLOPS} = \min\left(\text{peak FLOPS}, \; \text{bandwidth} \times I\right)</texblock>
+<p>An H100 SXM delivers about 989 TFLOPS of dense BF16 math (NVIDIA lists 1,979 with structured sparsity) and 3.35 TB/s of HBM bandwidth [3]. The two limits meet at the <strong>ridge point</strong>:</p>
+<texblock>I_{\text{ridge}} = \frac{989 \times 10^{12} \ \text{FLOPS}}{3.35 \times 10^{12} \ \text{bytes/s}} \approx 295 \ \text{FLOPs per byte}</texblock>
+<p>Below 295 FLOPs per byte, a kernel is <strong>memory-bound</strong>: the tensor cores wait for data. Above it, the kernel is <strong>compute-bound</strong>: memory delivers data faster than the math can use it. Figure 3 places the two phases on the H100's roofline.</p>
+<fig src="002-roofline.svg" caption="Prefill and decode on the H100 roofline (BF16)">A log-log chart of attainable TFLOPS against arithmetic intensity. A sloped memory roof of 3.35 TB/s times intensity meets a flat compute roof at 989 TFLOPS at the ridge point of about 295 FLOPs per byte. Decode at batch 1 sits at about 1 FLOP per byte and 3.35 TFLOPS. Decode at batch 170 sits at about 41 FLOPs per byte and 138 TFLOPS, still on the memory roof. Prefill of 2,000 tokens sits at about 1,000 FLOPs per byte on the compute roof.</fig>
+<p>Decode at batch 1 can use at most 3.35 TFLOPS, about 0.3% of the GPU's peak. This is why the interviewer's dashboard shows idle math units: a GPU that spends most of its time decoding is waiting on memory, not on arithmetic.</p>
+
+<h3>Worked example: Llama 3.1 8B on one H100</h3>
+<p>Peak FLOPS is a ceiling that real kernels never reach. The fraction they do reach is the <strong>model FLOPs utilization</strong> (MFU): useful model FLOPs per second divided by peak [4]. Assume a prefill MFU of 50%; your own measurements will tell you the true figure.</p>
+<ul>
+<li><strong>Prefill of 2,000 tokens</strong>: 32.1 TFLOPs ÷ (989 TFLOPS × 0.5) ≈ 65 ms, or about 67 ms with attention. Even at 100% MFU, it could not beat 32.5 ms. The GPU is ingesting prompt tokens at about 31,000 per second.</li>
+<li><strong>One decode step at batch 1</strong>: the step must read 16.06 GB of weights plus about 0.26 GB of KV cache for a 2,000-token context. At 3.35 TB/s, that takes at least 16.3 GB ÷ 3.35 TB/s ≈ 4.9 ms. The math itself, 16 GFLOPs, would take 0.016 ms at peak.</li>
+<li><strong>Per-token cost</strong>: prefill handles about 31,000 tokens per second; a single decoding sequence produces at most about 205. Per token, decode is about 150 times slower than prefill on the same GPU.</li>
+</ul>
+<p>The decode figure is a lower bound because it assumes perfect bandwidth. Measured steps are slower, but the conclusion holds: at batch 1, decode time is set by bytes, not FLOPs. Table 1 summarizes the contrast.</p>
+<table>
+<thead><tr><th></th><th>Prefill</th><th>Decode</th></tr></thead>
+<tbody>
+<tr><td>Tokens per step</td><td>All prompt tokens (2,000)</td><td>One per sequence</td></tr>
+<tr><td>Main operation</td><td>Matrix × matrix (GEMM)</td><td>Matrix × vector (GEMV), or a thin GEMM when batched</td></tr>
+<tr><td>Arithmetic intensity</td><td>≈ 1,000 FLOPs/byte</td><td>≈ 1 at batch 1, ≈ 41 at batch 170</td></tr>
+<tr><td>Bottleneck on an H100</td><td>Compute (989 TFLOPS)</td><td>Memory bandwidth (3.35 TB/s)</td></tr>
+<tr><td>Our example</td><td>≈ 65 ms for 2,000 tokens at 50% MFU</td><td>≥ 4.9 ms per step at batch 1, weights plus cache</td></tr>
+<tr><td>Latency metric it drives</td><td>Time to first token</td><td>Time per output token</td></tr>
+<tr><td>What makes it faster</td><td>More FLOPS, FP8 math, prefix caching, shorter prompts</td><td>Fewer bytes per token: batching, quantization, GQA, more bandwidth</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Prefill versus decode for Llama 3.1 8B on one H100</p>
+<callout kind="tip" title="Interview tip">Derive the ridge point on the spot: 989 TFLOPS ÷ 3.35 TB/s ≈ 295 FLOPs per byte. Then say that a BF16 matrix-vector multiply does about 1 FLOP per byte, so decode at batch 1 runs at well under 1% of peak compute.</callout>
+
+<h3>Why batching rescues decode</h3>
+<p>If 64 sequences decode together, the engine reads each weight once and applies it to 64 tokens. The linear layers then do 64 times more math for the same weight traffic, so their intensity rises to about 64 FLOPs per byte. Batching is the main reason decode is affordable at all: the 16 GB weight read is shared by every sequence in the step. Lesson 7, Continuous Batching, shows how engines keep batches full as requests come and go.</p>
+<p>The KV cache does not share so well. Each sequence attends only over its own cache, so attention reads its bytes once per sequence. For Llama 3.1 8B, each cached token costs 4,096 bytes per layer and its attention math costs 16,384 FLOPs per layer: an intensity of 4 FLOPs per byte, set by grouped-query attention's four query heads per KV head, regardless of batch size. As the batch grows, KV reads become the larger part of each step's traffic, and the overall intensity stops climbing. Figure 4 shows the effect for chat requests counted at their full 2,500-token length.</p>
+<fig src="002-batch-intensity.svg" caption="Decode arithmetic intensity versus batch size for Llama 3.1 8B">A log-log chart with batch size from 1 to 512 on the x-axis. The orange line for the linear layers rises in step with batch size and would cross the ridge of 295 near batch 300. The blue line, which adds each sequence's 2,500-token KV cache reads, bends away and levels off near 53 FLOPs per byte. A red dashed line at batch 170 marks where the KV cache of one H100 is full; the blue curve is at about 41 there.</fig>
+<p>At batch 170, where the KV cache of one H100 is full (Lesson 3), each step reads 16 GB of weights and about 56 GB of cache, roughly 72 GB in all. That takes at least 21 ms, while the math takes about 3 ms at peak. Decode stays memory-bound even at the largest batch the GPU can hold. Larger batches still raise total throughput, because each step now produces 170 tokens instead of one, but each user's stream slows from about 205 to about 47 tokens per second. Lesson 5, Tokens per Second, works through this trade-off in detail.</p>
+
+<h2>When Prefill and Decode Share a GPU</h2>
+<h3>Interference</h3>
+<p>A modern engine runs prefill and decode for different requests on the same GPU, often in the same step. That keeps the GPU busy, but it couples the two phases: a step lasts as long as its slowest part, and every sequence in the batch waits for the step to finish before it gets its next token.</p>
+<p>Now return to the interviewer's symptom. Suppose 64 users are decoding, each step taking about 11 ms. A retrieval request arrives with an 8,000-token prompt. Its prefill costs 2 × 8.03 billion × 8,000 ≈ 128 TFLOPs, plus about 17 TFLOPs of attention. If the engine runs the whole prompt in one step, that step takes about 296 ms at 50% MFU. For those 296 ms, none of the 64 users receives a token, as Figure 5 shows.</p>
+<fig src="002-stream-stall.svg" caption="A long prefill freezes every decoding stream on the same GPU">A timeline from 0 to 600 ms. The GPU row shows 11 ms decode steps, then one long red step of about 296 ms that prefills an 8,000-token prompt, then decode steps again. Users A and B receive a token at the end of every short step but nothing during the long step. New user C arrives at 100 ms and gets the first token when the long step ends, then streams normally.</fig>
+<p>This is the freeze users reported: one gap of about 0.3 seconds in a stream that normally ticks every 11 ms, about three times the 100 ms limit on gaps. It also explains the dashboards. Most steps are decode-only and memory-bound, so the math units sit idle most of the time, and the occasional compute-heavy prefill step is exactly what hurts everyone else. Interference runs the other way too: when many requests are decoding, a new prompt's prefill competes with them for each step, which adds to its time to first token.</p>
+
+<h3>Chunked prefill</h3>
+<p><strong>Chunked prefill</strong> splits a long prompt into pieces and processes one piece per step alongside the ongoing decodes [6][7]. The scheduler gives every step a token budget. Decoding sequences take one token each, and the remaining budget goes to a slice of a waiting prompt. Because decode steps leave the tensor cores mostly idle, the prompt chunk uses compute that would otherwise be wasted, and the decodes ride along in a compute-bound step. Sarathi-Serve calls this stall-free scheduling: new requests join without pausing the ones already generating [7].</p>
+<p>In vLLM's current engine, chunked prefill is on by default, decode requests are scheduled before any prefill, and the budget is set with <code>--max-num-batched-tokens</code> [8]. In recent releases, the OpenAI-compatible server on an H100 defaults to 8,192 tokens. The documentation states the trade-off directly: smaller budgets such as 2,048 give better inter-token latency, and larger budgets give better time to first token and throughput [8]. Figure 6 compares three choices for our 8,000-token prompt.</p>
+<fig src="002-chunked-prefill.svg" caption="Chunking the 8,000-token prefill trades a long stall for several short ones (idealized estimate)">Three timelines starting when the prompt arrives. Without chunking, one red step of about 296 ms carries the whole prompt and the first token appears at 296 ms. With 2,048-token chunks, four steps of 71 to 80 ms carry the prompt and the first token appears at about 303 ms. With 512-token chunks, sixteen steps of about 15 to 23 ms carry the prompt and the first token appears at about 330 ms. Decode-only steps of about 11 ms follow in each case.</fig>
+<p>The numbers come from a simple model: each step lasts as long as the slower of its math (at 50% MFU) and its memory reads. Smaller chunks cap the worst gap lower but spread the prompt over more steps, and each step re-reads the weights and the earlier chunks' cache, so the new request's first token arrives a little later. Real kernels lose efficiency on small chunks, so the TTFT cost of 512-token chunks is larger in practice than this model suggests.</p>
+
+<h3>Disaggregated prefill and decode</h3>
+<p>Chunking softens interference but cannot remove it, because both phases still share one GPU. <strong>Disaggregated serving</strong> runs them on separate GPUs. A prefill instance processes the prompt, the KV cache is transferred to a decode instance, and the decode instance generates the rest of the answer, as Figure 7 shows.</p>
+<fig src="002-disaggregated.svg" caption="Disaggregated serving: separate GPU pools for prefill and decode">Requests go to a router, which sends each one to a prefill pool of GPUs that only run prefill. The resulting KV cache, 262 MB for a 2,000-token prompt, moves over a fast link to a decode pool of GPUs that only run decode. The first token can stream from the prefill side; later tokens stream from the decode pool. Notes give the transfer time as about 0.6 ms at 450 GB/s over NVLink or about 5 ms over a 400 Gb/s network link.</fig>
+<p>DistServe made the case for this design, serving up to 7.4 times more requests within its latency targets than state-of-the-art colocated systems [9], and Splitwise showed that the decode pool can even run on cheaper hardware [10]. The price is a KV transfer for every request (262 MB for a 2,000-token prompt at 128 KiB per token), a second pool whose size must track the traffic mix, and more moving parts. vLLM's documentation marks its implementation as experimental and notes that disaggregation does not improve throughput; it buys control over tail inter-token latency and the freedom to tune TTFT and inter-token latency separately [11]. Lesson 34, Disaggregated Prefill and Decode, covers the designs, KV transfer, and pool sizing in depth.</p>
+<table>
+<thead><tr><th>Scheduling policy</th><th>Longest decode gap</th><th>TTFT of the 8,000-token prompt</th><th>Extra cost</th></tr></thead>
+<tbody>
+<tr><td>Whole prompt in one step</td><td>≈ 296 ms</td><td>≈ 0.30 s</td><td>None</td></tr>
+<tr><td>Chunked, 2,048-token budget</td><td>≈ 80 ms</td><td>≈ 0.30 s</td><td>Slightly lower prefill efficiency</td></tr>
+<tr><td>Chunked, 512-token budget</td><td>≈ 23 ms</td><td>≈ 0.33 s, more in practice</td><td>Lower prefill efficiency</td></tr>
+<tr><td>Disaggregated pools</td><td>≈ 11 ms (decode never pauses)</td><td>≈ 0.29 s plus KV transfer</td><td>Extra GPUs, KV transfer, two pools to size</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Scheduling policies for the 8,000-token prompt with 64 users decoding (idealized estimates at 50% MFU)</p>
+
+<h4>Which scheduling design fits our deployment?</h4>
+<p>Our model fits comfortably on one H100, only one request in ten carries a long prompt, and the binding target is the 100 ms p99 gap between tokens. Chunked prefill with a 2,048-token budget meets that target in our estimate (about 80 ms worst case), keeps the long prompt's first token near 0.3 seconds, inside the 500 ms TTFT target, and costs nothing but a flag. The four slower steps add less than 1 ms to the average time per output token of a 500-token answer, so the 25 ms TPOT target is unaffected. We choose it, then confirm with the inter-token latency histogram that the p99 gap has dropped below 100 ms under real traffic.</p>
+<p>Disaggregation is not worth its complexity here. It pays off when the fleet is large enough to keep two pools busy, when prompts are long, when models are big enough to need several GPUs per instance, or when the decode SLO is so tight that even short chunks break it. If our traffic shifts toward long documents, or the fleet grows to dozens of GPUs, we revisit the decision with a measured benchmark of both designs (Lesson 34, Disaggregated Prefill and Decode).</p>
+
+<h2>In Practice</h2>
+<p>The first tab estimates prefill time and decode step time from first principles for any dense model; change the constants for your model and GPU. The second starts vLLM with an explicit chunked-prefill budget, the main knob for interference. The third measures both phases directly on a model small enough for a laptop: prefill time grows with the prompt, while the decode step barely moves.</p>
+<codetabs>
+<tab label="Phase calculator" lang="python">
+# Back-of-envelope prefill and decode times for a dense model on one GPU.
+PARAMS = 8.03e9                 # Llama 3.1 8B
+BYTES_PER_PARAM = 2             # BF16
+LAYERS, Q_HEADS, KV_HEADS, HEAD_DIM = 32, 32, 8, 128
+PEAK_FLOPS = 989e12             # H100 SXM, dense BF16
+HBM_BW = 3.35e12                # bytes per second
+MFU = 0.5                       # assumed prefill efficiency; measure yours
+
+kv_per_token = 2 * LAYERS * KV_HEADS * HEAD_DIM * BYTES_PER_PARAM  # 131,072 bytes
+attn_flops_per_ctx = 4 * LAYERS * Q_HEADS * HEAD_DIM               # q.K and weights.V
+weight_bytes = PARAMS * BYTES_PER_PARAM
+
+
+def prefill_seconds(prompt_tokens: int) -> float:
+    linear = 2 * PARAMS * prompt_tokens
+    attention = attn_flops_per_ctx * prompt_tokens**2 / 2  # causal: average context n/2
+    return (linear + attention) / (PEAK_FLOPS * MFU)
+
+
+def decode_step_seconds(batch: int, context: int) -> float:
+    bytes_read = weight_bytes + batch * context * kv_per_token
+    flops = batch * (2 * PARAMS + attn_flops_per_ctx * context)
+    return max(bytes_read / HBM_BW, flops / PEAK_FLOPS)  # a lower bound
+
+
+print(f"ridge point: {PEAK_FLOPS / HBM_BW:.0f} FLOPs/byte")  # 295
+for n in (500, 2_000, 8_000, 32_768):
+    print(f"prefill {n:>6,} tokens: {prefill_seconds(n) * 1e3:7.1f} ms")  # 16.4 ... 1633.4
+for b in (1, 8, 64, 170):
+    t = decode_step_seconds(b, context=2_500)
+    print(f"decode batch {b:>3}: {t * 1e3:5.1f} ms/step, "
+          f"{1 / t:4.0f} tok/s per sequence, {b / t:5.0f} tok/s total")
+# batch 1: 4.9 ms/step, 204 tok/s ... batch 170: 21.4 ms/step, 47 tok/s, 7936 tok/s
+</tab>
+<tab label="vLLM chunked prefill" lang="bash">
+# Chunked prefill is on by default in vLLM's V1 engine. The per-step token
+# budget covers prompt chunks plus one token per decoding sequence.
+# Smaller budget: shorter worst-case gaps between tokens.
+# Larger budget: faster time to first token and higher throughput.
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --max-num-batched-tokens 2048 \
+  --gpu-memory-utilization 0.90  # set explicitly; recent vLLM defaults to 0.92
+
+# Compare with a larger budget under the same load:
+#   vllm serve meta-llama/Llama-3.1-8B-Instruct --max-num-batched-tokens 8192
+# Then compare these histograms on the /metrics endpoint:
+#   vllm:inter_token_latency_seconds   (gaps between streamed tokens)
+#   vllm:time_to_first_token_seconds
+curl -s localhost:8000/metrics | grep -E "^vllm:(inter_token_latency|time_to_first_token)_seconds_count"
+</tab>
+<tab label="Measure the phases" lang="python">
+import time
+
+import torch
+from transformers import AutoModelForCausalLM
+
+model_id = "Qwen/Qwen2.5-0.5B-Instruct"  # small enough for a laptop
+model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto", device_map="auto")
+
+
+def sync():
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+
+def run(n: int, decode_steps: int = 32) -> tuple[float, float]:
+    ids = torch.randint(100, 20_000, (1, n), device=model.device)
+    with torch.no_grad():
+        sync()
+        t0 = time.perf_counter()
+        out = model(input_ids=ids, use_cache=True)  # prefill: all n tokens in one pass
+        sync()
+        t1 = time.perf_counter()
+        past, nxt = out.past_key_values, out.logits[:, -1:].argmax(-1)
+        for _ in range(decode_steps):  # decode: one token per step
+            out = model(input_ids=nxt, past_key_values=past, use_cache=True)
+            past, nxt = out.past_key_values, out.logits[:, -1:].argmax(-1)
+        sync()
+        t2 = time.perf_counter()
+    return t1 - t0, (t2 - t1) / decode_steps
+
+
+run(64)  # warm-up: the first call pays for one-time setup
+for n in (256, 1024, 4096):
+    prefill, step = run(n)
+    print(f"{n:>5} prompt tokens: prefill {prefill * 1e3:7.1f} ms ({n / prefill:7,.0f} tok/s), "
+          f"decode {step * 1e3:5.1f} ms/step ({1 / step:4.0f} tok/s)")
+# Expect prefill to ingest tokens tens to hundreds of times faster than decode
+# emits them, and the decode step to stay nearly flat as the prompt grows.
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>How FlashAttention keeps long-prompt prefill efficient by computing attention in tiles that never write the full score matrix to HBM (Lesson 33, GPU Architecture and Attention Kernels) [12].</li>
+<li>Why speculative decoding helps decode specifically: a small draft model proposes several tokens and the large model verifies them in one step, raising the work done per weight read (Lesson 15, Speculative Decoding) [13].</li>
+<li>Why weight quantization speeds up decode almost in proportion to the bytes saved, while FP8 tensor cores, at about 1,979 dense TFLOPS on an H100, speed up prefill (Lesson 13, Quantization - FP8, INT8 and 4-bit).</li>
+<li>How tensor parallelism splits each weight read across GPUs, multiplying the bandwidth available to one decode step (Lesson 18, Tensor Parallelism).</li>
+<li>How prefix caching removes prefill work entirely for repeated system prompts and documents (Lesson 24, Prefix Caching).</li>
+<li>TetriInfer, which combines fixed-size prompt chunks with separate prefill and decode instances and a scheduler that uses predicted resource usage to avoid decode hotspots [14].</li>
+<li>Why a GPU "utilization" gauge can read near 100% while decode uses a few percent of the tensor cores: the gauge measures whether a kernel is running, not how much math it does (Lesson 19, GPU Utilization).</li>
+<li>How Pope et al. analyze the latency and cost of partitioning large models for prefill and decode separately [5].</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="002-summary.png" caption="Prefill vs decode summary" optional="1">Mind map summarizing the lesson: the two phases, FLOPs per token, the roofline and ridge point, batching, interference, chunked prefill, and disaggregation.</fig>
+<ul>
+<li>Prefill processes the whole prompt in one parallel pass and produces the first token; decode produces one token per sequence per step.</li>
+<li>A forward pass costs about 2 × parameters FLOPs per token, about 16 GFLOPs for Llama 3.1 8B, plus attention that grows with context length.</li>
+<li>The H100's ridge point is 989 TFLOPS ÷ 3.35 TB/s ≈ 295 FLOPs per byte. Prefill (≈ 1,000 FLOPs/byte) is compute-bound; decode (≈ 1 FLOP/byte at batch 1) is memory-bound.</li>
+<li>For Llama 3.1 8B on one H100: a 2,000-token prefill takes about 65 ms at 50% MFU, and a decode step takes at least 4.9 ms at batch 1 (4.8 ms for the weights plus the 2,000-token cache).</li>
+<li>Batching shares the weight read across sequences, but each sequence reads its own KV cache, so decode stays memory-bound even at the 170-request capacity of one H100.</li>
+<li>Prefill steps stall decoding users when both share a GPU: an 8,000-token prompt freezes 64 streams for about 0.3 s. Chunked prefill caps the stall with a per-step token budget; disaggregated serving removes it at the cost of extra GPUs and KV transfers.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Kaplan et al. Scaling Laws for Neural Language Models. <a href="https://arxiv.org/abs/2001.08361" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2001.08361</a>.<br>
+[2] Williams et al. Roofline: An Insightful Visual Performance Model for Multicore Architectures. <a href="https://doi.org/10.1145/1498765.1498785" rel="noopener noreferrer" target="_blank">https://doi.org/10.1145/1498765.1498785</a>.<br>
+[3] NVIDIA. H100 Tensor Core GPU. <a href="https://www.nvidia.com/en-us/data-center/h100/" rel="noopener noreferrer" target="_blank">https://www.nvidia.com/en-us/data-center/h100/</a>.<br>
+[4] Chowdhery et al. PaLM: Scaling Language Modeling with Pathways. <a href="https://arxiv.org/abs/2204.02311" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2204.02311</a>.<br>
+[5] Pope et al. Efficiently Scaling Transformer Inference. <a href="https://arxiv.org/abs/2211.05102" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.05102</a>.<br>
+[6] Agrawal et al. SARATHI: Efficient LLM Inference by Piggybacking Decodes with Chunked Prefills. <a href="https://arxiv.org/abs/2308.16369" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2308.16369</a>.<br>
+[7] Agrawal et al. Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve. <a href="https://arxiv.org/abs/2403.02310" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2403.02310</a>.<br>
+[8] vLLM documentation: Optimization and Tuning. <a href="https://docs.vllm.ai/en/latest/configuration/optimization.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/optimization.html</a>.<br>
+[9] Zhong et al. DistServe: Disaggregating Prefill and Decoding for Goodput-optimized Large Language Model Serving. <a href="https://arxiv.org/abs/2401.09670" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.09670</a>.<br>
+[10] Patel et al. Splitwise: Efficient Generative LLM Inference Using Phase Splitting. <a href="https://arxiv.org/abs/2311.18677" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2311.18677</a>.<br>
+[11] vLLM documentation: Disaggregated Prefilling (experimental). <a href="https://docs.vllm.ai/en/latest/features/disagg_prefill.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/disagg_prefill.html</a>.<br>
+[12] Dao et al. FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. <a href="https://arxiv.org/abs/2205.14135" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2205.14135</a>.<br>
+[13] Leviathan et al. Fast Inference from Transformers via Speculative Decoding. <a href="https://arxiv.org/abs/2211.17192" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.17192</a>.<br>
+[14] Hu et al. Inference without Interference: Disaggregate LLM Inference for Mixed Downstream Workloads. <a href="https://arxiv.org/abs/2401.11181" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.11181</a>.</p>

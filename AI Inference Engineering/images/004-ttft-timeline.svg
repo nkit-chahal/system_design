@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="290" viewBox="0 0 840 290" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .brace{fill:none;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="26" class="b">From "send" to the first visible token (boxes not to scale)</text>
+
+  <!-- Six stages, 104 px wide, 14 px apart -->
+  <rect x="16" y="50" width="104" height="50" rx="6" class="gray"/>
+  <text x="68" y="71" text-anchor="middle" class="b">Network</text>
+  <text x="68" y="89" text-anchor="middle" class="sm">client → server</text>
+  <path d="M120,75 L132,75" class="edge"/>
+
+  <rect x="134" y="50" width="104" height="50" rx="6" class="gray"/>
+  <text x="186" y="71" text-anchor="middle" class="b">Prepare</text>
+  <text x="186" y="89" text-anchor="middle" class="sm">template, tokenize</text>
+  <path d="M238,75 L250,75" class="edge"/>
+
+  <rect x="252" y="50" width="104" height="50" rx="6" class="purple"/>
+  <text x="304" y="71" text-anchor="middle" class="b">Queue</text>
+  <text x="304" y="89" text-anchor="middle" class="sm">wait for a slot</text>
+  <path d="M356,75 L368,75" class="edge"/>
+
+  <rect x="370" y="50" width="104" height="50" rx="6" class="orange"/>
+  <text x="422" y="71" text-anchor="middle" class="b">Prefill</text>
+  <text x="422" y="89" text-anchor="middle" class="sm">+ sample token 1</text>
+  <path d="M474,75 L486,75" class="edge"/>
+
+  <rect x="488" y="50" width="104" height="50" rx="6" class="gray"/>
+  <text x="540" y="71" text-anchor="middle" class="b">Stream out</text>
+  <text x="540" y="89" text-anchor="middle" class="sm">detokenize, SSE</text>
+  <path d="M592,75 L604,75" class="edge"/>
+
+  <rect x="606" y="50" width="104" height="50" rx="6" class="gray"/>
+  <text x="658" y="71" text-anchor="middle" class="b">Network</text>
+  <text x="658" y="89" text-anchor="middle" class="sm">server → client</text>
+  <path d="M710,75 L722,75" class="edge"/>
+
+  <rect x="724" y="50" width="104" height="50" rx="6" class="green"/>
+  <text x="776" y="71" text-anchor="middle" class="b">Token 1</text>
+  <text x="776" y="89" text-anchor="middle" class="sm">on screen</text>
+
+  <!-- Illustrative values -->
+  <text x="68" y="124" text-anchor="middle" class="sm">1–50 ms</text>
+  <text x="186" y="124" text-anchor="middle" class="sm">≈ 3 ms</text>
+  <text x="304" y="124" text-anchor="middle" class="sm">0 to seconds</text>
+  <text x="422" y="124" text-anchor="middle" class="sm">≈ 65 ms</text>
+  <text x="540" y="124" text-anchor="middle" class="sm">&lt; 1 ms</text>
+  <text x="658" y="124" text-anchor="middle" class="sm">1–50 ms</text>
+  <text x="776" y="124" text-anchor="middle" class="sm">then token 2, 3, …</text>
+  <text x="16" y="144" class="sm">Illustrative values for a 2,000-token prompt on one H100; network time depends on distance, queue time on load.</text>
+
+  <!-- TTFT bracket -->
+  <path d="M16,170 L16,178 L710,178 L710,170" class="brace"/>
+  <path d="M363,178 L363,186" class="brace"/>
+  <text x="363" y="204" text-anchor="middle" class="b">Time to first token (what the user feels)</text>
+
+  <!-- Server-side bracket -->
+  <path d="M252,226 L252,234 L474,234 L474,226" class="brace"/>
+  <path d="M363,234 L363,242" class="brace"/>
+  <text x="363" y="260" text-anchor="middle" class="sm">vLLM's server-side TTFT metric covers roughly queue + prefill;</text>
+  <text x="363" y="278" text-anchor="middle" class="sm">queue time is the only part that grows by orders of magnitude under load</text>
+</svg>

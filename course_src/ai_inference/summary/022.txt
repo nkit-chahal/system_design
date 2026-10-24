@@ -1,0 +1,7 @@
+center: Autoscaling
+branch: Misleading signals | CPU utilization | GPU utilization | GPU memory
+branch: Better signals | in-flight requests per replica | waiting requests | KV cache usage
+branch: Kubernetes options | KEDA ScaledObject | HPA + Prometheus Adapter | Knative concurrency-based scaling
+branch: Headroom | 50% target: 8-minute start | 77% target: warm pool | minimum of 4 replicas
+branch: Scaling down safely | 10-minute scale-down window | preStop drain | 300-second grace period
+branch: Scheduled scaling | weekday floor of 8 | predictive scaling | pre-scale for launches

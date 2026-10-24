@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="350" viewBox="0 0 820 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <marker id="barrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6c8ebf"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .kv{fill:none;stroke:#6c8ebf;stroke-width:3;marker-end:url(#barrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Client and router -->
+  <rect x="16" y="146" width="110" height="50" rx="6" class="purple"/>
+  <text x="71" y="176" text-anchor="middle" class="b">client</text>
+  <path d="M126,171 L168,171" class="edge"/>
+  <rect x="170" y="136" width="140" height="70" rx="6" class="orange"/>
+  <text x="240" y="166" text-anchor="middle" class="b">Router</text>
+  <text x="240" y="185" text-anchor="middle" class="sm">two decisions</text>
+
+  <!-- Prefill pool -->
+  <rect x="380" y="16" width="424" height="110" rx="4" class="group"/>
+  <text x="394" y="38" class="b">Prefill pool <tspan class="sm" style="font-weight:normal">(compute-bound)</tspan></text>
+  <rect x="396" y="52" width="124" height="56" rx="6" class="green"/>
+  <text x="458" y="76" text-anchor="middle" class="b">P1</text>
+  <text x="458" y="95" text-anchor="middle" class="sm">prefix cached</text>
+  <rect x="534" y="52" width="124" height="56" rx="6" class="gray"/>
+  <text x="596" y="76" text-anchor="middle" class="b">P2</text>
+  <text x="596" y="95" text-anchor="middle" class="sm">no match</text>
+  <rect x="672" y="52" width="124" height="56" rx="6" class="gray"/>
+  <text x="734" y="76" text-anchor="middle" class="b">P3</text>
+  <text x="734" y="95" text-anchor="middle" class="sm">busy</text>
+
+  <!-- Decode pool -->
+  <rect x="380" y="220" width="424" height="110" rx="4" class="group"/>
+  <text x="394" y="322" class="b">Decode pool <tspan class="sm" style="font-weight:normal">(memory-bound)</tspan></text>
+  <rect x="396" y="234" width="124" height="56" rx="6" class="green"/>
+  <text x="458" y="258" text-anchor="middle" class="b">D1</text>
+  <text x="458" y="277" text-anchor="middle" class="sm">KV cache 40%</text>
+  <rect x="534" y="234" width="124" height="56" rx="6" class="gray"/>
+  <text x="596" y="258" text-anchor="middle" class="b">D2</text>
+  <text x="596" y="277" text-anchor="middle" class="sm">KV cache 88%</text>
+  <rect x="672" y="234" width="124" height="56" rx="6" class="gray"/>
+  <text x="734" y="258" text-anchor="middle" class="b">D3</text>
+  <text x="734" y="277" text-anchor="middle" class="sm">KV cache 93%</text>
+
+  <!-- Router decisions -->
+  <path d="M310,150 L350,150 L350,80 L394,80" class="edge"/>
+  <path d="M310,192 L350,192 L350,252 L394,252" class="edge"/>
+  <text x="196" y="72" class="sm b">1. prefill worker:</text>
+  <text x="196" y="88" class="sm">best prefix match</text>
+  <text x="196" y="250" class="sm b">2. decode worker:</text>
+  <text x="196" y="266" class="sm">most free KV cache</text>
+
+  <!-- KV transfer -->
+  <path d="M458,108 L458,230" class="kv"/>
+  <text x="470" y="170" class="sm b" style="fill:#3d5a8a">KV cache transfer</text>
+
+  <!-- Token stream back -->
+  <path d="M396,280 L364,280 L364,312 L71,312 L71,198" class="edge"/>
+  <text x="90" y="304" class="sm">tokens stream back</text>
+</svg>

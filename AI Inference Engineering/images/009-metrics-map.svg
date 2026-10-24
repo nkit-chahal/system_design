@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="372" viewBox="0 0 840 372" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .both{fill:none;stroke:#000;stroke-width:1.2;marker-start:url(#arrow);marker-end:url(#arrow)}
+    .guide{stroke:#bbb;stroke-width:1;stroke-dasharray:4 3}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="22" class="b">One request's life and the histograms that measure it (all names start with vllm:)</text>
+
+  <!-- Timeline -->
+  <text x="150" y="52" text-anchor="middle" class="sm">arrival</text>
+  <text x="360" y="52" text-anchor="middle" class="sm">first token</text>
+  <text x="760" y="52" text-anchor="middle" class="sm">last token</text>
+  <text x="16" y="83">Request</text>
+  <rect x="150" y="62" width="120" height="30" class="gray"/><text x="210" y="82" text-anchor="middle" class="sm">queued</text>
+  <rect x="270" y="62" width="90" height="30" class="orange"/><text x="315" y="82" text-anchor="middle" class="sm">prefill</text>
+  <rect x="360" y="62" width="400" height="30" class="orange"/>
+  <path d="M385,62 V92 M410,62 V92 M435,62 V92 M460,62 V92 M485,62 V92 M510,62 V92 M535,62 V92 M585,62 V92 M610,62 V92 M635,62 V92 M660,62 V92 M685,62 V92 M710,62 V92 M735,62 V92" stroke="#d79b00" stroke-width="1"/>
+  <rect x="540" y="70" width="40" height="16" fill="#ffe6cc"/>
+  <text x="560" y="82" text-anchor="middle" class="sm">decode</text>
+
+  <!-- Guides -->
+  <line x1="150" y1="92" x2="150" y2="236" class="guide"/>
+  <line x1="270" y1="92" x2="270" y2="132" class="guide"/>
+  <line x1="360" y1="92" x2="360" y2="200" class="guide"/>
+  <line x1="760" y1="92" x2="760" y2="236" class="guide"/>
+
+  <!-- Histogram spans -->
+  <text x="150" y="118" class="sm">request_queue_time_seconds</text>
+  <path d="M151,126 L269,126" class="both"/>
+  <text x="150" y="152" class="sm">time_to_first_token_seconds</text>
+  <path d="M151,160 L359,160" class="both"/>
+  <text x="360" y="186" class="sm">inter_token_latency_seconds: one sample per gap between tokens</text>
+  <path d="M361,194 L759,194" class="both"/>
+  <path d="M385,190 V198 M410,190 V198 M435,190 V198 M460,190 V198 M485,190 V198 M510,190 V198 M535,190 V198 M560,190 V198 M585,190 V198 M610,190 V198 M635,190 V198 M660,190 V198 M685,190 V198 M710,190 V198 M735,190 V198" stroke="#000" stroke-width="1"/>
+  <text x="150" y="220" class="sm">e2e_request_latency_seconds</text>
+  <path d="M151,228 L759,228" class="both"/>
+
+  <!-- Gauges and counters -->
+  <rect x="16" y="254" width="392" height="104" rx="6" class="blue"/>
+  <text x="28" y="276" class="b">Gauges: the engine right now</text>
+  <text x="28" y="298" class="sm">num_requests_waiting: queue depth</text>
+  <text x="28" y="318" class="sm">num_requests_running: requests in the batch</text>
+  <text x="28" y="338" class="sm">kv_cache_usage_perc: 1 means the cache is full</text>
+  <rect x="424" y="254" width="400" height="104" rx="6" class="gray"/>
+  <text x="436" y="276" class="b">Counters: read them with rate()</text>
+  <text x="436" y="298" class="sm">num_preemptions_total</text>
+  <text x="436" y="318" class="sm">prompt_tokens_total, generation_tokens_total</text>
+  <text x="436" y="338" class="sm">prefix_cache_queries_total, prefix_cache_hits_total</text>
+</svg>

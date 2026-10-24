@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="214" viewBox="0 0 860 214" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.it{font-style:italic}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .line{fill:none;stroke:#000;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e6e6e6;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:6 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="430" y="24" text-anchor="middle" class="b">Llama 3.1 8B on H100s, 1,000 requests per minute, 2 s latency SLA</text>
+  <rect x="10" y="44" width="152" height="96" rx="6" class="purple"/>
+  <text x="86" y="68.5" text-anchor="middle" class="b">1. SLA</text>
+  <text x="86" y="87.5" text-anchor="middle" class="sm">p95 end-to-end ≤ 2 s</text>
+  <text x="86" y="106.5" text-anchor="middle" class="sm">0.5 s TTFT allowance</text>
+  <text x="86" y="125.5" text-anchor="middle" class="sm">→ 10 ms per token</text>
+  <rect x="182" y="44" width="152" height="96" rx="6" class="purple"/>
+  <text x="258" y="68.5" text-anchor="middle" class="b">2. Traffic</text>
+  <text x="258" y="87.5" text-anchor="middle" class="sm">1,000 req/min</text>
+  <text x="258" y="106.5" text-anchor="middle" class="sm">= 16.7 req/s</text>
+  <text x="258" y="125.5" text-anchor="middle" class="sm">L = λW ≈ 18 in flight</text>
+  <rect x="354" y="44" width="152" height="96" rx="6" class="orange"/>
+  <text x="430" y="68.5" text-anchor="middle" class="b">3. One H100</text>
+  <text x="430" y="87.5" text-anchor="middle" class="sm">TPOT floor 6.85 ms</text>
+  <text x="430" y="106.5" text-anchor="middle" class="sm">saturates: 13.1 req/s</text>
+  <text x="430" y="125.5" text-anchor="middle" class="sm">max 4.12 req/s</text>
+  <rect x="526" y="44" width="152" height="96" rx="6" class="green"/>
+  <text x="602" y="68.5" text-anchor="middle" class="b">4. GPU count</text>
+  <text x="602" y="87.5" text-anchor="middle" class="sm">ceil(16.7 ÷ 3.30) = 6</text>
+  <text x="602" y="106.5" text-anchor="middle" class="sm">+ 1 spare (N+1)</text>
+  <text x="602" y="125.5" text-anchor="middle" class="sm b">= 7 H100s</text>
+  <rect x="698" y="44" width="152" height="96" rx="6" class="gray"/>
+  <text x="774" y="68.5" text-anchor="middle" class="b">5. Load test</text>
+  <text x="774" y="87.5" text-anchor="middle" class="sm">vllm bench serve</text>
+  <text x="774" y="106.5" text-anchor="middle" class="sm">--request-rate 2.78</text>
+  <text x="774" y="125.5" text-anchor="middle" class="sm">p95 vs 2 s</text>
+  <path d="M162,92 L182,92" class="edge"/>
+  <path d="M334,92 L354,92" class="edge"/>
+  <path d="M506,92 L526,92" class="edge"/>
+  <path d="M678,92 L698,92" class="edge"/>
+  <path d="M774,140 L774,176 L430,176 L430,142" class="edge"/>
+  <text x="602" y="196" text-anchor="middle" class="sm">measured TPOT and TTFT recalibrate bandwidth efficiency and MFU</text>
+</svg>

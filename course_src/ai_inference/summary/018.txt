@@ -1,0 +1,7 @@
+center: Tensor Parallelism
+branch: Why split | 141 GB of weights | 42 ms per step alone
+branch: How layers split | column then row parallel | heads across GPUs
+branch: Communication | 2 all-reduces per layer | 16 KiB per token
+branch: Diminishing returns | 3.3× faster on 4× GPUs | NVLink, not PCIe
+branch: Constraints | TP divides 64 heads | KV heads replicate above 8
+branch: Layout for 70B | one TP = 8 replica | more servers, not TP = 16

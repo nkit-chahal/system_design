@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="830" height="350" viewBox="0 0 830 350" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .over{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .axis{stroke:#000;stroke-width:1.2}
+    .cap{stroke:#b85450;stroke-width:1.5;stroke-dasharray:6 4}
+    .bound{stroke:#82b366;stroke-width:1.5;stroke-dasharray:6 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- y scale: 17.6 px per req/s; baseline y=250; 5 req/s at y=162; 10 req/s at y=74 -->
+  <!-- Panel 1 -->
+  <text x="215" y="30" text-anchor="middle" class="lg b">Pure prefix hashing</text>
+  <line x1="60" y1="66" x2="60" y2="250" class="axis"/>
+  <line x1="60" y1="250" x2="370" y2="250" class="axis"/>
+  <text x="52" y="254" text-anchor="end" class="sm">0</text>
+  <text x="52" y="166" text-anchor="end" class="sm">5</text>
+  <text x="52" y="78" text-anchor="end" class="sm">10</text>
+  <line x1="60" y1="162" x2="370" y2="162" class="cap"/>
+  <text x="368" y="156" text-anchor="end" class="sm">replica capacity ≈ 5 req/s</text>
+
+  <rect x="70" y="162" width="26" height="88" class="purple"/>
+  <rect x="70" y="75.8" width="26" height="86.2" class="over"/>
+  <text x="83" y="69" text-anchor="middle" class="sm b">9.9</text>
+  <rect x="108" y="191.9" width="26" height="58.1" class="gray"/>
+  <rect x="146" y="191.9" width="26" height="58.1" class="gray"/>
+  <rect x="184" y="191.9" width="26" height="58.1" class="gray"/>
+  <rect x="222" y="191.9" width="26" height="58.1" class="gray"/>
+  <rect x="260" y="191.9" width="26" height="58.1" class="gray"/>
+  <rect x="298" y="191.9" width="26" height="58.1" class="gray"/>
+  <rect x="336" y="191.9" width="26" height="58.1" class="gray"/>
+  <text x="235" y="184" text-anchor="middle" class="sm">3.3 req/s each</text>
+  <g class="sm" text-anchor="middle">
+    <text x="83" y="268">R1</text><text x="121" y="268">R2</text><text x="159" y="268">R3</text><text x="197" y="268">R4</text>
+    <text x="235" y="268">R5</text><text x="273" y="268">R6</text><text x="311" y="268">R7</text><text x="349" y="268">R8</text>
+  </g>
+
+  <!-- Panel 2 -->
+  <text x="625" y="30" text-anchor="middle" class="lg b">Bounded load (c = 1.2)</text>
+  <line x1="470" y1="66" x2="470" y2="250" class="axis"/>
+  <line x1="470" y1="250" x2="780" y2="250" class="axis"/>
+  <text x="462" y="254" text-anchor="end" class="sm">0</text>
+  <text x="462" y="166" text-anchor="end" class="sm">5</text>
+  <text x="462" y="78" text-anchor="end" class="sm">10</text>
+  <line x1="470" y1="162.9" x2="780" y2="162.9" class="bound"/>
+  <text x="778" y="140" text-anchor="end" class="sm">bound = 1.2 × average = 4.95,</text>
+  <text x="778" y="155" text-anchor="end" class="sm">just under capacity ≈ 5</text>
+
+  <!-- R1: 4.95 hot -->
+  <rect x="480" y="162.9" width="26" height="87.1" class="purple"/>
+  <!-- R2-R4: 3.3 other + 1.65 hot -->
+  <rect x="518" y="191.9" width="26" height="58.1" class="gray"/><rect x="518" y="162.9" width="26" height="29" class="purple"/>
+  <rect x="556" y="191.9" width="26" height="58.1" class="gray"/><rect x="556" y="162.9" width="26" height="29" class="purple"/>
+  <rect x="594" y="191.9" width="26" height="58.1" class="gray"/><rect x="594" y="162.9" width="26" height="29" class="purple"/>
+  <!-- R5-R8: 3.3 other -->
+  <rect x="632" y="191.9" width="26" height="58.1" class="gray"/>
+  <rect x="670" y="191.9" width="26" height="58.1" class="gray"/>
+  <rect x="708" y="191.9" width="26" height="58.1" class="gray"/>
+  <rect x="746" y="191.9" width="26" height="58.1" class="gray"/>
+  <g class="sm" text-anchor="middle">
+    <text x="493" y="268">R1</text><text x="531" y="268">R2</text><text x="569" y="268">R3</text><text x="607" y="268">R4</text>
+    <text x="645" y="268">R5</text><text x="683" y="268">R6</text><text x="721" y="268">R7</text><text x="759" y="268">R8</text>
+  </g>
+
+  <text x="24" y="160" class="sm" transform="rotate(-90 24 160)" text-anchor="middle">requests per second</text>
+
+  <!-- Legend and notes -->
+  <rect x="60" y="286" width="16" height="12" class="purple"/><text x="82" y="297" class="sm">largest tenant, shared prefix sys S1 (9.9 req/s)</text>
+  <rect x="380" y="286" width="16" height="12" class="gray"/><text x="402" y="297" class="sm">other tenants (23.1 req/s)</text>
+  <rect x="580" y="286" width="16" height="12" class="over"/><text x="602" y="297" class="sm">overload: queue grows</text>
+  <text x="16" y="330">Daily peak of 33 req/s. Left: R1 gets about twice what it can serve. Right: the hot prefix spills onto R2–R4.</text>
+</svg>

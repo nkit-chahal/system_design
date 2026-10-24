@@ -1,0 +1,7 @@
+center: TensorRT-LLM
+branch: Runtime | PyTorch runtime since v1.0 | trtllm-build removed | NVIDIA kernels
+branch: PyExecutor | in-flight batching | overlap scheduler | chunked prefill opt-in
+branch: Admission | guaranteed no-evict default | 174 versus 72 requests | max-utilization policy
+branch: KV cache | 0.9 of free memory | 13,824 blocks of 32 | prioritized LRU reuse
+branch: Quantization | FP8 on Hopper | NVFP4 on Blackwell | about 4.5 GB
+branch: Choosing an engine | vLLM by default | SGLang for shared prefixes | TensorRT-LLM at scale

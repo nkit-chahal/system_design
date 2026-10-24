@@ -1,0 +1,265 @@
+<h2>Introduction</h2>
+<p>A latency number on a dashboard is almost never one number. Every request has its own latency, and together they form a distribution: most requests are fast, a few are slow, and a very few are very slow. A single summary such as the average hides exactly the requests that users complain about. <strong>Percentiles</strong> describe the distribution instead: the p50 is the latency that half of the requests beat, the p95 the latency that 95% beat, and the p99 the latency that 99% beat.</p>
+<p>For LLM serving the distribution is especially lopsided. A request that lands behind a long document, on a replica that just started, or in a moment when the KV cache is full can take ten times longer than a typical one. Figure 1 shows the shape of a typical time-to-first-token distribution and where the average, median and tail percentiles fall on it.</p>
+<fig src="028-latency-distribution.svg" caption="A right-skewed TTFT distribution with its mean and percentiles (illustrative, synthetic data)">A histogram of time to first token for 100,000 synthetic requests in 50 ms bins from 0 to 2 seconds. Most requests take 50 to 200 ms, and the bars shrink toward a long, nearly invisible tail. Dashed markers show the p50 at 121 ms, the mean at 194 ms, the p95 at 484 ms and the p99 at 1.41 s. A note says 1.4% of requests wait over 1 second and 0.8% over 2 seconds, up to 5 seconds.</fig>
+<p>In this lesson, we define percentiles and show why averages mislead, decide which latencies an LLM service must track, explain why tail latency matters more as systems grow, and cover how to measure percentiles correctly: histograms, aggregation across replicas, client-side measurement, and load tests that do not lie. We then turn percentiles into SLOs with error budgets and finish with what usually drives the p99 of an LLM service.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Percentile questions often start from a dashboard that looks fine while users are unhappy. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: What are we serving?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct on vLLM, 8 replicas, each on one H100. Traffic averages 1,000 requests per minute, about 1.44 million a day, and swings between about 8 and 33 requests per second over the day.</p>
+<p><strong>Candidate</strong>: What does the dashboard show today?<br>
+<strong>Interviewer</strong>: Average time to first token per minute. It sits around 190 ms. But support tickets say that "sometimes the answer takes five seconds to start", and some users say the text freezes mid-answer.</p>
+<p><strong>Candidate</strong>: Which experience matters most?<br>
+<strong>Interviewer</strong>: How long until the first words appear, and whether the text then streams smoothly.</p>
+<p><strong>Candidate</strong>: Are there latency targets?<br>
+<strong>Interviewer</strong>: Product wants p95 time to first token at or under 500 ms and p95 time per output token at or under 25 ms, which is at least 40 tokens per second.</p>
+<p><strong>Candidate</strong>: What measurements do we have?<br>
+<strong>Interviewer</strong>: Prometheus scrapes vLLM's metrics on every replica, and the API gateway logs a timing record for every request.</p>
+<p><strong>Candidate</strong>: How do we load test?<br>
+<strong>Interviewer</strong>: A script runs 50 simulated users, each sending its next request as soon as the previous one finishes.</p>
+<p>The question underneath is: <em>which latencies should we measure, how do we compute their percentiles correctly across 8 replicas, what SLOs should we set, and where do we look when the p99 moves?</em> Each part of the setup above hides a trap, and we will meet all of them.</p>
+
+<h2>Percentiles and Why Averages Hide the Tail</h2>
+<h3>What a percentile is</h3>
+<p>The <strong>p-th percentile</strong> of a set of latencies is the value at or below which <tex>p</tex>% of them fall. The simplest definition, the nearest-rank method, sorts the <tex>n</tex> values and takes the value at position <tex>\lceil p \times n / 100 \rceil</tex>. For 1,000 requests, the p50 is the 500th fastest, the p95 the 950th, and the p99 the 990th. The p50 is the <strong>median</strong>: a typical request. The p95 and p99 describe the <strong>tail</strong>: the experience of the unluckiest 5% and 1% of requests. As Google's SRE book puts it, a high-order percentile "shows you a plausible worst-case value" [1].</p>
+
+<h3>Averages hide the tail</h3>
+<p>Suppose 980 of 1,000 requests take 100 ms and 20 take 5 seconds. The mean is (980 × 0.1 + 20 × 5) ÷ 1,000 = 0.198 s, which looks healthy. The p50 and the p95 are both 100 ms. Only the p99, the 990th value, lands in the slow group: 5 seconds. Two percent of users waited 50 times longer than everyone else, and the average barely noticed.</p>
+<p>This is exactly our dashboard's problem. Latency distributions are right-skewed, as in Figure 1: the mean is pulled above the median by the tail, but stays far below the tail itself. A 194 ms mean is consistent with a p99 of 1.4 seconds and a maximum of 5 seconds. Worse, the mean moves very little when the tail grows, so it cannot warn us that something is getting worse for the unlucky users.</p>
+<callout kind="tip" title="Interview tip">Never report a latency as a single average. Say "p50, p95 and p99", say which latency (TTFT, time per output token, or end to end), and say over what window and population they were computed.</callout>
+
+<h3>Which latencies to track for an LLM</h3>
+<p>A streamed LLM response has several distinct latencies, shown in Figure 2. Lesson 4, Time to First Token, and Lesson 5, Tokens per Second, explain what drives each one; here we care about how to measure their distributions.</p>
+<fig src="028-request-timeline.svg" caption="The latencies of one streamed request">A timeline of one request: it arrives, waits in a queue, is prefilled, produces its first token, and then streams tokens with regular gaps and one long stall. Spans above the timeline mark queue time, time to first token from arrival to the first token, and end-to-end latency from arrival to the last token. Spans below mark one inter-token gap and the stall, which is one slow inter-token latency sample. TPOT is the average gap per request, so a single stall barely moves it.</fig>
+<table>
+<thead><tr><th>Latency</th><th>What it measures</th><th>Counted per</th><th>Main drivers</th><th>vLLM histogram</th></tr></thead>
+<tbody>
+<tr><td>Queue time</td><td>Arrival to start of prefill</td><td>Request</td><td>Load, admission, preemption</td><td><code>vllm:request_queue_time_seconds</code></td></tr>
+<tr><td>Time to first token (TTFT)</td><td>Arrival to first output token</td><td>Request</td><td>Queueing, prompt length, cache hits</td><td><code>vllm:time_to_first_token_seconds</code></td></tr>
+<tr><td>Inter-token latency (ITL)</td><td>Gap between consecutive tokens</td><td>Token gap</td><td>Batch size, prefill interference</td><td><code>vllm:inter_token_latency_seconds</code></td></tr>
+<tr><td>Time per output token (TPOT)</td><td>(E2E − TTFT) ÷ (output tokens − 1)</td><td>Request</td><td>Batch size, KV cache size</td><td><code>vllm:request_time_per_output_token_seconds</code></td></tr>
+<tr><td>End-to-end (E2E)</td><td>Arrival to last token</td><td>Request</td><td>All of the above plus output length</td><td><code>vllm:e2e_request_latency_seconds</code></td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Latencies to track for LLM serving, with the vLLM metric for each [2]</p>
+<p>Each needs its own percentiles, because each answers a different question and has different drivers:</p>
+<ul>
+<li><strong>TTFT</strong> is what users feel as responsiveness. It depends heavily on prompt length, so a fleet serving both chat and 30,000-token documents should look at TTFT percentiles per prompt-length bucket; otherwise the documents' slow prefills define the tail.</li>
+<li><strong>End-to-end latency</strong> grows with the number of output tokens even on a perfectly healthy system: a 2,000-token answer takes four times as long as a 500-token one. Its raw percentiles mostly measure how long answers are, so it makes a poor SLO unless normalized or bucketed by output length.</li>
+<li><strong>ITL and TPOT</strong> look similar but count different things. ITL has one sample per token gap, TPOT one sample per request. Suppose every 500-token response streams at a healthy 20 ms per token but freezes once for 2 seconds. Each request has 499 gaps, one of them 2 s, so stalls are 0.2% of all gaps: the ITL p99 is still 20 ms, and only the p99.9 shows the 2 s. TPOT averages the stall away: (498 × 0.02 + 2) ÷ 499 ≈ 24 ms, which even meets the 25 ms target. Yet every single user saw the text freeze. To catch this, track the <strong>worst gap per request</strong>, computed at the gateway from the stream, and take its percentiles: here its p99 is 2 s.</li>
+<li><strong>Queue time</strong> is the earliest warning: it rises before TTFT does when the fleet approaches saturation (Lesson 29, Queue Depth).</li>
+</ul>
+
+<h3>Why tails matter at scale</h3>
+<p>If one call has a 1% chance of being slower than its p99, a user action that needs several calls has a much higher chance of hitting at least one slow call. With <tex>N</tex> independent calls:</p>
+<texblock>P(\text{at least one call slower than its p99}) = 1 - 0.99^{N}</texblock>
+<p>Dean and Barroso made this point for web search, where one user query fans out to many servers and the slowest one sets the response time [3]. LLM products have the same structure in a new form. An agent that makes 10 model calls to finish a task hits at least one p99 call 9.6% of the time. A user who has a 20-turn chat sees at least one p99 time to first token in 18.2% of sessions. A pipeline that fans out to 100 calls in parallel waits for a p99 call 63.4% of the time, as Figure 3 shows.</p>
+<fig src="028-fan-out.svg" caption="The probability of hitting at least one p99 call grows quickly with the number of calls">A curve of 1 minus 0.99 to the power N for N from 1 to 100. It passes 9.6% at N equals 10, labeled a 10-step agent task, 18.2% at N equals 20, labeled a 20-turn chat, and 63.4% at N equals 100, labeled a 100-way fan-out.</fig>
+<p>The lesson is that the p99 is not a rare event from the user's point of view. A product used in sessions or agent loops lives in the tail of its model server, which is why serving teams set targets on the p95 and p99, not the median.</p>
+
+<h2>Measuring Percentiles Correctly</h2>
+<h3>Histograms and bucket choice</h3>
+<p>A server cannot keep every latency it has ever seen, so it summarizes them. Prometheus offers two summaries. A <strong>summary</strong> computes quantiles inside each process; a <strong>histogram</strong> only counts observations into fixed buckets and lets the query compute quantiles later. Histograms can be added across processes; summaries cannot, because "averaging the quantiles yields statistically nonsensical values" [4]. vLLM exports histograms, which is what we want.</p>
+<p>Each bucket is labeled <code>le</code>, short for "less than or equal": it counts every observation at or below its boundary, so the counts are cumulative. To estimate a quantile, Prometheus's <code>histogram_quantile</code> finds the bucket that contains the target rank and assumes observations are spread evenly inside it, which is linear interpolation [5]. Figure 4 works through an example with 10,000 TTFT observations.</p>
+<fig src="028-histogram-buckets.svg" caption="Estimating the p95 from histogram buckets by linear interpolation">Seven buckets with vLLM's default TTFT boundaries hold 5,000 observations up to 0.1 s, 4,000 from 0.1 to 0.25 s, 600 from 0.25 to 0.5 s, 200 from 0.5 to 0.75 s, 80 from 0.75 to 1 s, 110 from 1 to 2.5 s and 10 above 2.5 s, with cumulative counts from 5,000 to 10,000. The p95, observation number 9,500, falls in the 0.25 to 0.5 s bucket, which holds observations 9,001 to 9,600. Assuming they are spread evenly, the estimate is 0.25 plus 500 over 600 times 0.25, or 0.458 s. The true value can be anywhere in the bucket. The p99 falls in the 1 to 2.5 s bucket and is estimated at 1.27 s with up to 1.5 s of uncertainty.</fig>
+<p>The estimate's error is bounded by the width of the bucket it falls in [4], so bucket boundaries matter:</p>
+<ul>
+<li>In current vLLM, the default TTFT buckets include boundaries at 0.1, 0.25, 0.5, 0.75, 1.0 and 2.5 seconds [6]. Our 500 ms target is a boundary, which makes the question "what fraction of requests met the target?" exact: divide the <code>le="0.5"</code> count by the total.</li>
+<li>Percentiles that land in a wide bucket are rough. In Figure 4 the p99 lands in the 1 to 2.5 s bucket, so the reported 1.27 s could be off by more than a second. Add boundaries where your percentiles and targets live; vLLM's source shows the defaults can be overridden through its observability configuration [6].</li>
+<li>Prometheus now recommends native histograms, which use many finer buckets automatically, over both classic histograms and summaries where available [4].</li>
+</ul>
+
+<h3>Never average percentiles</h3>
+<p>The most common mistake on LLM dashboards is to compute a percentile per replica and then average them. Figure 5 shows why this fails. Seven of our eight replicas have a p99 TTFT of 0.3 s. The eighth is in trouble, perhaps freshly started or stuck preempting, and 40% of its requests take about 4 s. The average of the eight p99s is (7 × 0.3 + 4) ÷ 8 ≈ 0.76 s. But the bad replica serves one eighth of the traffic, so 0.4 ÷ 8 = 5% of all requests take about 4 s. That is five times more than the 1% that defines the p99, so the true fleet p99 is 4 s.</p>
+<fig src="028-averaging-percentiles.svg" caption="Averaging per-replica p99s hides a bad replica">Bar chart of p99 TTFT for eight replicas with equal traffic: R1 to R7 at 0.3 s each and R8 at 4 s. A dashed line marks the average of the p99s at 0.76 s, labeled wrong. A higher dashed line marks the true fleet p99 at 4 s. A note explains that R8 serves one eighth of requests and 40% of its requests take about 4 s, which is 5% of the fleet's requests, far more than the 1% that defines the p99.</fig>
+<p>The correct method adds the bucket counts across replicas first and computes the quantile once. Prometheus's documentation gives exactly this form [4][5]:</p>
+<p style="text-align:center"><code>histogram_quantile(0.99, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket[5m])))</code></p>
+<p>The <code>rate</code> turns cumulative counters into per-second rates over the window, <code>sum by (le)</code> adds them across every replica while keeping the bucket label that <code>histogram_quantile</code> needs, and the quantile is computed once over the fleet. The same rule applies over time: the p99 for an hour is not the average of the sixty one-minute p99s.</p>
+
+<h3>Client-side versus server-side measurement</h3>
+<p>vLLM's histograms start their clock when a request reaches the engine. They cannot see the time a request spent before that: in the API gateway, in the rate limiter (Lesson 26, Rate Limiting), in the router's queue (Lesson 25, Request Routing), on the network, or in a failed first attempt that the router retried on another replica. The user experiences all of it.</p>
+<p>So measure both. The <strong>SLO should be measured as close to the user as possible</strong>, at the gateway or in the client, because that is the experience we promise. Engine metrics are for diagnosis: they say which replica, and which phase inside it, is slow. If the gateway's p99 TTFT is 2 s while every engine's is 600 ms, the time is being lost outside the engines. Percentiles cannot be subtracted, though, so confirm such a gap with per-request records that carry both timestamps (Lesson 31, Per-Request Token Accounting).</p>
+
+<h3>Coordinated omission in load tests</h3>
+<p>Our load test runs 50 users that each send the next request as soon as the previous one returns. This is a <strong>closed-loop</strong> test, and it has a subtle flaw called <strong>coordinated omission</strong>: when the server stalls, the load generator stalls with it and stops sending, so the requests that real users would have sent during the stall are never sent and never measured. Figure 6 shows a 2-second stall.</p>
+<fig src="028-coordinated-omission.svg" caption="A closed-loop load test omits the requests a stall would have delayed">Two timelines from 0 to 6 seconds with a server stall from 2 to 4 seconds. In the closed loop, one simulated user sends a request every half second until 2 seconds, then waits 2 seconds for one slow reply, sends nothing during the stall, and resumes: 1 slow sample out of 8. In the open loop, requests keep arriving every half second on a fixed schedule; the four scheduled at 2.0, 2.5, 3.0 and 3.5 seconds all wait until 4 seconds, giving latencies of 2.0, 1.5, 1.0 and 0.5 seconds: 4 slow samples out of 12.</fig>
+<p>The closed loop records one slow sample out of eight, so even its p80 looks healthy. Real users arrive on their own schedule, not when the server is ready, so in production the stall would have delayed four requests out of twelve. The effect can be enormous. The wrk2 load generator's documentation shows a test with a 1.4-second server pause where the uncorrected p99 was 6.04 ms and the corrected p99 was 1.27 s, about 200 times larger [7]. The fix is an <strong>open-loop</strong> test: send requests on a fixed or random arrival schedule regardless of responses, and measure each latency from the time the request should have been sent. vLLM's benchmark does this with <code>vllm bench serve --request-rate</code>, which generates Poisson arrivals by default [8]. Its <code>--max-concurrency</code> option caps requests in flight on the client side, which reintroduces a queue the server metrics do not see, so use it with care in SLO tests.</p>
+
+<h2>SLOs and Error Budgets for LLM Latency</h2>
+<h3>Writing the SLO</h3>
+<p>A <strong>service level indicator</strong> (SLI) is a measured quantity, and a <strong>service level objective</strong> (SLO) is a target for it [1]. Latency SLOs are most useful when written as the fraction of requests that are fast enough, measured over a window, because fractions can be counted exactly and added up over time. For our service:</p>
+<ul>
+<li><strong>TTFT</strong>: at least 95% of requests with prompts up to 8,000 tokens get their first token within 500 ms, measured at the gateway over a rolling 30 days. This is the same as "p95 TTFT ≤ 500 ms", but stated so it can be counted. Document requests get a separate, looser SLO, since a 30,000-token prompt alone needs about 1 s of prefill.</li>
+<li><strong>Streaming</strong>: at least 95% of requests have a TPOT of 25 ms or less, and at least 99% have no gap between tokens longer than 1 s. The second clause catches the freezes that TPOT averages away.</li>
+<li><strong>Guardrail</strong>: p99 TTFT under 2 s, watched on the dashboard but not promised to customers.</li>
+</ul>
+<p>Excluding requests also needs care: requests rejected by rate limits (429) do not count as slow, but requests the fleet sheds under overload (503) should count against an availability SLO, or shedding becomes a way to hide latency problems.</p>
+
+<h3>A worked error budget</h3>
+<p>An SLO of 95% leaves an <strong>error budget</strong> of 5%: the share of requests allowed to be slow. At 1,000 requests per minute, the service handles about 1.44 million requests per day and 43.2 million per 30 days, so the TTFT budget is 0.05 × 43.2 million = 2.16 million slow requests per month.</p>
+<p>Suppose a bad rollout restarts replicas during the daily peak, and for 2 hours 40% of requests miss 500 ms. At 33 requests per second, 2 hours is about 237,600 requests, so the incident produces about 95,000 slow requests, 4.4% of the monthly budget. The <strong>burn rate</strong>, how fast the budget is consumed relative to plan, is 0.40 ÷ 0.05 = 8: at that rate the 30-day budget would last 30 ÷ 8 = 3.75 days. The budget also exposes chronic problems. If 3% of requests are slow on a normal day, that alone uses 3 ÷ 5 = 60% of the budget, leaving little room for incidents, and is a reason to fix the baseline before shipping features.</p>
+
+<h3>Alerting on burn rate</h3>
+<p>Alerting on a raw p99 is noisy, especially when traffic is low. At the daily peak of 33 requests per second, a 5-minute window holds about 9,900 requests, so the p99 rests on the slowest 99 and the p99.9 on about 10. At the overnight low of 8 requests per second, the same window holds 2,400 requests and the p99 rests on 24: a few slow requests swing it.</p>
+<p>Alerting on burn rate avoids this. Google's SRE workbook recommends multiwindow, multi-burn-rate alerts: for example, page when the burn rate over the last hour exceeds 14.4, which spends 2% of a 30-day budget in that hour, confirmed over the last 5 minutes; page when it exceeds 6 over 6 hours, spending 5%; and open a ticket when it exceeds 1 over 3 days [9]. The arithmetic works for any target: a burn rate <tex>b</tex> sustained for <tex>h</tex> hours spends <tex>b \times h \div 720</tex> of a 30-day budget. The workbook's examples assume a 99.9% target; with our 5% budget the highest possible burn rate is 1 ÷ 0.05 = 20, and 14.4 would mean 72% of requests are slow, so the 6-hour threshold of 6 (30% slow) is the more useful page for this SLO.</p>
+
+<h4>Which percentiles and SLOs fit our deployment?</h4>
+<p>We replace the average on the dashboard with <strong>p50, p95 and p99 of TTFT</strong>, computed from fleet-wide bucket sums, plus the same per replica to spot a bad one, and split TTFT by prompt length. For streaming we track <strong>p95 TPOT</strong> and the <strong>p99 of the worst gap per request</strong>, measured at the gateway. Queue time p99 goes on the first row because it moves first. The SLOs are the ones above: 95% of chat requests under 500 ms TTFT at the gateway, 95% at or under 25 ms TPOT, and 99% with no gap over 1 s, each with burn-rate alerts. We keep the p99 as a diagnostic rather than a promise because at night it rests on a handful of requests, and we fix the load test to open loop so its p99 can be trusted. The support tickets match this picture: a 190 ms average with a tail of multi-second waits and mid-answer freezes.</p>
+
+<h2>What Drives p99 in LLM Serving</h2>
+<h3>Queueing near saturation</h3>
+<p>The biggest driver of tail latency in any service is queueing, and it grows much faster than load. In the simplest queueing model, M/M/1, with service time <tex>S</tex> and utilization <tex>\rho</tex>, the time a request spends in the system is exponentially distributed with mean <tex>S / (1 - \rho)</tex>, so its p99 is <tex>\ln(100) \approx 4.6</tex> times the mean. Figure 7 plots both for a 100 ms service time.</p>
+<fig src="028-queueing-tail.svg" caption="In a simple queue, the p99 explodes as utilization approaches 100%">Two curves against utilization from 0 to 95% for an M/M/1 queue with a 100 ms service time. The mean stays below 1 s until 90% utilization and then rises. The p99, 4.6 times the mean, is 0.92 s at 50% utilization, 2.3 s at 80% and 4.6 s at 90%, and shoots upward beyond that.</fig>
+<p>LLM engines batch requests, so their numbers differ, but the shape holds: the tail grows like <tex>1 / (1 - \rho)</tex>, so the last 10% of utilization costs far more latency than the first 50%. This is why a fleet sized to run at its daily peak of 33 requests per second against a capacity of 40, about 83% utilization, has little room before its p99 TTFT breaks, and why autoscaling (Lesson 22, Autoscaling) and load shedding (Lesson 26) act on queue signals before utilization reaches 100%.</p>
+
+<h3>Long prompts</h3>
+<p>A 30,000-token prompt needs about 1 s of prefill on an H100, assuming about 30,800 prefill tokens per second (Lesson 25, Request Routing, derives this rough figure). That request misses a 500 ms target on its own, which is why its SLO is separate. It also delays every request queued behind it. Lesson 36, Long-Context Serving, covers prompts far longer than this.</p>
+
+<h3>Prefill interference</h3>
+<p>With continuous batching (Lesson 7, Continuous Batching), a new request's prefill runs in the same engine steps as the decode steps of streams already running. If a 30,000-token prompt is prefilled in one step, every running stream waits about 1 s for its next token, a spike in their ITL and worst gap. <strong>Chunked prefill</strong> splits the prompt across many steps so decodes keep flowing; Sarathi-Serve showed that chunked prefills with stall-free scheduling add new requests "without pausing ongoing decodes" [10]. In vLLM, <code>--max-num-batched-tokens</code> caps the tokens processed in one iteration [11]. Figure 8 compares the two.</p>
+<fig src="028-prefill-interference.svg" caption="Chunked prefill turns one long stall into many short delays">Two timelines of one running chat stream's tokens over 1.6 seconds while a 30,000-token prompt is prefilled on the same GPU. With the whole prefill in one step, tokens arrive every 20 ms, then nothing for about 1 s, then every 20 ms again: worst gap about 1 s. With chunked prefill of 2,048 tokens per step, each step takes about 86 ms, and tokens arrive every 86 ms for 15 steps: worst gap about 86 ms. Assumes 20 ms per decode step and about 30,800 prefill tokens per second; the long prompt's own TTFT grows from about 1.0 s to about 1.3 s.</fig>
+<p>The trade is explicit: the running streams' worst gap falls from about 1 s to about 86 ms, while the long prompt's own TTFT rises from about 1.0 s to about 1.3 s. Disaggregated serving goes further by running prefill and decode on separate GPUs, which removes the interference entirely [12]; Lesson 34, Disaggregated Prefill and Decode, covers it.</p>
+
+<h3>Preemption</h3>
+<p>When the KV cache is full, vLLM preempts running requests and later recomputes their caches (Lesson 3, KV Cache). The preempted requests see a long stall, and recomputation takes GPU time from everyone else. vLLM counts these events in <code>vllm:num_preemptions</code> and reports KV cache usage in <code>vllm:kv_cache_usage_perc</code> [2]. Preemptions that rise with load are a sign that the replica admits more concurrent sequences than its cache can hold.</p>
+
+<h3>Cold replicas and cache misses</h3>
+<p>A replica that just started has an empty prefix cache (Lesson 24, Prefix Caching) and may still be warming up (Lesson 23, Cold Starts), so its first requests run full prefills. If the router sends it a full share of traffic immediately, its requests populate the fleet's tail, which is exactly the "one bad replica" of Figure 5. Per-replica p99 TTFT, read together with the prefix cache hit rate from <code>vllm:prefix_cache_hits</code> and <code>vllm:prefix_cache_queries</code> [2], identifies it.</p>
+<table>
+<thead><tr><th>Driver</th><th>What it looks like</th><th>Where to look</th><th>Mitigation</th></tr></thead>
+<tbody>
+<tr><td>Queueing near saturation</td><td>TTFT tail grows with load, on all replicas</td><td>Queue time p99, <code>vllm:num_requests_waiting</code></td><td>Scale out earlier, shed load</td></tr>
+<tr><td>Long prompts</td><td>Slow TTFT concentrated in long prompts</td><td>TTFT by prompt-length bucket</td><td>Separate SLO, chunked prefill</td></tr>
+<tr><td>Prefill interference</td><td>ITL and worst-gap spikes when long prompts arrive</td><td>ITL p99.9, worst gap per request</td><td>Chunked prefill, disaggregation</td></tr>
+<tr><td>Preemption</td><td>TTFT and gap spikes when the KV cache is full</td><td><code>vllm:num_preemptions</code>, KV cache usage</td><td>Fewer concurrent sequences, FP8 KV cache, more replicas</td></tr>
+<tr><td>Cold replicas, cache misses</td><td>Slow requests concentrated on one replica</td><td>Per-replica p99, prefix cache hit rate</td><td>Warm up before serving, cache-aware routing</td></tr>
+<tr><td>Retries and outside delays</td><td>Gateway p99 far above engine p99</td><td>Gateway records versus engine histograms</td><td>Retry budgets, timeouts before the first token</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Common drivers of p99 latency in LLM serving</p>
+
+<h2>In Practice</h2>
+<p>The first tab holds PromQL for a latency dashboard: fleet-wide and per-replica percentiles computed the correct way, the exact SLI for the 500 ms TTFT target (500 ms is one of vLLM's default bucket boundaries), the burn rate against a 5% budget, and, for contrast, the common wrong query. The second tab reproduces this lesson's numbers in plain Python: averages versus percentiles, averaging percentiles across replicas, the fan-out formula, and per-token versus per-request views of a stall. It prints a mean of 0.198 s against a p99 of 5.0 s, 0.76 s versus 4.00 s for the averaged and true fleet p99, and an ITL p99 of 20 ms, a TPOT p99 of 24 ms, and a worst-gap p99 of 2.0 s. The third tab runs an open-loop load test with vLLM's benchmark that reports p50, p95 and p99 for TTFT, TPOT, ITL and end-to-end latency [8].</p>
+<codetabs>
+<tab label="PromQL" lang="promql">
+# p50 / p95 / p99 TTFT across the whole fleet: add buckets first, then take the quantile.
+histogram_quantile(0.99, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket[5m])))
+
+# The same per replica, to find a bad one: keep the instance label next to le.
+histogram_quantile(0.99, sum by (le, instance) (rate(vllm:time_to_first_token_seconds_bucket[5m])))
+
+# p95 time per output token and p99 inter-token latency.
+histogram_quantile(0.95, sum by (le) (rate(vllm:request_time_per_output_token_seconds_bucket[5m])))
+histogram_quantile(0.99, sum by (le) (rate(vllm:inter_token_latency_seconds_bucket[5m])))
+
+# p99 queue time: the earliest warning of saturation.
+histogram_quantile(0.99, sum by (le) (rate(vllm:request_queue_time_seconds_bucket[5m])))
+
+# SLI: fraction of requests with TTFT <= 500 ms (exact, since 0.5 is a bucket boundary).
+sum(rate(vllm:time_to_first_token_seconds_bucket{le="0.5"}[5m]))
+  /
+sum(rate(vllm:time_to_first_token_seconds_count[5m]))
+
+# Burn rate over the last hour against a 95% target (5% error budget).
+(
+  1 - sum(rate(vllm:time_to_first_token_seconds_bucket{le="0.5"}[1h]))
+      / sum(rate(vllm:time_to_first_token_seconds_count[1h]))
+) / 0.05
+
+# WRONG: computes a p99 per series and averages them. Do not use.
+avg(histogram_quantile(0.99, rate(vllm:time_to_first_token_seconds_bucket[5m])))
+</tab>
+<tab label="Percentile pitfalls" lang="python">
+import math
+import random
+
+
+def percentile(values, p):
+    """Nearest-rank percentile: the smallest value with at least p% of values at or below it."""
+    ordered = sorted(values)
+    return ordered[max(0, math.ceil(p / 100 * len(ordered)) - 1)]
+
+
+# 1. Averages hide the tail: 980 fast requests and 20 slow ones.
+ttft = [0.1] * 980 + [5.0] * 20
+print(f"mean {sum(ttft) / len(ttft):.3f} s, p50 {percentile(ttft, 50)} s, "
+      f"p95 {percentile(ttft, 95)} s, p99 {percentile(ttft, 99)} s")
+
+# 2. Never average percentiles: 7 healthy replicas and 1 bad one, equal traffic.
+random.seed(0)
+healthy = lambda: random.uniform(0.05, 0.3)
+replicas = [[healthy() for _ in range(1_000)] for _ in range(7)]
+replicas.append([4.0 if random.random() < 0.4 else healthy() for _ in range(1_000)])
+avg_of_p99s = sum(percentile(r, 99) for r in replicas) / len(replicas)
+fleet_p99 = percentile([x for r in replicas for x in r], 99)
+print(f"average of per-replica p99s {avg_of_p99s:.2f} s, true fleet p99 {fleet_p99:.2f} s")
+
+# 3. Fan-out: chance that at least one of N calls is slower than its p99.
+for n in (1, 10, 20, 100):
+    print(f"N={n:>3}: {1 - 0.99 ** n:.1%}")
+
+# 4. One 2 s stall in every 500-token response: per-token percentiles miss it.
+requests = [[0.02] * 498 + [2.0] for _ in range(100)]  # 499 gaps per response
+itl = [gap for gaps in requests for gap in gaps]
+tpot = [sum(gaps) / len(gaps) for gaps in requests]
+worst_gap = [max(gaps) for gaps in requests]
+print(f"ITL p99 {percentile(itl, 99) * 1000:.0f} ms, ITL p99.9 {percentile(itl, 99.9):.1f} s, "
+      f"TPOT p99 {percentile(tpot, 99) * 1000:.0f} ms, worst-gap p99 {percentile(worst_gap, 99):.1f} s")
+</tab>
+<tab label="Open-loop load test" lang="bash">
+# Poisson arrivals at the daily peak of 33 requests per second, independent of responses.
+vllm bench serve \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --host 127.0.0.1 --port 8000 \
+  --dataset-name random \
+  --random-input-len 2000 \
+  --random-output-len 500 \
+  --num-prompts 6000 \
+  --request-rate 33 \
+  --burstiness 1.0 \
+  --percentile-metrics ttft,tpot,itl,e2el \
+  --metric-percentiles 50,95,99 \
+  --save-result
+
+# --burstiness below 1.0 makes arrivals burstier than Poisson.
+# Leave out --max-concurrency for SLO tests: a client-side cap makes requests wait
+# on the client, outside the latencies the server reports.
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Goodput: the rate of requests that meet every latency target, rather than raw throughput; <code>vllm bench serve --goodput</code> takes SLO thresholds for TTFT, TPOT and end-to-end latency and reports it [8].</li>
+<li>Hedged requests reduce tail latency by sending a second copy after a delay [3], but for LLMs each copy repeats the prefill, so they suit only short requests (Lesson 25, Request Routing).</li>
+<li>Normalizing end-to-end latency by output length, for example milliseconds per output token, so that long answers do not look like slow service.</li>
+<li>Per-tenant percentiles: one tenant with very long prompts can own the fleet's tail; slicing by tenant shows whether an SLO miss is everyone's or one customer's (Lesson 31, Per-Request Token Accounting).</li>
+<li>Choosing windows: short windows for alerting, long windows for SLO compliance, and longer windows at night when traffic is low.</li>
+<li>Correlating latency percentiles with GPU and queue metrics on one dashboard, the subject of Lesson 32, Lab - A Dashboard That Explains Latency Spikes.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="028-summary.png" caption="p50, p95 and p99 latency summary" optional="1">Mind map summarizing the percentile latency lesson: what percentiles are, which LLM latencies to track, measuring them correctly, SLOs and error budgets, and what drives the p99.</fig>
+<ul>
+<li>Latency is a distribution. Report p50, p95 and p99; a mean of 194 ms can hide a p99 of 1.4 s and a maximum of 5 s.</li>
+<li>Track TTFT, time per output token, inter-token latency, queue time and end-to-end latency separately, and add the worst gap per request: a 2 s freeze in every answer leaves the ITL p99 at 20 ms and the TPOT at 24 ms.</li>
+<li>Tails compound: with N calls, the chance of hitting at least one p99 is 1 − 0.99<sup>N</sup>, 18.2% for a 20-turn chat and 63.4% for 100 calls.</li>
+<li>Compute percentiles from histograms with <code>histogram_quantile(0.99, sum by (le) (rate(..._bucket[5m])))</code>. Never average percentiles across replicas or time windows, put bucket boundaries at your targets, and measure the SLO at the gateway.</li>
+<li>Load test open loop, with arrivals on a schedule. Closed-loop tests suffer coordinated omission and can understate the p99 by orders of magnitude.</li>
+<li>Write latency SLOs as fractions of fast requests and alert on burn rate: 2 hours with 40% slow requests spends about 4.4% of a month's 5% budget. The p99 is driven by queueing near saturation, long prompts, prefill interference, preemption and cold replicas.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Google SRE Book: Service Level Objectives. <a href="https://sre.google/sre-book/service-level-objectives/" rel="noopener noreferrer" target="_blank">https://sre.google/sre-book/service-level-objectives/</a>.<br>
+[2] vLLM documentation: Metrics. <a href="https://docs.vllm.ai/en/latest/usage/metrics.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/usage/metrics.html</a>.<br>
+[3] Dean and Barroso. The Tail at Scale. <a href="https://research.google/pubs/pub40801/" rel="noopener noreferrer" target="_blank">https://research.google/pubs/pub40801/</a>.<br>
+[4] Prometheus documentation: Histograms and summaries. <a href="https://prometheus.io/docs/practices/histograms/" rel="noopener noreferrer" target="_blank">https://prometheus.io/docs/practices/histograms/</a>.<br>
+[5] Prometheus documentation: Query functions. <a href="https://prometheus.io/docs/prometheus/latest/querying/functions/" rel="noopener noreferrer" target="_blank">https://prometheus.io/docs/prometheus/latest/querying/functions/</a>.<br>
+[6] vLLM source: default metric histogram buckets. <a href="https://github.com/vllm-project/vllm/blob/main/vllm/v1/metrics/buckets.py" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm/blob/main/vllm/v1/metrics/buckets.py</a>.<br>
+[7] Tene. wrk2: a constant throughput, correct latency recording variant of wrk. <a href="https://github.com/giltene/wrk2" rel="noopener noreferrer" target="_blank">https://github.com/giltene/wrk2</a>.<br>
+[8] vLLM documentation: vllm bench serve. <a href="https://docs.vllm.ai/en/latest/cli/bench/serve.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/cli/bench/serve.html</a>.<br>
+[9] Google SRE Workbook: Alerting on SLOs. <a href="https://sre.google/workbook/alerting-on-slos/" rel="noopener noreferrer" target="_blank">https://sre.google/workbook/alerting-on-slos/</a>.<br>
+[10] Agrawal et al. Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve. <a href="https://arxiv.org/abs/2403.02310" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2403.02310</a>.<br>
+[11] vLLM documentation: Engine Arguments. <a href="https://docs.vllm.ai/en/latest/configuration/engine_args.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/engine_args.html</a>.<br>
+[12] Zhong et al. DistServe: Disaggregating Prefill and Decoding for Goodput-optimized Large Language Model Serving. <a href="https://arxiv.org/abs/2401.09670" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.09670</a>.</p>

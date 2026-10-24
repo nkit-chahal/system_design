@@ -1,0 +1,7 @@
+center: Distillation
+branch: Soft targets | temperature T | α T² KL + CE
+branch: Three ways | logit-level | sequence-level | on-policy
+branch: Examples | Llama 3.2 1B/3B | DeepSeek-R1 distills | Qwen3 small models
+branch: Pipeline and cost | filter teacher answers | about 87 H100-hours
+branch: Serving 8B vs 70B | $0.11 vs $0.40 | about 3.8 times less
+branch: Evaluation | human references | slices and safety | canary, then A/B

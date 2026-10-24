@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="440" viewBox="0 0 820 440" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .gridl{stroke:#e3e3e3;stroke-width:1}
+    .api{fill:none;stroke:#9673a6;stroke-width:2.4}
+    .selfa{fill:none;stroke:#d79b00;stroke-width:2.4}
+    .selfs{fill:none;stroke:#d79b00;stroke-width:2;stroke-dasharray:7 4}
+    .pt{fill:#d5e8d4;stroke:#82b366;stroke-width:1.5}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Legend -->
+  <line x1="100" y1="24" x2="124" y2="24" class="api"/><text x="130" y="28" class="sm">per-token API ($0.70 per 1,000 requests)</text>
+  <line x1="400" y1="24" x2="424" y2="24" class="selfa"/><text x="430" y="28" class="sm">self-hosted, autoscaled (71% utilization)</text>
+  <line x1="400" y1="46" x2="424" y2="46" class="selfs"/><text x="430" y="50" class="sm">self-hosted, static peak (42% utilization)</text>
+  <text x="100" y="50" class="sm">Both self-hosted lines include $10k/month operations.</text>
+
+  <path d="M100,280.0H760M100,220.0H760M100,160.0H760M100,100.0H760" class="gridl"/>
+  <path d="M100,66 L100,340 L760,340" class="axis"/>
+  <path d="M100,340V346M210,340V346M320,340V346M430,340V346M540,340V346M650,340V346M760,340V346" stroke="#000"/>
+  <text x="100" y="362" text-anchor="middle" class="sm">0M</text><text x="210" y="362" text-anchor="middle" class="sm">10M</text><text x="320" y="362" text-anchor="middle" class="sm">20M</text><text x="430" y="362" text-anchor="middle" class="sm">30M</text><text x="540" y="362" text-anchor="middle" class="sm">40M</text><text x="650" y="362" text-anchor="middle" class="sm">50M</text><text x="760" y="362" text-anchor="middle" class="sm">60M</text>
+  <text x="92" y="344.0" text-anchor="end" class="sm">$0k</text><text x="92" y="284.0" text-anchor="end" class="sm">$10k</text><text x="92" y="224.0" text-anchor="end" class="sm">$20k</text><text x="92" y="164.0" text-anchor="end" class="sm">$30k</text><text x="92" y="104.0" text-anchor="end" class="sm">$40k</text>
+  <text x="430" y="386" text-anchor="middle">requests per month</text>
+  <text x="34" y="205" text-anchor="middle" transform="rotate(-90 34 205)">cost per month</text>
+
+  <!-- Our traffic -->
+  <line x1="581.8" y1="70" x2="581.8" y2="340" stroke="#000" stroke-dasharray="3 3"/>
+  <text x="587.8" y="84" class="sm b">our traffic: 43.8M/month</text>
+
+  <polyline points="100,253.7 220.4,253.7 760,136.0" class="selfs"/>
+  <polyline points="100,253.7 306.5,253.7 760,196.0" class="selfa"/>
+  <line x1="100" y1="340" x2="760" y2="88.0" class="api"/>
+
+  <circle cx="335.7" cy="250.0" r="5.5" class="pt"/>
+  <text x="345.7" y="270.0" class="sm">≈ 21M (8 req/s)</text>
+  <circle cx="466.7" cy="200.0" r="5.5" class="pt"/>
+  <text x="456.7" y="190.0" text-anchor="end" class="sm">≈ 33M (12.7 req/s)</text>
+
+  <text x="576" y="146" text-anchor="end" class="sm">API ≈ $30.7k</text>
+  <text x="587.8" y="190.9" class="sm">static ≈ $27.5k</text>
+  <text x="587.8" y="234.7" class="sm">autoscaled ≈ $20.2k</text>
+
+  <text x="106" y="245.7" class="sm">$14.4k/month floor</text>
+  <text x="100" y="424" class="sm">Assumptions: $3.00 per H100-hour, 730 hours/month, 5 requests/s per GPU at full load, 2-GPU minimum, $10k/month operations.</text>
+</svg>

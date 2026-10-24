@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .mono{font-family:Consolas, Menlo, monospace;font-size:13px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .wire{stroke:#000;stroke-width:1;fill:none}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- FSM -->
+  <text x="16" y="26" class="lg b">Finite-state machine: the category field</text>
+  <circle cx="40" cy="160" r="16" class="white"/><text x="40" y="165" text-anchor="middle" class="sm">s0</text>
+  <path d="M56,160 L102,160" class="edge"/>
+  <text x="79" y="152" text-anchor="middle" class="mono">"</text>
+  <circle cx="120" cy="160" r="16" class="white"/><text x="120" y="165" text-anchor="middle" class="sm">s1</text>
+  <g class="sm">
+    <rect x="176" y="58" width="96" height="22" rx="3" class="orange"/><text x="224" y="74" text-anchor="middle">billing</text>
+    <rect x="176" y="92" width="96" height="22" rx="3" class="orange"/><text x="224" y="108" text-anchor="middle">shipping</text>
+    <rect x="176" y="126" width="96" height="22" rx="3" class="orange"/><text x="224" y="142" text-anchor="middle">account</text>
+    <rect x="176" y="172" width="96" height="22" rx="3" class="orange"/><text x="224" y="188" text-anchor="middle">technical</text>
+    <rect x="176" y="206" width="96" height="22" rx="3" class="orange"/><text x="224" y="222" text-anchor="middle">refund</text>
+    <rect x="176" y="240" width="96" height="22" rx="3" class="orange"/><text x="224" y="256" text-anchor="middle">other</text>
+  </g>
+  <path d="M134,152 L176,69 M135,155 L176,103 M136,158 L176,137 M136,162 L176,183 M135,165 L176,217 M134,168 L176,251" class="wire"/>
+  <path d="M272,69 L318,153 M272,103 L317,155 M272,137 L317,158 M272,183 L317,162 M272,217 L317,165 M272,251 L318,167" class="wire"/>
+  <circle cx="330" cy="160" r="16" class="white"/><text x="330" y="165" text-anchor="middle" class="sm">s2</text>
+  <path d="M346,160 L382,160" class="edge"/>
+  <text x="364" y="152" text-anchor="middle" class="mono">"</text>
+  <circle cx="400" cy="160" r="16" class="green"/><circle cx="400" cy="160" r="12" fill="none" stroke="#82b366" stroke-width="1.2"/>
+  <text x="16" y="292" class="sm">Each state lists what may come next; one table lookup per step.</text>
+
+  <line x1="440" y1="16" x2="440" y2="300" stroke="#999" stroke-dasharray="5 4"/>
+
+  <!-- PDA -->
+  <text x="460" y="26" class="lg b">Pushdown automaton: nested JSON</text>
+  <rect x="460" y="42" width="344" height="30" rx="4" class="white"/>
+  <text x="470" y="62" class="mono">{"items": [{"sku": "A1"}, {"sku": "B2"</text>
+  <text x="460" y="102" class="sm">Open brackets so far, innermost on top:</text>
+  <rect x="520" y="116" width="120" height="34" class="blue"/><text x="580" y="138" text-anchor="middle">{ object</text>
+  <rect x="520" y="150" width="120" height="34" class="blue"/><text x="580" y="172" text-anchor="middle">[ array</text>
+  <rect x="520" y="184" width="120" height="34" class="blue"/><text x="580" y="206" text-anchor="middle">{ object</text>
+  <text x="580" y="236" text-anchor="middle" class="sm b">stack</text>
+  <path d="M700,133 L644,133" class="edge"/>
+  <text x="706" y="128" class="sm">only "}" may</text>
+  <text x="706" y="143" class="sm">close next</text>
+  <text x="460" y="272" class="sm">A finite-state machine has a fixed number of states, so it</text>
+  <text x="460" y="290" class="sm">cannot count arbitrary nesting depth; a stack can.</text>
+</svg>

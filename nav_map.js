@@ -137,6 +137,326 @@ const NAV_LESSONS = [
     "path": "Python Course/017 SQL for Analytics & Product Metrics.html"
   },
   {
+    "category": "AI Inference Engineering",
+    "subgroup": "Start Here",
+    "num": 1,
+    "title": "Introduction and Overview",
+    "filename": "001 Introduction and Overview.html",
+    "path": "AI Inference Engineering/001 Introduction and Overview.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 1 \u00b7 How a Model Generates",
+    "num": 2,
+    "title": "Prefill vs Decode",
+    "filename": "002 Prefill vs Decode.html",
+    "path": "AI Inference Engineering/002 Prefill vs Decode.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 1 \u00b7 How a Model Generates",
+    "num": 3,
+    "title": "KV Cache",
+    "filename": "003 KV Cache.html",
+    "path": "AI Inference Engineering/003 KV Cache.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 1 \u00b7 How a Model Generates",
+    "num": 4,
+    "title": "Time to First Token",
+    "filename": "004 Time to First Token.html",
+    "path": "AI Inference Engineering/004 Time to First Token.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 1 \u00b7 How a Model Generates",
+    "num": 5,
+    "title": "Tokens per Second",
+    "filename": "005 Tokens per Second.html",
+    "path": "AI Inference Engineering/005 Tokens per Second.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 1 \u00b7 How a Model Generates",
+    "num": 6,
+    "title": "Lab - Measure TTFT and Throughput",
+    "filename": "006 Lab - Measure TTFT and Throughput.html",
+    "path": "AI Inference Engineering/006 Lab - Measure TTFT and Throughput.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 2 \u00b7 Serving Engines",
+    "num": 7,
+    "title": "Continuous Batching",
+    "filename": "007 Continuous Batching.html",
+    "path": "AI Inference Engineering/007 Continuous Batching.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 2 \u00b7 Serving Engines",
+    "num": 8,
+    "title": "PagedAttention",
+    "filename": "008 PagedAttention.html",
+    "path": "AI Inference Engineering/008 PagedAttention.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 2 \u00b7 Serving Engines",
+    "num": 9,
+    "title": "vLLM",
+    "filename": "009 vLLM.html",
+    "path": "AI Inference Engineering/009 vLLM.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 2 \u00b7 Serving Engines",
+    "num": 10,
+    "title": "SGLang",
+    "filename": "010 SGLang.html",
+    "path": "AI Inference Engineering/010 SGLang.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 2 \u00b7 Serving Engines",
+    "num": 11,
+    "title": "TensorRT-LLM",
+    "filename": "011 TensorRT-LLM.html",
+    "path": "AI Inference Engineering/011 TensorRT-LLM.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 2 \u00b7 Serving Engines",
+    "num": 12,
+    "title": "Lab - Benchmark Two Engines at 50 Concurrent Users",
+    "filename": "012 Lab - Benchmark Two Engines at 50 Concurrent Users.html",
+    "path": "AI Inference Engineering/012 Lab - Benchmark Two Engines at 50 Concurrent Users.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 3 \u00b7 Smaller and Faster Models",
+    "num": 13,
+    "title": "Quantization - FP8, INT8 and 4-bit",
+    "filename": "013 Quantization - FP8, INT8 and 4-bit.html",
+    "path": "AI Inference Engineering/013 Quantization - FP8, INT8 and 4-bit.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 3 \u00b7 Smaller and Faster Models",
+    "num": 14,
+    "title": "Distillation",
+    "filename": "014 Distillation.html",
+    "path": "AI Inference Engineering/014 Distillation.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 3 \u00b7 Smaller and Faster Models",
+    "num": 15,
+    "title": "Speculative Decoding",
+    "filename": "015 Speculative Decoding.html",
+    "path": "AI Inference Engineering/015 Speculative Decoding.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 3 \u00b7 Smaller and Faster Models",
+    "num": 16,
+    "title": "Lab - Halve Model Memory Without Losing Quality",
+    "filename": "016 Lab - Halve Model Memory Without Losing Quality.html",
+    "path": "AI Inference Engineering/016 Lab - Halve Model Memory Without Losing Quality.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 4 \u00b7 GPU Math and Cost",
+    "num": 17,
+    "title": "VRAM Budgeting",
+    "filename": "017 VRAM Budgeting.html",
+    "path": "AI Inference Engineering/017 VRAM Budgeting.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 4 \u00b7 GPU Math and Cost",
+    "num": 18,
+    "title": "Tensor Parallelism",
+    "filename": "018 Tensor Parallelism.html",
+    "path": "AI Inference Engineering/018 Tensor Parallelism.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 4 \u00b7 GPU Math and Cost",
+    "num": 19,
+    "title": "GPU Utilization",
+    "filename": "019 GPU Utilization.html",
+    "path": "AI Inference Engineering/019 GPU Utilization.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 4 \u00b7 GPU Math and Cost",
+    "num": 20,
+    "title": "Cost per Million Tokens",
+    "filename": "020 Cost per Million Tokens.html",
+    "path": "AI Inference Engineering/020 Cost per Million Tokens.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 4 \u00b7 GPU Math and Cost",
+    "num": 21,
+    "title": "Lab - GPUs for 1,000 Requests per Minute Under a 2s SLA",
+    "filename": "021 Lab - GPUs for 1,000 Requests per Minute Under a 2s SLA.html",
+    "path": "AI Inference Engineering/021 Lab - GPUs for 1,000 Requests per Minute Under a 2s SLA.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 5 \u00b7 Production Serving",
+    "num": 22,
+    "title": "Autoscaling",
+    "filename": "022 Autoscaling.html",
+    "path": "AI Inference Engineering/022 Autoscaling.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 5 \u00b7 Production Serving",
+    "num": 23,
+    "title": "Cold Starts",
+    "filename": "023 Cold Starts.html",
+    "path": "AI Inference Engineering/023 Cold Starts.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 5 \u00b7 Production Serving",
+    "num": 24,
+    "title": "Prefix Caching",
+    "filename": "024 Prefix Caching.html",
+    "path": "AI Inference Engineering/024 Prefix Caching.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 5 \u00b7 Production Serving",
+    "num": 25,
+    "title": "Request Routing",
+    "filename": "025 Request Routing.html",
+    "path": "AI Inference Engineering/025 Request Routing.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 5 \u00b7 Production Serving",
+    "num": 26,
+    "title": "Rate Limiting",
+    "filename": "026 Rate Limiting.html",
+    "path": "AI Inference Engineering/026 Rate Limiting.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 5 \u00b7 Production Serving",
+    "num": 27,
+    "title": "Lab - Surviving a 10x Traffic Spike",
+    "filename": "027 Lab - Surviving a 10x Traffic Spike.html",
+    "path": "AI Inference Engineering/027 Lab - Surviving a 10x Traffic Spike.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 6 \u00b7 Observability",
+    "num": 28,
+    "title": "p50, p95 and p99 Latency",
+    "filename": "028 p50, p95 and p99 Latency.html",
+    "path": "AI Inference Engineering/028 p50, p95 and p99 Latency.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 6 \u00b7 Observability",
+    "num": 29,
+    "title": "Queue Depth",
+    "filename": "029 Queue Depth.html",
+    "path": "AI Inference Engineering/029 Queue Depth.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 6 \u00b7 Observability",
+    "num": 30,
+    "title": "GPU Metrics",
+    "filename": "030 GPU Metrics.html",
+    "path": "AI Inference Engineering/030 GPU Metrics.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 6 \u00b7 Observability",
+    "num": 31,
+    "title": "Per-Request Token Accounting",
+    "filename": "031 Per-Request Token Accounting.html",
+    "path": "AI Inference Engineering/031 Per-Request Token Accounting.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 6 \u00b7 Observability",
+    "num": 32,
+    "title": "Lab - A Dashboard That Explains Latency Spikes",
+    "filename": "032 Lab - A Dashboard That Explains Latency Spikes.html",
+    "path": "AI Inference Engineering/032 Lab - A Dashboard That Explains Latency Spikes.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 7 \u00b7 Advanced Serving",
+    "num": 33,
+    "title": "GPU Architecture and Attention Kernels",
+    "filename": "033 GPU Architecture and Attention Kernels.html",
+    "path": "AI Inference Engineering/033 GPU Architecture and Attention Kernels.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 7 \u00b7 Advanced Serving",
+    "num": 34,
+    "title": "Disaggregated Prefill and Decode",
+    "filename": "034 Disaggregated Prefill and Decode.html",
+    "path": "AI Inference Engineering/034 Disaggregated Prefill and Decode.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 7 \u00b7 Advanced Serving",
+    "num": 35,
+    "title": "Mixture-of-Experts Serving",
+    "filename": "035 Mixture-of-Experts Serving.html",
+    "path": "AI Inference Engineering/035 Mixture-of-Experts Serving.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 7 \u00b7 Advanced Serving",
+    "num": 36,
+    "title": "Long-Context Serving",
+    "filename": "036 Long-Context Serving.html",
+    "path": "AI Inference Engineering/036 Long-Context Serving.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 7 \u00b7 Advanced Serving",
+    "num": 37,
+    "title": "Multi-LoRA and Multi-Tenant Serving",
+    "filename": "037 Multi-LoRA and Multi-Tenant Serving.html",
+    "path": "AI Inference Engineering/037 Multi-LoRA and Multi-Tenant Serving.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 7 \u00b7 Advanced Serving",
+    "num": 38,
+    "title": "Structured Output and Tool Calling",
+    "filename": "038 Structured Output and Tool Calling.html",
+    "path": "AI Inference Engineering/038 Structured Output and Tool Calling.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 7 \u00b7 Advanced Serving",
+    "num": 39,
+    "title": "Batch and Offline Inference",
+    "filename": "039 Batch and Offline Inference.html",
+    "path": "AI Inference Engineering/039 Batch and Offline Inference.html"
+  },
+  {
+    "category": "AI Inference Engineering",
+    "subgroup": "Stage 7 \u00b7 Advanced Serving",
+    "num": 40,
+    "title": "Reliability and Rollouts",
+    "filename": "040 Reliability and Rollouts.html",
+    "path": "AI Inference Engineering/040 Reliability and Rollouts.html"
+  },
+  {
     "category": "Behavioral Interview",
     "subgroup": "General",
     "num": 1,
@@ -1982,6 +2302,344 @@ const NAV_TREE = {
       }
     ]
   },
+  "AI Inference Engineering": {
+    "Start Here": [
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Start Here",
+        "num": 1,
+        "title": "Introduction and Overview",
+        "filename": "001 Introduction and Overview.html",
+        "path": "AI Inference Engineering/001 Introduction and Overview.html"
+      }
+    ],
+    "Stage 1 \u00b7 How a Model Generates": [
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 1 \u00b7 How a Model Generates",
+        "num": 2,
+        "title": "Prefill vs Decode",
+        "filename": "002 Prefill vs Decode.html",
+        "path": "AI Inference Engineering/002 Prefill vs Decode.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 1 \u00b7 How a Model Generates",
+        "num": 3,
+        "title": "KV Cache",
+        "filename": "003 KV Cache.html",
+        "path": "AI Inference Engineering/003 KV Cache.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 1 \u00b7 How a Model Generates",
+        "num": 4,
+        "title": "Time to First Token",
+        "filename": "004 Time to First Token.html",
+        "path": "AI Inference Engineering/004 Time to First Token.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 1 \u00b7 How a Model Generates",
+        "num": 5,
+        "title": "Tokens per Second",
+        "filename": "005 Tokens per Second.html",
+        "path": "AI Inference Engineering/005 Tokens per Second.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 1 \u00b7 How a Model Generates",
+        "num": 6,
+        "title": "Lab - Measure TTFT and Throughput",
+        "filename": "006 Lab - Measure TTFT and Throughput.html",
+        "path": "AI Inference Engineering/006 Lab - Measure TTFT and Throughput.html"
+      }
+    ],
+    "Stage 2 \u00b7 Serving Engines": [
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 2 \u00b7 Serving Engines",
+        "num": 7,
+        "title": "Continuous Batching",
+        "filename": "007 Continuous Batching.html",
+        "path": "AI Inference Engineering/007 Continuous Batching.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 2 \u00b7 Serving Engines",
+        "num": 8,
+        "title": "PagedAttention",
+        "filename": "008 PagedAttention.html",
+        "path": "AI Inference Engineering/008 PagedAttention.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 2 \u00b7 Serving Engines",
+        "num": 9,
+        "title": "vLLM",
+        "filename": "009 vLLM.html",
+        "path": "AI Inference Engineering/009 vLLM.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 2 \u00b7 Serving Engines",
+        "num": 10,
+        "title": "SGLang",
+        "filename": "010 SGLang.html",
+        "path": "AI Inference Engineering/010 SGLang.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 2 \u00b7 Serving Engines",
+        "num": 11,
+        "title": "TensorRT-LLM",
+        "filename": "011 TensorRT-LLM.html",
+        "path": "AI Inference Engineering/011 TensorRT-LLM.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 2 \u00b7 Serving Engines",
+        "num": 12,
+        "title": "Lab - Benchmark Two Engines at 50 Concurrent Users",
+        "filename": "012 Lab - Benchmark Two Engines at 50 Concurrent Users.html",
+        "path": "AI Inference Engineering/012 Lab - Benchmark Two Engines at 50 Concurrent Users.html"
+      }
+    ],
+    "Stage 3 \u00b7 Smaller and Faster Models": [
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 3 \u00b7 Smaller and Faster Models",
+        "num": 13,
+        "title": "Quantization - FP8, INT8 and 4-bit",
+        "filename": "013 Quantization - FP8, INT8 and 4-bit.html",
+        "path": "AI Inference Engineering/013 Quantization - FP8, INT8 and 4-bit.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 3 \u00b7 Smaller and Faster Models",
+        "num": 14,
+        "title": "Distillation",
+        "filename": "014 Distillation.html",
+        "path": "AI Inference Engineering/014 Distillation.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 3 \u00b7 Smaller and Faster Models",
+        "num": 15,
+        "title": "Speculative Decoding",
+        "filename": "015 Speculative Decoding.html",
+        "path": "AI Inference Engineering/015 Speculative Decoding.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 3 \u00b7 Smaller and Faster Models",
+        "num": 16,
+        "title": "Lab - Halve Model Memory Without Losing Quality",
+        "filename": "016 Lab - Halve Model Memory Without Losing Quality.html",
+        "path": "AI Inference Engineering/016 Lab - Halve Model Memory Without Losing Quality.html"
+      }
+    ],
+    "Stage 4 \u00b7 GPU Math and Cost": [
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 4 \u00b7 GPU Math and Cost",
+        "num": 17,
+        "title": "VRAM Budgeting",
+        "filename": "017 VRAM Budgeting.html",
+        "path": "AI Inference Engineering/017 VRAM Budgeting.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 4 \u00b7 GPU Math and Cost",
+        "num": 18,
+        "title": "Tensor Parallelism",
+        "filename": "018 Tensor Parallelism.html",
+        "path": "AI Inference Engineering/018 Tensor Parallelism.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 4 \u00b7 GPU Math and Cost",
+        "num": 19,
+        "title": "GPU Utilization",
+        "filename": "019 GPU Utilization.html",
+        "path": "AI Inference Engineering/019 GPU Utilization.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 4 \u00b7 GPU Math and Cost",
+        "num": 20,
+        "title": "Cost per Million Tokens",
+        "filename": "020 Cost per Million Tokens.html",
+        "path": "AI Inference Engineering/020 Cost per Million Tokens.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 4 \u00b7 GPU Math and Cost",
+        "num": 21,
+        "title": "Lab - GPUs for 1,000 Requests per Minute Under a 2s SLA",
+        "filename": "021 Lab - GPUs for 1,000 Requests per Minute Under a 2s SLA.html",
+        "path": "AI Inference Engineering/021 Lab - GPUs for 1,000 Requests per Minute Under a 2s SLA.html"
+      }
+    ],
+    "Stage 5 \u00b7 Production Serving": [
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 5 \u00b7 Production Serving",
+        "num": 22,
+        "title": "Autoscaling",
+        "filename": "022 Autoscaling.html",
+        "path": "AI Inference Engineering/022 Autoscaling.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 5 \u00b7 Production Serving",
+        "num": 23,
+        "title": "Cold Starts",
+        "filename": "023 Cold Starts.html",
+        "path": "AI Inference Engineering/023 Cold Starts.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 5 \u00b7 Production Serving",
+        "num": 24,
+        "title": "Prefix Caching",
+        "filename": "024 Prefix Caching.html",
+        "path": "AI Inference Engineering/024 Prefix Caching.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 5 \u00b7 Production Serving",
+        "num": 25,
+        "title": "Request Routing",
+        "filename": "025 Request Routing.html",
+        "path": "AI Inference Engineering/025 Request Routing.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 5 \u00b7 Production Serving",
+        "num": 26,
+        "title": "Rate Limiting",
+        "filename": "026 Rate Limiting.html",
+        "path": "AI Inference Engineering/026 Rate Limiting.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 5 \u00b7 Production Serving",
+        "num": 27,
+        "title": "Lab - Surviving a 10x Traffic Spike",
+        "filename": "027 Lab - Surviving a 10x Traffic Spike.html",
+        "path": "AI Inference Engineering/027 Lab - Surviving a 10x Traffic Spike.html"
+      }
+    ],
+    "Stage 6 \u00b7 Observability": [
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 6 \u00b7 Observability",
+        "num": 28,
+        "title": "p50, p95 and p99 Latency",
+        "filename": "028 p50, p95 and p99 Latency.html",
+        "path": "AI Inference Engineering/028 p50, p95 and p99 Latency.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 6 \u00b7 Observability",
+        "num": 29,
+        "title": "Queue Depth",
+        "filename": "029 Queue Depth.html",
+        "path": "AI Inference Engineering/029 Queue Depth.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 6 \u00b7 Observability",
+        "num": 30,
+        "title": "GPU Metrics",
+        "filename": "030 GPU Metrics.html",
+        "path": "AI Inference Engineering/030 GPU Metrics.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 6 \u00b7 Observability",
+        "num": 31,
+        "title": "Per-Request Token Accounting",
+        "filename": "031 Per-Request Token Accounting.html",
+        "path": "AI Inference Engineering/031 Per-Request Token Accounting.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 6 \u00b7 Observability",
+        "num": 32,
+        "title": "Lab - A Dashboard That Explains Latency Spikes",
+        "filename": "032 Lab - A Dashboard That Explains Latency Spikes.html",
+        "path": "AI Inference Engineering/032 Lab - A Dashboard That Explains Latency Spikes.html"
+      }
+    ],
+    "Stage 7 \u00b7 Advanced Serving": [
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 7 \u00b7 Advanced Serving",
+        "num": 33,
+        "title": "GPU Architecture and Attention Kernels",
+        "filename": "033 GPU Architecture and Attention Kernels.html",
+        "path": "AI Inference Engineering/033 GPU Architecture and Attention Kernels.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 7 \u00b7 Advanced Serving",
+        "num": 34,
+        "title": "Disaggregated Prefill and Decode",
+        "filename": "034 Disaggregated Prefill and Decode.html",
+        "path": "AI Inference Engineering/034 Disaggregated Prefill and Decode.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 7 \u00b7 Advanced Serving",
+        "num": 35,
+        "title": "Mixture-of-Experts Serving",
+        "filename": "035 Mixture-of-Experts Serving.html",
+        "path": "AI Inference Engineering/035 Mixture-of-Experts Serving.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 7 \u00b7 Advanced Serving",
+        "num": 36,
+        "title": "Long-Context Serving",
+        "filename": "036 Long-Context Serving.html",
+        "path": "AI Inference Engineering/036 Long-Context Serving.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 7 \u00b7 Advanced Serving",
+        "num": 37,
+        "title": "Multi-LoRA and Multi-Tenant Serving",
+        "filename": "037 Multi-LoRA and Multi-Tenant Serving.html",
+        "path": "AI Inference Engineering/037 Multi-LoRA and Multi-Tenant Serving.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 7 \u00b7 Advanced Serving",
+        "num": 38,
+        "title": "Structured Output and Tool Calling",
+        "filename": "038 Structured Output and Tool Calling.html",
+        "path": "AI Inference Engineering/038 Structured Output and Tool Calling.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 7 \u00b7 Advanced Serving",
+        "num": 39,
+        "title": "Batch and Offline Inference",
+        "filename": "039 Batch and Offline Inference.html",
+        "path": "AI Inference Engineering/039 Batch and Offline Inference.html"
+      },
+      {
+        "category": "AI Inference Engineering",
+        "subgroup": "Stage 7 \u00b7 Advanced Serving",
+        "num": 40,
+        "title": "Reliability and Rollouts",
+        "filename": "040 Reliability and Rollouts.html",
+        "path": "AI Inference Engineering/040 Reliability and Rollouts.html"
+      }
+    ]
+  },
   "Behavioral Interview": {
     "General": [
       {
@@ -3756,6 +4414,11 @@ const NAV_META = {
     "name": "Python Masterclass",
     "icon": "\ud83d\udc0d",
     "color": "#05673d"
+  },
+  "AI Inference Engineering": {
+    "name": "AI Inference Engineering",
+    "icon": "\ud83d\ude80",
+    "color": "#0ea5e9"
   },
   "Behavioral Interview": {
     "name": "Behavioral Interview",

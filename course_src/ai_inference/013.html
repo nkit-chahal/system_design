@@ -1,0 +1,289 @@
+<h2>Introduction</h2>
+<p>A model's weights are usually stored in BF16, two bytes per number. Llama 3.1 8B therefore occupies about 16 GB, and Llama 3.1 70B about 141 GB, more than a single 80 GB H100 can hold. Every decode step reads all of those bytes from GPU memory, so the size of the weights sets both how many GPUs a model needs and how fast it can generate.</p>
+<p><strong>Quantization</strong> stores numbers in fewer bits, typically 8 or 4, together with a small number of <strong>scale factors</strong> that map the narrow format back to real values. Halving the bits halves the bytes that each decode step must read and frees memory for the KV cache. If the activations are quantized too, the matrix multiplications themselves can run on faster low-precision tensor cores. Figure 1 shows the core idea on four weights.</p>
+<fig src="013-quantize-dequantize.svg" caption="Symmetric INT8 quantization of four weights with one shared scale">Four BF16 weights, 0.12, minus 0.53, 0.98 and minus 0.07, are divided by a shared scale of 0.98 divided by 127, about 0.00772, and rounded to the INT8 codes 16, minus 69, 127 and minus 9. Multiplying the codes by the scale gives back 0.123, minus 0.532, 0.980 and minus 0.069, each within 0.004 of the original.</fig>
+<p>The catch is that rounding loses information. Whether that matters depends on the format, the scales, which tensors are quantized, and how carefully we measure quality. And a format only speeds things up if the GPU has kernels for it.</p>
+<p>In this lesson, we look at the number formats used for LLM inference, decide what to quantize and at what granularity, compare the main methods (GPTQ, AWQ, SmoothQuant, and FP8 dynamic quantization), work out the memory and speed for Llama 3.1 8B and 70B, explain why weight-only quantization speeds up decode but not prefill, and build an evaluation that catches regressions an average score would hide.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Quantization questions usually come from a cost or capacity problem. Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: Which model and hardware are we serving today?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct in BF16 on H100 80 GB GPUs. Product also wants Llama 3.1 70B for a premium tier.</p>
+<p><strong>Candidate</strong>: What does the traffic look like?<br>
+<strong>Interviewer</strong>: Chat requests with about 2,000 prompt tokens and 500 output tokens, 1,000 requests per minute on average and up to about 33 per second at the daily peak. Each H100 handles about 5 requests per second, around 53 streams at once, within our latency targets.</p>
+<p><strong>Candidate</strong>: What are we trying to improve: memory, latency, or cost?<br>
+<strong>Interviewer</strong>: Cost per token, and we would like the 70B on fewer GPUs. The targets of p95 time to first token under 500 ms and p95 time per output token under 25 ms must still hold.</p>
+<p><strong>Candidate</strong>: Is there other hardware in the fleet?<br>
+<strong>Interviewer</strong>: A pool of NVIDIA L4 cards with 24 GB each that we would like to use for a cheaper tier.</p>
+<p><strong>Candidate</strong>: How do we decide that quality is acceptable?<br>
+<strong>Interviewer</strong>: We have 2,000 graded prompts from real customers, plus the public benchmarks we already track. No meaningful regression on either.</p>
+<p>The question underneath is: <em>which number format, applied to which tensors, with which method, gives us the memory and speed we need on each GPU type, without a quality loss our evaluation can detect?</em> We start with the formats themselves.</p>
+
+<h2>Number Formats</h2>
+<h3>Floating point and integer layouts</h3>
+<p>A floating-point number has a sign bit, exponent bits that set its magnitude, and mantissa bits that set its precision. More exponent bits mean a wider range; more mantissa bits mean finer steps. An integer format has no exponent: its values are evenly spaced, and a separate scale factor decides what range they cover. Figure 2 shows the layouts that matter for inference.</p>
+<fig src="013-bit-layouts.svg" caption="Bit layouts of the formats used for LLM inference">Seven rows of bit cells. BF16 has 1 sign, 8 exponent and 7 mantissa bits. FP16 has 1, 5 and 10. FP8 E4M3 has 1, 4 and 3, with a maximum of 448 and no infinity. FP8 E5M2 has 1, 5 and 2, with a maximum of 57,344. INT8 has 8 integer bits from minus 128 to 127, INT4 has 4 integer bits from minus 8 to 7, and FP4 E2M1 has 1, 2 and 1 bits and can represent only plus or minus 0, 0.5, 1, 1.5, 2, 3, 4 and 6.</fig>
+<ul>
+<li><strong>BF16</strong> keeps FP32's 8-bit exponent, so it never overflows in practice, but only 7 mantissa bits. It is the standard serving precision and the baseline every quantized model is compared against.</li>
+<li><strong>FP8</strong> comes in two encodings [1]. <strong>E4M3</strong> trades range for precision: its largest value is 448, and it gives up infinities to gain range. <strong>E5M2</strong> follows IEEE conventions and reaches 57,344 with coarser steps. Inference uses E4M3 for weights and activations; E5M2 is mainly a training format for gradients, though vLLM also accepts it for the KV cache.</li>
+<li><strong>INT8</strong> has 256 evenly spaced levels and <strong>INT4</strong> has 16. Uniform spacing wastes levels on the tails of a bell-shaped weight distribution, which is why 4-bit integer schemes need fine-grained scales.</li>
+<li><strong>FP4 E2M1</strong> has only eight magnitudes: 0, 0.5, 1, 1.5, 2, 3, 4, and 6. It is usable only together with a scale for every small block of values.</li>
+</ul>
+
+<h3>Scales: mapping real values onto a format</h3>
+<p>A narrow format cannot hold a weight like 0.0037 directly. Instead we store a code <tex>q</tex> and a scale <tex>s</tex> shared by a group of values. With <strong>symmetric</strong> quantization, the scale maps the largest magnitude in the group onto the largest code:</p>
+<texblock>s = \frac{\max |x|}{q_{\max}}, \qquad q = \text{round}(x / s), \qquad \hat{x} = s \cdot q</texblock>
+<p>Here <tex>q_{\max}</tex> is 127 for INT8, 7 for INT4, and 448 for FP8 E4M3. In Figure 1, <tex>s = 0.98 / 127 \approx 0.00772</tex>, and the largest rounding error is about 0.0035. <strong>Asymmetric</strong> quantization adds a zero point so that the codes cover the range from the minimum to the maximum instead of a range centered on zero; it helps when a group's values are skewed to one side.</p>
+<p>The scale is the weak point. One large value in a group stretches the scale for everyone. If the group in Figure 1 also contained a weight of 8.0, the scale would grow to <tex>8.0 / 127 \approx 0.063</tex>, and the weight −0.07 would round to the single code −1, an error of about 10%. Most of quantization engineering is about choosing groups so that no single outlier sets the scale for many ordinary values.</p>
+
+<h4>Block-scaled 4-bit floats: NVFP4 and MXFP4</h4>
+<p>The newest 4-bit formats build the scale into the format. <strong>MXFP4</strong>, from the Open Compute Project's microscaling (MX) specification, stores E2M1 values with one shared power-of-two scale (an 8-bit E8M0 exponent) for every block of 32 values [2]. <strong>NVFP4</strong>, introduced with NVIDIA's Blackwell GPUs, uses smaller blocks of 16 values, each with an FP8 E4M3 scale that is not limited to powers of two, plus one FP32 scale per tensor [3]. NVIDIA reports about 4.5 bits per value for NVFP4, roughly 3.5 times smaller than FP16 and 1.8 times smaller than FP8, and an accuracy loss of 1% or less for DeepSeek-R1-0528 compared with FP8 on key language modeling tasks [3]. OpenAI's gpt-oss models ship with their mixture-of-experts weights already in MXFP4.</p>
+<table>
+<thead><tr><th>Format</th><th>Sign / exponent / mantissa</th><th>Largest magnitude</th><th>Tensor-core math on NVIDIA</th><th>Typical inference use</th></tr></thead>
+<tbody>
+<tr><td>BF16</td><td>1 / 8 / 7</td><td>≈ 3.4 × 10<sup>38</sup></td><td>Ampere and later</td><td>Baseline weights and activations</td></tr>
+<tr><td>FP8 E4M3</td><td>1 / 4 / 3</td><td>448</td><td>Ada, Hopper, Blackwell</td><td>W8A8 weights and activations, KV cache</td></tr>
+<tr><td>FP8 E5M2</td><td>1 / 5 / 2</td><td>57,344</td><td>Ada, Hopper, Blackwell</td><td>Training gradients; KV cache option</td></tr>
+<tr><td>INT8</td><td>8-bit integer</td><td>127 × scale</td><td>Turing to Hopper, B200</td><td>W8A8 INT8 (SmoothQuant)</td></tr>
+<tr><td>INT4</td><td>4-bit integer</td><td>7 × scale</td><td>Not needed: kernels convert to BF16</td><td>W4A16 (GPTQ, AWQ)</td></tr>
+<tr><td>NVFP4</td><td>E2M1 + FP8 scale per 16</td><td>6 × scales</td><td>Blackwell</td><td>W4A4 on Blackwell, weight-only elsewhere</td></tr>
+<tr><td>MXFP4</td><td>E2M1 + E8M0 scale per 32</td><td>6 × scale</td><td>Blackwell</td><td>gpt-oss expert weights</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Number formats for LLM inference and the NVIDIA architectures that compute in them natively [1][2][3][4]</p>
+<p>The hardware column is what decides speed. The A100 (Ampere) has INT8 tensor cores at 624 dense TOPS, twice its BF16 rate, but no FP8. Ada GPUs such as the L4, and Hopper GPUs such as the H100, add FP8: the H100 runs FP8 and INT8 at about 1,979 dense TFLOPS or TOPS, twice its BF16 rate. Blackwell adds FP4: an HGX B200 board lists 72 PFLOPS of dense FP4 across its 8 GPUs, double its FP8 rate [5]. vLLM still loads FP8 checkpoints on Ampere, but runs them as weight-only FP8 with BF16 math through its Marlin kernels [6], and it runs NVFP4 checkpoints as weight-only on GPUs older than Blackwell.</p>
+
+<h2>What Gets Quantized</h2>
+<p>A transformer layer holds three kinds of tensors that could be stored in fewer bits: the weights of its linear layers, the activations that flow into them, and the KV cache. Schemes are named by the bits of each: <strong>W4A16</strong> means 4-bit weights with 16-bit activations, and <strong>W8A8</strong> means 8-bit weights and 8-bit activations.</p>
+
+<h3>Weight-only quantization</h3>
+<p>In a <strong>weight-only</strong> scheme such as W4A16 or W8A16, only the weights are stored in low precision. The kernel loads the packed 4-bit weights and their group scales from memory, converts them to BF16 inside the GPU's registers, and runs an ordinary BF16 matrix multiplication. The model reads four times fewer weight bytes, but the arithmetic runs at BF16 speed. Activations never leave 16 bits, so weight-only schemes are the gentler option for accuracy.</p>
+
+<h3>Weights and activations</h3>
+<p>In a <strong>W8A8</strong> scheme, both inputs of the matrix multiplication are 8-bit, so the multiplication itself runs on FP8 or INT8 tensor cores at twice the BF16 rate. The activations must be quantized on the fly, because they depend on the input. The output is rescaled by the product of the weight scale and the activation scale and returned in BF16. Figure 3 compares the two data paths.</p>
+<fig src="013-weight-only-vs-w8a8.svg" caption="Data paths of a weight-only W4A16 kernel and a W8A8 FP8 kernel">In the weight-only path, 4-bit weights and group scales are loaded from memory, converted to BF16 in registers and multiplied with BF16 activations on BF16 tensor cores. In the W8A8 path, FP8 weights are loaded directly into an FP8 matrix multiply, BF16 activations are first quantized per token to FP8 with a scale computed at run time, and the result is rescaled to BF16.</fig>
+<p>Activations are harder to quantize than weights. In large LLMs, a handful of hidden dimensions carry activations about 100 times larger than typical values, and the same few channels stay large for every token [7][8]. A per-tensor activation scale sized for the outliers would round most ordinary activations to zero. This is the problem that SmoothQuant, described below, was built to solve, and one reason FP8, with its exponent bits, tolerates activations better than INT8.</p>
+
+<h3>The KV cache</h3>
+<p>The third candidate is the KV cache, which we covered in Lesson 3, KV Cache: an FP8 cache halves memory per token, from 128 KiB to 64 KiB for Llama 3.1 8B, with a single engine flag. It is independent of weight quantization, and the two are usually combined.</p>
+
+<h3>Granularity: how many values share a scale</h3>
+<p>The smaller the group that shares a scale, the less damage one outlier can do, but the more scales we must store and apply. Figure 4 shows the four common choices.</p>
+<fig src="013-granularity.svg" caption="Scale granularity: per tensor, per channel, per group, and per token">Four grids. Per tensor: the whole weight matrix shares one scale. Per channel: each output row has its own scale. Per group: each row is split into groups of 128 inputs, each with its own scale, which costs about 0.125 extra bits per weight with FP16 scales. Per token: each row of the activation matrix gets its own scale, computed at run time.</fig>
+<ul>
+<li><strong>Per tensor</strong>: one scale for a whole matrix. Cheapest, and the most sensitive to outliers.</li>
+<li><strong>Per channel</strong>: one scale per output row of the weight matrix, 4,096 scales for a 4,096 × 4,096 projection. The standard choice for 8-bit weights.</li>
+<li><strong>Per group</strong>: one scale per group of consecutive input weights, usually 128. This is the default for 4-bit integer weights. An FP16 scale per 128 weights adds <tex>16 / 128 = 0.125</tex> bits per weight, so INT4 with group size 128 costs about 4.125 bits per weight. NVFP4 and MXFP4 are per-group schemes with groups of 16 and 32.</li>
+<li><strong>Per token, dynamic</strong>: for activations, one scale per token row, computed from that token's largest value at run time. It adapts to each input, so it needs no calibration data, at the cost of a small reduction before each matrix multiplication.</li>
+</ul>
+<p>Scales can also be <strong>static</strong>, computed once from calibration data and stored in the checkpoint. Static activation scales save the run-time reduction but fail when production inputs look different from the calibration set. The FP8 "dynamic" scheme that most teams start with uses static per-channel weight scales and dynamic per-token activation scales.</p>
+
+<h2>Quantization Methods</h2>
+<p>All the methods below are <strong>post-training quantization</strong> (PTQ): they take a finished BF16 model and convert it in minutes to hours on one or a few GPUs, without retraining. They differ in how they choose codes and scales.</p>
+
+<h4>Round-to-nearest and FP8 dynamic</h4>
+<p>The simplest method computes the scales from the weights and rounds every weight to the nearest code, which is exactly what Figure 1 does. For 8-bit formats with per-channel scales, round-to-nearest is usually good enough. FP8 dynamic quantization (per-channel FP8 weights, per-token FP8 activations) needs no calibration data at all, and vLLM can apply a per-tensor FP8 variant while it loads a BF16 checkpoint [9]. Round-to-nearest breaks down at 4 bits, where rounding errors in thousands of weights add up in each output.</p>
+
+<h4>GPTQ</h4>
+<p><strong>GPTQ</strong> quantizes a layer's weights one column at a time and, after rounding each column, adjusts the not-yet-quantized columns to cancel the error it just introduced, using second-order information estimated from calibration activations [10]. The authors quantized 175-billion-parameter models to 3 or 4 bits in about four GPU hours with negligible accuracy loss. GPTQ needs a few hundred calibration samples, and its usual output is W4A16 with group size 128.</p>
+
+<h4>AWQ</h4>
+<p><strong>Activation-aware Weight Quantization</strong> (AWQ) starts from the observation that not all weights matter equally: protecting about 1% of salient weight channels greatly reduces quantization error, and those channels are best identified by the size of the activations that multiply them, not by the weights themselves [11]. Rather than keeping those channels in high precision, AWQ scales them up before quantization, an equivalent transformation that gives them finer effective steps. It needs no backpropagation and only a small calibration set, which makes it robust across domains. Like GPTQ, it typically produces W4A16 checkpoints.</p>
+
+<h4>SmoothQuant</h4>
+<p><strong>SmoothQuant</strong> targets W8A8 INT8, where activation outliers are the problem [8]. Its insight is that weights are easy to quantize and activations are not, so it moves the difficulty from one to the other with an exact rewrite of each matrix multiplication:</p>
+<texblock>Y = XW = \left(X \operatorname{diag}(s)^{-1}\right)\left(\operatorname{diag}(s)\, W\right), \qquad s_j = \frac{\left(\max |X_j|\right)^{\alpha}}{\left(\max |W_j|\right)^{1-\alpha}}</texblock>
+<p>Dividing each activation channel <tex>j</tex> by <tex>s_j</tex> shrinks the outlier channels; multiplying the matching row of weights by <tex>s_j</tex> keeps the product unchanged. The migration strength <tex>\alpha</tex> balances the two; the paper found 0.5 a good balance for most models. The scales can usually be folded into the preceding layer's parameters offline, so the rewrite adds no work at inference. Figure 5 shows the effect on illustrative values.</p>
+<fig src="013-smoothquant.svg" caption="SmoothQuant moves activation outliers into the weights (illustrative values)">Four bar charts over eight input channels on the same scale. The activation maxima are about 1 except two outlier channels at 40 and 35. The weight maxima are all below 1. After dividing activations and multiplying weights by s equal to the square root of the activation max over the weight max, both smoothed charts peak at 4.0, so the activation range shrinks tenfold while the product stays the same.</fig>
+<p>Rotation methods such as QuaRot multiply weights and activations by orthogonal matrices that spread outliers across channels, making 4-bit activations feasible [12]. Quantization-aware training goes further by fine-tuning with quantization in the loop.</p>
+<table>
+<thead><tr><th>Method</th><th>What it quantizes</th><th>Calibration data</th><th>Key idea</th><th>Typical output</th></tr></thead>
+<tbody>
+<tr><td>FP8 dynamic (round-to-nearest)</td><td>Weights and activations</td><td>None</td><td>Per-channel weight scales, per-token activation scales at run time</td><td>W8A8 FP8</td></tr>
+<tr><td>GPTQ [10]</td><td>Weights</td><td>A few hundred samples</td><td>Compensate each column's rounding error in the remaining columns</td><td>W4A16, group 128</td></tr>
+<tr><td>AWQ [11]</td><td>Weights</td><td>Small set</td><td>Scale up salient channels chosen by activation size</td><td>W4A16, group 128</td></tr>
+<tr><td>SmoothQuant [8]</td><td>Weights and activations</td><td>Small set</td><td>Move activation outliers into the weights</td><td>W8A8 INT8</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: The main post-training quantization methods</p>
+
+<h2>Memory and Speed</h2>
+<h3>Memory math for Llama 3.1 8B and 70B</h3>
+<p>The first-order estimate is parameters × bits ÷ 8. Real checkpoints are a little larger, because standard recipes leave the token embeddings and the output layer (the LM head) in BF16: they are sensitive to rounding and together hold about 1.05 billion of the 8B model's 8.03 billion parameters. Only the linear layers inside the transformer blocks, 6.98 billion parameters for the 8B and 68.45 billion for the 70B, are quantized. The weights of one 8B checkpoint in FP8 are therefore:</p>
+<texblock>6.98 \times 10^{9} \times 1 \text{ byte} + 1.05 \times 10^{9} \times 2 \text{ bytes} \approx 9.08 \text{ GB}</texblock>
+<p>which matches the published FP8 checkpoints exactly. Figure 6 and Table 3 show every precision for both models, and what each leaves for the KV cache on an H100 under the Lesson 3 budget (about 71.6 GiB usable with <code>--gpu-memory-utilization 0.90</code> set explicitly, since recent vLLM defaults to 0.92, minus about 4.6 GiB per GPU of activations and CUDA graphs).</p>
+<fig src="013-memory-bars.svg" caption="Weight memory of Llama 3.1 8B and 70B at each precision, against one H100">Horizontal bars in GiB. Llama 3.1 8B: BF16 15.0, FP8 8.5, W4A16 5.3, NVFP4 5.6. Llama 3.1 70B: BF16 131.4, FP8 67.7, W4A16 37.1, NVFP4 39.8. A dashed line marks one H100 at 79.6 GiB and another the L4 at about 22.4 GiB. Only the 4-bit 70B leaves real room for a KV cache on one H100.</fig>
+<table>
+<thead><tr><th>Precision</th><th>8B weights</th><th>8B: KV cache room on one H100</th><th>70B weights</th><th>70B: H100s per replica</th></tr></thead>
+<tbody>
+<tr><td>BF16</td><td>16.06 GB (15.0 GiB)</td><td>≈ 52 GiB: 426K tokens, 170 chats</td><td>141.1 GB (131.4 GiB)</td><td>4 (on 2, only ≈ 3 GiB is left for cache)</td></tr>
+<tr><td>FP8 or INT8, W8A8</td><td>9.08 GB (8.5 GiB)</td><td>≈ 58.6 GiB: 480K tokens, 192 chats</td><td>72.66 GB (67.7 GiB)</td><td>2 (≈ 66 GiB of cache, 87 chats)</td></tr>
+<tr><td>INT4, W4A16, group 128</td><td>5.74 GB (5.3 GiB)</td><td>≈ 61.7 GiB: 505K tokens, 202 chats</td><td>39.79 GB (37.1 GiB)</td><td>1 (≈ 30 GiB of cache, 39 chats)</td></tr>
+<tr><td>NVFP4</td><td>6.03 GB (5.6 GiB)</td><td>≈ 61.4 GiB</td><td>≈ 42.7 GB (computed)</td><td>1</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Weight sizes of published Llama 3.1 checkpoints on Hugging Face (embeddings and LM head in BF16) and the KV cache room they leave. Chats are 2,500-token requests; KV is 128 KiB per token for the 8B and 320 KiB for the 70B. The 70B NVFP4 size is computed from the same recipe; the per-GPU overhead is a rough assumption.</p>
+<p>Two lessons come out of the table. For the 8B on an H100, weight quantization adds only about 13% more cache room (52 to 58.6 GiB), because the weights were never the main consumer of memory; the FP8 KV cache from Lesson 3 does more for capacity. The real gains for the 8B are speed and cost per token. For the 70B, quantization decides the GPU count: BF16 needs four H100s per replica in practice, FP8 needs two, and W4A16 fits on one. Notice also that cutting memory by half is not automatic: the FP8 8B checkpoint is 57% of the BF16 size because the embeddings and LM head stay in 16 bits. Lesson 16, Lab - Halve Model Memory Without Losing Quality, works through this trade-off hands-on.</p>
+
+<h3>Why weight-only quantization speeds up decode but not prefill</h3>
+<p>Whether a matrix multiplication is limited by memory or by compute depends on its <strong>arithmetic intensity</strong>: floating-point operations per byte read. A linear layer with a <tex>K \times N</tex> weight matrix, applied to <tex>M</tex> tokens at once, does <tex>2MKN</tex> operations and must read <tex>b_w KN</tex> bytes of weights, where <tex>b_w</tex> is bytes per weight. While <tex>M</tex> is much smaller than the matrix, the weights dominate the traffic, and the intensity is:</p>
+<texblock>I \approx \frac{2MKN}{b_w KN} = \frac{2M}{b_w} \ \text{FLOP per byte}</texblock>
+<p>An H100 can perform about 989 TFLOPS of BF16 math while reading 3.35 TB/s, so it becomes compute-bound above roughly <tex>989 / 3.35 \approx 295</tex> FLOP per byte. Plugging in each scheme gives the batch size, in tokens per step, at which it stops being memory-bound:</p>
+<ul>
+<li><strong>BF16</strong> (<tex>b_w = 2</tex>): <tex>I = M</tex>, so the crossover is at about 295 tokens per step.</li>
+<li><strong>W4A16</strong> (<tex>b_w = 0.5</tex>, BF16 math): <tex>I = 4M</tex>, so the crossover drops to about 74 tokens. Beyond that, the layer runs at BF16 compute speed, no faster than the unquantized model.</li>
+<li><strong>W8A8 FP8</strong> (<tex>b_w = 1</tex>, FP8 math at 1,979 TFLOPS): <tex>I = 2M</tex> against a ridge of about 591, so the crossover is again about 295 tokens, but every step on both sides of it takes half as long as BF16.</li>
+</ul>
+<fig src="013-roofline.svg" caption="Ideal time per step for the linear layers of Llama 3.1 8B on one H100">Log-log chart of milliseconds per step against tokens processed per step, from 1 to 2,048. BF16 is flat at 4.79 ms until about 295 tokens, then rises. W4A16 is flat at 1.20 ms until about 74 tokens, then joins the BF16 line. FP8 W8A8 is flat at 2.40 ms until about 295 tokens, then rises parallel to BF16 at half its height. A 2,000-token prompt takes about 32.5 ms in BF16 or W4A16 and 16.2 ms in FP8.</fig>
+<p>Figure 7 puts numbers on it for the 8B model, assuming every weight is stored at the format's width and ignoring attention. A decode step for a handful of streams is pure weight reading: about 4.79 ms in BF16, 2.40 ms in FP8, and 1.20 ms in 4-bit. Prefill of one 2,000-token prompt is a single step with <tex>M = 2{,}000</tex>, deep in the compute-bound region: about 32.5 ms in BF16, 16.2 ms in FP8, and still about 32.5 ms in W4A16, because the math runs in BF16 (the conversion even adds a little). This is what Lesson 2, Prefill vs Decode, predicts: memory savings help the memory-bound phase, and only lower-precision <em>math</em> helps the compute-bound one.</p>
+<p>Measured kernels agree. The Marlin W4A16 kernels reach close to the full 4× speedup up to batch sizes of 16 to 32, with a shrinking gain up to 64 to 128 [13]. A large study of the Llama 3.1 family concluded that W4A16 is the most cost-efficient choice for synchronous, latency-bound deployments, while W8A8 wins under continuous batching with many concurrent requests [14].</p>
+<callout kind="tip" title="Interview tip">Say "weight-only quantization buys bandwidth, W8A8 buys compute." Then name the crossover: on an H100, 4-bit weights stop helping above roughly 74 tokens per step, while FP8 keeps its 2× all the way into prefill.</callout>
+
+<h4>Which format fits our deployment?</h4>
+<p><strong>Llama 3.1 8B on the H100s</strong>: we choose <strong>FP8 W8A8 with dynamic per-token activation scales</strong>. Hopper computes in FP8 natively (Lesson 33, GPU Architecture and Attention Kernels, explains the tensor cores behind this), so it speeds up both decode and prefill. At our traffic, each H100 serves about 5 requests per second: about 53 decode streams plus 10,000 prompt tokens per second of prefill (5 × 2,000). With steps of about 21 ms, a typical step mixes roughly 210 prefill tokens with the 53 decode tokens, well beyond the 74 tokens where W4A16 stops helping, so faster math is what lowers cost. It needs no calibration data, and the study above found FP8 W8A8 effectively lossless across Llama 3.1 sizes [14]. Memory is not what limits the 8B at these targets, but the extra room (cache for about 192 chats, or 384 with the FP8 KV cache) absorbs long prompts. We still run the evaluation below before shipping.</p>
+<p><strong>Llama 3.1 70B for the premium tier</strong>: <strong>FP8 on two H100s per replica</strong>. It holds about 66 GiB of KV cache, roughly 87 concurrent chats, which matches the per-GPU capacity of a four-GPU BF16 replica with half the GPUs per replica. Smaller replicas are easier to autoscale (Lesson 22, Autoscaling), and two-way tensor parallelism halves the all-reduce traffic of four-way (Lesson 18, Tensor Parallelism). W4A16 on a single H100 is tempting, but it leaves only about 30 GiB of cache and gives up FP8's prefill speedup, so we keep it as a fallback for low-traffic hours.</p>
+<p><strong>Llama 3.1 8B on the L4 pool</strong>: <strong>W4A16 with GPTQ or AWQ</strong>. An L4 reads only 300 GB/s, so decode is starved for bandwidth: one step must read 16.06 GB in BF16 (at least 53.5 ms, under 19 tokens per second per stream), 9.08 GB in FP8 (at least 30.3 ms), or 5.74 GB in W4A16 (at least 19.1 ms, about 52 tokens per second). BF16 weights would also fill two thirds of the 24 GB card before any cache. The cheap tier runs small batches, exactly where 4-bit weights pay off most. The L4 does support FP8 math, so if the 4-bit model fails our evaluation, FP8 W8A8 is the fallback.</p>
+
+<h2>Evaluating Quality</h2>
+<h3>Why perplexity is not enough</h3>
+<p><strong>Perplexity</strong> measures how well a model predicts held-out text, and it is the quickest sanity check after quantizing: a broken checkpoint shows up immediately. But it averages over every token, most of which are easy, and it says nothing about generated output: long reasoning chains, exact formats such as JSON, tool calls, or instructions buried in a long prompt. A model can lose a fraction of a point of perplexity and still fail a specific task badly.</p>
+<p>Even task accuracy can hide damage. Dutta et al. found that compressed models with nearly the same benchmark accuracy as the baseline still change many individual answers, from correct to wrong and from wrong to correct in equal proportion [15]. They call these changes <strong>flips</strong> and propose tracking them, along with the KL divergence between the two models' token distributions. Figure 8 shows why this matters to users.</p>
+<fig src="013-flips.svg" caption="Equal accuracy can hide changed answers (illustrative)">Two rows of ten answers. The BF16 baseline gets 8 of 10 right, with questions 7 and 10 wrong. The quantized model also gets 8 of 10 right, but it is wrong on questions 3 and 10 and right on question 7. Accuracy is 80% for both, yet two answers flipped: question 3 from correct to wrong and question 7 from wrong to correct.</fig>
+
+<h3>An evaluation that catches regressions</h3>
+<ol>
+<li><strong>Same harness, same settings.</strong> Run the BF16 baseline and the quantized model through the same harness, chat template, and greedy decoding. Differences in prompting easily exceed quantization effects. EleutherAI's lm-evaluation-harness runs public tasks directly against vLLM [16].</li>
+<li><strong>Public task benchmarks</strong> that match the product: math reasoning such as GSM8K, instruction following such as IFEval, knowledge (MMLU-style), code, and long-context retrieval if users send long documents.</li>
+<li><strong>Your own eval set.</strong> The 2,000 graded customer prompts are the real test. Compare accuracy, count flips, and break results down by slice: long prompts, non-English, structured output.</li>
+<li><strong>Know the noise.</strong> At 80% accuracy on 2,000 items, the standard error is <tex>\sqrt{0.8 \times 0.2 / 2000} \approx 0.9</tex> points, so differences under about 2 points are within noise. Flips are a paired measure and much more sensitive.</li>
+<li><strong>Gate on speed too.</strong> Benchmark latency and throughput at production concurrency, as in Lesson 12, Lab - Benchmark Two Engines at 50 Concurrent Users. A quantized model that is not faster on your hardware is all risk and no reward.</li>
+</ol>
+
+<h2>In Practice</h2>
+<p>The first tab quantizes Llama 3.1 8B with LLM Compressor, the quantization library maintained by the vLLM project [17], into either FP8 dynamic or GPTQ W4A16; both checkpoints load in vLLM without extra flags. The second tab serves the result and runs the same public benchmarks on the baseline and the quantized model. The third compares two running servers on your own eval set and counts flips.</p>
+<codetabs>
+<tab label="Quantize" lang="python">
+# pip install llmcompressor
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from llmcompressor import oneshot
+from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
+
+MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
+SCHEME = "FP8_DYNAMIC"   # or "W4A16" for 4-bit weights (L4, low-batch serving)
+
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+
+if SCHEME == "FP8_DYNAMIC":
+    # FP8 weights with per-channel scales; FP8 activations with per-token
+    # scales computed at run time. No calibration data needed.
+    recipe = QuantizationModifier(targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"])
+    oneshot(model=model, recipe=recipe)
+else:
+    # GPTQ with group size 128 needs a few hundred calibration samples.
+    recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+    oneshot(model=model, dataset="perfectblend", splits="train[:512]", recipe=recipe,
+            max_seq_length=2048, num_calibration_samples=512)
+
+save_dir = MODEL_ID.split("/")[-1] + "-" + SCHEME
+model.save_pretrained(save_dir, save_compressed=True)
+tokenizer.save_pretrained(save_dir)
+print("saved", save_dir)
+</tab>
+<tab label="Serve and benchmark" lang="bash">
+# Serve the quantized checkpoint; vLLM reads the scheme from its config.
+vllm serve ./Llama-3.1-8B-Instruct-FP8_DYNAMIC --port 8001 \
+  --gpu-memory-utilization 0.90 --kv-cache-dtype fp8
+
+# Alternatives: a published checkpoint such as
+#   RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic
+# or FP8 applied at load time (current vLLM; older releases used --quantization fp8):
+#   vllm serve meta-llama/Llama-3.1-8B-Instruct --quantization fp8_per_tensor
+
+# Same benchmarks, same settings, for baseline and quantized model.
+# (lm_eval starts its own vLLM engine, so stop the server first.)
+for MODEL in meta-llama/Llama-3.1-8B-Instruct ./Llama-3.1-8B-Instruct-FP8_DYNAMIC; do
+  lm_eval --model vllm \
+    --model_args pretrained=$MODEL,gpu_memory_utilization=0.8 \
+    --tasks gsm8k,ifeval --apply_chat_template \
+    --batch_size auto --output_path results/ --log_samples
+done
+</tab>
+<tab label="Flips on your eval set" lang="python">
+import json
+from openai import OpenAI
+
+# Baseline and quantized model running side by side as two vLLM servers.
+ENDPOINTS = {"bf16": "http://localhost:8000/v1", "fp8": "http://localhost:8001/v1"}
+
+def is_correct(output: str, expected: str) -> bool:
+    return expected.strip().lower() in output.lower()   # replace with your grader
+
+def run(url: str, items: list[dict]) -> list[bool]:
+    client = OpenAI(base_url=url, api_key="EMPTY")
+    model = client.models.list().data[0].id
+    results = []
+    for item in items:
+        reply = client.chat.completions.create(
+            model=model, temperature=0.0, max_tokens=512,
+            messages=[{"role": "user", "content": item["prompt"]}])
+        results.append(is_correct(reply.choices[0].message.content, item["expected"]))
+    return results
+
+# One JSON object per line: {"prompt": "...", "expected": "..."}
+with open("eval_set.jsonl") as f:
+    items = [json.loads(line) for line in f]
+
+base, quant = (run(url, items) for url in ENDPOINTS.values())
+n = len(items)
+lost = sum(b and not q for b, q in zip(base, quant))
+gained = sum(q and not b for b, q in zip(base, quant))
+print(f"accuracy: bf16 {sum(base) / n:.1%}, fp8 {sum(quant) / n:.1%}")
+print(f"flips: {lost + gained} of {n} ({(lost + gained) / n:.1%}); "
+      f"{lost} correct->wrong, {gained} wrong->correct")
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Rotation-based methods such as QuaRot [12] and SpinQuant [18], which remove outliers so that weights, activations, and the KV cache can all run at 4 bits.</li>
+<li>Why the LM head and embeddings are usually left in BF16, and what it costs: about 2.1 GB of the 8B model's 9.08 GB FP8 checkpoint.</li>
+<li>Mixture-of-experts models, where most weights sit in experts that each token rarely touches, so 4-bit expert weights (as in gpt-oss's MXFP4) save the most memory for the least accuracy risk. Lesson 35, Mixture-of-Experts Serving, covers how such models are served.</li>
+<li>LLM.int8(), which keeps outlier channels in 16 bits and the rest in INT8 [7]: accurate, but the SmoothQuant authors measured it running slower than the FP16 baseline in most cases because of the mixed-precision overhead [8].</li>
+<li>Quantization-aware training, and the newer practice of releasing models trained or post-trained directly in low precision, which removes most of the post-training accuracy gap.</li>
+<li>TensorRT-LLM and NVIDIA's Model Optimizer as an alternative quantization toolchain, covered in Lesson 11, TensorRT-LLM.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="013-summary.png" caption="Quantization summary" optional="1">Mind map summarizing the quantization lesson: number formats, what gets quantized, scale granularity, methods, memory and speed, and evaluation.</fig>
+<ul>
+<li>Quantization stores weights, activations, or the KV cache in 8 or 4 bits plus scale factors. FP8 E4M3 (max 448) is the inference FP8; INT4 and the block-scaled NVFP4 and MXFP4 cover 4 bits.</li>
+<li>Smaller scale groups (per channel, per group of 128, per token) limit the damage from outliers; an FP16 scale per 128 weights adds 0.125 bits per weight.</li>
+<li>Published Llama 3.1 checkpoints: 8B is 16.06 GB in BF16, 9.08 GB in FP8, and 5.74 GB in W4A16; 70B is 141.1 GB, 72.66 GB, and 39.79 GB, which means four, two, or one H100 per replica.</li>
+<li>Weight-only quantization buys bandwidth: on an H100, W4A16 helps decode up to roughly 74 tokens per step. W8A8 buys compute: FP8 halves the time of both decode and prefill on Hopper.</li>
+<li>Ampere has INT8 but no FP8 math; Ada and Hopper add FP8; Blackwell adds FP4.</li>
+<li>For our fleet: FP8 W8A8 for the 8B on H100, FP8 on two H100s for the 70B, and W4A16 for the 8B on bandwidth-starved L4s.</li>
+<li>Judge quality with task benchmarks and your own eval set under identical settings, and count flips: equal accuracy can still hide changed answers.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Micikevicius et al. FP8 Formats for Deep Learning. <a href="https://arxiv.org/abs/2209.05433" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2209.05433</a>.<br>
+[2] Rouhani et al. Microscaling Data Formats for Deep Learning. <a href="https://arxiv.org/abs/2310.10537" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2310.10537</a>.<br>
+[3] Alvarez et al. Introducing NVFP4 for Efficient and Accurate Low-Precision Inference. NVIDIA Technical Blog. <a href="https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/" rel="noopener noreferrer" target="_blank">https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/</a>.<br>
+[4] vLLM documentation: Quantization. <a href="https://docs.vllm.ai/en/latest/features/quantization/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/quantization/</a>.<br>
+[5] NVIDIA HGX Platform specifications. <a href="https://www.nvidia.com/en-us/data-center/hgx/" rel="noopener noreferrer" target="_blank">https://www.nvidia.com/en-us/data-center/hgx/</a>.<br>
+[6] vLLM documentation: FP8 W8A8. <a href="https://docs.vllm.ai/en/latest/features/quantization/llm_compressor/fp8/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/quantization/llm_compressor/fp8/</a>.<br>
+[7] Dettmers et al. LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale. <a href="https://arxiv.org/abs/2208.07339" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2208.07339</a>.<br>
+[8] Xiao et al. SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models. <a href="https://arxiv.org/abs/2211.10438" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.10438</a>.<br>
+[9] vLLM documentation: Online Quantization. <a href="https://docs.vllm.ai/en/latest/features/quantization/online/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/quantization/online/</a>.<br>
+[10] Frantar et al. GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers. <a href="https://arxiv.org/abs/2210.17323" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2210.17323</a>.<br>
+[11] Lin et al. AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration. <a href="https://arxiv.org/abs/2306.00978" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2306.00978</a>.<br>
+[12] Ashkboos et al. QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs. <a href="https://arxiv.org/abs/2404.00456" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2404.00456</a>.<br>
+[13] Frantar et al. MARLIN: Mixed-Precision Auto-Regressive Parallel Inference on Large Language Models. <a href="https://arxiv.org/abs/2408.11743" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2408.11743</a>.<br>
+[14] Kurtic et al. "Give Me BF16 or Give Me Death"? Accuracy-Performance Trade-Offs in LLM Quantization. <a href="https://arxiv.org/abs/2411.02355" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2411.02355</a>.<br>
+[15] Dutta et al. Accuracy is Not All You Need. <a href="https://arxiv.org/abs/2407.09141" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.09141</a>.<br>
+[16] EleutherAI. Language Model Evaluation Harness. <a href="https://github.com/EleutherAI/lm-evaluation-harness" rel="noopener noreferrer" target="_blank">https://github.com/EleutherAI/lm-evaluation-harness</a>.<br>
+[17] LLM Compressor. <a href="https://github.com/vllm-project/llm-compressor" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/llm-compressor</a>.<br>
+[18] Liu et al. SpinQuant: LLM Quantization with Learned Rotations. <a href="https://arxiv.org/abs/2405.16406" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2405.16406</a>.</p>

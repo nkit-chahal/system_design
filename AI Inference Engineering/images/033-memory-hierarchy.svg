@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .lead{fill:none;stroke:#999;stroke-width:1}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="20" y="26" class="b">H100 SXM memory hierarchy: the closer to the tensor cores, the faster and smaller</text>
+
+  <!-- on-chip group -->
+  <rect x="20" y="44" width="420" height="176" rx="4" class="group"/>
+  <text x="30" y="64" class="sm">on chip (SRAM)</text>
+
+  <rect x="180" y="54" width="120" height="44" rx="4" class="orange"/>
+  <text x="240" y="81" text-anchor="middle" class="b">Registers</text>
+  <rect x="140" y="108" width="200" height="44" rx="4" class="blue"/>
+  <text x="240" y="135" text-anchor="middle" class="b">Shared memory / L1</text>
+  <rect x="100" y="162" width="280" height="44" rx="4" class="blue"/>
+  <text x="240" y="189" text-anchor="middle" class="b">L2 cache</text>
+
+    <rect x="40" y="236" width="400" height="50" rx="4" class="blue"/>
+  <text x="240" y="266" text-anchor="middle" class="b">HBM3</text>
+  <text x="52" y="266" class="sm">off chip</text>
+
+  <!-- leaders -->
+  <path d="M300,76 L470,76" class="lead"/>
+  <path d="M340,130 L470,130" class="lead"/>
+  <path d="M380,184 L470,184" class="lead"/>
+  <path d="M440,261 L470,261" class="lead"/>
+
+  <text x="478" y="72">256 KB per SM, ≈ 33 MB in all</text>
+  <text x="478" y="90" class="sm">private to each thread; feeds the tensor cores</text>
+  <text x="478" y="126">up to 228 KB per SM (256 KB with L1)</text>
+  <text x="478" y="144" class="sm">≈ 31 TB/s across the GPU; kernels manage it</text>
+  <text x="478" y="180">50 MB, shared by all 132 SMs</text>
+  <text x="478" y="198" class="sm">≈ 12 TB/s; caches HBM traffic automatically</text>
+  <text x="478" y="257">80 GB</text>
+  <text x="478" y="275" class="sm">3.35 TB/s; holds weights and the KV cache</text>
+
+  <rect x="20" y="304" width="780" height="26" rx="4" class="gray"/>
+  <text x="410" y="322" text-anchor="middle" class="sm">Shared memory has ≈ 9× the bandwidth of HBM but ≈ 1/2,700 of its capacity. Fast kernels reuse data on chip before going back to HBM.</text>
+</svg>

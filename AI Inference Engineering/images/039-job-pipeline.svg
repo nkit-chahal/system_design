@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="340" viewBox="0 0 860 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- input store -->
+  <path d="M14,72 a50,10 0 0,0 100,0 a50,10 0 0,0 -100,0 v66 a50,10 0 0,0 100,0 v-66" class="blue"/>
+  <text x="64" y="104" text-anchor="middle" class="b">Input</text>
+  <text x="64" y="121" text-anchor="middle" class="sm">Parquet shards</text>
+  <text x="64" y="136" text-anchor="middle" class="sm">doc_id, text</text>
+  <path d="M114,110 L136,110" class="edge"/>
+
+  <rect x="138" y="80" width="104" height="60" rx="6" class="gray"/>
+  <text x="190" y="104" text-anchor="middle" class="b">Read</text>
+  <text x="190" y="122" text-anchor="middle" class="sm">stream blocks</text>
+  <path d="M242,110 L264,110" class="edge"/>
+
+  <rect x="266" y="80" width="112" height="60" rx="6" class="gray"/>
+  <text x="322" y="104" text-anchor="middle" class="b">Preprocess</text>
+  <text x="322" y="122" text-anchor="middle" class="sm">chat messages</text>
+  <path d="M378,110 L404,110" class="edge"/>
+
+  <!-- engine pool -->
+  <rect x="406" y="22" width="200" height="176" rx="4" class="group"/>
+  <text x="506" y="42" text-anchor="middle" class="sm">engine pool, one per H100</text>
+  <rect x="420" y="52" width="172" height="36" rx="5" class="orange"/>
+  <text x="506" y="75" text-anchor="middle" class="sm">vLLM replica, offline settings</text>
+  <rect x="420" y="96" width="172" height="36" rx="5" class="orange"/>
+  <text x="506" y="119" text-anchor="middle" class="sm">vLLM replica, offline settings</text>
+  <rect x="420" y="140" width="172" height="36" rx="5" class="orange"/>
+  <text x="506" y="163" text-anchor="middle" class="sm">… up to 64 replicas</text>
+  <text x="506" y="192" text-anchor="middle" class="sm">concurrency = 64</text>
+  <path d="M606,110 L632,110" class="edge"/>
+
+  <rect x="634" y="80" width="104" height="60" rx="6" class="gray"/>
+  <text x="686" y="104" text-anchor="middle" class="b">Postprocess</text>
+  <text x="686" y="122" text-anchor="middle" class="sm">doc_id, summary</text>
+  <path d="M738,110 L752,110" class="edge"/>
+
+  <path d="M754,72 a46,10 0 0,0 92,0 a46,10 0 0,0 -92,0 v66 a46,10 0 0,0 92,0 v-66" class="blue"/>
+  <text x="800" y="104" text-anchor="middle" class="b">Output</text>
+  <text x="800" y="121" text-anchor="middle" class="sm">Parquet</text>
+
+  <!-- checkpoint -->
+  <path d="M754,234 a46,10 0 0,0 92,0 a46,10 0 0,0 -92,0 v50 a46,10 0 0,0 92,0 v-50" class="blue"/>
+  <text x="800" y="262" text-anchor="middle" class="b">Checkpoint</text>
+  <text x="800" y="279" text-anchor="middle" class="sm">finished IDs</text>
+  <path d="M800,150 L800,222" class="dash"/>
+  <text x="808" y="192" class="sm">record</text>
+
+  <!-- interruption and resume -->
+  <rect x="420" y="236" width="186" height="52" rx="6" class="red"/>
+  <text x="513" y="258" text-anchor="middle" class="b">Spot GPU reclaimed</text>
+  <text x="513" y="276" text-anchor="middle" class="sm">its blocks are lost</text>
+  <path d="M513,234 L513,200" class="dash"/>
+
+  <rect x="138" y="236" width="240" height="52" rx="6" class="gray"/>
+  <text x="258" y="258" text-anchor="middle" class="b">Rerun the same job</text>
+  <text x="258" y="276" text-anchor="middle" class="sm">read skips finished doc_ids</text>
+  <path d="M752,272 L640,312 L258,312 L258,290" class="dash"/>
+  <path d="M190,236 L190,142" class="edge"/>
+  <text x="470" y="328" text-anchor="middle" class="sm">resume from the last successful block</text>
+</svg>

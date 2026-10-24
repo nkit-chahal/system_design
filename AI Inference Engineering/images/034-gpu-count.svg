@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="408" viewBox="0 0 860 408" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .thick{fill:none;stroke:#000;stroke-width:2.4;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .ref{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="20" y="26" class="b">Whole H100s for the chat service: shared replicas (5 req/s each) versus separate pools</text>
+  <line x1="230" y1="44" x2="230" y2="302" class="grid"/>
+  <line x1="290" y1="44" x2="290" y2="302" class="grid"/>
+  <line x1="350" y1="44" x2="350" y2="302" class="grid"/>
+  <line x1="410" y1="44" x2="410" y2="302" class="grid"/>
+  <line x1="470" y1="44" x2="470" y2="302" class="grid"/>
+  <line x1="530" y1="44" x2="530" y2="302" class="grid"/>
+  <line x1="590" y1="44" x2="590" y2="302" class="grid"/>
+  <line x1="650" y1="44" x2="650" y2="302" class="grid"/>
+  <line x1="710" y1="44" x2="710" y2="302" class="grid"/>
+  <line x1="770" y1="44" x2="770" y2="302" class="grid"/>
+  <text x="20" y="70" class="b">Average</text>
+  <text x="20" y="88" class="sm">16.7 req/s</text>
+  <rect x="230" y="52" width="60" height="22" class="gray"/>
+  <text x="298" y="68" class="sm">shared: 4 GPUs (3.34 needed)</text>
+  <rect x="230" y="80" width="30" height="22" class="orange"/>
+  <rect x="260" y="80" width="30" height="22" class="blue"/>
+  <text x="298" y="96" class="sm">disaggregated: 2 + 2 = 4 GPUs (3.08 needed)</text>
+  <text x="20" y="154" class="b">Daily peak</text>
+  <text x="20" y="172" class="sm">33 req/s</text>
+  <rect x="230" y="136" width="105" height="22" class="gray"/>
+  <text x="343" y="152" class="sm">shared: 7 GPUs (6.6 needed)</text>
+  <rect x="230" y="164" width="45" height="22" class="orange"/>
+  <rect x="275" y="164" width="60" height="22" class="blue"/>
+  <text x="343" y="180" class="sm">disaggregated: 3 + 4 = 7 GPUs (6.1 needed)</text>
+  <text x="20" y="238" class="b">Launch spike</text>
+  <text x="20" y="256" class="sm">167 req/s</text>
+  <rect x="230" y="220" width="510" height="22" class="gray"/>
+  <text x="238" y="236" class="sm">shared: 34 GPUs (33.4 needed)</text>
+  <rect x="230" y="248" width="210" height="22" class="orange"/>
+  <rect x="440" y="248" width="270" height="22" class="blue"/>
+  <text x="238" y="264" class="sm">disaggregated: 14 + 18 = 32 GPUs (30.8 needed)</text>
+  <path d="M230,302 L770,302" class="axis"/>
+  <line x1="230" y1="302" x2="230" y2="307" class="axis"/>
+  <text x="230" y="322" text-anchor="middle" class="sm">0</text>
+  <line x1="290" y1="302" x2="290" y2="307" class="axis"/>
+  <text x="290" y="322" text-anchor="middle" class="sm">4</text>
+  <line x1="350" y1="302" x2="350" y2="307" class="axis"/>
+  <text x="350" y="322" text-anchor="middle" class="sm">8</text>
+  <line x1="410" y1="302" x2="410" y2="307" class="axis"/>
+  <text x="410" y="322" text-anchor="middle" class="sm">12</text>
+  <line x1="470" y1="302" x2="470" y2="307" class="axis"/>
+  <text x="470" y="322" text-anchor="middle" class="sm">16</text>
+  <line x1="530" y1="302" x2="530" y2="307" class="axis"/>
+  <text x="530" y="322" text-anchor="middle" class="sm">20</text>
+  <line x1="590" y1="302" x2="590" y2="307" class="axis"/>
+  <text x="590" y="322" text-anchor="middle" class="sm">24</text>
+  <line x1="650" y1="302" x2="650" y2="307" class="axis"/>
+  <text x="650" y="322" text-anchor="middle" class="sm">28</text>
+  <line x1="710" y1="302" x2="710" y2="307" class="axis"/>
+  <text x="710" y="322" text-anchor="middle" class="sm">32</text>
+  <line x1="770" y1="302" x2="770" y2="307" class="axis"/>
+  <text x="770" y="322" text-anchor="middle" class="sm">36</text>
+  <text x="500" y="340" text-anchor="middle" class="sm">H100 GPUs</text>
+  <rect x="20" y="358" width="18" height="12" rx="0" class="gray"/>
+  <text x="44" y="369" class="sm">shared prefill + decode</text>
+  <rect x="220" y="358" width="18" height="12" rx="0" class="orange"/>
+  <text x="244" y="369" class="sm">prefill pool</text>
+  <rect x="350" y="358" width="18" height="12" rx="0" class="blue"/>
+  <text x="374" y="369" class="sm">decode pool</text>
+  <text x="20" y="394" class="sm">Model estimate before failure spares. About 8% fewer GPUs are needed when disaggregated, but rounding absorbs it at small scale.</text>
+</svg>

@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="236" viewBox="0 0 840 236" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Old workflow -->
+  <text x="12" y="24" class="b">Removed in the 1.4 release candidates: build an engine first</text>
+  <rect x="12" y="38" width="130" height="48" rx="6" class="white"/>
+  <text x="77" y="58" text-anchor="middle">HF checkpoint</text>
+  <text x="77" y="76" text-anchor="middle" class="sm">safetensors</text>
+  <path d="M142,62 L160,62" class="edge"/>
+  <rect x="162" y="38" width="170" height="48" rx="6" class="gray" stroke-dasharray="5 4"/>
+  <text x="247" y="58" text-anchor="middle" class="sm">convert_checkpoint.py</text>
+  <text x="247" y="76" text-anchor="middle" class="sm">one script per model</text>
+  <path d="M332,62 L350,62" class="edge"/>
+  <rect x="352" y="38" width="130" height="48" rx="6" class="red"/>
+  <text x="417" y="58" text-anchor="middle">trtllm-build</text>
+  <text x="417" y="76" text-anchor="middle" class="sm">minutes to hours</text>
+  <path d="M482,62 L500,62" class="edge"/>
+  <rect x="502" y="38" width="150" height="48" rx="6" class="gray" stroke-dasharray="5 4"/>
+  <text x="577" y="58" text-anchor="middle">Engine file</text>
+  <text x="577" y="76" text-anchor="middle" class="sm">fixed GPU and limits</text>
+  <path d="M652,62 L670,62" class="edge"/>
+  <rect x="672" y="38" width="156" height="48" rx="6" class="gray" stroke-dasharray="5 4"/>
+  <text x="750" y="58" text-anchor="middle">Runtime</text>
+  <text x="750" y="76" text-anchor="middle" class="sm">serves the engine</text>
+
+  <line x1="12" y1="106" x2="828" y2="106" stroke="#999" stroke-dasharray="5 4"/>
+
+  <!-- New workflow -->
+  <text x="12" y="132" class="b">Current: load the checkpoint directly (the default since v1.0)</text>
+  <rect x="12" y="146" width="130" height="48" rx="6" class="white"/>
+  <text x="77" y="166" text-anchor="middle">HF checkpoint</text>
+  <text x="77" y="184" text-anchor="middle" class="sm">safetensors</text>
+  <path d="M142,170 L160,170" class="edge"/>
+  <rect x="162" y="146" width="170" height="48" rx="6" class="gray"/>
+  <text x="247" y="166" text-anchor="middle">Model Optimizer</text>
+  <text x="247" y="184" text-anchor="middle" class="sm">optional FP8 or NVFP4</text>
+  <path d="M332,170 L350,170" class="edge"/>
+  <rect x="352" y="146" width="300" height="48" rx="6" class="orange"/>
+  <text x="502" y="166" text-anchor="middle">LLM API or trtllm-serve</text>
+  <text x="502" y="184" text-anchor="middle" class="sm">PyTorch models, NVIDIA kernels, CUDA graphs</text>
+  <path d="M652,170 L670,170" class="edge"/>
+  <rect x="672" y="146" width="156" height="48" rx="6" class="green"/>
+  <text x="750" y="166" text-anchor="middle">Serving</text>
+  <text x="750" y="184" text-anchor="middle" class="sm">limits set at runtime</text>
+
+  <text x="12" y="222" class="sm">max_batch_size, max_num_tokens and parallelism are now runtime settings instead of build-time constants.</text>
+</svg>

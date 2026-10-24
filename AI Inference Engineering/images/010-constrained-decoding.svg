@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="300" viewBox="0 0 820 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.mono{font-family:Consolas, Menlo, monospace}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Output so far -->
+  <text x="16" y="33" class="b">Output so far</text>
+  <rect x="130" y="12" width="330" height="32" rx="4" class="white"/>
+  <text x="142" y="33" class="mono">{"tool": "refund", "amount": </text>
+  <text x="476" y="33" class="sm">schema: amount is an integer</text>
+
+  <!-- GPU and CPU -->
+  <rect x="16" y="76" width="210" height="52" rx="6" class="orange"/>
+  <text x="121" y="97" text-anchor="middle">GPU: forward pass</text>
+  <text x="121" y="116" text-anchor="middle" class="sm">logits for 128,256 tokens</text>
+  <rect x="16" y="170" width="210" height="52" rx="6" class="gray"/>
+  <text x="121" y="191" text-anchor="middle">CPU: grammar engine</text>
+  <text x="121" y="210" text-anchor="middle" class="sm">state: a number comes next</text>
+  <text x="121" y="150" text-anchor="middle" class="sm">run at the same time</text>
+
+  <!-- Masked logits -->
+  <rect x="290" y="64" width="220" height="170" rx="6" class="white"/>
+  <text x="400" y="84" text-anchor="middle" class="sm b">Logits after mask (illustrative)</text>
+  <g class="sm">
+    <rect x="304" y="94" width="192" height="20" class="red"/><text x="314" y="108" class="mono">"</text><text x="486" y="108" text-anchor="end">−∞</text>
+    <rect x="304" y="116" width="192" height="20" class="red"/><text x="314" y="130" class="mono">}</text><text x="486" y="130" text-anchor="end">−∞</text>
+    <rect x="304" y="138" width="192" height="20" class="red"/><text x="314" y="152" class="mono">refund</text><text x="486" y="152" text-anchor="end">−∞</text>
+    <rect x="304" y="160" width="192" height="20" class="green"/><text x="314" y="174" class="mono">4</text><text x="486" y="174" text-anchor="end">2.1</text>
+    <rect x="304" y="182" width="192" height="20" class="green"/><text x="314" y="196" class="mono">42</text><text x="486" y="196" text-anchor="end">3.4</text>
+    <rect x="304" y="204" width="192" height="20" class="green"/><text x="314" y="218" class="mono">100</text><text x="486" y="218" text-anchor="end">1.7</text>
+  </g>
+  <path d="M226,102 L288,102" class="edge"/>
+  <text x="257" y="96" text-anchor="middle" class="sm">logits</text>
+  <path d="M226,196 L288,196" class="edge"/>
+  <text x="257" y="190" text-anchor="middle" class="sm">mask</text>
+
+  <!-- Sample -->
+  <rect x="580" y="122" width="150" height="52" rx="6" class="green"/>
+  <text x="655" y="143" text-anchor="middle">Sample</text>
+  <text x="655" y="162" text-anchor="middle" class="sm">picks "42"</text>
+  <path d="M510,148 L578,148" class="edge"/>
+
+  <!-- Advance grammar state -->
+  <path d="M655,174 L655,262 L121,262 L121,224" class="edge"/>
+  <text x="388" y="284" text-anchor="middle" class="sm">append "42" and advance the grammar state; repeat until the JSON object closes</text>
+</svg>

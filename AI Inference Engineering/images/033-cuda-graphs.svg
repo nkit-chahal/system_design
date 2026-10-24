@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="300" viewBox="0 0 820 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .line{fill:none;stroke:#999;stroke-width:1}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="20" y="24" class="b">Eager mode: the CPU launches each kernel; short kernels leave the GPU waiting</text>
+  <text x="20" y="57">CPU</text><text x="20" y="91">GPU</text>
+  <path d="M70,96 L800,96" class="line"/>
+  <rect x="70" y="40" width="66" height="24" rx="3" class="purple"/>
+  <rect x="155" y="40" width="66" height="24" rx="3" class="purple"/>
+  <rect x="240" y="40" width="66" height="24" rx="3" class="purple"/>
+  <rect x="325" y="40" width="66" height="24" rx="3" class="purple"/>
+  <rect x="410" y="40" width="66" height="24" rx="3" class="purple"/>
+  <rect x="495" y="40" width="66" height="24" rx="3" class="purple"/>
+  <rect x="580" y="40" width="66" height="24" rx="3" class="purple"/>
+  <rect x="665" y="40" width="66" height="24" rx="3" class="purple"/>
+  <text x="103" y="57" text-anchor="middle" class="sm">launch</text>
+  <rect x="136" y="74" width="16" height="22" class="orange"/>
+  <rect x="221" y="74" width="16" height="22" class="orange"/>
+  <rect x="306" y="74" width="16" height="22" class="orange"/>
+  <rect x="391" y="74" width="16" height="22" class="orange"/>
+  <rect x="476" y="74" width="16" height="22" class="orange"/>
+  <rect x="561" y="74" width="16" height="22" class="orange"/>
+  <rect x="646" y="74" width="16" height="22" class="orange"/>
+  <rect x="731" y="74" width="16" height="22" class="orange"/>
+  <text x="186" y="90" text-anchor="middle" class="sm">idle</text>
+  <text x="271" y="90" text-anchor="middle" class="sm">idle</text>
+  <text x="755" y="118" text-anchor="end" class="sm">8 kernels done here</text>
+  <path d="M747,104 L747,98" class="edge"/>
+
+  <text x="20" y="160" class="b">CUDA graph: the whole step is captured once and replayed with one launch</text>
+  <text x="20" y="193">CPU</text><text x="20" y="227">GPU</text>
+  <path d="M70,232 L800,232" class="line"/>
+  <rect x="70" y="176" width="66" height="24" rx="3" class="purple"/>
+  <text x="103" y="193" text-anchor="middle" class="sm">replay</text>
+  <rect x="136" y="210" width="16" height="22" class="orange"/>
+  <rect x="154" y="210" width="16" height="22" class="orange"/>
+  <rect x="172" y="210" width="16" height="22" class="orange"/>
+  <rect x="190" y="210" width="16" height="22" class="orange"/>
+  <rect x="208" y="210" width="16" height="22" class="orange"/>
+  <rect x="226" y="210" width="16" height="22" class="orange"/>
+  <rect x="244" y="210" width="16" height="22" class="orange"/>
+  <rect x="262" y="210" width="16" height="22" class="orange"/>
+  <rect x="300" y="208" width="320" height="26" rx="4" class="green"/>
+  <text x="460" y="226" text-anchor="middle" class="sm">same 8 kernels, back to back; the CPU is free</text>
+
+  <path d="M70,258 L800,258" class="edge"/>
+  <text x="790" y="250" text-anchor="end" class="sm">time (illustrative)</text>
+  <text x="20" y="290" class="sm">Purple: CPU launch work. Orange: GPU kernels. Matters most at small batch, where each kernel runs only a few microseconds.</text>
+</svg>

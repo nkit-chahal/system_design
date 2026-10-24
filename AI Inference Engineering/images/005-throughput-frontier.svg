@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="390" viewBox="0 0 820 390" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="20" y="26" class="b">Per-user speed versus total throughput as the batch grows (decode only, ideal bandwidth)</text>
+  <line x1="90.0" y1="60" x2="90.0" y2="330" class="grid"/>
+  <line x1="90.0" y1="330" x2="90.0" y2="335" class="axis"/><text x="90.0" y="350" text-anchor="middle" class="sm">0</text>
+  <line x1="150.9" y1="60" x2="150.9" y2="330" class="grid"/>
+  <line x1="150.9" y1="330" x2="150.9" y2="335" class="axis"/><text x="150.9" y="350" text-anchor="middle" class="sm">20</text>
+  <line x1="211.8" y1="60" x2="211.8" y2="330" class="grid"/>
+  <line x1="211.8" y1="330" x2="211.8" y2="335" class="axis"/><text x="211.8" y="350" text-anchor="middle" class="sm">40</text>
+  <line x1="272.7" y1="60" x2="272.7" y2="330" class="grid"/>
+  <line x1="272.7" y1="330" x2="272.7" y2="335" class="axis"/><text x="272.7" y="350" text-anchor="middle" class="sm">60</text>
+  <line x1="333.6" y1="60" x2="333.6" y2="330" class="grid"/>
+  <line x1="333.6" y1="330" x2="333.6" y2="335" class="axis"/><text x="333.6" y="350" text-anchor="middle" class="sm">80</text>
+  <line x1="394.5" y1="60" x2="394.5" y2="330" class="grid"/>
+  <line x1="394.5" y1="330" x2="394.5" y2="335" class="axis"/><text x="394.5" y="350" text-anchor="middle" class="sm">100</text>
+  <line x1="455.5" y1="60" x2="455.5" y2="330" class="grid"/>
+  <line x1="455.5" y1="330" x2="455.5" y2="335" class="axis"/><text x="455.5" y="350" text-anchor="middle" class="sm">120</text>
+  <line x1="516.4" y1="60" x2="516.4" y2="330" class="grid"/>
+  <line x1="516.4" y1="330" x2="516.4" y2="335" class="axis"/><text x="516.4" y="350" text-anchor="middle" class="sm">140</text>
+  <line x1="577.3" y1="60" x2="577.3" y2="330" class="grid"/>
+  <line x1="577.3" y1="330" x2="577.3" y2="335" class="axis"/><text x="577.3" y="350" text-anchor="middle" class="sm">160</text>
+  <line x1="638.2" y1="60" x2="638.2" y2="330" class="grid"/>
+  <line x1="638.2" y1="330" x2="638.2" y2="335" class="axis"/><text x="638.2" y="350" text-anchor="middle" class="sm">180</text>
+  <line x1="699.1" y1="60" x2="699.1" y2="330" class="grid"/>
+  <line x1="699.1" y1="330" x2="699.1" y2="335" class="axis"/><text x="699.1" y="350" text-anchor="middle" class="sm">200</text>
+  <line x1="760.0" y1="60" x2="760.0" y2="330" class="grid"/>
+  <line x1="760.0" y1="330" x2="760.0" y2="335" class="axis"/><text x="760.0" y="350" text-anchor="middle" class="sm">220</text>
+  <line x1="90" y1="330.0" x2="760" y2="330.0" class="grid"/>
+  <line x1="85" y1="330.0" x2="90" y2="330.0" class="axis"/><text x="81" y="334.0" text-anchor="end" class="sm">0</text>
+  <line x1="90" y1="285.0" x2="760" y2="285.0" class="grid"/>
+  <line x1="85" y1="285.0" x2="90" y2="285.0" class="axis"/><text x="81" y="289.0" text-anchor="end" class="sm">1,500</text>
+  <line x1="90" y1="240.0" x2="760" y2="240.0" class="grid"/>
+  <line x1="85" y1="240.0" x2="90" y2="240.0" class="axis"/><text x="81" y="244.0" text-anchor="end" class="sm">3,000</text>
+  <line x1="90" y1="195.0" x2="760" y2="195.0" class="grid"/>
+  <line x1="85" y1="195.0" x2="90" y2="195.0" class="axis"/><text x="81" y="199.0" text-anchor="end" class="sm">4,500</text>
+  <line x1="90" y1="150.0" x2="760" y2="150.0" class="grid"/>
+  <line x1="85" y1="150.0" x2="90" y2="150.0" class="axis"/><text x="81" y="154.0" text-anchor="end" class="sm">6,000</text>
+  <line x1="90" y1="105.0" x2="760" y2="105.0" class="grid"/>
+  <line x1="85" y1="105.0" x2="90" y2="105.0" class="axis"/><text x="81" y="109.0" text-anchor="end" class="sm">7,500</text>
+  <line x1="90" y1="60.0" x2="760" y2="60.0" class="grid"/>
+  <line x1="85" y1="60.0" x2="90" y2="60.0" class="axis"/><text x="81" y="64.0" text-anchor="end" class="sm">9,000</text>
+  <path d="M90,50 L90,330 L770,330" class="axis"/>
+  <text x="425.0" y="374" text-anchor="middle" class="sm">output tokens per second for each user (1 ÷ TPOT)</text>
+  <text x="26" y="195.0" text-anchor="middle" class="sm" transform="rotate(-90 26 195.0)">output tokens per second, all users</text>
+  <polyline points="712.6,323.9 711.9,323.6 711.3,323.3 710.6,322.9 709.9,322.6 709.1,322.2 708.4,321.8 707.5,321.4 706.7,321.0 705.8,320.6 704.8,320.1 703.8,319.7 702.8,319.2 701.7,318.6 700.6,318.1 699.4,317.5 698.2,316.9 696.9,316.3 695.5,315.6 694.1,315.0 692.6,314.2 691.1,313.5 689.5,312.7 687.8,311.9 686.0,311.1 684.2,310.2 682.3,309.3 680.3,308.3 678.2,307.3 676.0,306.2 673.8,305.1 671.4,304.0 669.0,302.8 666.4,301.6 663.8,300.3 661.0,299.0 658.1,297.6 655.1,296.1 652.0,294.6 648.8,293.1 645.5,291.5 642.0,289.8 638.4,288.1 634.7,286.3 630.8,284.4 626.8,282.5 622.7,280.5 618.5,278.4 614.0,276.3 609.5,274.1 604.8,271.8 600.0,269.5 595.0,267.1 589.9,264.6 584.6,262.1 579.2,259.5 573.6,256.8 567.9,254.0 562.1,251.2 556.1,248.3 550.0,245.4 543.7,242.3 537.3,239.3 530.8,236.1 524.1,232.9 517.4,229.6 510.5,226.3 503.5,222.9 496.4,219.5 489.2,216.0 481.9,212.5 474.6,209.0 467.1,205.4 459.6,201.8 452.1,198.1 444.4,194.4 436.8,190.7 429.1,187.0 421.3,183.3 413.6,179.5 405.9,175.8 398.1,172.1 390.4,168.3 382.7,164.6 375.0,160.9 367.3,157.2 359.7,153.5 352.2,149.9 344.7,146.3 337.3,142.7 330.0,139.2 322.7,135.7 315.6,132.2 308.5,128.8 301.6,125.5 294.8,122.2 288.1,118.9 281.5,115.7 275.0,112.6 268.7,109.6 262.5,106.6 256.4,103.6 250.5,100.8 244.7,98.0 239.1,95.3 233.6,92.6 232.2,91.9" fill="none" stroke="#d79b00" stroke-width="2.4"/>
+  <circle cx="712.6" cy="323.9" r="5" class="orange"/>
+  <text x="721.6" y="315.9" class="sm">batch 1</text>
+  <circle cx="636.1" cy="287.0" r="5" class="orange"/>
+  <text x="645.1" y="279.0" class="sm">batch 8</text>
+  <circle cx="474.3" cy="208.9" r="5" class="orange"/>
+  <text x="483.3" y="200.9" class="sm">batch 32</text>
+  <circle cx="365.5" cy="156.3" r="5" class="orange"/>
+  <text x="356.5" y="174.3" text-anchor="end" class="sm">batch 64</text>
+  <circle cx="265.9" cy="108.2" r="5" class="orange"/>
+  <text x="274.9" y="100.2" class="sm">batch 128</text>
+  <circle cx="232.2" cy="91.9" r="5" class="orange"/>
+  <text x="240.2" y="79.9" text-anchor="middle" class="sm">batch 170</text>
+  <line x1="211.8" y1="60" x2="211.8" y2="330" stroke="#b85450" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <text x="205.8" y="195.0" text-anchor="end" class="sm">TPOT ≤ 25 ms</text>
+  <text x="205.8" y="210.0" text-anchor="end" class="sm">(≥ 40 tok/s)</text>
+  <path d="M395.2,170.7 L242.0,249.3" fill="none" stroke="#b85450" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#arrow)"/>
+  <circle cx="395.2" cy="170.7" r="5" fill="#fff" stroke="#d79b00" stroke-width="1.5"/>
+  <text x="404.2" y="188.7" class="sm">batch 53, ideal</text>
+  <circle cx="235.0" cy="254.3" r="6" class="red"/>
+  <text x="245.0" y="276.3" class="sm b">planning point (Lesson 19): 53 streams</text>
+  <text x="245.0" y="291.3" class="sm">at ≈ 21 ms per step: ≈ 48 tok/s per user,</text>
+  <text x="245.0" y="306.3" class="sm">≈ 2,500 tok/s in total</text>
+  <text x="756" y="74" text-anchor="end" class="sm">orange: ideal lower-bound steps; red: a realistic planning figure</text>
+</svg>

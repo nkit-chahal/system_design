@@ -1,0 +1,156 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="354" viewBox="0 0 860 354" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .thick{fill:none;stroke:#000;stroke-width:2.4;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .ref{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="10" y="16" width="410" height="300" rx="4" class="group"/>
+  <text x="22" y="38" class="b">Tensor parallel, TP = 4</text>
+  <rect x="24" y="52" width="88" height="196" rx="4" class="white"/>
+  <text x="68" y="70" text-anchor="middle" class="sm b">GPU 0</text>
+  <rect x="30" y="80" width="76" height="36" rx="3" class="gray"/>
+  <text x="68" y="96" text-anchor="middle" class="sm">¼ of all</text>
+  <text x="68" y="110" text-anchor="middle" class="sm">heads</text>
+  <rect x="30" y="122" width="76" height="26" rx="3" class="blue"/>
+  <text x="68" y="140" text-anchor="middle" class="sm">same latents</text>
+  <rect x="30.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="39.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="49.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="58.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="68.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="77.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="87.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="96.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <text x="68" y="228" text-anchor="middle" class="sm">¼ of E1 … E8</text>
+  <rect x="122" y="52" width="88" height="196" rx="4" class="white"/>
+  <text x="166" y="70" text-anchor="middle" class="sm b">GPU 1</text>
+  <rect x="128" y="80" width="76" height="36" rx="3" class="gray"/>
+  <text x="166" y="96" text-anchor="middle" class="sm">¼ of all</text>
+  <text x="166" y="110" text-anchor="middle" class="sm">heads</text>
+  <rect x="128" y="122" width="76" height="26" rx="3" class="blue"/>
+  <text x="166" y="140" text-anchor="middle" class="sm">same latents</text>
+  <rect x="128.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="137.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="147.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="156.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="166.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="175.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="185.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="194.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <text x="166" y="228" text-anchor="middle" class="sm">¼ of E1 … E8</text>
+  <rect x="220" y="52" width="88" height="196" rx="4" class="white"/>
+  <text x="264" y="70" text-anchor="middle" class="sm b">GPU 2</text>
+  <rect x="226" y="80" width="76" height="36" rx="3" class="gray"/>
+  <text x="264" y="96" text-anchor="middle" class="sm">¼ of all</text>
+  <text x="264" y="110" text-anchor="middle" class="sm">heads</text>
+  <rect x="226" y="122" width="76" height="26" rx="3" class="blue"/>
+  <text x="264" y="140" text-anchor="middle" class="sm">same latents</text>
+  <rect x="226.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="235.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="245.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="254.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="264.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="273.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="283.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="292.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <text x="264" y="228" text-anchor="middle" class="sm">¼ of E1 … E8</text>
+  <rect x="318" y="52" width="88" height="196" rx="4" class="white"/>
+  <text x="362" y="70" text-anchor="middle" class="sm b">GPU 3</text>
+  <rect x="324" y="80" width="76" height="36" rx="3" class="gray"/>
+  <text x="362" y="96" text-anchor="middle" class="sm">¼ of all</text>
+  <text x="362" y="110" text-anchor="middle" class="sm">heads</text>
+  <rect x="324" y="122" width="76" height="26" rx="3" class="blue"/>
+  <text x="362" y="140" text-anchor="middle" class="sm">same latents</text>
+  <rect x="324.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="333.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="343.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="352.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="362.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="371.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="381.0" y="156" width="8" height="54" rx="1" class="orange"/>
+  <rect x="390.5" y="156" width="8" height="54" rx="1" class="orange"/>
+  <text x="362" y="228" text-anchor="middle" class="sm">¼ of E1 … E8</text>
+  <rect x="24" y="258" width="382" height="26" rx="3" class="purple"/>
+  <text x="215" y="276" text-anchor="middle" class="sm">all-reduce after attention and after the MoE block</text>
+  <text x="22" y="304" class="sm">Even load, but thin expert slices and a copied MLA cache.</text>
+  <rect x="440" y="16" width="410" height="300" rx="4" class="group"/>
+  <text x="452" y="38" class="b">Expert parallel, EP = 4, with DP attention</text>
+  <rect x="454" y="52" width="88" height="196" rx="4" class="white"/>
+  <text x="498" y="70" text-anchor="middle" class="sm b">GPU 0</text>
+  <rect x="460" y="80" width="76" height="36" rx="3" class="gray"/>
+  <text x="498" y="96" text-anchor="middle" class="sm">attention,</text>
+  <text x="498" y="110" text-anchor="middle" class="sm">own requests</text>
+  <rect x="460" y="122" width="76" height="26" rx="3" class="blue"/>
+  <text x="498" y="140" text-anchor="middle" class="sm">own KV</text>
+  <rect x="460" y="156" width="36" height="54" rx="3" class="orange"/>
+  <text x="478" y="188" text-anchor="middle" class="sm">E1</text>
+  <rect x="500" y="156" width="36" height="54" rx="3" class="orange"/>
+  <text x="518" y="188" text-anchor="middle" class="sm">E2</text>
+  <text x="498" y="228" text-anchor="middle" class="sm">2 whole experts</text>
+  <rect x="552" y="52" width="88" height="196" rx="4" class="white"/>
+  <text x="596" y="70" text-anchor="middle" class="sm b">GPU 1</text>
+  <rect x="558" y="80" width="76" height="36" rx="3" class="gray"/>
+  <text x="596" y="96" text-anchor="middle" class="sm">attention,</text>
+  <text x="596" y="110" text-anchor="middle" class="sm">own requests</text>
+  <rect x="558" y="122" width="76" height="26" rx="3" class="blue"/>
+  <text x="596" y="140" text-anchor="middle" class="sm">own KV</text>
+  <rect x="558" y="156" width="36" height="54" rx="3" class="orange"/>
+  <text x="576" y="188" text-anchor="middle" class="sm">E3</text>
+  <rect x="598" y="156" width="36" height="54" rx="3" class="orange"/>
+  <text x="616" y="188" text-anchor="middle" class="sm">E4</text>
+  <text x="596" y="228" text-anchor="middle" class="sm">2 whole experts</text>
+  <rect x="650" y="52" width="88" height="196" rx="4" class="white"/>
+  <text x="694" y="70" text-anchor="middle" class="sm b">GPU 2</text>
+  <rect x="656" y="80" width="76" height="36" rx="3" class="gray"/>
+  <text x="694" y="96" text-anchor="middle" class="sm">attention,</text>
+  <text x="694" y="110" text-anchor="middle" class="sm">own requests</text>
+  <rect x="656" y="122" width="76" height="26" rx="3" class="blue"/>
+  <text x="694" y="140" text-anchor="middle" class="sm">own KV</text>
+  <rect x="656" y="156" width="36" height="54" rx="3" class="orange"/>
+  <text x="674" y="188" text-anchor="middle" class="sm">E5</text>
+  <rect x="696" y="156" width="36" height="54" rx="3" class="orange"/>
+  <text x="714" y="188" text-anchor="middle" class="sm">E6</text>
+  <text x="694" y="228" text-anchor="middle" class="sm">2 whole experts</text>
+  <rect x="748" y="52" width="88" height="196" rx="4" class="white"/>
+  <text x="792" y="70" text-anchor="middle" class="sm b">GPU 3</text>
+  <rect x="754" y="80" width="76" height="36" rx="3" class="gray"/>
+  <text x="792" y="96" text-anchor="middle" class="sm">attention,</text>
+  <text x="792" y="110" text-anchor="middle" class="sm">own requests</text>
+  <rect x="754" y="122" width="76" height="26" rx="3" class="blue"/>
+  <text x="792" y="140" text-anchor="middle" class="sm">own KV</text>
+  <rect x="754" y="156" width="36" height="54" rx="3" class="orange"/>
+  <text x="772" y="188" text-anchor="middle" class="sm">E7</text>
+  <rect x="794" y="156" width="36" height="54" rx="3" class="orange"/>
+  <text x="812" y="188" text-anchor="middle" class="sm">E8</text>
+  <text x="792" y="228" text-anchor="middle" class="sm">2 whole experts</text>
+  <rect x="454" y="258" width="382" height="26" rx="3" class="purple"/>
+  <text x="645" y="276" text-anchor="middle" class="sm">all-to-all: dispatch tokens, combine results</text>
+  <text x="452" y="304" class="sm">Whole experts and no copied cache, but uneven load.</text>
+  <rect x="10" y="330" width="14" height="12" rx="1" class="gray"/>
+  <text x="30" y="341" class="sm">attention weights</text>
+  <rect x="170" y="330" width="14" height="12" rx="1" class="blue"/>
+  <text x="190" y="341" class="sm">KV cache</text>
+  <rect x="290" y="330" width="14" height="12" rx="1" class="orange"/>
+  <text x="310" y="341" class="sm">expert weights (8 experts in this toy layer)</text>
+  <rect x="620" y="330" width="14" height="12" rx="1" class="purple"/>
+  <text x="640" y="341" class="sm">communication</text>
+</svg>

@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="470" viewBox="0 0 840 470" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .gridl{stroke:#e3e3e3;stroke-width:1}
+    .lt{fill:none;stroke:#d79b00;stroke-width:2.2}
+    .lp{fill:none;stroke:#6c8ebf;stroke-width:2.2}
+    .mt{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.5}
+    .mp{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.5}
+    .slo{stroke:#b85450;stroke-width:1.6;stroke-dasharray:7 4}
+    .op{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.5}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="90" y="36" class="b">Throughput: output tokens per second, all requests</text>
+  <path d="M90,50H730M90,87.5H730M90,125H730M90,162.5H730M218,50V200M218,240V390M346,50V200M346,240V390M474,50V200M474,240V390M602,50V200M602,240V390" class="gridl"/>
+  <path d="M90,46 L90,200 L730,200" class="axis"/>
+  <text x="82" y="204" text-anchor="end" class="sm">0</text>
+  <text x="82" y="166.5" text-anchor="end" class="sm">1,500</text>
+  <text x="82" y="129" text-anchor="end" class="sm">3,000</text>
+  <text x="82" y="91.5" text-anchor="end" class="sm">4,500</text>
+  <text x="82" y="54" text-anchor="end" class="sm">6,000</text>
+  <polyline points="94.0,196.7 122.0,176.4 154.0,158.1 218.0,131.7 346.0,100.3 474.0,82.2 602.0,70.5 730.0,62.3" class="lt"/>
+  <circle cx="94.0" cy="196.7" r="3.5" class="mt"/><circle cx="122.0" cy="176.4" r="3.5" class="mt"/><circle cx="154.0" cy="158.1" r="3.5" class="mt"/><circle cx="218.0" cy="131.7" r="3.5" class="mt"/><circle cx="346.0" cy="100.3" r="3.5" class="mt"/><circle cx="474.0" cy="82.2" r="3.5" class="mt"/><circle cx="602.0" cy="70.5" r="3.5" class="mt"/><circle cx="730.0" cy="62.3" r="3.5" class="mt"/>
+  <line x1="99" y1="195" x2="134" y2="189" stroke="#000" stroke-width="0.8"/><text x="137" y="193" class="sm">MFU 0.2%</text>
+  <text x="352" y="112" class="sm">MFU 6.5%</text>
+  <text x="742" y="66" class="sm">MFU 9.0%</text>
+
+  <text x="90" y="226" class="b">Time per output token (ms), pure decode</text>
+  <path d="M90,240H730M90,277.5H730M90,315H730M90,352.5H730" class="gridl"/>
+  <path d="M90,236 L90,390 L730,390" class="axis"/>
+  <text x="82" y="394" text-anchor="end" class="sm">0</text>
+  <text x="82" y="356.5" text-anchor="end" class="sm">9</text>
+  <text x="82" y="319" text-anchor="end" class="sm">18</text>
+  <text x="82" y="281.5" text-anchor="end" class="sm">27</text>
+  <text x="82" y="244" text-anchor="end" class="sm">36</text>
+  <line x1="90" y1="285.8" x2="730" y2="285.8" class="slo"/>
+  <text x="736" y="289.8" class="sm">target 25 ms</text>
+  <polyline points="94.0,358.7 122.0,354.8 154.0,350.2 218.0,341.2 346.0,323.2 474.0,305.1 602.0,287.0 730.0,269.0" class="lp"/>
+  <circle cx="94.0" cy="358.7" r="3.5" class="mp"/><circle cx="122.0" cy="354.8" r="3.5" class="mp"/><circle cx="154.0" cy="350.2" r="3.5" class="mp"/><circle cx="218.0" cy="341.2" r="3.5" class="mp"/><circle cx="346.0" cy="323.2" r="3.5" class="mp"/><circle cx="474.0" cy="305.1" r="3.5" class="mp"/><circle cx="602.0" cy="287.0" r="3.5" class="mp"/><circle cx="730.0" cy="269.0" r="3.5" class="mp"/>
+  <path d="M301.4,325.4 L301.4,308.9" class="edge"/>
+  <circle cx="301.4" cy="301.9" r="5.5" class="op"/>
+  <text x="286" y="306" text-anchor="end" class="sm">at 5 req/s, ≈ 53 decoding;</text>
+  <text x="286" y="321" text-anchor="end" class="sm">prompt chunks → ≈ 21 ms</text>
+
+  <path d="M90,390V396M218,390V396M346,390V396M474,390V396M602,390V396M730,390V396" stroke="#000"/>
+  <text x="90" y="411" text-anchor="middle" class="sm">0</text>
+  <text x="218" y="411" text-anchor="middle" class="sm">32</text>
+  <text x="346" y="411" text-anchor="middle" class="sm">64</text>
+  <text x="474" y="411" text-anchor="middle" class="sm">96</text>
+  <text x="602" y="411" text-anchor="middle" class="sm">128</text>
+  <text x="730" y="411" text-anchor="middle" class="sm">160</text>
+  <text x="410" y="432" text-anchor="middle">concurrent decoding requests (batch size)</text>
+  <text x="90" y="456" class="sm">Illustrative model: step time = (16.06 GB of weights + KV read) ÷ (65% of 3.35 TB/s), Llama 3.1 8B on one H100, 2,250 tokens per request.</text>
+</svg>

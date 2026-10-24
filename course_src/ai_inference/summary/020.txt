@@ -1,0 +1,6 @@
+center: Cost per Million Tokens
+branch: Basic formula | GPU $/hour ÷ tokens/s | $0.33 per 1M output | $0.17 per 1,000 requests
+branch: Input vs output | $0.026 per 1M input | $0.23 per 1M output | output ≈ 9× input
+branch: Utilization factor | cost ÷ utilization | static 42% | autoscaled 71%
+branch: Self-host vs API | break-even ≈ 24% utilization | ≈ 21M requests/month | our 43.8M qualifies
+branch: Levers | price, throughput, utilization | bigger batches | prefix caching

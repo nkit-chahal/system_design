@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="400" viewBox="0 0 840 400" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+    <pattern id="redhatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a8a6" stroke-width="3"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dedge{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .grid{stroke:#e3e3e3;stroke-width:1}
+    .guide{stroke:#666;stroke-width:1;stroke-dasharray:5 4;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <line x1="90" y1="250.0" x2="720" y2="250.0" class="grid"/>
+  <line x1="90" y1="180.0" x2="720" y2="180.0" class="grid"/>
+  <line x1="90" y1="110.0" x2="720" y2="110.0" class="grid"/>
+  <line x1="90" y1="40.0" x2="720" y2="40.0" class="grid"/>
+  <path d="M90,34 L90,320 L726,320" class="axis"/>
+  <line x1="90.0" y1="320" x2="90.0" y2="325" class="tick"/>
+  <text x="90.0" y="339" text-anchor="middle" class="sm">0%</text>
+  <line x1="247.5" y1="320" x2="247.5" y2="325" class="tick"/>
+  <text x="247.5" y="339" text-anchor="middle" class="sm">25%</text>
+  <line x1="405.0" y1="320" x2="405.0" y2="325" class="tick"/>
+  <text x="405.0" y="339" text-anchor="middle" class="sm">50%</text>
+  <line x1="562.5" y1="320" x2="562.5" y2="325" class="tick"/>
+  <text x="562.5" y="339" text-anchor="middle" class="sm">75%</text>
+  <line x1="720.0" y1="320" x2="720.0" y2="325" class="tick"/>
+  <text x="720.0" y="339" text-anchor="middle" class="sm">100%</text>
+  <line x1="85" y1="320.0" x2="90" y2="320.0" class="tick"/>
+  <text x="81" y="324.0" text-anchor="end" class="sm">0</text>
+  <line x1="85" y1="250.0" x2="90" y2="250.0" class="tick"/>
+  <text x="81" y="254.0" text-anchor="end" class="sm">500</text>
+  <line x1="85" y1="180.0" x2="90" y2="180.0" class="tick"/>
+  <text x="81" y="184.0" text-anchor="end" class="sm">1,000</text>
+  <line x1="85" y1="110.0" x2="90" y2="110.0" class="tick"/>
+  <text x="81" y="114.0" text-anchor="end" class="sm">1,500</text>
+  <line x1="85" y1="40.0" x2="90" y2="40.0" class="tick"/>
+  <text x="81" y="44.0" text-anchor="end" class="sm">2,000</text>
+  <path d="M720,34 L720,320" class="axis"/>
+  <line x1="720" y1="320.0" x2="725" y2="320.0" class="tick"/>
+  <text x="729" y="324.0" class="sm">0 ms</text>
+  <line x1="720" y1="233.8" x2="725" y2="233.8" class="tick"/>
+  <text x="729" y="237.8" class="sm">20 ms</text>
+  <line x1="720" y1="147.6" x2="725" y2="147.6" class="tick"/>
+  <text x="729" y="151.6" class="sm">40 ms</text>
+  <line x1="720" y1="61.4" x2="725" y2="61.4" class="tick"/>
+  <text x="729" y="65.4" class="sm">60 ms</text>
+  <polyline points="90.0,40.0 720.0,248.3" fill="none" stroke="#d79b00" stroke-width="2.8"/>
+  <line x1="90" y1="248.3" x2="720" y2="248.3" class="guide"/>
+  <text x="102.6" y="264.3" class="sm">floor: the 512 tokens after the shared prefix (≈ 16.6 ms)</text>
+  <circle cx="90.0" cy="40.0" r="5" fill="#fff" stroke="#000" stroke-width="1.4"/>
+  <text x="98.0" y="30.0" class="sm" text-anchor="start">2,000 tokens, ≈ 65 ms</text>
+  <circle cx="657.0" cy="227.5" r="5" fill="#fff" stroke="#000" stroke-width="1.4"/>
+  <text x="657.0" y="227.5" class="sm" text-anchor="end"></text>
+  <line x1="657.0" y1="232.5" x2="606.6" y2="273.8" stroke="#000" stroke-width="1"/>
+  <text x="606.6" y="287.8" text-anchor="middle" class="sm">h = 90%: 661 tokens, ≈ 21.5 ms</text>
+  <rect x="354.6" y="42.8" width="365.4" height="66" rx="6" class="white"/>
+  <text x="366.6" y="62.8" class="sm b">Fleet prefill at 1,000 requests/min:</text>
+  <text x="366.6" y="81.8" class="sm">h = 0: 535 TFLOP/s ≈ 1.08 H100s</text>
+  <text x="366.6" y="100.8" class="sm">h = 90%: 177 TFLOP/s ≈ 0.36 H100s</text>
+  <text x="405.0" y="360" text-anchor="middle" class="sm">h: share of requests that find the 1,488-token prefix cached</text>
+  <text x="24" y="180.0" text-anchor="middle" class="sm" transform="rotate(-90 24 180.0)">prompt tokens computed per request</text>
+  <text x="808" y="180.0" text-anchor="middle" class="sm" transform="rotate(90 808 180.0)">prefill time on one H100</text>
+  <text x="90" y="388" class="sm">Prefill compute = 2 × 8.03B parameters × tokens; times assume 50% of 989 dense BF16 TFLOPS and ignore attention's own FLOPs.</text>
+</svg>

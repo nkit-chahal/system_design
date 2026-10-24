@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="846" height="298" viewBox="0 0 846 298" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{stroke:#000;stroke-width:1.2;fill:none}
+    .grid{stroke:#ddd;stroke-width:1;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="10" y="10" width="198" height="250" rx="4" class="group"/>
+  <text x="109" y="36" text-anchor="middle" class="b">Separate draft model</text>
+  <rect x="29" y="54" width="160" height="52" rx="6" class="orange"/>
+  <text x="109" y="76" text-anchor="middle">small model,</text>
+  <text x="109" y="94" text-anchor="middle">same tokenizer</text>
+  <path d="M109,106 L109,140" class="edge"/>
+  <rect x="29" y="142" width="160" height="52" rx="6" class="gray"/>
+  <text x="109" y="164" text-anchor="middle">k draft steps,</text>
+  <text x="109" y="182" text-anchor="middle">then verify</text>
+  <text x="109" y="226" text-anchor="middle" class="sm">c ≈ 0.1–0.2, own KV cache</text>
+  <rect x="218" y="10" width="198" height="250" rx="4" class="group"/>
+  <text x="317" y="36" text-anchor="middle" class="b">N-gram lookup</text>
+  <rect x="237" y="54" width="160" height="52" rx="6" class="blue"/>
+  <text x="317" y="76" text-anchor="middle">match last tokens</text>
+  <text x="317" y="94" text-anchor="middle">in the prompt</text>
+  <path d="M317,106 L317,140" class="edge"/>
+  <rect x="237" y="142" width="160" height="52" rx="6" class="gray"/>
+  <text x="317" y="164" text-anchor="middle">copy what followed;</text>
+  <text x="317" y="182" text-anchor="middle">verify the copy</text>
+  <text x="317" y="226" text-anchor="middle" class="sm">c ≈ 0, no model</text>
+  <rect x="426" y="10" width="198" height="250" rx="4" class="group"/>
+  <text x="525" y="36" text-anchor="middle" class="b">Medusa heads</text>
+  <rect x="445" y="54" width="160" height="52" rx="6" class="gray"/>
+  <text x="525" y="76" text-anchor="middle">target's last</text>
+  <text x="525" y="94" text-anchor="middle">hidden state</text>
+  <path d="M525,106 L525,140" class="edge"/>
+  <rect x="445" y="142" width="160" height="52" rx="6" class="orange"/>
+  <text x="525" y="164" text-anchor="middle">heads predict</text>
+  <text x="525" y="182" text-anchor="middle">+1, +2, +3 ahead</text>
+  <text x="525" y="226" text-anchor="middle" class="sm">tree of candidates per pass</text>
+  <rect x="634" y="10" width="198" height="250" rx="4" class="group"/>
+  <text x="733" y="36" text-anchor="middle" class="b">EAGLE-3 / MTP</text>
+  <rect x="653" y="54" width="160" height="52" rx="6" class="gray"/>
+  <text x="733" y="76" text-anchor="middle">target's hidden</text>
+  <text x="733" y="94" text-anchor="middle">features</text>
+  <path d="M733,106 L733,140" class="edge"/>
+  <rect x="653" y="142" width="160" height="52" rx="6" class="orange"/>
+  <text x="733" y="164" text-anchor="middle">one-layer head</text>
+  <text x="733" y="182" text-anchor="middle">drafts k tokens</text>
+  <path d="M813,178 L824,178 L824,156 L815,156" class="edge"/>
+  <text x="733" y="226" text-anchor="middle" class="sm">c ≈ 0.05 (EAGLE-3 for 8B)</text>
+  <text x="10" y="284" class="sm">Every method ends the same way: the target verifies the drafts in one forward pass with the same acceptance rule.</text>
+</svg>

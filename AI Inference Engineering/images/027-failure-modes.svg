@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="440" viewBox="0 0 860 440" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.it{font-style:italic}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .line{fill:none;stroke:#000;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e6e6e6;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:6 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="20" y="30" class="b">Thundering herd on a new replica</text>
+  <text x="20" y="198" class="sm">Fix: load-aware routing, cap max-num-seqs, warm up first.</text>
+  <rect x="30" y="60" width="100" height="90" rx="6" class="purple"/>
+  <text x="80" y="101" text-anchor="middle">queued</text>
+  <text x="80" y="119" text-anchor="middle">requests</text>
+  <rect x="280" y="80" width="120" height="50" rx="6" class="red"/>
+  <text x="340" y="101" text-anchor="middle">new replica</text>
+  <text x="340" y="119" text-anchor="middle" class="sm">cold cache</text>
+  <path d="M130,75 L278,105" class="edge"/>
+  <path d="M130,90 L278,105" class="edge"/>
+  <path d="M130,105 L278,105" class="edge"/>
+  <path d="M130,120 L278,105" class="edge"/>
+  <path d="M130,135 L278,105" class="edge"/>
+  <text x="205" y="165" text-anchor="middle" class="sm">all prefills land at once: its TTFT spikes</text>
+  <text x="440" y="30" class="b">Retry storm</text>
+  <text x="440" y="198" class="sm">Fix: honor Retry-After, jittered backoff, retry budgets.</text>
+  <rect x="450" y="54" width="60" height="22" class="red"/>
+  <text x="518" y="70" class="sm">first try</text>
+  <rect x="450" y="82" width="120" height="22" class="red"/>
+  <text x="578" y="98" class="sm">+ retries</text>
+  <rect x="450" y="110" width="240" height="22" class="red"/>
+  <text x="698" y="126" class="sm">+ retries of retries</text>
+  <text x="450" y="158" class="sm">every 429 that is retried at once adds load</text>
+  <text x="450" y="173" class="sm">to the moment that is already overloaded</text>
+  <line x1="16" y1="222" x2="844" y2="222" stroke="#999" stroke-dasharray="5 4"/>
+  <line x1="430" y1="12" x2="430" y2="430" stroke="#999" stroke-dasharray="5 4"/>
+  <text x="20" y="248" class="b">KV cache thrash</text>
+  <text x="20" y="416" class="sm">Fix: keep max-num-seqs inside the cache; watch preemptions.</text>
+  <rect x="30" y="278" width="360" height="34" class="blue"/>
+  <rect x="30" y="278" width="360" height="34" fill="none" stroke="#b85450" stroke-width="2"/>
+  <text x="210" y="300" text-anchor="middle">KV cache 100% full</text>
+  <rect x="30" y="334" width="160" height="40" rx="6" class="red"/>
+  <text x="110" y="359" text-anchor="middle" class="sm">preempt a request</text>
+  <rect x="230" y="334" width="160" height="40" rx="6" class="red"/>
+  <text x="310" y="359" text-anchor="middle" class="sm">recompute its prefill</text>
+  <path d="M190,354 L228,354" class="edge"/>
+  <path d="M310,334 V314" class="edge"/>
+  <text x="30" y="396" class="sm">admitted requests pay twice; throughput falls</text>
+  <text x="440" y="248" class="b">Autoscaler flapping</text>
+  <text x="440" y="416" class="sm">Fix: scale-down stabilization window, rate-limited scale-down.</text>
+  <path d="M450,378 H830" class="axis"/>
+  <path d="M450,370 L474,326 L498,370 L522,326 L546,370 L570,326 L594,370 L618,326 L642,370 L666,326 L690,370 L714,326 L738,370 L762,326 L786,370 L810,326" fill="none" stroke="#b85450" stroke-width="2"/>
+  <path d="M450,370 L500,300 H740 L830,318" fill="none" stroke="#82b366" stroke-width="2.4"/>
+  <text x="510" y="292" class="sm">green: with a stabilization window</text>
+  <text x="670" y="292" class="sm"></text>
+  <text x="450" y="396" class="sm">replicas start, never warm up, and are removed again</text>
+</svg>

@@ -1,0 +1,7 @@
+center: Disaggregated Prefill and Decode
+branch: Interference | long prefill stalls decode | chunking only spreads it
+branch: Architecture | prefill pool and decode pool | router picks both | KV cache transfer
+branch: Transfer cost | tokens × KV bytes ÷ bandwidth | 250 MiB per chat prompt | 0.6 ms NVLink, 5 ms RDMA
+branch: Sizing pools | prefill sized for TTFT | decode sized for TPOT | chat at peak 3 to 4
+branch: Systems | DistServe and Splitwise | vLLM, SGLang, Dynamo, llm-d | NIXL and Mooncake
+branch: Decision | chat stays shared | document Q&A disaggregates

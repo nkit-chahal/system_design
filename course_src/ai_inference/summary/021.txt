@@ -1,0 +1,7 @@
+center: GPUs Under a 2s SLA
+branch: Pin down the SLA | p95 end-to-end ≤ 2 s | 10 ms per token | output length decides
+branch: Traffic | 16.7 req/s | Little's law L = λW | 18 vs 210 in flight
+branch: One H100 | 6.85 ms TPOT floor | max 4.12 req/s | batch of four
+branch: GPU count | 80% planned load | N+1 spare | 7 H100s
+branch: Llama 3.1 70B | TP=8 replicas | 40 GPUs | end-to-end SLA infeasible
+branch: Load test | vllm bench serve | --request-rate 2.78 | recalibrate the model

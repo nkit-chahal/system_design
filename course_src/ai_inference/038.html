@@ -1,0 +1,260 @@
+<h2>Introduction</h2>
+<p>A chat answer is read by a person, who forgives a stray sentence or a missing comma. Much LLM output is read by a program instead: a ticket router that expects a JSON object, an extraction job that loads fields into a database, an agent that must name a function and its arguments. To a parser, "almost JSON" is an error. Prompting a model to "reply only with JSON" works most of the time, and most of the time is not good enough for a pipeline that handles millions of requests.</p>
+<p><strong>Structured output</strong> moves the guarantee from the prompt into the serving engine. At every decode step, the engine knows which tokens could still lead to a valid output and forbids all others. The model can still choose badly among the allowed tokens, but it can no longer break the format. Figure 1 shows the difference for a ticket-classification request.</p>
+<fig src="038-free-vs-constrained.svg" caption="Unconstrained and constrained generation of the same ticket classification">On the left, unconstrained generation produces a friendly sentence, then JSON with an invented category "payments", a priority written as the word "high", and a trailing comma; the parser fails. On the right, the same request with a JSON schema passes through a grammar mask at every step and produces a valid object with category "billing", priority 2, and a summary; the parser succeeds.</fig>
+<p><strong>Tool calling</strong> builds on the same machinery. The model emits a structured request to run a function, the application runs it, and the result goes back to the model for another turn. Each turn is a new request with its own prefill and decode, so tool use changes the latency of a conversation as much as its capabilities.</p>
+<p>In this lesson, we look at how constrained decoding masks tokens, why tokenizers make it harder than it looks, how engines keep the per-token cost near zero, what strict constraints do to quality, and how tool calls flow through an OpenAI-compatible server, with the latency each round trip adds.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Structured output questions usually start from a pipeline that breaks. Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: What must the output look like, and who reads it?<br>
+<strong>Interviewer</strong>: Every support ticket gets a JSON object with a category from six fixed values, a priority from 1 to 4, and a one-line summary. A downstream service parses it; a parse failure drops the ticket into a manual queue.</p>
+<p><strong>Candidate</strong>: How often does that happen today?<br>
+<strong>Interviewer</strong>: About 2% of replies fail to parse: extra prose around the JSON, trailing commas, or categories the model made up.</p>
+<p><strong>Candidate</strong>: Does the assistant also call tools?<br>
+<strong>Interviewer</strong>: Yes, the chat assistant can look up an order and issue a refund through two functions.</p>
+<p><strong>Candidate</strong>: Which model, engine, and targets?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct on vLLM, H100s, and the usual targets: p95 TTFT under 500 ms and p95 TPOT under 25 ms.</p>
+<p>The question underneath is: <em>how do we guarantee that every reply parses, without slowing decode or hurting answer quality, and what does each tool call cost the user in latency?</em></p>
+
+<h2>Constrained Decoding</h2>
+<h3>Masking logits one token at a time</h3>
+<p>At each decode step, the model produces a logit for every token in its vocabulary, 128,256 tokens for Llama 3.1. <strong>Constrained decoding</strong> adds one step before sampling: it builds a <strong>token mask</strong> that marks which tokens keep the output a valid prefix of the target format, sets the logits of all other tokens to minus infinity, and samples from what remains [1]. After sampling, the constraint advances its state by the chosen token. Figure 2 works one step.</p>
+<fig src="038-token-masking.svg" caption="One step of constrained decoding for the priority field (illustrative logits)">The output so far is {"category": "billing", "priority": followed by a space. The schema says priority is one of the integers 1 to 4. Six candidate tokens have logits: a quote character 2.1, the digit 3 at 1.8, the word high at 1.5, the digit 2 at 1.2, the digit 5 at 0.9, and null at 0.4. The mask keeps only 3 and 2 and sets the others to minus infinity. Softmax over the two survivors gives 3 a probability of about 0.65 and 2 about 0.35, and the sampler picks 3. The grammar state then moves to expect a comma or closing brace.</fig>
+<p>Two details matter. The mask only removes options; among the allowed tokens the model's own preferences still decide, which is why the prompt should still describe the format. And the mask is a bitmask of one bit per vocabulary entry, 128,256 bits or about 16 KB per sequence per step, which the engine copies to the GPU and applies to the logits in one cheap kernel.</p>
+
+<h3>Automata: finite-state machines and pushdown automata</h3>
+<p>The constraint's state comes from an automaton compiled from the format. A regular expression, an enum, or a JSON schema without recursion compiles to a <strong>finite-state machine</strong> (FSM): each state lists the characters that may come next. Outlines made this practical by precomputing, for every FSM state, which vocabulary tokens lead to a valid next state, so that each decode step becomes a table lookup [1]. Figure 3 shows an FSM for our category field next to a case that needs more.</p>
+<fig src="038-fsm-vs-pda.svg" caption="A finite-state machine handles flat formats; nested formats need a pushdown automaton">On the left, an FSM for the category field: from the start state an opening quote leads to a state with six branches, one per allowed category such as billing, shipping, or refund, each leading to a closing quote and an accepting state. On the right, a JSON value that nests objects inside arrays inside objects; a pushdown automaton keeps a stack of open brackets, here an object, an array, and an object, and may only close the innermost one. A note says a finite-state machine cannot count arbitrary nesting depth.</fig>
+<p>Recursive formats, such as JSON with nested arrays of objects, arbitrary JSON, or the grammar of a programming language, are <strong>context-free grammars</strong>. They need a <strong>pushdown automaton</strong> (PDA), an automaton with a stack that remembers which brackets are open. The stack is what makes CFG masks expensive: whether a token is legal can depend on the whole stack, not just the current state, so it cannot always be looked up in a table built ahead of time.</p>
+
+<h3>The tokenizer alignment problem</h3>
+<p>Grammars are written in characters, but models emit tokens, and the two do not line up. A single token can span a grammar boundary, as Figure 4 shows. Llama 3.1's tokenizer splits <code>{"category": "billing"</code> into six tokens, <code>{"</code>, <code>category</code>, <code>":</code>, <code> "</code>, <code>billing</code>, and <code>"</code>, and three of them cover pieces of two grammar elements. Longer objects add tokens such as <code>",</code> and <code>"}</code>. The mask must therefore ask, for each token, whether its whole character string keeps the output valid from the current state, which is much harder than checking one character.</p>
+<fig src="038-token-alignment.svg" caption="Grammar elements versus Llama 3.1 tokens for the same text">The string {"category": "billing" is shown twice. The top row splits it into grammar elements: open brace, quote, the key category, quote, colon, space, quote, the value billing, quote. The bottom row shows Llama 3.1's actual tokens: {", category, ":, space-quote, billing, quote. Three tokens span two grammar elements: {" covers the brace and the opening quote, ": covers the closing quote and the colon, and space-quote covers the whitespace and the opening quote. A note warns that forcing the grammar's boundaries, for example emitting the quote and the colon as separate tokens, produces token sequences the model rarely saw in training.</fig>
+<p>Getting this wrong has two costs. If the mask is too strict and allows only tokens that end exactly on grammar boundaries, the model is pushed into unusual tokenizations it rarely saw in training, and accuracy drops. The DOMINO paper measured this effect and showed that a subword-aligned constraint avoids it [4]. If the mask is too loose, invalid output gets through. Modern libraries handle alignment by matching each token's full byte string against the automaton, usually with a prefix tree over the vocabulary so that tokens sharing a prefix are checked together.</p>
+
+<h2>Making It Fast</h2>
+<h3>Three libraries</h3>
+<p>Three open-source libraries do most of the work today, as Table 1 shows.</p>
+<table>
+<thead><tr><th></th><th>Outlines [1][15]</th><th>XGrammar [2]</th><th>LLGuidance [3]</th></tr></thead>
+<tbody>
+<tr><td>Core idea</td><td>Compile regex or JSON schema to an FSM; index tokens per state</td><td>PDA with tokens split into context-independent (prechecked at compile time) and context-dependent (checked at runtime with a persistent stack)</td><td>Fast CFG engine; about 50 µs of CPU per token for a 128K vocabulary, with negligible startup cost</td></tr>
+<tr><td>Formats</td><td>JSON schema, regex</td><td>JSON schema, regex, EBNF</td><td>JSON schema, regex, Lark-like grammars</td></tr>
+<tr><td>Default in</td><td>An option in vLLM and SGLang</td><td>SGLang's default; vLLM's first choice in <code>auto</code> mode</td><td>vLLM's fallback in <code>auto</code> mode; OpenAI's JSON Schema support</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Constrained decoding libraries (late 2026)</p>
+<p>In vLLM, <code>--structured-outputs-config.backend</code> defaults to <code>auto</code>, which the documentation describes as an opinionated choice based on the request that may change between releases [5]. In the current source, <code>auto</code> tries XGrammar first and falls back to LLGuidance, or in a few cases Outlines, when XGrammar rejects the schema [6]. SGLang uses XGrammar unless <code>--grammar-backend</code> names Outlines or LLGuidance [7]. TensorRT-LLM supports XGrammar and LLGuidance through its <code>guided_decoding_backend</code> setting, which is off by default (Lesson 11, TensorRT-LLM) [8]. The LLGuidance repository reports that it powers OpenAI's Structured Outputs for JSON Schema [3].</p>
+
+<h3>Hiding the per-token cost</h3>
+<p>Masks cost CPU time, and CPU time spent between decode steps adds directly to TPOT. Take LLGuidance's figure of about 50 µs per sequence per token. A replica decoding 53 streams, one GPU's share of our traffic at the latency targets (Lesson 19, GPU Utilization), needs about 53 × 50 µs ≈ 2.7 ms of mask work per step. If that work ran on one core after the forward pass, it would stretch a 21 ms step by 13%. Engines avoid paying it with four techniques, shown in Figure 5:</p>
+<fig src="038-overlap-timeline.svg" caption="Overlapping mask computation with the GPU's forward pass (illustrative)">Two timelines of three decode steps. In the serialized timeline, each 21 ms forward pass is followed by 2.7 ms of mask computation on the CPU before sampling, so each step takes about 23.7 ms. In the overlapped timeline, the CPU fills the masks for the next step on several threads while the GPU runs the forward pass, and the mask is ready when the logits are, so each step stays at about 21 ms. A separate note shows a first request with a new schema paying a one-time compile before prefill, while later requests with the same schema hit the compiled-grammar cache.</fig>
+<ul>
+<li><strong>Precompile.</strong> XGrammar checks the context-independent tokens of every grammar state once, at compile time, and stores the results; at runtime only the small set of context-dependent tokens needs the stack [2].</li>
+<li><strong>Cache compiled grammars.</strong> Most applications send the same few schemas again and again. vLLM keeps compiled XGrammar grammars in a cache sized by <code>VLLM_XGRAMMAR_CACHE_MB</code> and compiles new ones asynchronously in a thread pool, so a request with a new schema waits for its compile without blocking the rest of the batch [6].</li>
+<li><strong>Parallelize.</strong> vLLM fills the bitmasks for large batches on a pool of threads rather than one [6].</li>
+<li><strong>Overlap with the GPU.</strong> A sequence's mask for the next step depends only on the tokens it has already produced, so the CPU can compute it while the GPU runs the forward pass. XGrammar was designed with this overlap in mind and reports near-zero end-to-end overhead for structured generation [2].</li>
+</ul>
+<p>The first request with a new schema still pays the compile in its TTFT, so measure first-use and cached latency separately. The vLLM team's introduction to structured decoding explains the V1 design goal of computing masks once, at the scheduler level, instead of in every GPU worker, so that one request's grammar does not block the rest of the batch [9].</p>
+
+<h4>Jump-forward decoding</h4>
+<p>Constraints sometimes leave exactly one option: after <code>{"category": </code> in a schema with fixed key order, the next key's name is fully determined. SGLang's <strong>jump-forward decoding</strong> exploits this: it compresses chains of forced transitions in the automaton and appends the whole forced string in one prefill step instead of decoding it token by token, re-tokenizing the text to avoid unnatural token boundaries [10][11]. LMSYS reported up to 2× lower latency and 2.5× higher throughput on JSON workloads when it was introduced in 2024 [10]. XGrammar exposes the same capability as <code>find_jump_forward_string</code>, and SGLang's grammar backends still implement a jump-forward interface, but neither SGLang's nor vLLM's current documentation presents it as a feature you can switch on, so do not count on it when sizing; speculative decoding gives a similar benefit for forced tokens, because they are easy to predict (Lesson 15, Speculative Decoding).</p>
+
+<h3>Quality: strict formats and good prompts</h3>
+<p>A constraint guarantees syntax, not sense. A study titled "Let Me Speak Freely?" found that format restrictions lowered LLM reasoning accuracy, more so for stricter formats [12]. A response from the Outlines team argued that the comparison used inconsistent prompts and that structured generation matches or beats free generation when both conditions get the same, well-designed prompt [13]. Both points lead to the same practice:</p>
+<ul>
+<li><strong>Describe the format in the prompt too.</strong> The mask stops the model from leaving the format, but a model that expects the format puts high probability on good tokens to begin with.</li>
+<li><strong>Put reasoning before answers.</strong> If a task needs thought, add a <code>reasoning</code> string field before the <code>category</code> field, so the model writes its explanation before committing to a label.</li>
+<li><strong>Prefer enums to free text</strong> for anything a program branches on, and avoid tight length limits that force the model to stop mid-sentence.</li>
+<li><strong>Know your library's coverage.</strong> Engines support different subsets of JSON Schema; JSONSchemaBench tested six frameworks on 10,000 real-world schemas and found that coverage and speed differ [16]. Test your actual schemas.</li>
+</ul>
+
+<h2>Tool Calling</h2>
+<h3>The round trip</h3>
+<p>The client sends the tool definitions, as JSON schemas, with the conversation. The chat template inserts them into the prompt, where they count as prompt tokens on every turn. The model may answer in text, or emit a <strong>tool call</strong>: a function name and JSON arguments in the model's own format. The server parses that output into the OpenAI <code>tool_calls</code> field and finishes the response with <code>finish_reason: "tool_calls"</code>. The client runs the function and sends the result back as a message with <code>role: "tool"</code> and the call's <code>tool_call_id</code>, and the model continues [17]. Figure 6 follows one order lookup.</p>
+<fig src="038-tool-round-trip.svg" caption="Latency of one tool round trip for a 2,000-token conversation">A timeline with three phases. Request 1: a 2,000-token prefill of about 65 ms, then about 30 tokens of tool call decoded in about 0.75 s at 25 ms per token. Then the client runs lookup_order for an assumed 300 ms. Request 2: a prefill of 2,530 tokens, about 82 ms without prefix caching or about 17 ms for the 530 new tokens with it, followed by the streamed answer. The user's first visible token arrives after about 1.2 s, against a 500 ms TTFT target. A note says the same round trip at 32K tokens of context would re-prefill about 1.06 s without prefix caching.</fig>
+<p>Put numbers on it with Lesson 1's prefill estimate of about 32 µs per token for Llama 3.1 8B on an H100 (2 × 8.03 billion FLOPs per token at 50% of 989 TFLOPS):</p>
+<ul>
+<li><strong>Turn 1</strong>: prefill 2,000 tokens, about 65 ms, then decode a 30-token tool call at the 25 ms TPOT target, about 0.75 s.</li>
+<li><strong>Tool</strong>: the client runs <code>lookup_order</code>; assume 300 ms.</li>
+<li><strong>Turn 2</strong>: prefill the whole conversation again, now 2,530 tokens with the call and a 500-token result, about 82 ms. With prefix caching, only the 530 new tokens are computed, about 17 ms (Lesson 24, Prefix Caching).</li>
+</ul>
+<p>The first word the user sees arrives after about 65 + 750 + 300 + 82 ≈ 1.2 s, well past the 500 ms TTFT target, even though every individual request met it. At this context length, prefix caching saves only about 65 ms; the tool-call decode and the tool itself dominate. In a 32K-token conversation the re-prefill grows to about 1.06 s per round trip, and the cache, together with routing that returns the conversation to the replica holding it (Lesson 25, Request Routing), becomes essential. Each round trip also re-enters the queue, so under load the queueing delay of Lesson 4, Time to First Token, is paid once per turn.</p>
+<callout kind="tip" title="Interview tip">Measure agent latency per conversation, not per request: count the turns, and add each turn's queueing, prefill, tool-call decode, and tool time. An agent that makes three tool calls pays four TTFTs.</callout>
+
+<h3>Server side: parsers and strictness</h3>
+<p>vLLM turns tool calling on with <code>--enable-auto-tool-choice</code>, picks the parser for the model's tool-call format with <code>--tool-call-parser</code> (<code>llama3_json</code> for Llama 3.1, <code>hermes</code> for Hermes and Qwen models, among many), and usually needs a matching <code>--chat-template</code> that handles <code>tool</code>-role messages [14]. How reliable the call is depends on <code>tool_choice</code>:</p>
+<ul>
+<li><strong>A named function or <code>"required"</code></strong>: vLLM constrains the output with the structured outputs backend, so the call always parses, though the documentation is careful to say "validly-parsable", not high-quality [14].</li>
+<li><strong><code>"auto"</code></strong>: the model decides whether to call a tool, and by default vLLM extracts calls from the raw text, so arguments can occasionally be malformed. Setting <code>strict: true</code> on a tool, or raising the server-wide floor with <code>--tool-strict-level function</code> or <code>parameter</code>, makes vLLM constrain the call's structure in auto mode too [14].</li>
+<li><strong><code>"none"</code></strong>: no tool calls, text only.</li>
+</ul>
+<p>Model limits still apply: vLLM's documentation notes that Llama 3 models do not support parallel tool calls and that smaller Llama models often fail to emit tool calls correctly [14]. SGLang offers the same flow with <code>--tool-call-parser llama3</code> [7]. Whatever the engine, validate arguments before running a function; the OpenAI SDK's own documentation warns that a model may produce invalid JSON or hallucinate parameters [17].</p>
+
+<h4>Which approach fits our deployment?</h4>
+<p>For ticket classification, we use <code>response_format</code> with a JSON schema whose category is an enum of the six values and whose priority is one of the integers 1 to 4, and we leave vLLM's backend on <code>auto</code>. The 2% parse failures go to zero by construction, provided <code>max_tokens</code> leaves room for the whole object, since a reply cut off by the length limit is still invalid. The schema never changes, so after the first request it is always compiled and cached, and the mask work hides behind the forward pass; we confirm with the measurement script below that p95 TPOT stays under 25 ms at production concurrency. We keep the format description in the system prompt and check classification accuracy on a labeled set before and after, since the constraint fixes syntax, not judgment.</p>
+<p>For the assistant, we enable <code>--enable-auto-tool-choice --tool-call-parser llama3_json</code> and mark both tools <code>strict: true</code>, so auto-mode calls are constrained too. Because a lookup adds roughly 1.2 s before the user sees a word, the client streams a short status message while the tool runs, and we keep tool results compact, since every result token is prefilled on the next turn and stays in the context for the rest of the conversation. A refund is a side effect, so the client asks the user to confirm before executing it, no matter how well-formed the call is.</p>
+
+<h2>In Practice</h2>
+<p>The first tab starts vLLM with tool calling and the default structured outputs backend, plus the SGLang equivalent. The second sends a schema-constrained classification and then runs a full tool round trip with the OpenAI client. The third measures the latency cost of a schema: it compares TTFT and TPOT with and without <code>response_format</code> and reports the first, uncached request separately.</p>
+<codetabs>
+<tab label="Servers" lang="bash">
+# vLLM: structured outputs are always available; this enables tool calling.
+# The chat template ships in the vLLM repository's examples/ directory.
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --enable-auto-tool-choice \
+  --tool-call-parser llama3_json \
+  --chat-template examples/tool_chat_template_llama3.1_json.jinja \
+  --structured-outputs-config.backend auto
+
+# SGLang: XGrammar is the default grammar backend.
+python -m sglang.launch_server \
+  --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --tool-call-parser llama3 \
+  --grammar-backend xgrammar
+</tab>
+<tab label="Schema and tools" lang="python">
+import json
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="EMPTY")
+MODEL = "meta-llama/Llama-3.1-8B-Instruct"
+
+# 1) Structured output: the reply always parses and matches the schema.
+ticket_schema = {
+    "type": "object",
+    "properties": {
+        "category": {"type": "string", "enum": ["billing", "shipping", "account",
+                                                "technical", "refund", "other"]},
+        "priority": {"type": "integer", "enum": [1, 2, 3, 4]},
+        "summary": {"type": "string"},
+    },
+    "required": ["category", "priority", "summary"],
+    "additionalProperties": False,
+}
+reply = client.chat.completions.create(
+    model=MODEL,
+    messages=[
+        {"role": "system", "content": "Classify the ticket as JSON with a category, "
+                                      "a priority from 1 (urgent) to 4, and a one-line summary."},
+        {"role": "user", "content": "I was charged twice for order 8812. Please fix it today."},
+    ],
+    response_format={"type": "json_schema",
+                     "json_schema": {"name": "ticket", "schema": ticket_schema}},
+)
+print(json.loads(reply.choices[0].message.content))
+
+# 2) Tool calling: the model asks, the client executes, the result goes back.
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "lookup_order",
+        "description": "Get the status and charges of an order.",
+        "parameters": {"type": "object",
+                       "properties": {"order_id": {"type": "string"}},
+                       "required": ["order_id"],
+                       "additionalProperties": False},
+        "strict": True,
+    },
+}]
+
+def lookup_order(order_id: str) -> dict:
+    return {"order_id": order_id, "status": "delivered", "charges": [49.0, 49.0]}  # stub
+
+messages = [{"role": "user", "content": "Why was I charged twice for order 8812?"}]
+first = client.chat.completions.create(model=MODEL, messages=messages,
+                                       tools=tools, tool_choice="auto")
+msg = first.choices[0].message
+messages.append(msg.model_dump(exclude_none=True))
+for call in msg.tool_calls or []:
+    if call.function.name != "lookup_order":
+        raise ValueError(f"unexpected tool {call.function.name}")
+    args = json.loads(call.function.arguments)          # validate before executing
+    messages.append({"role": "tool", "tool_call_id": call.id,
+                     "content": json.dumps(lookup_order(**args))})
+
+final = client.chat.completions.create(model=MODEL, messages=messages, tools=tools)
+print(first.choices[0].finish_reason, "->", final.choices[0].message.content)
+</tab>
+<tab label="Measure the cost" lang="python">
+import statistics
+import time
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="EMPTY")
+MODEL = "meta-llama/Llama-3.1-8B-Instruct"
+PROMPT = [{"role": "user", "content": "Classify as JSON (category, priority, summary): "
+                                      "my parcel has been stuck in customs for nine days."}]
+SCHEMA = {"type": "json_schema", "json_schema": {"name": "ticket", "schema": {
+    "type": "object",
+    "properties": {"category": {"type": "string"}, "priority": {"type": "integer"},
+                   "summary": {"type": "string"}},
+    "required": ["category", "priority", "summary"]}}}
+
+def one_request(response_format=None):
+    extra = {"response_format": response_format} if response_format else {}
+    start, first, usage = time.perf_counter(), None, None
+    stream = client.chat.completions.create(model=MODEL, messages=PROMPT, max_tokens=200,
+                                            stream=True, stream_options={"include_usage": True},
+                                            **extra)
+    for chunk in stream:
+        if chunk.usage:
+            usage = chunk.usage
+        if chunk.choices and chunk.choices[0].delta.content and first is None:
+            first = time.perf_counter()
+    end = time.perf_counter()
+    tokens = usage.completion_tokens if usage else 1
+    return first - start, (end - first) / max(1, tokens - 1)
+
+for label, fmt in (("free text", None), ("json schema", SCHEMA)):
+    cold_ttft, _ = one_request(fmt)                     # first use pays any grammar compile
+    runs = [one_request(fmt) for _ in range(20)]
+    ttft = statistics.median(r[0] for r in runs) * 1000
+    tpot = statistics.median(r[1] for r in runs) * 1000
+    print(f"{label:12s} first TTFT {cold_ttft * 1000:6.1f} ms | "
+          f"median TTFT {ttft:6.1f} ms | median TPOT {tpot:5.2f} ms")
+# Run it again under production concurrency (for example with a load generator
+# in parallel): mask work that hides at batch size 1 can surface at batch size 50.
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Reasoning models: vLLM applies the constraint only after the reasoning section ends when a <code>--reasoning-parser</code> is set, so the model can think freely and answer in format [5].</li>
+<li>Structured output with speculative decoding: the grammar must check and roll back draft tokens, which vLLM's XGrammar backend supports [6].</li>
+<li>Structural tags, which constrain only the tool-call section of an otherwise free-text answer; vLLM uses them for strict tool calls in auto mode [14].</li>
+<li>Security: tool results are untrusted input that can contain instructions; never let a model's tool call trigger a side effect without authorization checks in the application.</li>
+<li>Token accounting: tool definitions and results add prompt tokens on every turn, and a <code>tool_calls</code> finish reason marks a request that will be followed by another (Lesson 31, Per-Request Token Accounting).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="038-summary.png" caption="Structured output and tool calling summary" optional="1">Mind map summarizing the lesson: constrained decoding with token masks, automata and tokenizer alignment, the libraries and how engines hide their cost, quality practices, and the tool-calling round trip and its latency.</fig>
+<ul>
+<li>Constrained decoding masks, at every step, the logits of tokens that would break the format; the model still chooses among the allowed tokens.</li>
+<li>Regexes, enums, and flat schemas compile to finite-state machines; nested formats need a pushdown automaton with a stack. Tokens span grammar boundaries, so each token's full string must be checked.</li>
+<li>XGrammar (SGLang's default and vLLM's first choice), LLGuidance (vLLM's fallback, about 50 µs per token), and Outlines do the work; precompiling, caching, threading, and overlap with the GPU keep the cost near zero.</li>
+<li>Unhidden, 53 streams at about 50 µs each would add about 2.7 ms, 13%, to a 21 ms step; a new schema also pays a one-time compile in TTFT.</li>
+<li>Constraints guarantee syntax, not quality: describe the format in the prompt, put reasoning fields first, and evaluate on labeled data.</li>
+<li>A tool call is a round trip: decode the call, run the tool, re-prefill the conversation. One lookup pushes the first visible token to about 1.2 s; prefix caching matters most for long contexts.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Willard and Louf. Efficient Guided Generation for Large Language Models. <a href="https://arxiv.org/abs/2307.09702" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2307.09702</a>.<br>
+[2] Dong et al. XGrammar: Flexible and Efficient Structured Generation Engine for Large Language Models. <a href="https://arxiv.org/abs/2411.15100" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2411.15100</a>.<br>
+[3] LLGuidance. <a href="https://github.com/guidance-ai/llguidance" rel="noopener noreferrer" target="_blank">https://github.com/guidance-ai/llguidance</a>.<br>
+[4] Beurer-Kellner et al. Guiding LLMs The Right Way: Fast, Non-Invasive Constrained Generation. <a href="https://arxiv.org/abs/2403.06988" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2403.06988</a>.<br>
+[5] vLLM documentation: Structured Outputs. <a href="https://docs.vllm.ai/en/latest/features/structured_outputs.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/structured_outputs.html</a>.<br>
+[6] vLLM source: structured output backend selection and XGrammar backend. <a href="https://github.com/vllm-project/vllm/tree/main/vllm/v1/structured_output" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm/tree/main/vllm/v1/structured_output</a>.<br>
+[7] SGLang documentation: Structured Outputs. <a href="https://docs.sglang.io/docs/advanced_features/structured_outputs" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/structured_outputs</a>.<br>
+[8] TensorRT-LLM source: LLM API arguments. <a href="https://github.com/NVIDIA/TensorRT-LLM/blob/main/tensorrt_llm/llmapi/llm_args.py" rel="noopener noreferrer" target="_blank">https://github.com/NVIDIA/TensorRT-LLM/blob/main/tensorrt_llm/llmapi/llm_args.py</a>.<br>
+[9] vLLM blog. Structured Decoding in vLLM: a gentle introduction. <a href="https://vllm.ai/blog/2025-01-14-struct-decode-intro" rel="noopener noreferrer" target="_blank">https://vllm.ai/blog/2025-01-14-struct-decode-intro</a>.<br>
+[10] LMSYS. Fast JSON Decoding for Local LLMs with Compressed Finite State Machine. <a href="https://lmsys.org/blog/2024-02-05-compressed-fsm/" rel="noopener noreferrer" target="_blank">https://lmsys.org/blog/2024-02-05-compressed-fsm/</a>.<br>
+[11] Zheng et al. SGLang: Efficient Execution of Structured Language Model Programs. <a href="https://arxiv.org/abs/2312.07104" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2312.07104</a>.<br>
+[12] Tam et al. Let Me Speak Freely? A Study on the Impact of Format Restrictions on Performance of Large Language Models. <a href="https://arxiv.org/abs/2408.02442" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2408.02442</a>.<br>
+[13] Kurt. Say What You Mean: A Response to 'Let Me Speak Freely'. <a href="https://blog.dottxt.ai/say-what-you-mean.html" rel="noopener noreferrer" target="_blank">https://blog.dottxt.ai/say-what-you-mean.html</a>.<br>
+[14] vLLM documentation: Tool Calling. <a href="https://docs.vllm.ai/en/latest/features/tool_calling.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/tool_calling.html</a>.<br>
+[15] Outlines. <a href="https://github.com/dottxt-ai/outlines" rel="noopener noreferrer" target="_blank">https://github.com/dottxt-ai/outlines</a>.<br>
+[16] Geng et al. JSONSchemaBench: A Rigorous Benchmark of Structured Outputs for Language Models. <a href="https://arxiv.org/abs/2501.10868" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2501.10868</a>.<br>
+[17] OpenAI Python library (Chat Completions types for tools, tool calls, and response formats). <a href="https://github.com/openai/openai-python" rel="noopener noreferrer" target="_blank">https://github.com/openai/openai-python</a>.</p>

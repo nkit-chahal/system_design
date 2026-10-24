@@ -1,0 +1,322 @@
+<h2>Introduction</h2>
+<p>"Which serving engine is faster?" is one of the most common questions in inference engineering, and one of the easiest to answer badly. Two engines serving the "same" model can differ in precision, cache size, prefix caching, sampling defaults, and the prompts the benchmark tool happens to generate. Any one of these can move the result by more than the engines themselves do. A fair benchmark is mostly a list of things held equal.</p>
+<p>In this lab we compare vLLM and SGLang, the engines of Lesson 9, vLLM, and Lesson 10, SGLang, serving Llama 3.1 8B Instruct to <strong>50 concurrent users</strong>, meaning 50 requests in flight at every moment. TensorRT-LLM (Lesson 11, TensorRT-LLM) is an optional third engine. We use each engine's own load generator, check that each can drive the other engine's server, and repeat every run so that we can tell a real difference from noise. Figure 1 shows the setup.</p>
+<fig src="012-setup.svg" caption="Lab setup: one load generator, one GPU, two engines served one at a time from the same model files">Two load generators, vllm bench serve as the primary and sglang.bench_serving as a cross-check, send 50 concurrent requests over localhost to either vLLM on port 8000 or SGLang on port 30000. Both engines read one local copy of the model, with the same weights, tokenizer and chat template, and only one of them runs on the H100 at a time. Results land as JSON files, and summarize.py turns them into a table of median and range over three runs per engine.</fig>
+<p>In this lab, we write a fairness checklist, launch each engine with matching settings, run a fixed workload three times per engine, cross-check with a second load generator, and turn the results into a table. Then we discuss how to read differences, when they are noise, and which workloads would favor which engine.</p>
+
+<h2>What You Need</h2>
+<p>The two engines pin different PyTorch versions (2.13.0 for vLLM 0.32.0 and 2.14.1 for SGLang 0.5.22 at the time of writing), so each needs its own virtual environment. Both target Linux with NVIDIA GPUs.</p>
+<table>
+<thead><tr><th></th><th>Small path</th><th>Full path</th></tr></thead>
+<tbody>
+<tr><td>GPU</td><td>NVIDIA GPU with 12 GB or more</td><td>One H100 80 GB cloud instance</td></tr>
+<tr><td>Operating system</td><td>Linux; vLLM also runs in WSL2, but SGLang's documentation does not cover WSL2</td><td>Ubuntu 22.04 or 24.04 with NVIDIA drivers</td></tr>
+<tr><td>Engines</td><td>vLLM 0.32 (venv A), SGLang 0.5.22 (venv B), optional TensorRT-LLM</td><td>Same</td></tr>
+<tr><td>Model</td><td><code>Qwen/Qwen2.5-1.5B-Instruct</code>, BF16</td><td><code>meta-llama/Llama-3.1-8B-Instruct</code>, BF16 (gated: accept the license first)</td></tr>
+<tr><td>Disk</td><td>About 4 GB</td><td>About 17 GB for the weights</td></tr>
+<tr><td>Time</td><td>Two hours</td><td>Two to three hours</td></tr>
+<tr><td>Cost</td><td>Nothing beyond your machine</td><td>About $9, assuming $3.00 per H100-hour for three hours</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Hardware and software for the two paths. The H100 price is an assumption.</p>
+<p>On the small path, 50 users with 2,500 tokens each need 50 × 2,500 × 28 KiB ≈ 3.3 GiB of KV cache for Qwen2.5-1.5B, on top of 3.1 GB of weights. A 12 GB card holds that comfortably; on an 8 GB card, halve the prompt length so neither engine has to preempt requests.</p>
+
+<h2>Step 1: Write the Fairness Checklist</h2>
+<p>Write the checklist before launching anything, and keep it next to the results; a benchmark without its settings cannot be reproduced or trusted. Figure 2 groups the items into four layers.</p>
+<fig src="012-fairness-layers.svg" caption="Four layers that must be equal before an engine comparison means anything">Four rows. Model: same weight files from one local copy, same dtype BF16, same tokenizer and chat template, same 8,192-token max context. Engine settings: the same explicit memory fraction of 0.90 with KV capacity checked in both logs, prefix caching off on both, batch limits above 50, same GPU with nothing else running. Workload: same prompts from a fixed seed, exactly 2,000 tokens in and 500 out, temperature 0 and ignore_eos, an untimed warmup run first. Measurement: same load generator and version, same network path over localhost, 50 requests in flight, three or more runs per engine, versions recorded.</fig>
+<p>Table 2 turns the layers into concrete settings for each engine.</p>
+<table>
+<thead><tr><th>Item</th><th>vLLM</th><th>SGLang</th><th>Why it matters</th></tr></thead>
+<tbody>
+<tr><td>Weights, tokenizer, template</td><td><code>vllm serve /models/llama31-8b</code></td><td><code>--model-path /models/llama31-8b</code></td><td>One local copy guarantees identical files</td></tr>
+<tr><td>Precision</td><td><code>--dtype bfloat16</code></td><td><code>--dtype bfloat16</code></td><td>A quantized build on one side changes the question</td></tr>
+<tr><td>Max context</td><td><code>--max-model-len 8192</code></td><td><code>--context-length 8192</code></td><td>Feeds memory planning and admission</td></tr>
+<tr><td>KV cache memory</td><td><code>--gpu-memory-utilization 0.90</code></td><td><code>--mem-fraction-static 0.90</code></td><td>Set explicitly and equal: the defaults differ. The same number covers different things, so also compare token capacity from the logs</td></tr>
+<tr><td>Prefix caching</td><td><code>--no-enable-prefix-caching</code></td><td><code>--disable-radix-cache</code></td><td>On by default in both; off isolates batching and kernels</td></tr>
+<tr><td>Sampling</td><td colspan="2">Set by the client: temperature 0, <code>ignore_eos</code>, exactly 500 output tokens</td><td>Same work for both; no early stops</td></tr>
+<tr><td>Prompts</td><td colspan="2">Same tool, <code>random</code> dataset, 2,000 input tokens, <code>--seed 0</code></td><td>Byte-identical requests</td></tr>
+<tr><td>Warmup</td><td colspan="2">An untimed 100-prompt run before the timed runs</td><td>Removes compilation and first-request effects</td></tr>
+<tr><td>Client and network</td><td colspan="2">Same load generator, same machine, localhost</td><td>The client is part of the measurement</td></tr>
+<tr><td>Load</td><td colspan="2"><code>--max-concurrency 50</code>, 500 prompts per run, 3 runs</td><td>The question asked, with repeats to measure noise</td></tr>
+<tr><td>Versions</td><td colspan="2">Record engine versions, GPU driver, and CUDA</td><td>Engines change from release to release</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Fairness checklist for vLLM and SGLang serving Llama 3.1 8B Instruct</p>
+<p>Two rows deserve more attention, because the flag names suggest an equivalence that does not exist. The first is memory. vLLM's <code>--gpu-memory-utilization</code> is the fraction of the whole GPU that the engine may use for everything: weights, activations, CUDA graphs, and KV cache [2]. SGLang's <code>--mem-fraction-static</code> is the fraction used for "static allocation (model weights and KV cache memory pool)", with the rest left for activations and graphs [5]. We set both explicitly to 0.90, the value Lesson 3, KV Cache, uses, because the defaults differ: recent vLLM releases default to 0.92, and SGLang computes its own value from the GPU's memory. Even at the same number, SGLang's cache comes out somewhat larger, because its fraction leaves activations out. Figure 3 shows the approximate split.</p>
+<fig src="012-memory-flags.svg" caption="The same GPU carved by vLLM's and SGLang's memory flags, both set to 0.90 (approximate)">Two bars of the same 79.6 GiB GPU. vLLM at 0.90: 15 GiB of weights, about 4.6 GiB of activations and graphs, about 52 GiB of KV cache, and 10% unused, for a total budget of about 71.6 GiB. SGLang at 0.90: 15 GiB of weights and a KV pool of about 56.7 GiB, together about 71.6 GiB of static memory, with about 8 GiB left for activations and graphs. A note says to compare the KV capacity each engine reports, not just the flag values.</fig>
+<p>The second is the length of the generated prompts, which we return to in Step 5. Notice also what the checklist leaves alone: scheduler settings such as chunked-prefill size and batch limits stay at each engine's defaults. They are part of what we are comparing, and the write-up should say so.</p>
+
+<h2>Step 2: Prepare One Copy of the Model</h2>
+<p>Download the model once into a local directory with the Hugging Face CLI [11] and point every engine at it. This fixes the weights, tokenizer, and chat template in one move, and the exclude pattern skips the repository's duplicate PyTorch checkpoint in <code>original/</code>.</p>
+<codetabs>
+<tab label="Download" lang="bash">
+pip install -U huggingface_hub          # provides the hf command
+hf auth login                           # Llama 3.1 is gated: accept the license on its page first
+hf download meta-llama/Llama-3.1-8B-Instruct \
+  --exclude "original/*" \
+  --local-dir /models/llama31-8b
+# Small path: hf download Qwen/Qwen2.5-1.5B-Instruct --local-dir /models/qwen25-1.5b
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> Four <code>model-0000N-of-00004.safetensors</code> files totaling 16.06 GB, plus <code>config.json</code>, <code>generation_config.json</code>, and the tokenizer files.</p>
+
+<h2>Step 3: Launch Each Engine and Read Its Capacity</h2>
+<p>Run one engine at a time on the GPU. Each tab is run from that engine's own environment; SGLang's installation guide recommends <code>uv</code> with <code>--prerelease=allow</code> [10]. Stop one server before starting the next. Both servers answer to the model name <code>llama31-8b</code>, so the load generator's command line is identical except for the URL.</p>
+<codetabs>
+<tab label="vLLM (venv A)" lang="bash">
+uv venv venv-vllm --python 3.12 --seed && source venv-vllm/bin/activate
+uv pip install vllm --torch-backend=auto
+python -c "import vllm; print(vllm.__version__)"      # record it
+
+vllm serve /models/llama31-8b \
+  --served-model-name llama31-8b \
+  --dtype bfloat16 \
+  --max-model-len 8192 \
+  --gpu-memory-utilization 0.90 \
+  --no-enable-prefix-caching \
+  --port 8000 2>&1 | tee vllm.log
+
+# Second terminal:
+grep -E "Model loading took|KV cache size" vllm.log
+curl -s http://localhost:8000/health && echo ready
+</tab>
+<tab label="SGLang (venv B)" lang="bash">
+uv venv venv-sglang --python 3.12 && source venv-sglang/bin/activate
+uv pip install --prerelease=allow sglang
+python -c "import sglang; print(sglang.__version__)"  # record it
+
+python -m sglang.launch_server \
+  --model-path /models/llama31-8b \
+  --served-model-name llama31-8b \
+  --dtype bfloat16 \
+  --context-length 8192 \
+  --mem-fraction-static 0.90 \
+  --disable-radix-cache \
+  --port 30000 2>&1 | tee sglang.log
+
+# Second terminal:
+grep -E "Load weight end|KV Cache is allocated" sglang.log
+curl -s http://localhost:30000/health && echo ready
+</tab>
+<tab label="TensorRT-LLM (optional)" lang="bash">
+# From a TensorRT-LLM environment; see its installation guide for the container or wheel.
+trtllm-serve /models/llama31-8b \
+  --host 127.0.0.1 --port 8001 \
+  --max_seq_len 8192 \
+  --kv_cache_free_gpu_memory_fraction 0.80
+
+# Second terminal: find the model id it serves, then pass it to the benchmark.
+curl -s http://localhost:8001/v1/models
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> vLLM logs <code>Model loading took … GiB memory</code> and <code>GPU KV cache size: … tokens</code>; SGLang logs <code>Load weight end. … mem usage=… GB</code> and <code>KV Cache is allocated. … #tokens: …</code>. Both weight figures should be about 15 GiB. Write down both token capacities. Expect about 426,000 tokens for vLLM (Lesson 3, KV Cache) and about 464,000 for SGLang (56.7 GiB ÷ 128 KiB), roughly 9% more. Both are far above what this workload needs, 50 × 2,500 = 125,000 tokens, so neither engine will preempt and the difference does not touch the result. If your workload does fill the cache, at higher concurrency or with long contexts, lower SGLang's fraction until the logged capacities match and say so in the write-up; otherwise part of what you measure is preemption, not the engine. The TensorRT-LLM flag is a third convention again: it is a fraction of the memory left free <em>after</em> weights and buffers are allocated [6].</p>
+<p>SGLang's own entry point, <code>sglang serve</code>, is equivalent to <code>python -m sglang.launch_server</code> in recent releases; either works.</p>
+
+<h2>Step 4: Run the Benchmark at 50 Concurrent Users</h2>
+<p>The primary load generator is <code>vllm bench serve</code> [3]. It talks to any OpenAI-compatible completions endpoint, so it drives SGLang and TensorRT-LLM as easily as vLLM: <code>--backend vllm</code> selects the request format (a streaming <code>/v1/completions</code> call), and <code>--base-url</code> selects the server. The script below runs one untimed warmup of 100 prompts and then three timed runs of 500 prompts, each with exactly 50 requests in flight. Run it from venv A while the engine under test is serving.</p>
+<codetabs>
+<tab label="bench_engine.sh" lang="bash">
+#!/usr/bin/env bash
+# bench_engine.sh ENGINE URL [FIRST_RUN]: one untimed warmup, then three timed runs
+# against whichever engine is serving at URL. Run it from the vLLM environment.
+#   ./bench_engine.sh vllm   http://localhost:8000
+#   ./bench_engine.sh sglang http://localhost:30000
+#   ./bench_engine.sh vllm   http://localhost:8000 4     # session 2: runs 4-6
+set -euo pipefail
+ENGINE=$1
+URL=$2
+FIRST=${3:-1}
+MODEL_DIR=/models/llama31-8b      # tokenizer used to build the prompts
+SERVED=${SERVED:-llama31-8b}      # model name the server answers to
+mkdir -p results
+
+COMMON=(--backend vllm --base-url "$URL"
+        --model "$MODEL_DIR" --served-model-name "$SERVED"
+        --dataset-name random --random-input-len 2000 --random-output-len 500
+        --max-concurrency 50 --seed 0 --temperature 0 --ignore-eos)
+
+# Untimed warmup: first-request compilation, allocator growth, cold caches.
+vllm bench serve "${COMMON[@]}" --num-prompts 100
+
+for i in $(seq "$FIRST" $((FIRST + 2))); do
+  vllm bench serve "${COMMON[@]}" --num-prompts 500 \
+    --percentile-metrics ttft,tpot,itl,e2el --metric-percentiles 50,95,99 \
+    --save-result --result-dir results --result-filename "${ENGINE}-run${i}.json" \
+    --metadata engine="$ENGINE" run="$i"
+  sleep 15
+done
+</tab>
+<tab label="Run it" lang="bash">
+chmod +x bench_engine.sh
+./bench_engine.sh vllm http://localhost:8000          # while vLLM is serving
+# stop vLLM, start SGLang, then:
+./bench_engine.sh sglang http://localhost:30000
+# optional, with TensorRT-LLM serving:
+SERVED="<id from /v1/models>" ./bench_engine.sh trtllm http://localhost:8001
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> For each timed run, a <code>Serving Benchmark Result</code> block with <code>Successful requests: 500</code>, <code>Failed requests: 0</code>, <code>Maximum request concurrency: 50</code>, request and output token throughput, and mean, median, P50, P95, and P99 lines for TTFT, TPOT, ITL, and E2EL. Three JSON files per engine appear in <code>results/</code>. A run cannot be faster than the bandwidth floor: with 50 users and an average context of 2,250 tokens, each decode step reads 16.06 GB of weights plus 14.75 GB of cache, at least 9.2 ms on an H100, so 500 output tokens take at least 4.6 s and ten waves of 50 requests at least 46 s. Expect a minute or two per run.</p>
+<p>Every request carries a 2,000-token prompt and generates exactly 500 tokens, because of how the random dataset is defined. In <code>vllm bench serve</code>, <code>--random-range-ratio</code> defaults to 0, which gives every request exactly the requested lengths, and the tool switches on <code>ignore_eos</code> by itself for this dataset. We pass <code>--ignore-eos</code> and <code>--temperature 0</code> anyway, so that the command documents its own assumptions; recent versions no longer default to greedy sampling.</p>
+
+<h2>Step 5: Cross-Check with SGLang's Load Generator</h2>
+<p>A load generator can favor the engine it was written for, if only through defaults. Repeating the comparison with SGLang's tool [4] tells us whether the ranking depends on the client. <code>python -m sglang.bench_serving</code> also accepts <code>--backend vllm</code>, which in this tool means the same OpenAI completions request format; its <code>sglang-oai</code> backend sends identical requests. Run this from venv B against each engine in turn.</p>
+<codetabs>
+<tab label="Cross-check" lang="bash">
+ENGINE=vllm; URL=http://localhost:8000        # then: ENGINE=sglang; URL=http://localhost:30000
+python -m sglang.bench_serving \
+  --backend vllm --base-url "$URL" \
+  --model /models/llama31-8b --served-model-name llama31-8b \
+  --dataset-name random \
+  --random-input-len 2000 --random-output-len 500 --random-range-ratio 1 \
+  --num-prompts 500 --max-concurrency 50 \
+  --warmup-requests 10 --seed 1 \
+  --output-file "results/sgbench-${ENGINE}.jsonl"
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> A <code>Serving Benchmark Result</code> block with <code>Backend</code>, <code>Successful requests</code>, <code>Output token throughput (tok/s)</code>, a <code>Concurrency</code> line close to 50, and mean, median, P90, P95, and P99 lines for E2E latency, TTFT, TPOT, and ITL. Each run appends one JSON line to the output file. Recent releases also print a warning that the module has moved to <code>sglang.benchmark.serving</code>; the old name still works.</p>
+<p>Note <code>--random-range-ratio 1</code>. The two tools share the flag name but not its meaning. vLLM's tool draws each length from [n × (1 − r), n × (1 + r)], so 0 means "exactly n". SGLang's tool draws from [max(n × r, 1), n], so its default of 0 means "uniform between 1 and n", and only 1 means "exactly n" (Figure 4). With both defaults, SGLang's tool sends about half the work of vLLM's for what looks like the same command, and any comparison across the two tools would be meaningless.</p>
+<fig src="012-range-ratio.svg" caption="The same flag, two meanings: input lengths produced by each tool's random dataset">Three small histograms of input length from 0 to 2,000 tokens. vllm bench serve with --random-range-ratio 0, the default, puts every prompt at 2,000 tokens. sglang.bench_serving with the same default spreads prompts uniformly from 1 to 2,000, with a mean of about 1,000. sglang.bench_serving with --random-range-ratio 1 puts every prompt at 2,000 tokens.</fig>
+<p>Even with matching lengths, the two tools generate different text: vLLM's random dataset builds prompts from synthetic token sequences, while SGLang's (for the <code>random</code> dataset) cuts and repeats ShareGPT conversations, which it downloads on first use. SGLang's tool also sets temperature 0 and <code>ignore_eos</code> on every request by default. Compare engines <em>within</em> one tool's results, never a vLLM-tool number against an SGLang-tool number.</p>
+
+<h2>Step 6: Summarize the Runs</h2>
+<p>The script reads every result file and prints one row per engine and tool, with the median of the runs and their range in brackets. It then checks, metric by metric, whether the run ranges of the first two engines overlap.</p>
+<codetabs>
+<tab label="summarize.py" lang="python">
+"""summarize.py: one row per engine from repeated benchmark runs, as median [min-max].
+
+Reads results/<engine>-run<N>.json (vllm bench serve --save-result) and
+results/<label>.jsonl (python -m sglang.bench_serving --output-file, one line per run).
+"""
+import glob
+import json
+import os
+import re
+import statistics
+from collections import defaultdict
+
+NUM_PROMPTS = 500  # must match --num-prompts
+METRICS = [("p50 TTFT ms", "median_ttft_ms"), ("p95 TTFT ms", "p95_ttft_ms"),
+           ("p99 TTFT ms", "p99_ttft_ms"), ("p50 ITL ms", "median_itl_ms"),
+           ("p99 ITL ms", "p99_itl_ms"), ("p95 TPOT ms", "p95_tpot_ms"),
+           ("output tok/s", "output_throughput"), ("req/s", "request_throughput")]
+TARGETS = {"p95_ttft_ms": 500, "p95_tpot_ms": 25}  # course targets, in ms
+
+runs = defaultdict(list)
+for path in sorted(glob.glob(os.path.join("results", "*-run*.json"))):
+    engine = re.sub(r"-run\d+\.json$", "", os.path.basename(path))
+    runs[engine].append(json.load(open(path)))
+for path in sorted(glob.glob(os.path.join("results", "*.jsonl"))):
+    label = os.path.basename(path)[:-len(".jsonl")]
+    runs[label] += [json.loads(line) for line in open(path) if line.strip()]
+
+
+def errors(rec):
+    return rec["failed"] if "failed" in rec else NUM_PROMPTS - rec["completed"]
+
+
+header = ["engine", "runs"] + [name for name, _ in METRICS] + ["errors", "meets targets"]
+print("| " + " | ".join(header) + " |")
+print("|" + "---|" * len(header))
+spans = {}
+for engine, recs in runs.items():
+    cells = [engine, str(len(recs))]
+    for name, key in METRICS:
+        vals = [r[key] for r in recs]
+        spans[engine, key] = (min(vals), max(vals))
+        cells.append(f"{statistics.median(vals):.1f} [{min(vals):.1f}-{max(vals):.1f}]")
+    cells.append(str(sum(errors(r) for r in recs)))
+    ok = all(statistics.median(r[k] for r in recs) <= v for k, v in TARGETS.items())
+    cells.append("yes" if ok else "no")
+    print("| " + " | ".join(cells) + " |")
+
+# A difference is worth discussing only if the run ranges do not overlap.
+engines = list(runs)
+if len(engines) >= 2:
+    a, b = engines[0], engines[1]
+    print(f"\nRange check, {a} vs {b}:")
+    for name, key in METRICS:
+        (a_lo, a_hi), (b_lo, b_hi) = spans[a, key], spans[b, key]
+        verdict = "separated" if a_hi < b_lo or b_hi < a_lo else "overlap: treat as a tie"
+        print(f"  {name:13s} {verdict}")
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> A Markdown table you can paste into a report, including whether each engine's median p95 TTFT and p95 TPOT meet the course targets of 500 ms and 25 ms, and a range check per metric. Both tools write the same key names (<code>median_ttft_ms</code>, <code>p99_itl_ms</code>, <code>output_throughput</code>, and so on), so one script reads both. Copy the medians and ranges into Table 3, the template for the write-up.</p>
+<table>
+<thead><tr><th>Engine (tool)</th><th>p50 TTFT (ms)</th><th>p99 TTFT (ms)</th><th>p50 ITL (ms)</th><th>p99 ITL (ms)</th><th>Output tokens/s</th><th>Requests/s</th><th>Errors</th><th>Meets p95 targets?</th></tr></thead>
+<tbody>
+<tr><td>vLLM (vllm bench)</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>…</td><td>yes / no</td></tr>
+<tr><td>SGLang (vllm bench)</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>…</td><td>yes / no</td></tr>
+<tr><td>vLLM (sglang bench)</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>…</td><td>yes / no</td></tr>
+<tr><td>SGLang (sglang bench)</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>… […–…]</td><td>…</td><td>yes / no</td></tr>
+<tr><td>Ranking agrees across tools?</td><td colspan="8">yes / no, per metric</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Results template, median [min–max] of three runs, with engine versions, GPU driver, and every flag recorded alongside</p>
+
+<h2>Reading the Results</h2>
+<h3>Is the difference real?</h3>
+<p>Every number in Table 3 is a sample. Run the same command three times on the same engine and you will get three slightly different throughputs, because of GPU clock and temperature changes, the order in which requests happen to finish, background processes, and timing-dependent scheduling decisions inside the engine. The question is never "which median is bigger" but "is the gap bigger than the run-to-run spread", a point the scientific benchmarking literature makes at length [8]. Figure 5 shows the two cases.</p>
+<fig src="012-results-chart.svg" caption="Reading repeated runs: overlapping ranges are a tie, separated ranges are a real difference (illustrative values)">Two illustrative bar charts for Engine A and Engine B, each bar the median of three runs with a whisker from minimum to maximum and dots for individual runs. Left, output tokens per second: B's median is 3% higher but the ranges overlap, so the result is a tie. Right, p99 TTFT: the gap is far larger than the spread and the ranges are separated, so the difference is real. A note says to confirm separated results in a second session with the order reversed.</fig>
+<p>Use three rules. First, a difference counts only when the ranges do not overlap, which is what <code>summarize.py</code> checks. Second, it must survive a second session with the engine order reversed, as in Figure 6, so that slow drift cannot always favor the engine that ran first. Third, tail metrics need more data than medians: the p99 TTFT of a 500-request run is set by its five slowest requests, so it moves far more between runs than p50 does. If p99 is the metric you care about, run more prompts or more repetitions. p99 ITL is steadier, because it pools roughly 250,000 token gaps per run.</p>
+<fig src="012-run-schedule.svg" caption="Run schedule: warmup, three timed runs per engine, and an optional second session in reverse order">Two sessions on a timeline. Session 1 starts vLLM, runs an untimed warmup, runs 1 to 3, stops, then does the same for SGLang. Session 2 reverses the order: SGLang first with runs 4 to 6, then vLLM with runs 4 to 6. A legend marks start and stop, the 100-prompt warmup, and the 500-prompt timed runs.</fig>
+<p>Then ask whether a real difference changes a decision. A 3% throughput gap changes a 100-GPU fleet by about three GPUs. A latency gap can matter far more, because 50 users is close to the edge: Lesson 19, GPU Utilization, estimates that one H100 carries about 53 concurrent streams of this model at the course's targets of p95 TTFT ≤ 500 ms and p95 TPOT ≤ 25 ms. At this load, an engine that keeps p95 TPOT at 22 ms and one that reaches 27 ms are on opposite sides of the target, and that decides how many GPUs the fleet needs (Lesson 21, Lab - GPUs for 1,000 Requests per Minute Under a 2s SLA).</p>
+
+<h3>Why the engines differ</h3>
+<p>Both engines implement continuous batching [9] over a paged KV cache [1] (Lesson 7, Continuous Batching; Lesson 8, PagedAttention), so the differences come from scheduling policy and kernels rather than from the basic design. The metrics often split. One engine may admit new prompts more eagerly, giving lower TTFT but more prefill work mixed into each decode step and so a higher p99 ITL; the other may protect streaming smoothness at the cost of waiting time. Neither is simply faster. Which one wins depends on your latency targets, which is why a single "tokens per second" headline is not a benchmark result. Differences in attention kernels, CUDA graph coverage, and CPU-side scheduling overhead also show up most at moderate batch sizes like 50, where the GPU is busy but not saturated (Lesson 33, GPU Architecture and Attention Kernels).</p>
+
+<h4>Which engine fits our workload?</h4>
+<p>This lab's workload is deliberately plain: random prompts with no shared prefix, no constrained output, fixed lengths, one model. It measures continuous batching and kernel efficiency and nothing else. Real workloads add features that each engine was designed around, so before choosing, rerun the comparison with the features your traffic actually has. The common ones are:</p>
+<ul>
+<li><strong>Long shared prefixes</strong> (system prompts, multi-turn chat, agents). Turn prefix caching back on in both engines and use a shared-prefix dataset. SGLang's RadixAttention was built around this pattern [7], and vLLM's automatic prefix caching is on by default (Lesson 10, SGLang; Lesson 24, Prefix Caching).</li>
+<li><strong>Constrained output</strong> (JSON schemas, regular expressions, tool calls). Measure throughput and latency with a schema attached; the SGLang paper introduced a compressed finite-state machine for faster constrained decoding [7] (Lesson 38, Structured Output and Tool Calling).</li>
+<li><strong>Many fine-tuned variants of one base model.</strong> Test multi-LoRA serving with your adapter count and traffic mix (Lesson 37, Multi-LoRA and Multi-Tenant Serving).</li>
+<li><strong>An NVIDIA-only fleet chasing peak throughput.</strong> Add TensorRT-LLM as a third engine, with FP8 weights on all three (Lesson 11, TensorRT-LLM; Lesson 13, Quantization - FP8, INT8 and 4-bit).</li>
+<li><strong>Mixed hardware or the newest open models.</strong> Check model and hardware support before speed; vLLM supports NVIDIA, AMD, Intel, and TPU backends (Lesson 9, vLLM).</li>
+<li><strong>Long documents</strong> of 32K tokens and more. Rerun with long prompts, where cache capacity and prefill scheduling start to dominate (Lesson 36, Long-Context Serving).</li>
+</ul>
+<callout kind="tip" title="Interview tip">When asked to compare engines, list what you would hold equal before naming a winner: weights and precision, KV cache capacity, prefix caching, sampling and output lengths, the client, and repeated runs. Then say which workload features of the actual product would change the answer.</callout>
+
+<h2>Common Pitfalls</h2>
+<ul>
+<li><strong>Relying on defaults, or on flag names.</strong> The memory defaults differ between engines, so set the fraction explicitly on both. Even then, <code>--gpu-memory-utilization 0.90</code> and <code>--mem-fraction-static 0.90</code> give different cache sizes; compare the token capacities in the logs.</li>
+<li><strong>Prefix caching on one side only.</strong> Both engines enable it by default. Leaving it on is fine, but on both, and with a workload where it matters.</li>
+<li><strong>Different prompt lengths.</strong> SGLang's tool with default flags sends prompts that average half the requested length. Check total input tokens in each result before comparing.</li>
+<li><strong>Sampling defaults.</strong> vLLM's server applies the model's <code>generation_config.json</code> by default, and recent <code>vllm bench serve</code> versions no longer force greedy sampling. Pass temperature 0 explicitly so both engines decode the same way.</li>
+<li><strong>Measuring compilation.</strong> The first requests after a start include kernel compilation and graph capture. Always warm up, and never count the warmup run.</li>
+<li><strong>Two engines on one GPU.</strong> A second engine idling on the same GPU holds memory and can steal cycles. Check <code>nvidia-smi</code> shows one process before each session.</li>
+<li><strong>A noisy host.</strong> Shared cloud instances vary. Note the instance type, keep the client on the same machine, and use the reversed second session to catch drift.</li>
+<li><strong>Stale conclusions.</strong> Both projects release often. A result is a snapshot of two versions on one GPU; record them and rerun before relying on an old number.</li>
+</ul>
+
+<h2>Stretch Goals</h2>
+<ul>
+<li>Sweep concurrency (1, 8, 16, 32, 50, 64, 128) instead of fixing it at 50, and plot p99 TTFT against output throughput for both engines; the curve is more informative than one point.</li>
+<li>Replace the closed loop with Poisson arrivals at fixed request rates (<code>--request-rate</code> in both tools) and report goodput at a TTFT and TPOT target with <code>--goodput</code> in <code>vllm bench serve</code>.</li>
+<li>Re-enable caching and use SGLang's <code>generated-shared-prefix</code> dataset or vLLM's <code>prefix_repetition</code> dataset to measure prefix reuse (Lesson 24, Prefix Caching).</li>
+<li>Repeat with FP8 weights on both engines, using the checkpoint you build in Lesson 16, Lab - Halve Model Memory Without Losing Quality.</li>
+<li>Add TensorRT-LLM through <code>trtllm-serve</code> and extend the tables to three engines.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="012-summary.png" caption="Lab summary: benchmarking two engines at 50 concurrent users" optional="1">Mind map of the lab: the fairness checklist, the launch settings, the two load generators, the results table, and how to tell a real difference from noise.</fig>
+<ul>
+<li>A fair engine comparison holds the model, engine settings, workload, and measurement equal; most of the work is the checklist, not the run.</li>
+<li>Serve both engines from one local copy of the weights in BF16 with an 8,192-token context, prefix caching off on both, and the same model name.</li>
+<li>Set the memory fraction explicitly to the same value (0.90) on both engines, then read the logged KV capacities: vLLM's fraction covers the whole engine and SGLang's covers weights plus the KV pool, so SGLang gets about 9% more cache. Both far exceed the 125,000 tokens that 50 users need.</li>
+<li><code>vllm bench serve</code> and <code>python -m sglang.bench_serving</code> can each drive the other engine through the OpenAI completions API, but their <code>--random-range-ratio</code> flags mean opposite things.</li>
+<li>Run a warmup and at least three timed runs per engine; call a difference real only when the run ranges do not overlap and it survives a reversed second session.</li>
+<li>This workload measures batching and kernels only; shared prefixes, structured output, LoRA, or long contexts can change the ranking.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Kwon et al. Efficient Memory Management for Large Language Model Serving with PagedAttention. <a href="https://arxiv.org/abs/2309.06180" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.06180</a>.<br>
+[2] vLLM documentation: vllm serve CLI reference. <a href="https://docs.vllm.ai/en/latest/cli/serve/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/cli/serve/</a>.<br>
+[3] vLLM documentation: vllm bench serve CLI reference. <a href="https://docs.vllm.ai/en/latest/cli/bench/serve/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/cli/bench/serve/</a>.<br>
+[4] SGLang documentation: Bench Serving Guide. <a href="https://docs.sglang.io/docs/developer_guide/bench_serving" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/developer_guide/bench_serving</a>.<br>
+[5] SGLang documentation: Server Arguments. <a href="https://docs.sglang.io/docs/advanced_features/server_arguments" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/server_arguments</a>.<br>
+[6] TensorRT-LLM documentation: trtllm-serve. <a href="https://nvidia.github.io/TensorRT-LLM/commands/trtllm-serve/trtllm-serve.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/commands/trtllm-serve/trtllm-serve.html</a>.<br>
+[7] Zheng et al. SGLang: Efficient Execution of Structured Language Model Programs. <a href="https://arxiv.org/abs/2312.07104" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2312.07104</a>.<br>
+[8] Hoefler and Belli. Scientific Benchmarking of Parallel Computing Systems: Twelve Ways to Tell the Masses When Reporting Performance Results. <a href="https://htor.inf.ethz.ch/publications/img/hoefler-scientific-benchmarking.pdf" rel="noopener noreferrer" target="_blank">https://htor.inf.ethz.ch/publications/img/hoefler-scientific-benchmarking.pdf</a>.<br>
+[9] Yu et al. Orca: A Distributed Serving System for Transformer-Based Generative Models. <a href="https://www.usenix.org/conference/osdi22/presentation/yu" rel="noopener noreferrer" target="_blank">https://www.usenix.org/conference/osdi22/presentation/yu</a>.<br>
+[10] SGLang documentation: Installation. <a href="https://docs.sglang.io/docs/get-started/install" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/get-started/install</a>.<br>
+[11] Hugging Face Hub documentation: Command Line Interface. <a href="https://huggingface.co/docs/huggingface_hub/en/guides/cli" rel="noopener noreferrer" target="_blank">https://huggingface.co/docs/huggingface_hub/en/guides/cli</a>.</p>

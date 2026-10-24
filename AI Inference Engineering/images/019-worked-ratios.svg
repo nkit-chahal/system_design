@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="390" viewBox="0 0 820 390" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .util{fill:url(#hatch);stroke:#666;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .gridl{stroke:#e3e3e3;stroke-width:1}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Legend -->
+  <rect x="90" y="16" width="18" height="12" class="util"/><text x="114" y="27" class="sm">GPU-Util (illustrative)</text>
+  <rect x="290" y="16" width="18" height="12" class="orange"/><text x="314" y="27" class="sm">MFU: share of peak FLOPS</text>
+  <rect x="510" y="16" width="18" height="12" class="blue"/><text x="534" y="27" class="sm">MBU: share of peak bandwidth</text>
+
+  <!-- Grid and axes -->
+  <path d="M90,50H780M90,112.5H780M90,175H780M90,237.5H780" class="gridl"/>
+  <path d="M90,46 L90,300 L780,300" class="axis"/>
+  <text x="82" y="304" text-anchor="end" class="sm">0%</text>
+  <text x="82" y="241.5" text-anchor="end" class="sm">25%</text>
+  <text x="82" y="179" text-anchor="end" class="sm">50%</text>
+  <text x="82" y="116.5" text-anchor="end" class="sm">75%</text>
+  <text x="82" y="54" text-anchor="end" class="sm">100%</text>
+
+  <!-- Group 1: prefill (center 205) -->
+  <rect x="131" y="50" width="44" height="250" class="util"/>
+  <text x="153" y="44" text-anchor="middle" class="sm">≈100%</text>
+  <rect x="183" y="170" width="44" height="130" class="orange"/>
+  <text x="205" y="164" text-anchor="middle" class="sm b">52%</text>
+  <text x="257" y="294" text-anchor="middle" class="sm">n/a</text>
+  <text x="205" y="322" text-anchor="middle" class="b">Prefill</text>
+  <text x="205" y="339" text-anchor="middle" class="sm">32,000 prompt tokens/s</text>
+
+  <!-- Group 2: decode batch 1 (center 435) -->
+  <rect x="361" y="50" width="44" height="250" class="util"/>
+  <text x="383" y="44" text-anchor="middle" class="sm">≈100%</text>
+  <rect x="413" y="299" width="44" height="1" class="orange"/>
+  <text x="435" y="292" text-anchor="middle" class="sm b">0.23%</text>
+  <rect x="465" y="129.3" width="44" height="170.7" class="blue"/>
+  <text x="487" y="123" text-anchor="middle" class="sm b">68%</text>
+  <text x="435" y="322" text-anchor="middle" class="b">Decode, batch 1</text>
+  <text x="435" y="339" text-anchor="middle" class="sm">140 tokens/s</text>
+
+  <!-- Group 3: decode batch 64 (center 665) -->
+  <rect x="591" y="50" width="44" height="250" class="util"/>
+  <text x="613" y="44" text-anchor="middle" class="sm">≈100%</text>
+  <rect x="643" y="283.8" width="44" height="16.2" class="orange"/>
+  <text x="665" y="277" text-anchor="middle" class="sm b">6.5%</text>
+  <rect x="695" y="137" width="44" height="163" class="blue"/>
+  <text x="717" y="131" text-anchor="middle" class="sm b">65%</text>
+  <text x="665" y="322" text-anchor="middle" class="b">Decode, batch 64</text>
+  <text x="665" y="339" text-anchor="middle" class="sm">4,000 tokens/s</text>
+
+  <text x="90" y="374" class="sm">MFU and MBU follow from the example measurements in the text. GPU-Util stays near 100% because a kernel is almost always running.</text>
+</svg>

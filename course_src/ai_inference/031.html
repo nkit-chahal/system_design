@@ -1,0 +1,279 @@
+<h2>Introduction</h2>
+<p>Dashboards built from Prometheus counters answer fleet questions: how many tokens per second, how full the cache is, how long the queue is (Lesson 29, Queue Depth). They cannot answer questions about a single request or a single customer. Which tenant used 40% of yesterday's GPU time? Why did request <code>req-7f3a</code> take 30 seconds? Is one API key sending 30,000-token prompts in a loop? Answering these needs <strong>per-request token accounting</strong>: one record for every request, with who sent it, how many tokens it used, and how long it took.</p>
+<p>Tokens are the unit of cost in LLM serving. Lesson 20, Cost per Million Tokens, turned GPU-hours into a price per input and output token; per-request records turn those prices into a bill per tenant, a cost per feature, and a forecast for next quarter. They are also the raw material for rate limiting (Lesson 26, Rate Limiting), abuse detection, and debugging.</p>
+<fig src="031-record-pipeline.svg" caption="From a request to a usage record, a warehouse table, and aggregate counters">A client calls the API gateway, which assigns a request ID and a tenant, forwards the request through the router to a vLLM replica with an X-Request-Id header, and receives the streamed answer with a final usage chunk. The gateway writes one usage event per request to an event log, which loads a warehouse table used for billing, capacity planning and investigations. The gateway also increments Prometheus counters labeled only by tenant, model and token kind. A daily reconciliation job compares warehouse totals with the engines' own token counters.</fig>
+<p>In this lesson, we decide what goes into a usage record, get token counts from the OpenAI-compatible API including streamed responses, compare counting tokens ourselves with trusting the server, turn tokens into cost, store and aggregate the records without overloading Prometheus, handle privacy and retention, and reconcile the gateway's numbers with the engine's.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Accounting questions in interviews usually start from finance or from an angry customer. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: Who calls the service, and how do we know who they are?<br>
+<strong>Interviewer</strong>: About 200 customers on free, standard and enterprise plans call one API gateway with API keys. Behind it, vLLM serves Llama 3.1 8B Instruct on an autoscaled H100 fleet, plus a few LoRA adapters fine-tuned for large customers.</p>
+<p><strong>Candidate</strong>: How much traffic?<br>
+<strong>Interviewer</strong>: About 1,000 requests per minute on average, mostly streamed chat with about 2,000 prompt tokens and 500 output tokens. Most of each prompt is a shared system prompt and chat history.</p>
+<p><strong>Candidate</strong>: What must the records support?<br>
+<strong>Interviewer</strong>: Monthly invoices per tenant, a cost report per product feature, capacity planning, and support tickets of the form "my request was slow at 14:02".</p>
+<p><strong>Candidate</strong>: Are there constraints on what we store?<br>
+<strong>Interviewer</strong>: Enterprise contracts forbid storing prompt or response text unless the customer opts in. Billing records must be kept for audits.</p>
+<p><strong>Candidate</strong>: What does a token cost us?<br>
+<strong>Interviewer</strong>: Use Lesson 20's numbers: at an assumed $3.00 per H100-hour and full load, about $0.026 per million input tokens and $0.23 per million output tokens.</p>
+<p>The question underneath is: <em>what record do we keep for each request, where do its numbers come from, and how do we store and aggregate 1.44 million records a day so that billing is exact, dashboards are cheap, and nothing private leaks?</em></p>
+
+<h2>What Goes into a Usage Record</h2>
+<h3>Why one record per request</h3>
+<p>Aggregates hide the cases that matter. A fleet-wide counter says the service produced 0.72 billion output tokens yesterday; it cannot say that one tenant produced a third of them, that requests from one adapter always hit the output limit, or that the slow request in a support ticket waited 9 seconds in a queue. A per-request record supports four jobs:</p>
+<ul>
+<li><strong>Cost attribution</strong>: invoices per tenant, and internal cost per product feature or adapter (Lesson 37, Multi-LoRA and Multi-Tenant Serving).</li>
+<li><strong>Capacity planning</strong>: the real distribution of prompt and output lengths, which drives KV cache needs (Lesson 3) and GPU counts (Lesson 21).</li>
+<li><strong>Abuse detection</strong>: a key that suddenly sends long prompts at a steady rate, or requests that always run to the output limit.</li>
+<li><strong>Debugging</strong>: given a request ID from a customer, find its replica, its queue time, its time to first token, and why it stopped.</li>
+</ul>
+
+<h3>The fields</h3>
+<p>Table 1 lists the fields of the record, where each one comes from, and what it is used for.</p>
+<table>
+<thead><tr><th>Field</th><th>Source</th><th>Example</th><th>Used for</th></tr></thead>
+<tbody>
+<tr><td><code>request_id</code></td><td>Gateway generates it; passed to vLLM as <code>X-Request-Id</code></td><td><code>req-7f3a…</code></td><td>Joining gateway logs, engine traces, and support tickets</td></tr>
+<tr><td><code>tenant</code></td><td>Gateway, from the API key</td><td><code>acme</code></td><td>Invoices, quotas (Lesson 26)</td></tr>
+<tr><td><code>model</code>, <code>adapter</code></td><td>Request body; LoRA adapter name</td><td><code>llama-3.1-8b</code>, <code>acme-support</code></td><td>Cost per model and adapter</td></tr>
+<tr><td><code>prompt_tokens</code></td><td><code>usage.prompt_tokens</code></td><td>2,000</td><td>Input cost, length distribution</td></tr>
+<tr><td><code>cached_prompt_tokens</code></td><td><code>usage.prompt_tokens_details.cached_tokens</code></td><td>1,500</td><td>Cached-input price, cache hit rate (Lesson 24)</td></tr>
+<tr><td><code>output_tokens</code></td><td><code>usage.completion_tokens</code></td><td>500</td><td>Output cost</td></tr>
+<tr><td><code>finish_reason</code></td><td>Last choice chunk</td><td><code>stop</code>, <code>length</code>, <code>tool_calls</code></td><td>Truncated answers, tool use (Lesson 38)</td></tr>
+<tr><td><code>status</code></td><td>Gateway</td><td><code>200</code>, <code>429</code>, <code>client_disconnect</code></td><td>Error rates, what is billable</td></tr>
+<tr><td><code>queue_time</code></td><td>Engine trace span</td><td>0.04 s</td><td>Was it slow because it waited? (Lesson 29)</td></tr>
+<tr><td><code>ttft</code>, <code>e2e_latency</code></td><td>Gateway clock</td><td>0.31 s, 10.8 s</td><td>Per-request latency, percentiles (Lesson 28)</td></tr>
+<tr><td><code>replica</code></td><td>Router's choice of upstream</td><td><code>vllm-7c9d-2</code></td><td>Finding a bad replica (Lesson 30)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Fields of a per-request usage record</p>
+<p>The timing fields come from different clocks, and Figure 2 shows how they fit together. The gateway measures what the user experiences, from the moment the request arrives to the last byte sent. The engine knows how long the request waited in its own queue, which the gateway cannot see.</p>
+<fig src="031-request-timeline.svg" caption="Where each timing field of a usage record is measured">A timeline for one streamed request. The gateway receives it at time zero and forwards it; the engine places it in its waiting queue and schedules it 0.04 seconds later, which is the queue time measured by the engine. The first content token reaches the gateway at 0.31 seconds, which is the time to first token. Tokens stream until the last content token, then a final chunk carries the usage, and the stream ends at 10.8 seconds, which is the end-to-end latency. The gateway then writes the usage record.</fig>
+<p>Two fields deserve a note. vLLM uses an incoming <code>X-Request-Id</code> header as its internal request ID, and with <code>--enable-request-id-headers</code> it echoes the header on the response, so one ID connects the gateway's record with the engine's logs and traces [3][4]. The engine's queue time is not part of the API response; it is available per request from vLLM's OpenTelemetry tracing (<code>--otlp-traces-endpoint</code>), whose spans carry the request ID, the time in queue, the time to first token, and token counts [6]. Tracing every request is expensive, so many teams sample traces and keep queue time only for sampled or slow requests.</p>
+
+<h2>Getting Token Counts</h2>
+<h3>Usage in the OpenAI-compatible API</h3>
+<p>Every non-streamed chat completion in the OpenAI API returns a <code>usage</code> object with <code>prompt_tokens</code>, <code>completion_tokens</code>, and <code>total_tokens</code>, plus optional details: <code>prompt_tokens_details.cached_tokens</code> for prompt tokens served from a cache, and <code>completion_tokens_details.reasoning_tokens</code> for hidden reasoning tokens, which are billed as output [1][2]. vLLM returns the same object. It fills in <code>prompt_tokens_details</code> only when started with <code>--enable-prompt-tokens-details</code> [4].</p>
+
+<h3>Usage in streamed responses</h3>
+<p>Streamed responses are the common case for chat, and by default they carry no usage at all. A client must set <code>stream_options={"include_usage": true}</code>. The server then sends one extra chunk before the final <code>data: [DONE]</code> message; its <code>choices</code> array is empty and its <code>usage</code> field holds the totals for the whole request, while every earlier chunk carries <code>usage: null</code> [1][2]. Figure 3 shows the stream.</p>
+<fig src="031-streaming-usage.svg" caption="A streamed response with include_usage, and what happens when the client disconnects">Left: the chunks of a normal stream. The first chunk carries the role, the following chunks carry content deltas with usage set to null, the last content chunk carries finish reason stop, then a usage chunk with an empty choices array reports 2,000 prompt tokens, 1,500 of them cached, and 500 completion tokens, and the stream ends with DONE. Right: a stream interrupted after 120 tokens never receives the usage chunk, so the gateway records the request with usage missing and must estimate it or fetch it from the engine.</fig>
+<p>Two details trip people up. First, code that reads <code>chunk.choices[0]</code> on every chunk crashes on the usage chunk, whose <code>choices</code> list is empty. Second, the OpenAI reference warns that an interrupted or cancelled stream may never deliver the usage chunk [2]. A client that gives up after 120 tokens has still consumed 2,000 prompt tokens of prefill and 120 tokens of decode, but nobody received a usage chunk to say so.</p>
+<p>vLLM adds two options for this. The <code>continuous_usage_stats</code> stream option puts running usage on every chunk, so the last chunk a disconnecting client received still reports how far it got. And <code>--enable-force-include-usage</code> makes the server include usage on every request, even when the client did not ask for it [4]. The second matters most for a gateway: it should not depend on every customer's client setting <code>stream_options</code> correctly.</p>
+
+<h3>Counting tokens yourself versus trusting the server</h3>
+<p>It is tempting to count tokens at the gateway with a tokenizer library and skip the server's numbers. That fails in three ways:</p>
+<ul>
+<li><strong>Different tokenizers</strong>: each model family has its own vocabulary. Llama 3 uses a 128K-token vocabulary, and on a sample of English text its tokenizer needs 3.94 characters per token where Llama 2's needed 3.17 [8]. The same 10,000 characters are about 3,155 Llama 2 tokens but about 2,538 Llama 3 tokens, roughly 20% fewer. A count from the wrong tokenizer is off by tens of percent.</li>
+<li><strong>The chat template</strong>: the server turns a list of messages into one prompt with role headers and special tokens before counting. A gateway that counts only the message text undercounts every request.</li>
+<li><strong>Hidden work</strong>: cached prompt tokens, reasoning tokens, and tool definitions are only known to the server.</li>
+</ul>
+<fig src="031-tokenizer-counts.svg" caption="The same text counted by two tokenizers">Two bars for the same 10,000 characters of English. The Llama 2 tokenizer, at 3.17 characters per token, produces about 3,155 tokens. The Llama 3 tokenizer, at 3.94 characters per token, produces about 2,538 tokens, about 20 percent fewer. A note says the chat template adds role headers and special tokens on top of the message text.</fig>
+<p>The rule is therefore: <strong>bill from the server's usage, and count yourself only for estimates</strong>. A gateway does need an estimate before a request runs, for example to charge a token bucket on admission (Lesson 26); it should use the served model's own tokenizer and chat template, then settle the difference when the real usage arrives. Self-counting is also the fallback for the rare request whose usage never arrives.</p>
+
+<h2>From Tokens to Cost</h2>
+<h3>Three prices, not one</h3>
+<p>Lesson 20 split the cost of a fully loaded H100, at an assumed $3.00 per hour, by the GPU time each phase uses: about <strong>$0.026 per million input tokens</strong> and <strong>$0.23 per million output tokens</strong>. Cached input tokens skip prefill and cost almost no GPU time. For an internal rate card we price them at 10% of the input rate, $0.0026 per million, the same ratio Lesson 20 cites for one hosted API's cache reads. The cost of one request is then:</p>
+<texblock>\text{cost} = (p - c) \times r_{\text{in}} + c \times r_{\text{cached}} + o \times r_{\text{out}}</texblock>
+<p>where <tex>p</tex> is prompt tokens, <tex>c</tex> cached prompt tokens, <tex>o</tex> output tokens, and the <tex>r</tex> are the three rates. For our typical chat request with 1,500 of its 2,000 prompt tokens cached and 500 output tokens:</p>
+<ul>
+<li><strong>Uncached input</strong>: 500 × $0.026 per million ≈ $0.000013.</li>
+<li><strong>Cached input</strong>: 1,500 × $0.0026 per million ≈ $0.0000039.</li>
+<li><strong>Output</strong>: 500 × $0.23 per million ≈ $0.000115.</li>
+<li><strong>Total</strong>: about $0.00013 per request, or $0.13 per 1,000 requests, against $0.17 per 1,000 if nothing were cached (Lesson 20).</li>
+</ul>
+<fig src="031-cost-breakdown.svg" caption="Tokens versus cost for one chat request and one document request">Two stacked bars for a chat request. By tokens it is 1,500 cached input, 500 uncached input and 500 output tokens. By cost it is 3.9, 13 and 115 millionths of a dollar, so output is about 87 percent of the cost although it is 20 percent of the tokens. A second request, a 30,000-token uncached document with 300 output tokens, costs about 849 millionths of a dollar, about 6.4 times the chat request.</fig>
+<p>Output tokens are 20% of the chat request's tokens but about 87% of its cost, which is why a record that stores only <code>total_tokens</code> is useless for billing. A tenant that uploads 30,000-token documents and asks for 300 tokens back costs about 30,000 × $0.026 + 300 × $0.23 per million ≈ $0.00085 per request, about 6.4 times a chat request. Even that understates long prompts, because each one also holds far more KV cache while it runs (Lesson 3); providers that serve long contexts often price them separately.</p>
+<p>These are full-load rates. A fleet that averages 75% of its provisioned capacity pays for the idle quarter too, so Lesson 20 divides by the utilization factor. For invoices, the simplest fair rule is to bill the rate card and let the margin absorb idle time; for internal cost reports, scale every tenant's cost by the same factor so that the reports add up to the GPU bill.</p>
+
+<h2>Storing and Aggregating Records</h2>
+<h3>Events to a warehouse, counters to Prometheus</h3>
+<p>The records go to two places with different jobs. The full record goes into an append-only event log, such as a Kafka topic, and from there into a warehouse table partitioned by day. At 1,000 requests per minute that is 1.44 million rows a day; at an assumed 500 bytes per record, about 720 MB a day before compression, or about 65 GB for 90 days. Any analytical database handles this easily, and the warehouse answers the per-tenant, per-request, and per-feature questions.</p>
+<p>Prometheus gets only aggregates: counters of tokens by tenant, model, and token kind, which feed real-time dashboards and alerts. The engines already export their own aggregates, such as <code>vllm:prompt_tokens_total</code>, <code>vllm:generation_tokens_total</code>, and, in recent versions, <code>vllm:prompt_tokens_cached_total</code> [5].</p>
+
+<h3>Why request IDs must not become Prometheus labels</h3>
+<p>Every unique combination of label values is a separate time series in Prometheus, and its documentation warns against labels with high cardinality, such as user IDs or other unbounded sets of values [7]. A counter labeled with <code>request_id</code> would create a new series for every request: 1.44 million new series a day, each with a single sample, which no Prometheus server is designed to hold. Figure 6 compares the two designs.</p>
+<fig src="031-cardinality.svg" caption="Label cardinality: bounded labels versus a request ID label">Left: a token counter labeled by 200 tenants, 2 models and 3 token kinds has at most 1,200 time series, no matter how much traffic arrives. Right: the same counter labeled by request ID gains one new series per request, 1.44 million per day at 1,000 requests per minute. The per-request detail belongs in the warehouse, where 1.44 million rows a day is ordinary.</fig>
+<p>The rule is simple: labels must come from small, bounded sets. Tenant is acceptable at our 200 customers; an end-user ID on a consumer product with millions of users is not, and neither are request IDs, prompts, or adapter names that customers can create without limit.</p>
+
+<h3>Privacy and retention</h3>
+<p>A usage record needs counts and times, not content. We therefore <strong>do not log prompt or response text by default</strong>:</p>
+<ul>
+<li>Keep the gateway's access log free of request bodies, and leave vLLM's <code>--enable-log-requests</code> off in production; when enabled at DEBUG level it logs prompt inputs [4].</li>
+<li>Store end-user identifiers only as salted hashes, if at all; the tenant ID is enough for billing.</li>
+<li>Follow the same split as OpenTelemetry's GenAI conventions, where token counts such as <code>gen_ai.usage.input_tokens</code> are ordinary attributes but input and output messages are opt-in [9].</li>
+</ul>
+<p>Retention differs by purpose. Billing records stay as long as invoices can be disputed and audited, which the finance and legal teams decide. Detailed debugging data, such as traces, stays for days or weeks. Any content captured for an opted-in customer gets its own short, documented retention and access controls.</p>
+
+<h3>Reconciliation</h3>
+<p>The gateway's records and the engines' counters measure the same traffic from two sides, so their totals should agree. A daily job compares them per model, as Figure 7 shows, and the differences have known causes:</p>
+<ul>
+<li><strong>Retries</strong>: a request retried on another replica runs twice on the engines but is one billable request at the gateway.</li>
+<li><strong>Rejections and aborts</strong>: requests rejected with 429 or 503 never reach an engine; streams aborted by the client may lack a usage chunk.</li>
+<li><strong>Internal traffic</strong>: health checks, warm-up requests (Lesson 23), and evaluation jobs reach the engines but not the gateway.</li>
+<li><strong>Counting differences</strong>: a gateway that self-counts any requests disagrees with the engine by the tokenizer and template effects above.</li>
+</ul>
+<fig src="031-reconciliation.svg" caption="Daily reconciliation between gateway records and engine counters (illustrative)">Two columns of daily output-token totals for one model. Engine counters report 721 million tokens. Gateway records report 715 million billed tokens. The 6 million difference is explained by retried requests, aborted streams without usage, and internal warm-up and health-check traffic, leaving an unexplained remainder of 0.1 percent, inside a 1 percent tolerance.</fig>
+<p>An unexplained gap above a small tolerance, say 1%, means records are being lost: a crashed gateway pod that never flushed its events, a dropped Kafka partition, or a client path that bypasses the gateway. Reconciliation is how we learn that before a customer's invoice is wrong.</p>
+
+<h4>Which design fits our deployment?</h4>
+<p>Three designs are common. <strong>Client-side accounting</strong> records usage in each product's code; it is easy to start but misses any caller that forgets, and customers' clients cannot be trusted for billing. <strong>Engine-side accounting</strong> builds records from engine logs or traces; it sees every request but does not know tenants, plans, or client disconnects. <strong>Gateway-side accounting</strong> records every request where tenant, timing, and status are all known.</p>
+<p>For our multi-tenant API we choose the gateway as the system of record. vLLM runs with <code>--enable-force-include-usage</code> and <code>--enable-prompt-tokens-details</code>, so every response carries complete usage whatever the client asked for, and with <code>--enable-request-id-headers</code>, so the gateway's request ID appears in engine logs and traces. The gateway writes one event per request to Kafka for the warehouse and increments bounded Prometheus counters by tenant, model, and token kind. Queue time comes from sampled engine traces joined on the request ID. A daily job reconciles warehouse totals with <code>vllm:prompt_tokens_total</code> and <code>vllm:generation_tokens_total</code>. Prompt text is never stored unless a customer opts in.</p>
+
+<h2>In Practice</h2>
+<p>The first tab streams a chat completion through the OpenAI Python client, measures time to first token and end-to-end latency, reads the usage chunk, writes one JSON line per request without any prompt text, and increments bounded Prometheus counters [2][7]. It is written as a client, but the same logic belongs in a gateway. The second tab starts vLLM with the flags that make usage complete and request IDs traceable [4][6]. The third tab holds PromQL for token dashboards and for the engine side of the daily reconciliation [5].</p>
+<codetabs>
+<tab label="Usage recorder" lang="python">
+"""Stream a chat completion and record one usage event per request."""
+import json
+import time
+import uuid
+
+from openai import OpenAI
+from prometheus_client import Counter
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="EMPTY")
+MODEL = "meta-llama/Llama-3.1-8B-Instruct"
+
+# Aggregates only: bounded labels (tenant, model, kind), never request IDs.
+TOKENS = Counter("llm_gateway_tokens", "Tokens served", ["tenant", "model", "kind"])
+
+# Rate card in dollars per million tokens (Lesson 20, full load; cached = 10% of input).
+RATES = {"input": 0.026, "cached_input": 0.0026, "output": 0.23}
+
+
+def cost_usd(prompt: int, cached: int, output: int) -> float:
+    return ((prompt - cached) * RATES["input"] + cached * RATES["cached_input"]
+            + output * RATES["output"]) / 1e6
+
+
+def chat(messages: list[dict], tenant: str, log_path: str = "usage.jsonl") -> str:
+    request_id = f"req-{uuid.uuid4()}"
+    start = time.time()
+    first_token_at = None
+    finish_reason = None
+    usage = None
+    status = "ok"
+    parts: list[str] = []
+    try:
+        stream = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            max_tokens=1024,
+            stream=True,
+            stream_options={"include_usage": True},
+            extra_headers={"X-Request-Id": request_id},
+        )
+        for chunk in stream:
+            if chunk.choices:  # the usage chunk has an empty choices list
+                choice = chunk.choices[0]
+                if choice.delta.content:
+                    if first_token_at is None:
+                        first_token_at = time.time()
+                    parts.append(choice.delta.content)
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+            if chunk.usage is not None:
+                usage = chunk.usage
+    except Exception as exc:  # disconnects, timeouts, HTTP errors
+        status = type(exc).__name__
+        raise
+    finally:
+        end = time.time()
+        details = usage.prompt_tokens_details if usage else None
+        cached = (details.cached_tokens or 0) if details else 0
+        record = {
+            "request_id": request_id,
+            "tenant": tenant,
+            "model": MODEL,
+            "prompt_tokens": usage.prompt_tokens if usage else None,
+            "cached_prompt_tokens": cached if usage else None,
+            "output_tokens": usage.completion_tokens if usage else None,
+            "finish_reason": finish_reason,
+            "status": status,
+            "ttft_s": round(first_token_at - start, 3) if first_token_at else None,
+            "e2e_s": round(end - start, 3),
+            "usage_missing": usage is None,
+            "started_at": start,
+        }
+        if usage:
+            record["cost_usd"] = cost_usd(usage.prompt_tokens, cached, usage.completion_tokens)
+            TOKENS.labels(tenant, MODEL, "input").inc(usage.prompt_tokens - cached)
+            TOKENS.labels(tenant, MODEL, "cached_input").inc(cached)
+            TOKENS.labels(tenant, MODEL, "output").inc(usage.completion_tokens)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")  # counts and times only, no text
+    return "".join(parts)
+
+
+if __name__ == "__main__":
+    answer = chat([{"role": "user", "content": "Explain the KV cache in two sentences."}],
+                  tenant="acme")
+    print(answer)
+</tab>
+<tab label="vLLM flags" lang="bash">
+# --enable-prompt-tokens-details: report usage.prompt_tokens_details.cached_tokens
+# --enable-force-include-usage:   include usage even if the client omits stream_options
+# --enable-request-id-headers:    echo the X-Request-Id header on responses
+# --otlp-traces-endpoint:         per-request spans with queue time and token counts
+# --enable-log-requests stays off: at DEBUG level it would log prompt inputs.
+export OTEL_SERVICE_NAME="vllm-llama-8b"
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --enable-prompt-tokens-details \
+  --enable-force-include-usage \
+  --enable-request-id-headers \
+  --otlp-traces-endpoint "grpc://otel-collector:4317"
+</tab>
+<tab label="PromQL" lang="promql">
+# Tokens per second by tenant and kind, from the gateway's bounded counters
+sum by (tenant, kind) (rate(llm_gateway_tokens_total[5m]))
+
+# Dollars per hour by tenant at the Lesson 20 rate card
+sum by (tenant) (
+    rate(llm_gateway_tokens_total{kind="input"}[1h]) * 0.026
+  + ignoring(kind) rate(llm_gateway_tokens_total{kind="cached_input"}[1h]) * 0.0026
+  + ignoring(kind) rate(llm_gateway_tokens_total{kind="output"}[1h]) * 0.23
+) * 3600 / 1e6
+
+# Engine side of the daily reconciliation, per model
+sum by (model_name) (increase(vllm:prompt_tokens_total[1d]))
+sum by (model_name) (increase(vllm:generation_tokens_total[1d]))
+
+# Prefix cache hit rate in tokens
+sum(rate(vllm:prefix_cache_hits_total[5m])) / sum(rate(vllm:prefix_cache_queries_total[5m]))
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Settling rate-limit reservations: the gateway reserves tokens on admission from an estimate and refunds the difference when the usage record arrives (Lesson 26).</li>
+<li>Reasoning tokens: models that think before answering produce billed output tokens the user never sees, reported in <code>completion_tokens_details.reasoning_tokens</code> [2].</li>
+<li>Structured output and tool calls add tokens for schemas and tool definitions, and a <code>tool_calls</code> finish reason marks a request that will be followed by another (Lesson 38, Structured Output and Tool Calling).</li>
+<li>Batch traffic can be billed at a lower rate because it runs in otherwise idle capacity (Lesson 39, Batch and Offline Inference).</li>
+<li>Exactly-once billing: event logs deliver at least once, so the warehouse deduplicates on <code>request_id</code>.</li>
+<li>OpenTelemetry's GenAI semantic conventions define standard attribute names for token usage, which lets traces from different gateways and SDKs share one schema [9].</li>
+<li>Per-request energy: dividing a GPU's energy counter over the tokens it served gives joules per token, which can be attributed to tenants like cost (Lesson 30, GPU Metrics).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="031-summary.png" caption="Per-request token accounting summary" optional="1">Mind map summarizing the per-request token accounting lesson: the record's fields, getting usage from the API, counting tokens, cost, storage, and privacy.</fig>
+<ul>
+<li>Keep one record per request with request ID, tenant, model and adapter, prompt, cached and output tokens, finish reason, status, queue time, TTFT, end-to-end latency, and replica.</li>
+<li>Streamed responses carry usage only with <code>stream_options={"include_usage": true}</code>, in a final chunk with empty <code>choices</code>; interrupted streams may lose it, so make vLLM force usage on every request.</li>
+<li>Bill from the server's usage: tokenizers differ by model (Llama 3 needs about 20% fewer tokens than Llama 2 for English) and chat templates add tokens the client never sees.</li>
+<li>Price input, cached input and output separately: our chat request costs about $0.00013, and its output is 20% of the tokens but about 87% of the cost.</li>
+<li>Send full records to an event log and warehouse (1.44 million rows a day) and only bounded aggregates to Prometheus; a request-ID label would add 1.44 million series a day.</li>
+<li>Do not store prompt text by default, and reconcile gateway totals with engine counters daily to catch lost records.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] OpenAI API reference: Chat Completions. <a href="https://platform.openai.com/docs/api-reference/chat/create" rel="noopener noreferrer" target="_blank">https://platform.openai.com/docs/api-reference/chat/create</a>.<br>
+[2] OpenAI Python library: completion usage types. <a href="https://github.com/openai/openai-python/blob/main/src/openai/types/completion_usage.py" rel="noopener noreferrer" target="_blank">https://github.com/openai/openai-python/blob/main/src/openai/types/completion_usage.py</a>.<br>
+[3] vLLM documentation: OpenAI-Compatible Server. <a href="https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/</a>.<br>
+[4] vLLM documentation: vllm serve. <a href="https://docs.vllm.ai/en/latest/cli/serve.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/cli/serve.html</a>.<br>
+[5] vLLM documentation: Production Metrics. <a href="https://docs.vllm.ai/en/latest/usage/metrics.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/usage/metrics.html</a>.<br>
+[6] vLLM documentation: OpenTelemetry example. <a href="https://docs.vllm.ai/en/latest/examples/observability/opentelemetry.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/examples/observability/opentelemetry.html</a>.<br>
+[7] Prometheus documentation: Metric and label naming. <a href="https://prometheus.io/docs/practices/naming/" rel="noopener noreferrer" target="_blank">https://prometheus.io/docs/practices/naming/</a>.<br>
+[8] Grattafiori et al. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[9] OpenTelemetry: Semantic conventions for generative AI. <a href="https://github.com/open-telemetry/semantic-conventions-genai" rel="noopener noreferrer" target="_blank">https://github.com/open-telemetry/semantic-conventions-genai</a>.</p>

@@ -1,0 +1,6 @@
+center: AI Inference Engineering
+branch: Two phases | prefill is compute-bound | decode is memory-bound | KV cache holds state
+branch: Latency | time to first token | time per output token | p50, p95, p99
+branch: Key numbers | 16 GB of weights | 128 KiB per token | 3.35 TB/s bandwidth
+branch: Design framework | requirements and workload | model, engine, hardware | production and observability
+branch: Seven stages | generation and engines | models and GPU math | production and observability | advanced serving

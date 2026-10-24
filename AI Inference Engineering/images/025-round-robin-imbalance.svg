@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .axis{stroke:#000;stroke-width:1.2}
+    .grid{stroke:#ccc;stroke-width:1;stroke-dasharray:4 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="24" class="sm">12 requests arrive in order: a 32K-token document question, then three 2,500-token chat turns, repeated three times.</text>
+
+  <!-- Panel 1: round robin. y scale: 1.6 px per 1K tokens, baseline y=250 -->
+  <text x="210" y="56" text-anchor="middle" class="lg b">Round robin</text>
+  <line x1="70" y1="90" x2="70" y2="250" class="axis"/>
+  <line x1="70" y1="250" x2="370" y2="250" class="axis"/>
+  <line x1="70" y1="170" x2="370" y2="170" class="grid"/>
+  <line x1="70" y1="90" x2="370" y2="90" class="grid"/>
+  <text x="62" y="254" text-anchor="end" class="sm">0</text>
+  <text x="62" y="174" text-anchor="end" class="sm">50K</text>
+  <text x="62" y="94" text-anchor="end" class="sm">100K</text>
+
+  <rect x="90" y="96.4" width="50" height="153.6" class="red"/>
+  <text x="115" y="90" text-anchor="middle" class="sm b">96K</text>
+  <rect x="160" y="238" width="50" height="12" class="gray"/>
+  <text x="185" y="232" text-anchor="middle" class="sm">7.5K</text>
+  <rect x="230" y="238" width="50" height="12" class="gray"/>
+  <text x="255" y="232" text-anchor="middle" class="sm">7.5K</text>
+  <rect x="300" y="238" width="50" height="12" class="gray"/>
+  <text x="325" y="232" text-anchor="middle" class="sm">7.5K</text>
+  <text x="115" y="268" text-anchor="middle" class="sm">R1</text>
+  <text x="185" y="268" text-anchor="middle" class="sm">R2</text>
+  <text x="255" y="268" text-anchor="middle" class="sm">R3</text>
+  <text x="325" y="268" text-anchor="middle" class="sm">R4</text>
+
+  <!-- Panel 2: least outstanding tokens -->
+  <text x="610" y="56" text-anchor="middle" class="lg b">Least outstanding tokens</text>
+  <line x1="470" y1="90" x2="470" y2="250" class="axis"/>
+  <line x1="470" y1="250" x2="770" y2="250" class="axis"/>
+  <line x1="470" y1="170" x2="770" y2="170" class="grid"/>
+  <line x1="470" y1="90" x2="770" y2="90" class="grid"/>
+  <text x="462" y="254" text-anchor="end" class="sm">0</text>
+  <text x="462" y="174" text-anchor="end" class="sm">50K</text>
+  <text x="462" y="94" text-anchor="end" class="sm">100K</text>
+
+  <rect x="490" y="198.8" width="50" height="51.2" class="green"/>
+  <text x="515" y="192" text-anchor="middle" class="sm">32K</text>
+  <rect x="560" y="194.8" width="50" height="55.2" class="green"/>
+  <text x="585" y="188" text-anchor="middle" class="sm">34.5K</text>
+  <rect x="630" y="226" width="50" height="24" class="green"/>
+  <text x="655" y="220" text-anchor="middle" class="sm">15K</text>
+  <rect x="700" y="190.8" width="50" height="59.2" class="green"/>
+  <text x="725" y="184" text-anchor="middle" class="sm">37K</text>
+  <text x="515" y="268" text-anchor="middle" class="sm">R1</text>
+  <text x="585" y="268" text-anchor="middle" class="sm">R2</text>
+  <text x="655" y="268" text-anchor="middle" class="sm">R3</text>
+  <text x="725" y="268" text-anchor="middle" class="sm">R4</text>
+
+  <text x="20" y="170" class="sm" transform="rotate(-90 20 170)" text-anchor="middle">in-flight tokens</text>
+
+  <text x="16" y="302">Round robin gives every replica three requests, but R1 gets all three documents and must</text>
+  <text x="16" y="322">prefill 90,000 prompt tokens (about 3 s of work) while R2 to R4 sit nearly idle.</text>
+</svg>

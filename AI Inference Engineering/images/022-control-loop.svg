@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+    <pattern id="redhatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a8a6" stroke-width="3"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dedge{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .grid{stroke:#e3e3e3;stroke-width:1}
+    .guide{stroke:#666;stroke-width:1;stroke-dasharray:5 4;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="16" y="118" width="96" height="48" rx="6" class="purple"/>
+  <text x="64.0" y="138.0" text-anchor="middle">chat</text>
+  <text x="64.0" y="155.0" text-anchor="middle">requests</text>
+  <path d="M112,142 L144,142" class="edge"/>
+  <rect x="146" y="118" width="104" height="48" rx="6" class="gray"/>
+  <text x="198.0" y="138.0" text-anchor="middle">load</text>
+  <text x="198.0" y="155.0" text-anchor="middle">balancer</text>
+  <rect x="290" y="36" width="200" height="214" rx="4" class="group"/>
+  <text x="390" y="26" text-anchor="middle" class="b">Deployment: N replicas</text>
+  <rect x="306" y="50" width="168" height="50" rx="6" class="orange"/>
+  <text x="390.0" y="71.0" text-anchor="middle">vLLM replica</text>
+  <text x="390.0" y="88.0" text-anchor="middle" class="sm">1 × H100, /metrics</text>
+  <rect x="306" y="117" width="168" height="50" rx="6" class="orange"/>
+  <text x="390.0" y="138.0" text-anchor="middle">vLLM replica</text>
+  <text x="390.0" y="155.0" text-anchor="middle" class="sm">1 × H100, /metrics</text>
+  <rect x="306" y="184" width="168" height="50" rx="6" class="orange"/>
+  <text x="390.0" y="205.0" text-anchor="middle">vLLM replica</text>
+  <text x="390.0" y="222.0" text-anchor="middle" class="sm">1 × H100, /metrics</text>
+  <path d="M250,142 L270,142 L270,75 L304,75" class="edge"/>
+  <path d="M250,142 L304,142" class="edge"/>
+  <path d="M270,142 L270,209 L304,209" class="edge"/>
+  <path d="M557.0,48 v54 a75.0,8 0 0 0 150,0 v-54" class="blue"/>
+  <ellipse cx="632" cy="48" rx="75.0" ry="8" class="blue"/>
+  <text x="632" y="75.0" text-anchor="middle">Prometheus</text>
+  <text x="632" y="92.0" text-anchor="middle" class="sm">scrapes every 15 s</text>
+  <path d="M490,80 L555,80" class="edge"/>
+  <text x="522" y="72" text-anchor="middle" class="sm">metrics</text>
+  <rect x="562" y="150" width="140" height="50" rx="6" class="purple"/>
+  <text x="632.0" y="171.0" text-anchor="middle">autoscaler</text>
+  <text x="632.0" y="188.0" text-anchor="middle" class="sm">HPA or KEDA</text>
+  <path d="M632,110 L632,148" class="edge"/>
+  <text x="640" y="134" class="sm">query</text>
+  <path d="M562,176 L492,176" class="edge"/>
+  <text x="527" y="168" text-anchor="middle" class="sm">set N</text>
+  <rect x="562" y="250" width="140" height="50" rx="6" class="gray"/>
+  <text x="632.0" y="271.0" text-anchor="middle">node autoscaler</text>
+  <text x="632.0" y="288.0" text-anchor="middle" class="sm">adds a GPU node</text>
+  <path d="M390,250 L390,275 L560,275" class="edge"/>
+  <text x="400" y="292" class="sm">pod pending: no free GPU</text>
+  <text x="16" y="328">A new replica serves traffic only after its node, image, weights, and engine are ready: minutes, not seconds.</text>
+</svg>

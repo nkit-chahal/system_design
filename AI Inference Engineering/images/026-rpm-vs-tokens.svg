@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="260" viewBox="0 0 820 260" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .limit{stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="30" class="b">Tenant</text>
+  <text x="290" y="30" class="b">Requests per minute</text>
+  <text x="470" y="30" class="b">Input tokens per minute</text>
+
+  <!-- Tenant A -->
+  <rect x="16" y="50" width="240" height="56" rx="6" class="purple"/>
+  <text x="136" y="73" text-anchor="middle" class="b">Tenant A</text>
+  <text x="136" y="92" text-anchor="middle" class="sm">200 in + 100 out per request</text>
+  <rect x="290" y="64" width="120" height="28" class="green"/>
+  <text x="350" y="83" text-anchor="middle" class="sm">60</text>
+  <rect x="470" y="64" width="2" height="28" class="green"/>
+  <text x="480" y="83" class="sm">12,000</text>
+
+  <!-- Tenant B -->
+  <rect x="16" y="124" width="240" height="56" rx="6" class="purple"/>
+  <text x="136" y="147" text-anchor="middle" class="b">Tenant B</text>
+  <text x="136" y="166" text-anchor="middle" class="sm">30,000 in + up to 4,096 out</text>
+  <rect x="290" y="138" width="120" height="28" class="green"/>
+  <text x="350" y="157" text-anchor="middle" class="sm">60</text>
+  <rect x="470" y="138" width="120" height="28" class="red"/>
+  <text x="600" y="157" class="sm">1.8 million (38% of fleet)</text>
+
+  <!-- Limits -->
+  <line x1="410" y1="44" x2="410" y2="190" class="limit"/>
+  <text x="410" y="206" text-anchor="middle" class="sm">limit: 60</text>
+  <line x1="790" y1="44" x2="790" y2="190" class="limit"/>
+  <text x="800" y="206" text-anchor="end" class="sm">fleet input capacity ≈ 4.8M</text>
+
+  <text x="16" y="242">Both tenants pass a 60 RPM limit. Only a token limit sees that B sends 150× more input.</text>
+</svg>

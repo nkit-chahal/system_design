@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="345" viewBox="0 0 820 345" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Merged -->
+  <text x="16" y="28" class="lg b">Merged: one model copy per adapter</text>
+  <rect x="30" y="46" width="160" height="30" rx="4" class="purple"/>
+  <text x="110" y="66" text-anchor="middle" class="sm">acme requests</text>
+  <path d="M110,76 L110,98" class="edge"/>
+  <rect x="30" y="100" width="160" height="100" rx="4" class="group"/>
+  <text x="42" y="120" class="sm b">GPU 1</text>
+  <rect x="42" y="130" width="136" height="54" rx="4" class="orange"/>
+  <text x="110" y="153" text-anchor="middle">W + BA (acme)</text>
+  <text x="110" y="172" text-anchor="middle" class="sm">16 GB</text>
+
+  <rect x="220" y="46" width="160" height="30" rx="4" class="purple"/>
+  <text x="300" y="66" text-anchor="middle" class="sm">globex requests</text>
+  <path d="M300,76 L300,98" class="edge"/>
+  <rect x="220" y="100" width="160" height="100" rx="4" class="group"/>
+  <text x="232" y="120" class="sm b">GPU 2</text>
+  <rect x="232" y="130" width="136" height="54" rx="4" class="orange"/>
+  <text x="300" y="153" text-anchor="middle">W + BA (globex)</text>
+  <text x="300" y="172" text-anchor="middle" class="sm">16 GB</text>
+
+  <rect x="30" y="268" width="14" height="12" class="green"/><text x="52" y="279">no extra latency per token</text>
+  <rect x="30" y="292" width="14" height="12" class="red"/><text x="52" y="303">one copy and one GPU per adapter</text>
+  <rect x="30" y="316" width="14" height="12" class="red"/><text x="52" y="327">no batching across adapters</text>
+
+  <line x1="408" y1="16" x2="408" y2="330" stroke="#999" stroke-dasharray="5 4"/>
+
+  <!-- Unmerged -->
+  <text x="428" y="28" class="lg b">Unmerged: one shared base model</text>
+  <rect x="440" y="46" width="356" height="30" rx="4" class="purple"/>
+  <text x="618" y="66" text-anchor="middle" class="sm">mixed batch: acme, globex, acme, initech</text>
+  <path d="M540,76 L540,108" class="edge"/>
+  <path d="M722,76 L722,108" class="edge"/>
+  <rect x="440" y="110" width="200" height="56" rx="4" class="orange"/>
+  <text x="540" y="133" text-anchor="middle">W (one shared copy)</text>
+  <text x="540" y="153" text-anchor="middle" class="sm">Wx for every row</text>
+  <rect x="652" y="110" width="144" height="56" rx="4" class="blue"/>
+  <text x="724" y="133" text-anchor="middle">adapter slots</text>
+  <text x="724" y="153" text-anchor="middle" class="sm">acme, globex, initech</text>
+  <path d="M724,166 L724,184" class="edge"/>
+  <rect x="652" y="186" width="144" height="40" rx="4" class="orange"/>
+  <text x="724" y="211" text-anchor="middle" class="sm">per-row BAx</text>
+  <path d="M540,166 L540,190" class="edge"/>
+  <path d="M652,206 L558,206" class="edge"/>
+  <circle cx="540" cy="206" r="16" class="white"/>
+  <text x="540" y="212" text-anchor="middle" class="lg b">+</text>
+  <path d="M540,222 L540,240" class="edge"/>
+  <text x="540" y="256" text-anchor="middle" class="sm">output for every row</text>
+
+  <rect x="440" y="268" width="14" height="12" class="green"/><text x="462" y="279">one copy serves every adapter</text>
+  <rect x="440" y="292" width="14" height="12" class="green"/><text x="462" y="303">requests for any adapters share a batch</text>
+  <rect x="440" y="316" width="14" height="12" class="red"/><text x="462" y="327">extra kernel work at every step</text>
+</svg>

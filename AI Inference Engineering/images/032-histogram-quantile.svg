@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="326" viewBox="0 0 860 326" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.it{font-style:italic}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .line{fill:none;stroke:#000;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e6e6e6;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:6 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="20" y="24" class="b">Cumulative TTFT buckets from 1,000 requests (illustrative counts)</text>
+  <rect x="60" y="193" width="46" height="57" class="blue"/>
+  <text x="83" y="187" text-anchor="middle" class="sm">300</text>
+  <text x="83" y="266" text-anchor="middle" class="sm">le=0.1</text>
+  <rect x="122" y="113.2" width="46" height="136.8" class="blue"/>
+  <text x="145" y="107.2" text-anchor="middle" class="sm">720</text>
+  <text x="145" y="266" text-anchor="middle" class="sm">le=0.25</text>
+  <rect x="184" y="73.3" width="46" height="176.7" class="orange"/>
+  <text x="207" y="67.3" text-anchor="middle" class="sm">930</text>
+  <text x="207" y="266" text-anchor="middle" class="sm">le=0.5</text>
+  <rect x="246" y="63.8" width="46" height="186.2" class="orange"/>
+  <text x="269" y="57.8" text-anchor="middle" class="sm">980</text>
+  <text x="269" y="266" text-anchor="middle" class="sm">le=0.75</text>
+  <rect x="308" y="60.95" width="46" height="189.05" class="blue"/>
+  <text x="331" y="54.95" text-anchor="middle" class="sm">995</text>
+  <text x="331" y="266" text-anchor="middle" class="sm">le=1</text>
+  <rect x="370" y="60" width="46" height="190" class="blue"/>
+  <text x="393" y="54" text-anchor="middle" class="sm">1000</text>
+  <text x="393" y="266" text-anchor="middle" class="sm">le=2.5</text>
+  <rect x="432" y="60" width="46" height="190" class="blue"/>
+  <text x="455" y="54" text-anchor="middle" class="sm">1000</text>
+  <text x="455" y="266" text-anchor="middle" class="sm">le=+Inf</text>
+  <path d="M54,250 H494" class="axis"/>
+  <path d="M54,69.5 H494" class="dash"/>
+  <text x="62" y="63.5" class="sm">rank 950 = p95</text>
+  <text x="20" y="296" class="sm">p95 lies in the 0.5–0.75 s bucket: 0.5 + (950 − 930) ÷ (980 − 930) × 0.25 = 0.6 s,</text>
+  <text x="20" y="312" class="sm">an interpolation. The share under 0.5 s, 930 ÷ 1,000 = 93%, is exact: 0.5 is a bucket edge.</text>
+  <line x1="520" y1="12" x2="520" y2="320" stroke="#999" stroke-dasharray="5 4"/>
+  <text x="540" y="24" class="b">Combine replicas before the quantile</text>
+  <rect x="540" y="44" width="300" height="84" rx="6" class="red"/>
+  <text x="690" y="73" text-anchor="middle" class="b">Average of per-replica p95s</text>
+  <text x="690" y="91" text-anchor="middle" class="sm">replica A 0.3 s, replica B 2.0 s → 1.15 s</text>
+  <text x="690" y="109" text-anchor="middle" class="sm">not the p95 of any set of requests</text>
+  <rect x="540" y="150" width="300" height="84" rx="6" class="green"/>
+  <text x="690" y="179" text-anchor="middle" class="b">Sum the buckets, then take p95</text>
+  <text x="690" y="197" text-anchor="middle" class="sm">histogram_quantile(0.95,</text>
+  <text x="690" y="215" text-anchor="middle" class="sm">sum by (le) (rate(..._bucket[5m])))</text>
+  <text x="540" y="262" class="sm">Keep le in the by clause; drop the replica</text>
+  <text x="540" y="278" class="sm">labels you want to merge.</text>
+</svg>

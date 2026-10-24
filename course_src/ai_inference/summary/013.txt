@@ -1,0 +1,7 @@
+center: Quantization
+branch: Number formats | FP8 E4M3, max 448 | INT4 and NVFP4 | block scales
+branch: What gets quantized | W4A16 weight-only | W8A8 weights and activations | KV cache
+branch: Scale granularity | per channel | per group of 128 | per token, dynamic
+branch: Methods | GPTQ | AWQ | SmoothQuant
+branch: Memory and speed | 8B: 16 → 9.08 GB | W4A16 helps decode | FP8 halves prefill
+branch: Evaluation | task benchmarks | your own eval set | count flips

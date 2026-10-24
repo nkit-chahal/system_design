@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="300" viewBox="0 0 860 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+    <pattern id="redhatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a8a6" stroke-width="3"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dedge{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .grid{stroke:#e3e3e3;stroke-width:1}
+    .guide{stroke:#666;stroke-width:1;stroke-dasharray:5 4;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="24" class="b">Free block queue (blocks with ref_cnt = 0)</text>
+  <rect x="200" y="120" width="44" height="44" rx="4" class="blue"/>
+  <text x="222" y="147" text-anchor="middle" class="sm">h17</text>
+  <path d="M244,136 L264,136" class="edge"/>
+  <path d="M266,150 L246,150" class="edge"/>
+  <rect x="266" y="120" width="44" height="44" rx="4" class="white"/>
+  <path d="M310,136 L330,136" class="edge"/>
+  <path d="M332,150 L312,150" class="edge"/>
+  <rect x="332" y="120" width="44" height="44" rx="4" class="blue"/>
+  <text x="354" y="147" text-anchor="middle" class="sm">h40</text>
+  <path d="M376,136 L396,136" class="edge"/>
+  <path d="M398,150 L378,150" class="edge"/>
+  <rect x="398" y="120" width="44" height="44" rx="4" class="blue"/>
+  <text x="420" y="147" text-anchor="middle" class="sm">h41</text>
+  <path d="M442,136 L462,136" class="edge"/>
+  <path d="M464,150 L444,150" class="edge"/>
+  <rect x="464" y="120" width="44" height="44" rx="4" class="white"/>
+  <path d="M508,136 L528,136" class="edge"/>
+  <path d="M530,150 L510,150" class="edge"/>
+  <rect x="530" y="120" width="44" height="44" rx="4" class="blue"/>
+  <text x="552" y="147" text-anchor="middle" class="sm">h90</text>
+  <path d="M574,136 L594,136" class="edge"/>
+  <path d="M596,150 L576,150" class="edge"/>
+  <rect x="596" y="120" width="44" height="44" rx="4" class="blue"/>
+  <text x="618" y="147" text-anchor="middle" class="sm">h7</text>
+  <path d="M640,136 L660,136" class="edge"/>
+  <path d="M662,150 L642,150" class="edge"/>
+  <rect x="662" y="120" width="44" height="44" rx="4" class="blue"/>
+  <text x="684" y="147" text-anchor="middle" class="sm">h6</text>
+  <text x="186" y="140" text-anchor="end" class="b sm">head</text>
+  <text x="186" y="156" text-anchor="end" class="sm">least recently used</text>
+  <text x="720" y="140" class="b sm">tail</text>
+  <text x="720" y="156" class="sm">most recent</text>
+  <path d="M222,166 L222,216" class="edge"/>
+  <rect x="110" y="218" width="230" height="52" rx="6" class="red"/>
+  <text x="225.0" y="240.0" text-anchor="middle" class="sm">new block needed: pop the head</text>
+  <text x="225.0" y="257.0" text-anchor="middle" class="sm">its old hash is dropped (eviction)</text>
+  <path d="M420,118 L420,84" class="edge"/>
+  <rect x="330" y="32" width="260" height="50" rx="6" class="green"/>
+  <text x="460.0" y="53.0" text-anchor="middle" class="sm">cache hit on h41: block leaves the queue</text>
+  <text x="460.0" y="70.0" text-anchor="middle" class="sm">ref_cnt 0 → 1, back in use</text>
+  <rect x="620" y="218" width="224" height="52" rx="6" class="orange"/>
+  <text x="732.0" y="240.0" text-anchor="middle" class="sm">request finishes: its blocks join</text>
+  <text x="732.0" y="257.0" text-anchor="middle" class="sm">the tail, last block first</text>
+  <path d="M684,216 L684,166" class="edge"/>
+  <rect x="16" y="284" width="16" height="12" class="blue"/><text x="38" y="295" class="sm">free, still holds a cached prefix (hash kept)</text>
+  <rect x="330" y="284" width="16" height="12" class="white"/><text x="352" y="295" class="sm">free, empty</text>
+  <text x="460" y="295" class="sm">h7 extends the prefix of h6, so h7 is evicted first.</text>
+</svg>

@@ -1,0 +1,7 @@
+center: Prefill vs Decode
+branch: Two phases | prefill: whole prompt | decode: one token per step
+branch: FLOPs per token | 2 × parameters | ≈ 16 GFLOPs for 8B
+branch: Roofline | ridge ≈ 295 FLOPs/byte | prefill compute-bound | decode memory-bound
+branch: H100 numbers | 65 ms for 2,000 tokens | ≥ 4.9 ms per step
+branch: Batching | shares the weight read | KV reads cap intensity
+branch: Interference fixes | chunked prefill | disaggregated serving

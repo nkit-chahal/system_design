@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="300" viewBox="0 0 840 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .free{fill:#f5f5f5;stroke:#999;stroke-width:1}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="10" y="10" width="400" height="236" rx="4" class="group"/>
+  <text x="210" y="34" text-anchor="middle" class="lg b">Operating system</text>
+  <text x="72" y="56" text-anchor="middle" class="sm b">Process</text>
+  <text x="72" y="70" text-anchor="middle" class="sm">virtual pages</text>
+  <rect x="26" y="82" width="92" height="24" rx="3" class="purple"/>
+  <text x="72" y="99" text-anchor="middle" class="sm">page 0</text>
+  <rect x="26" y="112" width="92" height="24" rx="3" class="purple"/>
+  <text x="72" y="129" text-anchor="middle" class="sm">page 1</text>
+  <rect x="26" y="142" width="92" height="24" rx="3" class="purple"/>
+  <text x="72" y="159" text-anchor="middle" class="sm">page 2</text>
+  <rect x="26" y="172" width="92" height="24" rx="3" class="purple"/>
+  <text x="72" y="189" text-anchor="middle" class="sm">page 3</text>
+  <path d="M120,144 L146,144" class="edge"/>
+  <text x="190" y="70" text-anchor="middle" class="sm b">Page table</text>
+  <rect x="148" y="82" width="84" height="24" class="white"/>
+  <text x="190" y="99" text-anchor="middle" class="sm">0 → 5</text>
+  <rect x="148" y="112" width="84" height="24" class="white"/>
+  <text x="190" y="129" text-anchor="middle" class="sm">1 → 2</text>
+  <rect x="148" y="142" width="84" height="24" class="white"/>
+  <text x="190" y="159" text-anchor="middle" class="sm">2 → 7</text>
+  <rect x="148" y="172" width="84" height="24" class="white"/>
+  <text x="190" y="189" text-anchor="middle" class="sm">3 → 0</text>
+  <path d="M234,144 L260,144" class="edge"/>
+  <text x="332" y="56" text-anchor="middle" class="sm b">RAM</text>
+  <text x="332" y="70" text-anchor="middle" class="sm">physical frames</text>
+  <rect x="262" y="78" width="140" height="18" class="purple"/>
+  <text x="332" y="91" text-anchor="middle" class="sm">0: page 3</text>
+  <rect x="262" y="98" width="140" height="18" class="free"/>
+  <text x="332" y="111" text-anchor="middle" class="sm">1: other / free</text>
+  <rect x="262" y="118" width="140" height="18" class="purple"/>
+  <text x="332" y="131" text-anchor="middle" class="sm">2: page 1</text>
+  <rect x="262" y="138" width="140" height="18" class="free"/>
+  <text x="332" y="151" text-anchor="middle" class="sm">3: other / free</text>
+  <rect x="262" y="158" width="140" height="18" class="free"/>
+  <text x="332" y="171" text-anchor="middle" class="sm">4: other / free</text>
+  <rect x="262" y="178" width="140" height="18" class="purple"/>
+  <text x="332" y="191" text-anchor="middle" class="sm">5: page 0</text>
+  <rect x="262" y="198" width="140" height="18" class="free"/>
+  <text x="332" y="211" text-anchor="middle" class="sm">6: other / free</text>
+  <rect x="262" y="218" width="140" height="18" class="purple"/>
+  <text x="332" y="231" text-anchor="middle" class="sm">7: page 2</text>
+  <rect x="430" y="10" width="400" height="236" rx="4" class="group"/>
+  <text x="630" y="34" text-anchor="middle" class="lg b">PagedAttention</text>
+  <text x="492" y="56" text-anchor="middle" class="sm b">Sequence</text>
+  <text x="492" y="70" text-anchor="middle" class="sm">logical KV blocks</text>
+  <rect x="446" y="82" width="92" height="24" rx="3" class="orange"/>
+  <text x="492" y="99" text-anchor="middle" class="sm">block 0</text>
+  <rect x="446" y="112" width="92" height="24" rx="3" class="orange"/>
+  <text x="492" y="129" text-anchor="middle" class="sm">block 1</text>
+  <rect x="446" y="142" width="92" height="24" rx="3" class="orange"/>
+  <text x="492" y="159" text-anchor="middle" class="sm">block 2</text>
+  <rect x="446" y="172" width="92" height="24" rx="3" class="orange"/>
+  <text x="492" y="189" text-anchor="middle" class="sm">block 3</text>
+  <path d="M540,144 L566,144" class="edge"/>
+  <text x="610" y="70" text-anchor="middle" class="sm b">Block table</text>
+  <rect x="568" y="82" width="84" height="24" class="white"/>
+  <text x="610" y="99" text-anchor="middle" class="sm">0 → 3</text>
+  <rect x="568" y="112" width="84" height="24" class="white"/>
+  <text x="610" y="129" text-anchor="middle" class="sm">1 → 6</text>
+  <rect x="568" y="142" width="84" height="24" class="white"/>
+  <text x="610" y="159" text-anchor="middle" class="sm">2 → 1</text>
+  <rect x="568" y="172" width="84" height="24" class="white"/>
+  <text x="610" y="189" text-anchor="middle" class="sm">3 → 4</text>
+  <path d="M654,144 L680,144" class="edge"/>
+  <text x="752" y="56" text-anchor="middle" class="sm b">GPU KV pool</text>
+  <text x="752" y="70" text-anchor="middle" class="sm">physical blocks</text>
+  <rect x="682" y="78" width="140" height="18" class="free"/>
+  <text x="752" y="91" text-anchor="middle" class="sm">0: other / free</text>
+  <rect x="682" y="98" width="140" height="18" class="blue"/>
+  <text x="752" y="111" text-anchor="middle" class="sm">1: block 2</text>
+  <rect x="682" y="118" width="140" height="18" class="free"/>
+  <text x="752" y="131" text-anchor="middle" class="sm">2: other / free</text>
+  <rect x="682" y="138" width="140" height="18" class="blue"/>
+  <text x="752" y="151" text-anchor="middle" class="sm">3: block 0</text>
+  <rect x="682" y="158" width="140" height="18" class="blue"/>
+  <text x="752" y="171" text-anchor="middle" class="sm">4: block 3</text>
+  <rect x="682" y="178" width="140" height="18" class="free"/>
+  <text x="752" y="191" text-anchor="middle" class="sm">5: other / free</text>
+  <rect x="682" y="198" width="140" height="18" class="blue"/>
+  <text x="752" y="211" text-anchor="middle" class="sm">6: block 1</text>
+  <rect x="682" y="218" width="140" height="18" class="free"/>
+  <text x="752" y="231" text-anchor="middle" class="sm">7: other / free</text>
+  <text x="420" y="274" text-anchor="middle" xml:space="preserve">process ↔ sequence  ·  page ↔ KV block  ·  page table ↔ block table  ·  frame ↔ physical block</text>
+  <text x="420" y="292" text-anchor="middle" class="sm">Both map a contiguous logical view onto fixed-size physical pieces allocated on demand from anywhere in memory.</text>
+</svg>

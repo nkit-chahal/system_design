@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="330" viewBox="0 0 840 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .free{fill:#fff;stroke:#999;stroke-width:1}
+    .unbacked{fill:#fff;stroke:#6c8ebf;stroke-width:1.2;stroke-dasharray:4 3}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="10" y="10" width="400" height="276" rx="4" class="group"/>
+  <text x="210" y="34" text-anchor="middle" class="lg b">PagedAttention</text>
+  <rect x="430" y="10" width="400" height="276" rx="4" class="group"/>
+  <text x="630" y="34" text-anchor="middle" class="lg b">vAttention</text>
+  <rect x="60" y="48" width="300" height="44" rx="6" class="orange"/>
+  <text x="210" y="67" text-anchor="middle">Attention kernel (paged)</text>
+  <text x="210" y="84" text-anchor="middle" class="sm">reads the block table, gathers blocks</text>
+  <path d="M210,92 L210,120" class="edge"/>
+  <rect x="60" y="122" width="300" height="36" rx="4" class="white"/>
+  <text x="210" y="145" text-anchor="middle">Block table for request A: 7, 1, 4</text>
+  <path d="M210,158 L210,228" class="edge"/>
+  <text x="218" y="198" class="sm">software lookup per block</text>
+  <rect x="48" y="230" width="34" height="28" class="free"/>
+  <text x="65" y="249" text-anchor="middle" class="sm">0</text>
+  <rect x="84" y="230" width="34" height="28" class="blue"/>
+  <text x="101" y="249" text-anchor="middle" class="sm">1</text>
+  <rect x="120" y="230" width="34" height="28" class="free"/>
+  <text x="137" y="249" text-anchor="middle" class="sm">2</text>
+  <rect x="156" y="230" width="34" height="28" class="free"/>
+  <text x="173" y="249" text-anchor="middle" class="sm">3</text>
+  <rect x="192" y="230" width="34" height="28" class="blue"/>
+  <text x="209" y="249" text-anchor="middle" class="sm">4</text>
+  <rect x="228" y="230" width="34" height="28" class="free"/>
+  <text x="245" y="249" text-anchor="middle" class="sm">5</text>
+  <rect x="264" y="230" width="34" height="28" class="free"/>
+  <text x="281" y="249" text-anchor="middle" class="sm">6</text>
+  <rect x="300" y="230" width="34" height="28" class="blue"/>
+  <text x="317" y="249" text-anchor="middle" class="sm">7</text>
+  <rect x="336" y="230" width="34" height="28" class="free"/>
+  <text x="353" y="249" text-anchor="middle" class="sm">8</text>
+  <text x="210" y="276" text-anchor="middle" class="sm">physical KV blocks in GPU memory</text>
+  <rect x="480" y="48" width="300" height="44" rx="6" class="orange"/>
+  <text x="630" y="67" text-anchor="middle">Attention kernel (unchanged)</text>
+  <text x="630" y="84" text-anchor="middle" class="sm">reads one contiguous buffer</text>
+  <path d="M630,92 L630,106" class="edge"/>
+  <rect x="480" y="128" width="60" height="32" class="blue"/>
+  <text x="510" y="149" text-anchor="middle" class="sm">page 0</text>
+  <rect x="540" y="128" width="60" height="32" class="blue"/>
+  <text x="570" y="149" text-anchor="middle" class="sm">page 1</text>
+  <rect x="600" y="128" width="60" height="32" class="blue"/>
+  <text x="630" y="149" text-anchor="middle" class="sm">page 2</text>
+  <rect x="660" y="128" width="60" height="32" class="unbacked"/>
+  <text x="690" y="149" text-anchor="middle" class="sm">reserved</text>
+  <rect x="720" y="128" width="60" height="32" class="unbacked"/>
+  <text x="750" y="149" text-anchor="middle" class="sm">reserved</text>
+  <text x="630" y="122" text-anchor="middle" class="sm">contiguous virtual buffer, request A</text>
+  <path d="M630,160 L630,176" class="edge"/>
+  <rect x="480" y="178" width="300" height="34" rx="4" class="gray"/>
+  <text x="630" y="199" text-anchor="middle" class="sm">GPU page tables, set through CUDA VMM APIs</text>
+  <path d="M630,212 L630,228" class="edge"/>
+  <rect x="468" y="230" width="34" height="28" class="free"/>
+  <text x="485" y="249" text-anchor="middle" class="sm">0</text>
+  <rect x="504" y="230" width="34" height="28" class="free"/>
+  <text x="521" y="249" text-anchor="middle" class="sm">1</text>
+  <rect x="540" y="230" width="34" height="28" class="blue"/>
+  <text x="557" y="249" text-anchor="middle" class="sm">2</text>
+  <rect x="576" y="230" width="34" height="28" class="free"/>
+  <text x="593" y="249" text-anchor="middle" class="sm">3</text>
+  <rect x="612" y="230" width="34" height="28" class="free"/>
+  <text x="629" y="249" text-anchor="middle" class="sm">4</text>
+  <rect x="648" y="230" width="34" height="28" class="blue"/>
+  <text x="665" y="249" text-anchor="middle" class="sm">5</text>
+  <rect x="684" y="230" width="34" height="28" class="blue"/>
+  <text x="701" y="249" text-anchor="middle" class="sm">6</text>
+  <rect x="720" y="230" width="34" height="28" class="free"/>
+  <text x="737" y="249" text-anchor="middle" class="sm">7</text>
+  <rect x="756" y="230" width="34" height="28" class="free"/>
+  <text x="773" y="249" text-anchor="middle" class="sm">8</text>
+  <text x="630" y="276" text-anchor="middle" class="sm">physical pages, mapped on demand</text>
+  <text x="210" y="312" text-anchor="middle" class="sm">Translation in software: every kernel must read block tables.</text>
+  <text x="630" y="312" text-anchor="middle" class="sm">Translation in hardware: kernels see contiguous memory.</text>
+</svg>

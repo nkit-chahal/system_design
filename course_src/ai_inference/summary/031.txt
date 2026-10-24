@@ -1,0 +1,7 @@
+center: Token Accounting
+branch: The record | one row per request | tokens, latency, replica | tenant and adapter
+branch: Getting usage | include usage in streams | final chunk carries it | force it in vLLM
+branch: Counting tokens | trust the server | tokenizers differ | templates add tokens
+branch: Cost | input, cached, output | about $0.00013 per chat | output is 87% of cost
+branch: Storage | warehouse for records | Prometheus for aggregates | no request ID labels
+branch: Hygiene | no prompt text by default | reconcile daily

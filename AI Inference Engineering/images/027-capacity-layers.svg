@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="312" viewBox="0 0 860 312" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.it{font-style:italic}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .line{fill:none;stroke:#000;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e6e6e6;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:6 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="20" y="24" class="b">Requests per second during a 10× spike, against the capacity each layer adds</text>
+  <text x="20" y="66" class="b">Offered at 10×</text>
+  <rect x="230" y="44" width="150" height="32" class="purple"/>
+  <text x="305" y="65" text-anchor="middle" class="sm">premium 50</text>
+  <rect x="380" y="44" width="351" height="32" class="gray"/>
+  <text x="555.5" y="65" text-anchor="middle" class="sm">free 117</text>
+  <text x="739" y="65" class="sm b">167</text>
+  <text x="20" y="111">12 warm replicas</text>
+  <text x="20" y="127" class="sm">available now</text>
+  <rect x="230" y="96" width="180" height="32" class="green"/>
+  <text x="402" y="117" text-anchor="end" class="sm b">60</text>
+  <text x="20" y="163">+ 8 standby nodes</text>
+  <text x="20" y="179" class="sm">after about 3 min</text>
+  <rect x="230" y="148" width="300" height="32" class="green"/>
+  <text x="522" y="169" text-anchor="end" class="sm b">100</text>
+  <text x="20" y="215">38 replicas (quota)</text>
+  <text x="20" y="231" class="sm">after about 10 min</text>
+  <rect x="230" y="200" width="570" height="32" class="green"/>
+  <text x="792" y="221" text-anchor="end" class="sm b">190</text>
+  <path d="M731,40 V250" class="dash"/>
+  <path d="M380,40 V250" fill="none" stroke="#9673a6" stroke-width="1.2" stroke-dasharray="3 3"/>
+  <path d="M230,258 H830" class="axis"/>
+  <path d="M230,258 V264" class="axis"/>
+  <text x="230" y="278" text-anchor="middle" class="sm">0</text>
+  <path d="M380,258 V264" class="axis"/>
+  <text x="380" y="278" text-anchor="middle" class="sm">50</text>
+  <path d="M530,258 V264" class="axis"/>
+  <text x="530" y="278" text-anchor="middle" class="sm">100</text>
+  <path d="M680,258 V264" class="axis"/>
+  <text x="680" y="278" text-anchor="middle" class="sm">150</text>
+  <path d="M830,258 V264" class="axis"/>
+  <text x="830" y="278" text-anchor="middle" class="sm">200</text>
+  <text x="530" y="298" text-anchor="middle" class="sm">requests per second (about 5 per H100 replica at the latency targets)</text>
+</svg>

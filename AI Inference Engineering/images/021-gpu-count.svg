@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="340" viewBox="0 0 740 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.it{font-style:italic}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .line{fill:none;stroke:#000;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e6e6e6;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:6 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <path d="M80,255.714 H720" class="grid"/>
+  <path d="M80,221.429 H720" class="grid"/>
+  <path d="M80,187.143 H720" class="grid"/>
+  <path d="M80,152.857 H720" class="grid"/>
+  <path d="M80,118.571 H720" class="grid"/>
+  <path d="M80,84.2857 H720" class="grid"/>
+  <path d="M80,50 H720" class="grid"/>
+  <path d="M80,40 V290 H720" class="axis"/>
+  <path d="M75,290 H80" class="axis"/>
+  <text x="71" y="294" text-anchor="end" class="sm">0</text>
+  <path d="M75,255.714 H80" class="axis"/>
+  <text x="71" y="259.714" text-anchor="end" class="sm">8</text>
+  <path d="M75,221.429 H80" class="axis"/>
+  <text x="71" y="225.429" text-anchor="end" class="sm">16</text>
+  <path d="M75,187.143 H80" class="axis"/>
+  <text x="71" y="191.143" text-anchor="end" class="sm">24</text>
+  <path d="M75,152.857 H80" class="axis"/>
+  <text x="71" y="156.857" text-anchor="end" class="sm">32</text>
+  <path d="M75,118.571 H80" class="axis"/>
+  <text x="71" y="122.571" text-anchor="end" class="sm">40</text>
+  <path d="M75,84.2857 H80" class="axis"/>
+  <text x="71" y="88.2857" text-anchor="end" class="sm">48</text>
+  <path d="M75,50 H80" class="axis"/>
+  <text x="71" y="54" text-anchor="end" class="sm">56</text>
+  <text x="26" y="170" transform="rotate(-90 26 170)" text-anchor="middle">H100 GPUs</text>
+  <rect x="128" y="264.286" width="84" height="25.7143" class="orange"/>
+  <rect x="128" y="260" width="84" height="4.28571" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <text x="170" y="252" text-anchor="middle" class="b">6 + 1 = 7</text>
+  <text x="170" y="310" text-anchor="middle" class="sm">Llama 3.1 8B</text>
+  <text x="170" y="326" text-anchor="middle" class="sm">2 s end-to-end</text>
+  <rect x="278" y="272.857" width="84" height="17.1429" class="orange"/>
+  <rect x="278" y="268.571" width="84" height="4.28571" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <text x="320" y="260.571" text-anchor="middle" class="b">4 + 1 = 5</text>
+  <text x="320" y="310" text-anchor="middle" class="sm">Llama 3.1 8B</text>
+  <text x="320" y="326" text-anchor="middle" class="sm">streamed chat</text>
+  <rect x="428" y="84.2857" width="84" height="205.714" class="orange"/>
+  <rect x="428" y="67.1429" width="84" height="17.1429" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <text x="470" y="59.1429" text-anchor="middle" class="b">48 + 4 = 52</text>
+  <text x="470" y="310" text-anchor="middle" class="sm">Llama 3.1 70B</text>
+  <text x="470" y="326" text-anchor="middle" class="sm">TP=4, streamed chat</text>
+  <rect x="578" y="152.857" width="84" height="137.143" class="orange"/>
+  <rect x="578" y="118.571" width="84" height="34.2857" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <text x="620" y="110.571" text-anchor="middle" class="b">32 + 8 = 40</text>
+  <text x="620" y="310" text-anchor="middle" class="sm">Llama 3.1 70B</text>
+  <text x="620" y="326" text-anchor="middle" class="sm">TP=8, streamed chat</text>
+  <rect x="90" y="14" width="16" height="12" class="orange"/>
+  <text x="112" y="25" class="sm">serving GPUs at 80% of the SLA limit</text>
+  <rect x="370" y="14" width="16" height="12" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <text x="392" y="25" class="sm">N+1 spare replica</text>
+</svg>

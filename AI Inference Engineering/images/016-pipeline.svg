@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="240" viewBox="0 0 820 240" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <rect x="20" y="70" width="140" height="64" rx="6" class="purple"/>
+  <text x="90" y="96" text-anchor="middle" class="b">1. Define quality</text>
+  <text x="90" y="116" text-anchor="middle" class="sm">evals + threshold</text>
+  <path d="M160,102 L180,102" class="edge"/>
+
+  <rect x="182" y="70" width="140" height="64" rx="6" class="gray"/>
+  <text x="252" y="96" text-anchor="middle" class="b">2. BF16 baseline</text>
+  <text x="252" y="116" text-anchor="middle" class="sm">memory + quality</text>
+  <path d="M322,102 L342,102" class="edge"/>
+
+  <rect x="344" y="70" width="140" height="64" rx="6" class="orange"/>
+  <text x="414" y="96" text-anchor="middle" class="b">3. Quantize</text>
+  <text x="414" y="116" text-anchor="middle" class="sm">FP8 or 4-bit weights</text>
+  <path d="M484,102 L504,102" class="edge"/>
+
+  <rect x="506" y="70" width="140" height="64" rx="6" class="orange"/>
+  <text x="576" y="96" text-anchor="middle" class="b">4. Serve again</text>
+  <text x="576" y="116" text-anchor="middle" class="sm">memory + same evals</text>
+  <path d="M646,102 L666,102" class="edge"/>
+
+  <rect x="668" y="70" width="140" height="64" rx="6" class="white"/>
+  <text x="738" y="96" text-anchor="middle" class="b">5. Compare</text>
+  <text x="738" y="116" text-anchor="middle" class="sm">paired, with a CI</text>
+
+  <path d="M738,70 L738,48" class="edge"/>
+  <rect x="668" y="12" width="140" height="34" rx="6" class="green"/>
+  <text x="738" y="34" text-anchor="middle" class="sm">pass: ship it</text>
+
+  <path d="M738,134 L738,196 L414,196 L414,136" class="edge"/>
+  <text x="576" y="214" text-anchor="middle" class="sm">fail: another method, or keep sensitive layers in BF16</text>
+  <text x="20" y="232" class="sm">Steps 1 and 2 happen once. The evaluation commands in steps 2 and 4 are identical; only the server changes.</text>
+</svg>

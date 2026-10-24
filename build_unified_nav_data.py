@@ -5,6 +5,7 @@ import json
 
 DIRS = [
     'Python Course',
+    'AI Inference Engineering',
     'Behavioral Interview',
     'Coding Interview Patterns',
     'Generative AI System Design Interview',
@@ -17,6 +18,7 @@ DIRS = [
 # Category Display Names & Icons
 CATEGORY_META = {
     'Python Course': {'name': 'Python Masterclass', 'icon': '🐍', 'color': '#05673d'},
+    'AI Inference Engineering': {'name': 'AI Inference Engineering', 'icon': '🚀', 'color': '#0ea5e9'},
     'Behavioral Interview': {'name': 'Behavioral Interview', 'icon': '👥', 'color': '#f59e0b'},
     'Coding Interview Patterns': {'name': 'Coding Interview Patterns', 'icon': '⚡', 'color': '#3b82f6'},
     'Generative AI System Design Interview': {'name': 'Generative AI System Design', 'icon': '🤖', 'color': '#8b5cf6'},
@@ -35,6 +37,12 @@ def generate_unified_nav_data():
         files = sorted(glob.glob(os.path.join(dir_name, '*.html')))
         current_subgroup = 'General'
         category_tree[dir_name] = {}
+        # Generated courses can declare sidebar groups (e.g. stages) in course.json
+        course_meta_path = os.path.join(dir_name, 'course.json')
+        declared_subgroups = {}
+        if os.path.exists(course_meta_path):
+            with open(course_meta_path, encoding='utf-8') as f:
+                declared_subgroups = json.load(f).get('subgroups', {})
         
         for f in files:
             fname = os.path.basename(f)
@@ -60,7 +68,7 @@ def generate_unified_nav_data():
                 elif clean_title.lower() == 'introduction':
                     current_subgroup = 'General'
             else:
-                current_subgroup = 'General'
+                current_subgroup = declared_subgroups.get(fname, 'General')
                 
             lesson_obj = {
                 'category': dir_name,

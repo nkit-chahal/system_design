@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="420" viewBox="0 0 820 420" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="sms" x="40" y="60" width="20" height="20" patternUnits="userSpaceOnUse"><rect x="0" y="0" width="16" height="16" rx="2" fill="#f5f5f5" stroke="#666" stroke-width="1"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .zoom{fill:none;stroke:#999;stroke-width:1;stroke-dasharray:3 3}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- the chip -->
+  <text x="28" y="28" class="b">H100 SXM: 132 SMs</text>
+  <rect x="28" y="40" width="264" height="292" rx="4" class="group"/>
+  <rect x="40" y="60" width="240" height="220" fill="url(#sms)"/>
+  <rect x="260" y="60" width="16" height="16" rx="2" class="orange"/>
+  <rect x="40" y="290" width="236" height="30" rx="4" class="blue"/>
+  <text x="158" y="310" text-anchor="middle">L2 cache, 50 MB</text>
+
+  <!-- HBM stacks -->
+  <rect x="34" y="346" width="40" height="34" rx="3" class="blue"/>
+  <rect x="84" y="346" width="40" height="34" rx="3" class="blue"/>
+  <rect x="134" y="346" width="40" height="34" rx="3" class="blue"/>
+  <rect x="184" y="346" width="40" height="34" rx="3" class="blue"/>
+  <rect x="234" y="346" width="40" height="34" rx="3" class="blue"/>
+  <text x="154" y="402" text-anchor="middle">HBM3 stacks: 80 GB, 3.35 TB/s</text>
+
+  <!-- zoom lines -->
+  <path d="M276,60 L330,44" class="zoom"/>
+  <path d="M276,76 L330,396" class="zoom"/>
+
+  <!-- one SM -->
+  <rect x="330" y="44" width="470" height="352" rx="4" class="white"/>
+  <text x="565" y="66" text-anchor="middle" class="b">One streaming multiprocessor (SM)</text>
+
+  <!-- partition template positions: (345,78) (570,78) (345,206) (570,206) -->
+  <g>
+    <rect x="345" y="78" width="215" height="118" rx="4" class="group"/>
+    <rect x="352" y="86" width="200" height="24" rx="3" class="gray"/><text x="452" y="103" text-anchor="middle" class="sm">warp scheduler (32 threads)</text>
+    <rect x="352" y="116" width="200" height="30" rx="3" class="blue"/><text x="452" y="136" text-anchor="middle" class="sm">register file, 64 KB</text>
+    <rect x="352" y="152" width="98" height="36" rx="3" class="orange"/><text x="401" y="175" text-anchor="middle" class="sm">tensor core</text>
+    <rect x="454" y="152" width="98" height="36" rx="3" class="gray"/><text x="503" y="175" text-anchor="middle" class="sm">32 FP32 cores</text>
+  </g>
+  <g>
+    <rect x="570" y="78" width="215" height="118" rx="4" class="group"/>
+    <rect x="577" y="86" width="200" height="24" rx="3" class="gray"/><text x="677" y="103" text-anchor="middle" class="sm">warp scheduler (32 threads)</text>
+    <rect x="577" y="116" width="200" height="30" rx="3" class="blue"/><text x="677" y="136" text-anchor="middle" class="sm">register file, 64 KB</text>
+    <rect x="577" y="152" width="98" height="36" rx="3" class="orange"/><text x="626" y="175" text-anchor="middle" class="sm">tensor core</text>
+    <rect x="679" y="152" width="98" height="36" rx="3" class="gray"/><text x="728" y="175" text-anchor="middle" class="sm">32 FP32 cores</text>
+  </g>
+  <g>
+    <rect x="345" y="206" width="215" height="118" rx="4" class="group"/>
+    <rect x="352" y="214" width="200" height="24" rx="3" class="gray"/><text x="452" y="231" text-anchor="middle" class="sm">warp scheduler (32 threads)</text>
+    <rect x="352" y="244" width="200" height="30" rx="3" class="blue"/><text x="452" y="264" text-anchor="middle" class="sm">register file, 64 KB</text>
+    <rect x="352" y="280" width="98" height="36" rx="3" class="orange"/><text x="401" y="303" text-anchor="middle" class="sm">tensor core</text>
+    <rect x="454" y="280" width="98" height="36" rx="3" class="gray"/><text x="503" y="303" text-anchor="middle" class="sm">32 FP32 cores</text>
+  </g>
+  <g>
+    <rect x="570" y="206" width="215" height="118" rx="4" class="group"/>
+    <rect x="577" y="214" width="200" height="24" rx="3" class="gray"/><text x="677" y="231" text-anchor="middle" class="sm">warp scheduler (32 threads)</text>
+    <rect x="577" y="244" width="200" height="30" rx="3" class="blue"/><text x="677" y="264" text-anchor="middle" class="sm">register file, 64 KB</text>
+    <rect x="577" y="280" width="98" height="36" rx="3" class="orange"/><text x="626" y="303" text-anchor="middle" class="sm">tensor core</text>
+    <rect x="679" y="280" width="98" height="36" rx="3" class="gray"/><text x="728" y="303" text-anchor="middle" class="sm">32 FP32 cores</text>
+  </g>
+
+  <rect x="345" y="336" width="440" height="44" rx="4" class="blue"/>
+  <text x="565" y="355" text-anchor="middle">shared memory + L1: 256 KB</text>
+  <text x="565" y="372" text-anchor="middle" class="sm">up to 228 KB usable as shared memory by thread blocks</text>
+</svg>

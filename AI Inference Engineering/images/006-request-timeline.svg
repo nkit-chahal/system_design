@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .br{fill:none;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Lane labels -->
+  <text x="16" y="70" class="b">server</text>
+  <text x="16" y="131" class="b">client</text>
+
+  <!-- Server work: queue + prefill, then 9 decode steps -->
+  <rect x="90" y="50" width="210" height="32" class="orange"/>
+  <text x="195" y="71" text-anchor="middle">queue + prefill</text>
+  <rect x="302" y="50" width="41" height="32" class="blue"/>
+  <rect x="347" y="50" width="41" height="32" class="blue"/>
+  <rect x="392" y="50" width="41" height="32" class="blue"/>
+  <rect x="437" y="50" width="41" height="32" class="blue"/>
+  <rect x="482" y="50" width="41" height="32" class="blue"/>
+  <rect x="527" y="50" width="41" height="32" class="blue"/>
+  <rect x="572" y="50" width="41" height="32" class="blue"/>
+  <rect x="617" y="50" width="41" height="32" class="blue"/>
+  <rect x="662" y="50" width="41" height="32" class="blue"/>
+  <text x="502" y="40" text-anchor="middle" class="sm">decode steps, one token each</text>
+
+  <!-- Client: send and token arrivals -->
+  <rect x="84" y="118" width="12" height="18" class="purple"/>
+  <text x="90" y="156" text-anchor="middle" class="sm">send</text>
+  <g>
+    <rect x="296" y="118" width="8" height="18" class="green"/>
+    <rect x="341" y="118" width="8" height="18" class="green"/>
+    <rect x="386" y="118" width="8" height="18" class="green"/>
+    <rect x="431" y="118" width="8" height="18" class="green"/>
+    <rect x="476" y="118" width="8" height="18" class="green"/>
+    <rect x="521" y="118" width="8" height="18" class="green"/>
+    <rect x="566" y="118" width="8" height="18" class="green"/>
+    <rect x="611" y="118" width="8" height="18" class="green"/>
+    <rect x="656" y="118" width="8" height="18" class="green"/>
+    <rect x="701" y="118" width="8" height="18" class="green"/>
+  </g>
+  <text x="300" y="156" text-anchor="middle" class="sm">first token</text>
+  <text x="705" y="156" text-anchor="middle" class="sm">last token</text>
+  <rect x="726" y="118" width="12" height="18" class="purple"/>
+  <text x="760" y="131" class="sm">[DONE]</text>
+
+  <!-- Time axis -->
+  <path d="M70,176 L800,176" class="edge"/>
+  <text x="790" y="196" text-anchor="end" class="sm">time</text>
+
+  <!-- TTFT bracket -->
+  <path d="M90,204 L90,212 L300,212 L300,204" class="br"/>
+  <text x="195" y="230" text-anchor="middle" class="b">TTFT</text>
+  <!-- ITL bracket -->
+  <path d="M345,204 L345,212 L390,212 L390,204" class="br"/>
+  <text x="367" y="230" text-anchor="middle" class="b">ITL</text>
+  <text x="530" y="226" text-anchor="middle" class="sm">each gap between chunks is one ITL sample</text>
+
+  <!-- E2E bracket -->
+  <path d="M90,248 L90,256 L732,256 L732,248" class="br"/>
+  <text x="411" y="274" text-anchor="middle" class="b">end-to-end latency (E2E)</text>
+
+  <text x="16" y="304">TPOT = (E2E − TTFT) ÷ (output tokens − 1)</text>
+  <text x="460" y="304">per-user tokens/s = 1 ÷ TPOT</text>
+</svg>

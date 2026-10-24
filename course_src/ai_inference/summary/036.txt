@@ -1,0 +1,7 @@
+center: Long-Context Serving
+branch: Memory at 128K | 16 GiB per request | only 3 fit
+branch: Prefill cost | quadratic attention term | crossover at 61K tokens | about 13.4 s
+branch: Faster prefill | chunked prefill | ring attention | context parallelism
+branch: Offloading tiers | CPU DRAM, NVMe, remote | reload beats recompute | LMCache, Mooncake Store
+branch: Model designs | local and global layers | linear-attention hybrids | YaRN position scaling
+branch: Document QA design | prefill once at upload | keep the cache | RAG is cheaper

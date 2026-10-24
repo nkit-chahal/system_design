@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .grid{stroke:#e5e5e5;stroke-width:1}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="80" y="24" class="b">Prefill tokens per turn, one five-turn conversation</text>
+
+  <!-- Axes: y = 280 - tokens * 240/3500 -->
+  <line x1="80" y1="211.4" x2="780" y2="211.4" class="grid"/>
+  <line x1="80" y1="142.9" x2="780" y2="142.9" class="grid"/>
+  <line x1="80" y1="74.3" x2="780" y2="74.3" class="grid"/>
+  <line x1="80" y1="40" x2="80" y2="280" stroke="#000" stroke-width="1.2"/>
+  <line x1="80" y1="280" x2="780" y2="280" stroke="#000" stroke-width="1.2"/>
+  <g class="sm">
+    <line x1="75" y1="280" x2="80" y2="280" stroke="#000"/><text x="70" y="284" text-anchor="end">0</text>
+    <line x1="75" y1="211.4" x2="80" y2="211.4" stroke="#000"/><text x="70" y="215" text-anchor="end">1,000</text>
+    <line x1="75" y1="142.9" x2="80" y2="142.9" stroke="#000"/><text x="70" y="147" text-anchor="end">2,000</text>
+    <line x1="75" y1="74.3" x2="80" y2="74.3" stroke="#000"/><text x="70" y="78" text-anchor="end">3,000</text>
+    <text x="16" y="44">tokens</text>
+  </g>
+
+  <!-- Bars: without cache (red) and with radix cache (green) -->
+  <rect x="102" y="197.7" width="44" height="82.3" class="red"/><text x="124" y="191" text-anchor="middle" class="sm">1,200</text>
+  <rect x="154" y="266.3" width="44" height="13.7" class="green"/><text x="176" y="260" text-anchor="middle" class="sm">200</text>
+  <rect x="232" y="163.4" width="44" height="116.6" class="red"/><text x="254" y="157" text-anchor="middle" class="sm">1,700</text>
+  <rect x="284" y="266.3" width="44" height="13.7" class="green"/><text x="306" y="260" text-anchor="middle" class="sm">200</text>
+  <rect x="362" y="129.1" width="44" height="150.9" class="red"/><text x="384" y="123" text-anchor="middle" class="sm">2,200</text>
+  <rect x="414" y="266.3" width="44" height="13.7" class="green"/><text x="436" y="260" text-anchor="middle" class="sm">200</text>
+  <rect x="492" y="94.9" width="44" height="185.1" class="red"/><text x="514" y="89" text-anchor="middle" class="sm">2,700</text>
+  <rect x="544" y="266.3" width="44" height="13.7" class="green"/><text x="566" y="260" text-anchor="middle" class="sm">200</text>
+  <rect x="622" y="60.6" width="44" height="219.4" class="red"/><text x="644" y="54" text-anchor="middle" class="sm">3,200</text>
+  <rect x="674" y="266.3" width="44" height="13.7" class="green"/><text x="696" y="260" text-anchor="middle" class="sm">200</text>
+
+  <g class="sm">
+    <text x="150" y="298" text-anchor="middle">Turn 1</text>
+    <text x="280" y="298" text-anchor="middle">Turn 2</text>
+    <text x="410" y="298" text-anchor="middle">Turn 3</text>
+    <text x="540" y="298" text-anchor="middle">Turn 4</text>
+    <text x="670" y="298" text-anchor="middle">Turn 5</text>
+  </g>
+
+  <!-- Legend -->
+  <rect x="80" y="310" width="16" height="12" class="red"/><text x="102" y="321" class="sm">no prefix cache: 11,000 tokens in total</text>
+  <rect x="380" y="310" width="16" height="12" class="green"/><text x="402" y="321" class="sm">radix cache: 1,000 tokens in total (91% less)</text>
+  <text x="96" y="44" class="sm">1,000-token system prompt, 200-token messages, 300-token answers</text>
+</svg>

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="262" viewBox="0 0 820 262" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .ghost{fill:none;stroke:#b85450;stroke-width:1.2;stroke-dasharray:5 4}
+    .wire{stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Before -->
+  <text x="20" y="26" class="b">Before: the KV pool is full</text>
+  <line x1="220" y1="90" x2="75" y2="140" class="wire"/>
+  <line x1="220" y1="90" x2="200" y2="140" class="wire"/>
+  <line x1="220" y1="90" x2="325" y2="140" class="wire"/>
+  <rect x="150" y="46" width="140" height="44" rx="6" class="orange"/>
+  <text x="220" y="64" text-anchor="middle">System prompt</text>
+  <text x="220" y="82" text-anchor="middle" class="sm">lock 1</text>
+  <rect x="20" y="140" width="110" height="44" rx="6" class="orange"/>
+  <text x="75" y="158" text-anchor="middle">Conv A</text>
+  <text x="75" y="176" text-anchor="middle" class="sm">lock 1 (running)</text>
+  <rect x="145" y="140" width="110" height="44" rx="6" class="blue"/>
+  <text x="200" y="158" text-anchor="middle">Conv C</text>
+  <text x="200" y="176" text-anchor="middle" class="sm">used 12 s ago</text>
+  <rect x="270" y="140" width="110" height="44" rx="6" class="blue"/>
+  <text x="325" y="158" text-anchor="middle">Conv D</text>
+  <text x="325" y="176" text-anchor="middle" class="sm">used 3 s ago</text>
+
+  <line x1="410" y1="16" x2="410" y2="196" stroke="#999" stroke-dasharray="5 4"/>
+
+  <!-- After -->
+  <text x="430" y="26" class="b">After: the least recently used leaf is freed</text>
+  <line x1="630" y1="90" x2="485" y2="140" class="wire"/>
+  <line x1="630" y1="90" x2="735" y2="140" class="wire"/>
+  <rect x="560" y="46" width="140" height="44" rx="6" class="orange"/>
+  <text x="630" y="64" text-anchor="middle">System prompt</text>
+  <text x="630" y="82" text-anchor="middle" class="sm">lock 1</text>
+  <rect x="430" y="140" width="110" height="44" rx="6" class="orange"/>
+  <text x="485" y="158" text-anchor="middle">Conv A</text>
+  <text x="485" y="176" text-anchor="middle" class="sm">lock 1 (running)</text>
+  <rect x="555" y="140" width="110" height="44" rx="6" class="ghost"/>
+  <text x="610" y="158" text-anchor="middle">Conv C</text>
+  <text x="610" y="176" text-anchor="middle" class="sm">evicted</text>
+  <rect x="680" y="140" width="110" height="44" rx="6" class="blue"/>
+  <text x="735" y="158" text-anchor="middle">Conv D</text>
+  <text x="735" y="176" text-anchor="middle" class="sm">used 3 s ago</text>
+
+  <!-- Notes -->
+  <text x="20" y="222" class="sm">Candidates are unlocked leaves only (C and D). LRU frees C first; D is next if more room is needed.</text>
+  <text x="20" y="242" class="sm">Locked nodes (System prompt, Conv A) are never evicted while a running request uses them.</text>
+</svg>

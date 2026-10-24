@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="340" viewBox="0 0 860 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+    <pattern id="redhatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a8a6" stroke-width="3"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dedge{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .grid{stroke:#e3e3e3;stroke-width:1}
+    .guide{stroke:#666;stroke-width:1;stroke-dasharray:5 4;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="28" class="b">Level of warmth</text>
+  <text x="330" y="28" class="b">Time to serve</text>
+  <text x="680" y="28" class="b">Paid while idle</text>
+  <text x="16" y="70">Cold: no GPU node</text>
+  <rect x="330" y="52" width="242.7" height="26" class="red"/>
+  <text x="578.7" y="70" class="sm">≈ 8.4 min</text>
+  <text x="680" y="70" class="sm">nothing</text>
+  <text x="16" y="122">Node up, image cached</text>
+  <rect x="330" y="104" width="83.8" height="26" class="orange"/>
+  <text x="419.8" y="122" class="sm">≈ 2.9 min</text>
+  <text x="680" y="122" class="sm">idle GPUs on the node</text>
+  <line x1="16" y1="98" x2="844" y2="98" stroke="#e3e3e3"/>
+  <text x="16" y="174">+ weights, compile cache on NVMe</text>
+  <rect x="330" y="156" width="43.3" height="26" class="yellow"/>
+  <text x="379.3" y="174" class="sm">≈ 1.5 min</text>
+  <text x="680" y="174" class="sm">same, plus local disk</text>
+  <line x1="16" y1="150" x2="844" y2="150" stroke="#e3e3e3"/>
+  <text x="16" y="226">Sleeping engine (vLLM sleep mode)</text>
+  <rect x="330" y="208" width="3.0" height="26" class="green"/>
+  <text x="339.0" y="226" class="sm">seconds</text>
+  <text x="680" y="226" class="sm">GPU slot + CPU RAM</text>
+  <line x1="16" y1="202" x2="844" y2="202" stroke="#e3e3e3"/>
+  <text x="16" y="278">Hot replica (minimum replicas)</text>
+  <rect x="330" y="260" width="3.0" height="26" class="green"/>
+  <text x="339.0" y="278" class="sm">0</text>
+  <text x="680" y="278" class="sm">a whole idle GPU</text>
+  <line x1="16" y1="254" x2="844" y2="254" stroke="#e3e3e3"/>
+  <path d="M842,60 L842,290" class="edge"/>
+  <text x="836" y="300" text-anchor="end" class="sm">more warmth, more idle cost</text>
+  <text x="16" y="328" class="sm">Times are the planning values from Figure 1; the sleeping engine copies 16 GB back over PCIe when it wakes.</text>
+</svg>

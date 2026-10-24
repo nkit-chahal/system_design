@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="450" viewBox="0 0 860 450" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .gridl{stroke:#e3e3e3;stroke-width:1}
+    .load{fill:none;stroke:#9673a6;stroke-width:2.4}
+    .cap{stroke:#d79b00;stroke-width:2;stroke-dasharray:8 4}
+    .chat{fill:none;stroke:#000;stroke-width:1.6}
+    .batch{fill:#d5e8d4;stroke:none}
+    .lbl{fill:#fff;stroke:#82b366;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Legend -->
+  <line x1="80" y1="24" x2="104" y2="24" class="load"/><text x="110" y="28" class="sm">chat traffic (requests/s)</text>
+  <line x1="270" y1="24" x2="294" y2="24" class="chat"/><text x="300" y="28" class="sm">H100s held for chat (20% headroom)</text>
+  <rect x="520" y="17" width="20" height="14" class="batch" stroke="#82b366" stroke-width="1"/><text x="546" y="28" class="sm">lent to the batch job</text>
+  <line x1="680" y1="24" x2="704" y2="24" class="cap"/><text x="710" y="28" class="sm">7 reserved H100s</text>
+
+  <path d="M80,302.9H776M80,265.7H776M80,228.6H776M80,191.4H776M80,154.3H776M80,117.1H776M80,80.0H776" class="gridl"/>
+  <path d="M80.0,80.0 L80.0,265.7 L109.0,265.7 L109.0,265.7 L138.0,265.7 L138.0,265.7 L167.0,265.7 L167.0,265.7 L196.0,265.7 L196.0,265.7 L225.0,265.7 L225.0,265.7 L254.0,265.7 L254.0,265.7 L283.0,265.7 L283.0,154.3 L312.0,154.3 L312.0,80.0 L341.0,80.0 L341.0,80.0 L370.0,80.0 L370.0,80.0 L399.0,80.0 L399.0,80.0 L428.0,80.0 L428.0,80.0 L457.0,80.0 L457.0,80.0 L486.0,80.0 L486.0,80.0 L515.0,80.0 L515.0,80.0 L544.0,80.0 L544.0,80.0 L573.0,80.0 L573.0,117.1 L602.0,117.1 L602.0,154.3 L631.0,154.3 L631.0,191.4 L660.0,191.4 L660.0,265.7 L689.0,265.7 L689.0,265.7 L718.0,265.7 L718.0,265.7 L747.0,265.7 L747.0,265.7 L776.0,265.7 L776.0,80.0 Z" class="batch"/>
+  <line x1="80" y1="80.0" x2="776" y2="80.0" class="cap"/>
+  <polyline points="80.0,265.7 109.0,265.7 109.0,265.7 138.0,265.7 138.0,265.7 167.0,265.7 167.0,265.7 196.0,265.7 196.0,265.7 225.0,265.7 225.0,265.7 254.0,265.7 254.0,265.7 283.0,265.7 283.0,154.3 312.0,154.3 312.0,80.0 341.0,80.0 341.0,80.0 370.0,80.0 370.0,80.0 399.0,80.0 399.0,80.0 428.0,80.0 428.0,80.0 457.0,80.0 457.0,80.0 486.0,80.0 486.0,80.0 515.0,80.0 515.0,80.0 544.0,80.0 544.0,80.0 573.0,80.0 573.0,117.1 602.0,117.1 602.0,154.3 631.0,154.3 631.0,191.4 660.0,191.4 660.0,265.7 689.0,265.7 689.0,265.7 718.0,265.7 718.0,265.7 747.0,265.7 747.0,265.7 776.0,265.7" class="chat"/>
+  <polyline points="80.0,280.6 87.2,280.6 94.5,280.6 101.8,280.6 109.0,280.6 116.2,280.6 123.5,280.6 130.8,280.6 138.0,280.6 145.2,280.6 152.5,280.6 159.8,280.6 167.0,280.6 174.2,280.6 181.5,280.6 188.8,280.6 196.0,280.6 203.2,280.6 210.5,280.6 217.8,280.6 225.0,280.6 232.2,280.6 239.5,280.6 246.8,280.6 254.0,280.6 261.2,280.6 268.5,280.6 275.8,280.6 283.0,280.6 290.2,263.9 297.5,247.1 304.8,230.4 312.0,213.7 319.2,197.0 326.5,180.3 333.8,163.6 341.0,146.9 348.2,143.6 355.5,140.4 362.8,137.1 370.0,133.9 377.2,130.6 384.5,127.4 391.8,124.1 399.0,120.9 406.2,117.6 413.5,114.4 420.8,111.1 428.0,107.9 435.2,104.6 442.5,101.4 449.8,98.1 457.0,94.9 464.2,99.0 471.5,103.2 478.8,107.4 486.0,111.6 493.2,115.8 500.5,119.9 507.8,124.1 515.0,128.3 522.2,132.5 529.5,136.6 536.8,140.8 544.0,145.0 551.2,149.2 558.5,153.4 565.8,157.5 573.0,161.7 580.2,171.6 587.5,181.5 594.8,191.4 602.0,201.3 609.2,211.2 616.5,221.1 623.8,231.0 631.0,241.0 638.2,250.9 645.5,260.8 652.8,270.7 660.0,280.6 667.2,280.6 674.5,280.6 681.8,280.6 689.0,280.6 696.2,280.6 703.5,280.6 710.8,280.6 718.0,280.6 725.2,280.6 732.5,280.6 739.8,280.6 747.0,280.6 754.2,280.6 761.5,280.6 768.8,280.6 776.0,280.6" class="load"/>
+
+  <path d="M80,76 L80,340 L776,340 L776,76" class="axis"/>
+  <path d="M80.0,340V346M196.0,340V346M312.0,340V346M428.0,340V346M544.0,340V346M660.0,340V346M776.0,340V346" stroke="#000"/>
+  <text x="80.0" y="361" text-anchor="middle" class="sm">00:00</text><text x="196.0" y="361" text-anchor="middle" class="sm">04:00</text><text x="312.0" y="361" text-anchor="middle" class="sm">08:00</text><text x="428.0" y="361" text-anchor="middle" class="sm">12:00</text><text x="544.0" y="361" text-anchor="middle" class="sm">16:00</text><text x="660.0" y="361" text-anchor="middle" class="sm">20:00</text><text x="776.0" y="361" text-anchor="middle" class="sm">24:00</text>
+  <text x="72" y="344.0" text-anchor="end" class="sm">0</text><text x="72" y="306.9" text-anchor="end" class="sm">5</text><text x="72" y="269.7" text-anchor="end" class="sm">10</text><text x="72" y="232.6" text-anchor="end" class="sm">15</text><text x="72" y="195.4" text-anchor="end" class="sm">20</text><text x="72" y="158.3" text-anchor="end" class="sm">25</text><text x="72" y="121.1" text-anchor="end" class="sm">30</text><text x="72" y="84.0" text-anchor="end" class="sm">35</text>
+  <text x="784" y="344.0" class="sm">0</text><text x="784" y="306.9" class="sm">1</text><text x="784" y="269.7" class="sm">2</text><text x="784" y="232.6" class="sm">3</text><text x="784" y="195.4" class="sm">4</text><text x="784" y="158.3" class="sm">5</text><text x="784" y="121.1" class="sm">6</text><text x="784" y="84.0" class="sm">7</text>
+  <text x="428" y="384" text-anchor="middle">time of day</text>
+  <text x="32" y="210" text-anchor="middle" transform="rotate(-90 32 210)">requests per second</text>
+  <text x="826" y="210" text-anchor="middle" transform="rotate(90 826 210)">H100s (5 requests/s each)</text>
+
+  <rect x="114.8" y="146.9" width="150" height="40" rx="5" class="lbl"/>
+  <text x="189.8" y="163.9" text-anchor="middle" class="sm b">5 H100s to batch</text>
+  <text x="189.8" y="179.9" text-anchor="middle" class="sm">overnight</text>
+  <rect x="671.6" y="146.9" width="96" height="40" rx="5" class="lbl"/>
+  <text x="719.6" y="163.9" text-anchor="middle" class="sm b">from 20:00</text>
+  <text x="719.6" y="179.9" text-anchor="middle" class="sm">to 07:00</text>
+  <text x="457.0" y="139.4" text-anchor="middle" class="sm">peak 33 req/s</text>
+  <text x="181.5" y="298.6" text-anchor="middle" class="sm">night 8 req/s</text>
+
+  <text x="80" y="414">Chat needs ≈ 80 of the fleet's 168 GPU-hours a day (U = 48%). Batch fills ≈ 63 more: U ≈ 85%.</text>
+  <text x="80" y="436" class="sm">Illustrative daily cycle averaging 16.7 requests/s. The handback starts before the 07:00 ramp to avoid cold starts.</text>
+</svg>

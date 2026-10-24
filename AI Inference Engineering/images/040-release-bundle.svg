@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="360" viewBox="0 0 860 360" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .wire{stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <line x1="150" y1="76" x2="430" y2="128" class="wire"/>
+  <line x1="150" y1="214" x2="430" y2="174" class="wire"/>
+  <line x1="430" y1="76" x2="430" y2="128" class="wire"/>
+  <line x1="430" y1="214" x2="430" y2="174" class="wire"/>
+  <line x1="710" y1="76" x2="430" y2="128" class="wire"/>
+  <line x1="710" y1="214" x2="430" y2="174" class="wire"/>
+  <rect x="20" y="16" width="260" height="60" rx="6" class="blue"/><text x="150" y="40" text-anchor="middle" class="b">Engine image</text><text x="150" y="60" text-anchor="middle" class="sm">vllm/vllm-openai@sha256:…</text>
+  <rect x="300" y="16" width="260" height="60" rx="6" class="blue"/><text x="430" y="40" text-anchor="middle" class="b">Model weights</text><text x="430" y="60" text-anchor="middle" class="sm">--revision &lt;commit hash&gt;</text>
+  <rect x="580" y="16" width="260" height="60" rx="6" class="blue"/><text x="710" y="40" text-anchor="middle" class="b">Tokenizer and chat template</text><text x="710" y="60" text-anchor="middle" class="sm">--tokenizer-revision &lt;commit&gt;</text>
+  <rect x="20" y="214" width="260" height="60" rx="6" class="blue"/><text x="150" y="238" text-anchor="middle" class="b">Generation defaults</text><text x="150" y="258" text-anchor="middle" class="sm">--generation-config (auto reads the model's)</text>
+  <rect x="300" y="214" width="260" height="60" rx="6" class="blue"/><text x="430" y="238" text-anchor="middle" class="b">Engine flags</text><text x="430" y="258" text-anchor="middle" class="sm">--max-model-len, --max-num-seqs, …</text>
+  <rect x="580" y="214" width="260" height="60" rx="6" class="blue"/><text x="710" y="238" text-anchor="middle" class="b">GPU driver</text><text x="710" y="258" text-anchor="middle" class="sm">node pool image and version</text>
+  <rect x="300" y="122" width="260" height="58" rx="6" class="orange"/><text x="430" y="146" text-anchor="middle" class="lg b">Release chat-2026-10-20</text><text x="430" y="166" text-anchor="middle" class="sm">one ID, one manifest</text>
+  <rect x="20" y="294" width="400" height="52" rx="6" class="green"/><text x="220" y="316" text-anchor="middle" class="sm b">Pinned: rollback restores all six at once</text><text x="220" y="334" text-anchor="middle" class="sm">every replica reports the release ID on its metrics</text>
+  <rect x="440" y="294" width="400" height="52" rx="6" class="red"/><text x="640" y="316" text-anchor="middle" class="sm b">Unpinned: a model repo update can change</text><text x="640" y="334" text-anchor="middle" class="sm">the chat template or the default temperature</text>
+  </svg>

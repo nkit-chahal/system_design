@@ -1,0 +1,7 @@
+center: Multi-LoRA and Multi-Tenant Serving
+branch: LoRA adapters | frozen base plus low-rank A and B | 80 MiB at rank 16 | 0.52% of the base model
+branch: Merged vs unmerged | merged adds no latency | unmerged shares one base model
+branch: Batching adapters | Punica SGMV kernel | S-LoRA unified paging | each distinct adapter read per step
+branch: Caching tiers | GPU slots | CPU memory cache | disk and remote storage
+branch: Multi-tenancy | gateway binds tenant to adapter | per-tenant quotas and fairness | token records for billing
+branch: 500 customer adapters | 64 GPU slots, 5 GiB | home-group routing | about 8 H100s at peak

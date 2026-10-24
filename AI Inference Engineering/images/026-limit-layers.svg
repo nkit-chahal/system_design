@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="830" height="330" viewBox="0 0 830 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Redis store -->
+  <path d="M185,26 L185,70 A50,10 0 0 0 285,70 L285,26" class="blue"/>
+  <ellipse cx="235" cy="26" rx="50" ry="10" class="blue"/>
+  <text x="235" y="52" text-anchor="middle" class="sm b">Redis</text>
+  <text x="235" y="67" text-anchor="middle" class="sm">token buckets</text>
+  <path d="M235,82 L235,108" class="edge" style="marker-start:url(#arrow)"/>
+
+  <!-- Client -->
+  <rect x="16" y="135" width="90" height="50" rx="6" class="purple"/>
+  <text x="61" y="165" text-anchor="middle" class="b">client</text>
+  <path d="M106,160 L138,160" class="edge"/>
+
+  <!-- Gateway -->
+  <rect x="140" y="110" width="190" height="100" rx="6" class="orange"/>
+  <text x="235" y="134" text-anchor="middle" class="b">API gateway</text>
+  <text x="235" y="154" text-anchor="middle" class="sm">per tenant: requests/min,</text>
+  <text x="235" y="170" text-anchor="middle" class="sm">input and output tokens/min,</text>
+  <text x="235" y="186" text-anchor="middle" class="sm">concurrent requests</text>
+  <path d="M330,160 L378,160" class="edge"/>
+
+  <!-- Router -->
+  <rect x="380" y="110" width="190" height="100" rx="6" class="orange"/>
+  <text x="475" y="134" text-anchor="middle" class="b">Router / admission</text>
+  <text x="475" y="154" text-anchor="middle" class="sm">fleet-wide queue,</text>
+  <text x="475" y="170" text-anchor="middle" class="sm">priority and fair share,</text>
+  <text x="475" y="186" text-anchor="middle" class="sm">load shedding</text>
+  <path d="M570,160 L618,160" class="edge"/>
+
+  <!-- Engine -->
+  <rect x="620" y="110" width="190" height="100" rx="6" class="gray"/>
+  <text x="715" y="134" text-anchor="middle" class="b">Engine (vLLM)</text>
+  <text x="715" y="154" text-anchor="middle" class="sm">--max-num-seqs,</text>
+  <text x="715" y="170" text-anchor="middle" class="sm">KV cache admission,</text>
+  <text x="715" y="186" text-anchor="middle" class="sm">priority scheduling</text>
+
+  <!-- Exits -->
+  <path d="M235,210 L235,248" class="edge"/>
+  <rect x="150" y="250" width="170" height="52" rx="6" class="red"/>
+  <text x="235" y="272" text-anchor="middle" class="b">429 + Retry-After</text>
+  <text x="235" y="290" text-anchor="middle" class="sm">tenant over its limit</text>
+  <path d="M475,210 L475,248" class="edge"/>
+  <rect x="390" y="250" width="170" height="52" rx="6" class="red"/>
+  <text x="475" y="272" text-anchor="middle" class="b">503 + Retry-After</text>
+  <text x="475" y="290" text-anchor="middle" class="sm">fleet saturated</text>
+  <rect x="630" y="250" width="170" height="52" rx="6" class="gray"/>
+  <text x="715" y="272" text-anchor="middle" class="sm">waits in the engine queue</text>
+  <text x="715" y="290" text-anchor="middle" class="sm">or is preempted</text>
+  <path d="M715,210 L715,248" class="edge"/>
+
+  <text x="380" y="80" class="sm">The gateway knows the tenant, not the GPUs.</text>
+  <text x="380" y="96" class="sm">The router and engine know the GPUs, not the tenant.</text>
+</svg>

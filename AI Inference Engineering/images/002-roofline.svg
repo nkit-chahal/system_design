@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="390" viewBox="0 0 800 390" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="20" y="26" class="b">H100 SXM roofline for BF16: 989 TFLOPS peak, 3.35 TB/s of HBM bandwidth</text>
+  <line x1="130.0" y1="60" x2="130.0" y2="330" class="grid"/>
+  <line x1="290.0" y1="60" x2="290.0" y2="330" class="grid"/>
+  <line x1="450.0" y1="60" x2="450.0" y2="330" class="grid"/>
+  <line x1="610.0" y1="60" x2="610.0" y2="330" class="grid"/>
+  <line x1="770.0" y1="60" x2="770.0" y2="330" class="grid"/>
+  <line x1="90" y1="330.0" x2="770" y2="330.0" class="grid"/>
+  <line x1="90" y1="240.0" x2="770" y2="240.0" class="grid"/>
+  <line x1="90" y1="150.0" x2="770" y2="150.0" class="grid"/>
+  <line x1="90" y1="60.0" x2="770" y2="60.0" class="grid"/>
+  <path d="M90,50 L90,330 L770,330" class="axis"/>
+  <line x1="130.0" y1="330" x2="130.0" y2="335" class="axis"/><text x="130.0" y="350" text-anchor="middle" class="sm">1</text>
+  <line x1="290.0" y1="330" x2="290.0" y2="335" class="axis"/><text x="290.0" y="350" text-anchor="middle" class="sm">10</text>
+  <line x1="450.0" y1="330" x2="450.0" y2="335" class="axis"/><text x="450.0" y="350" text-anchor="middle" class="sm">100</text>
+  <line x1="610.0" y1="330" x2="610.0" y2="335" class="axis"/><text x="610.0" y="350" text-anchor="middle" class="sm">1,000</text>
+  <line x1="770.0" y1="330" x2="770.0" y2="335" class="axis"/><text x="770.0" y="350" text-anchor="middle" class="sm">10,000</text>
+  <line x1="85" y1="330.0" x2="90" y2="330.0" class="axis"/><text x="80" y="334.0" text-anchor="end" class="sm">1</text>
+  <line x1="85" y1="240.0" x2="90" y2="240.0" class="axis"/><text x="80" y="244.0" text-anchor="end" class="sm">10</text>
+  <line x1="85" y1="150.0" x2="90" y2="150.0" class="axis"/><text x="80" y="154.0" text-anchor="end" class="sm">100</text>
+  <line x1="85" y1="60.0" x2="90" y2="60.0" class="axis"/><text x="80" y="64.0" text-anchor="end" class="sm">1,000</text>
+  <text x="430" y="376" text-anchor="middle" class="sm">arithmetic intensity: FLOPs per byte read from memory (log scale)</text>
+  <text x="26" y="190" text-anchor="middle" class="sm" transform="rotate(-90 26 190)">attainable TFLOPS (log scale)</text>
+  <path d="M90,305.2 L525.2,60.4 L770,60.4" fill="none" stroke="#000" stroke-width="2.4"/>
+  <line x1="525.2" y1="60.4" x2="525.2" y2="330" class="dash"/>
+  <text x="531.2" y="120.4" class="sm">ridge point</text>
+  <text x="531.2" y="135.4" class="sm">989 ÷ 3.35 ≈ 295</text>
+  <text x="531.2" y="150.4" class="sm">FLOPs per byte</text>
+  <text x="585.2" y="52.4" class="sm">compute roof: 989 TFLOPS</text>
+  <text x="162.7" y="256.4" class="sm" transform="rotate(-29.4 162.7 256.4)">memory roof: 3.35 TB/s × intensity</text>
+  <text x="300" y="285" class="sm">memory-bound region</text>
+  <text x="620" y="285" class="sm">compute-bound region</text>
+  <circle cx="130.0" cy="282.7" r="7" class="red"/>
+  <text x="144.0" y="308.7" class="sm b">decode, batch 1</text>
+  <text x="144.0" y="323.7" class="sm">≈ 1 FLOP/byte → 3.35 TFLOPS</text>
+  <circle cx="388.2" cy="137.5" r="7" class="orange"/>
+  <text x="400.2" y="167.5" class="sm b">decode, batch 170</text>
+  <text x="400.2" y="182.5" class="sm">≈ 41 FLOPs/byte</text>
+  <circle cx="610.0" cy="60.4" r="7" class="green"/>
+  <text x="622.0" y="100.4" class="sm b">prefill, 2,000 tokens</text>
+  <text x="622.0" y="115.4" class="sm">≈ 1,000 FLOPs/byte</text>
+  <text x="400.2" y="197.5" class="sm">→ 138 TFLOPS</text>
+</svg>

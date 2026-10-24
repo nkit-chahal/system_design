@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="370" viewBox="0 0 860 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="84" y="26" class="b">Check</text><text x="404" y="26" class="b">Proves</text><text x="600" y="26" class="b">Misses</text><text x="782" y="26" class="b" text-anchor="middle">Used for</text>
+  <rect x="70" y="40" width="320" height="52" rx="6" class="green"/>
+  <text x="84" y="62" class="b">Real-traffic SLIs</text><text x="84" y="81" class="sm">error rate, TTFT, TPOT, quality</text>
+  <text x="404" y="70" class="sm">users are served well</text>
+  <text x="600" y="70" class="sm">lags; needs traffic</text>
+  <text x="782" y="70" class="sm" text-anchor="middle">alerts, rollout gates</text>
+  <line x1="404" y1="96" x2="850" y2="96" stroke="#ddd"/>
+  <rect x="70" y="102" width="320" height="52" rx="6" class="green"/>
+  <text x="84" y="124" class="b">Synthetic canary prompt</text><text x="84" y="143" class="sm">fixed prompt, known answer</text>
+  <text x="404" y="132" class="sm">GPU computes correct tokens</text>
+  <text x="600" y="132" class="sm">uses GPU time</text>
+  <text x="782" y="132" class="sm" text-anchor="middle">drain via automation</text>
+  <line x1="404" y1="158" x2="850" y2="158" stroke="#ddd"/>
+  <rect x="70" y="164" width="320" height="52" rx="6" class="blue"/>
+  <text x="84" y="186" class="b">Readiness passes</text><text x="84" y="205" class="sm">probe on /health</text>
+  <text x="404" y="194" class="sm">pod receives traffic</text>
+  <text x="600" y="194" class="sm">anything about outputs</text>
+  <text x="782" y="194" class="sm" text-anchor="middle">routing</text>
+  <line x1="404" y1="220" x2="850" y2="220" stroke="#ddd"/>
+  <rect x="70" y="226" width="320" height="52" rx="6" class="orange"/>
+  <text x="84" y="248" class="b">/health returns 200</text><text x="84" y="267" class="sm">engine check_health()</text>
+  <text x="404" y="256" class="sm">engine core has not died</text>
+  <text x="600" y="256" class="sm">GPU faults, hangs</text>
+  <text x="782" y="256" class="sm" text-anchor="middle">liveness, readiness</text>
+  <line x1="404" y1="282" x2="850" y2="282" stroke="#ddd"/>
+  <rect x="70" y="288" width="320" height="52" rx="6" class="gray"/>
+  <text x="84" y="310" class="b">Process running</text><text x="84" y="329" class="sm">container alive</text>
+  <text x="404" y="318" class="sm">the server started</text>
+  <text x="600" y="318" class="sm">everything else</text>
+  <text x="782" y="318" class="sm" text-anchor="middle">restart on exit</text>
+  <path d="M36,340 L36,46" class="edge"/>
+  <text x="26" y="200" text-anchor="middle" transform="rotate(-90 26 200)" class="sm">costs more, proves more</text>
+  <text x="70" y="362" class="sm">vLLM's /health returns 503 only when the engine core is dead; it does not run the model.</text>
+  </svg>

@@ -1,0 +1,7 @@
+center: Rate Limiting
+branch: What to limit | requests per minute | input and output tokens | concurrent requests
+branch: Algorithms | fixed window | sliding window counter | token bucket
+branch: Output tokens | reserve, then refund | reserve an estimate
+branch: Saying no | 429 + Retry-After | 503 when fleet saturated | rate-limit headers
+branch: Overload | fair queuing | load shedding | 250 ms queue bound
+branch: Redis | atomic Lua script | hash tag | fail open

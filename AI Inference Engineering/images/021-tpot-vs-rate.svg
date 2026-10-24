@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="450" viewBox="0 0 820 450" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.it{font-style:italic}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .line{fill:none;stroke:#000;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e6e6e6;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:6 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <path d="M70,265 H780" class="grid"/>
+  <path d="M70,190 H780" class="grid"/>
+  <path d="M70,115 H780" class="grid"/>
+  <path d="M70,40 H780" class="grid"/>
+  <path d="M70,40 V340 H780" class="axis"/>
+  <path d="M70,340 V345" class="axis"/>
+  <text x="70" y="360" text-anchor="middle" class="sm">0</text>
+  <path d="M171.429,340 V345" class="axis"/>
+  <text x="171.429" y="360" text-anchor="middle" class="sm">2</text>
+  <path d="M272.857,340 V345" class="axis"/>
+  <text x="272.857" y="360" text-anchor="middle" class="sm">4</text>
+  <path d="M374.286,340 V345" class="axis"/>
+  <text x="374.286" y="360" text-anchor="middle" class="sm">6</text>
+  <path d="M475.714,340 V345" class="axis"/>
+  <text x="475.714" y="360" text-anchor="middle" class="sm">8</text>
+  <path d="M577.143,340 V345" class="axis"/>
+  <text x="577.143" y="360" text-anchor="middle" class="sm">10</text>
+  <path d="M678.571,340 V345" class="axis"/>
+  <text x="678.571" y="360" text-anchor="middle" class="sm">12</text>
+  <path d="M780,340 V345" class="axis"/>
+  <text x="780" y="360" text-anchor="middle" class="sm">14</text>
+  <path d="M65,340 H70" class="axis"/>
+  <text x="61" y="344" text-anchor="end" class="sm">0</text>
+  <path d="M65,265 H70" class="axis"/>
+  <text x="61" y="269" text-anchor="end" class="sm">10</text>
+  <path d="M65,190 H70" class="axis"/>
+  <text x="61" y="194" text-anchor="end" class="sm">20</text>
+  <path d="M65,115 H70" class="axis"/>
+  <text x="61" y="119" text-anchor="end" class="sm">30</text>
+  <path d="M65,40 H70" class="axis"/>
+  <text x="61" y="44" text-anchor="end" class="sm">40</text>
+  <text x="425" y="380" text-anchor="middle">requests per second that one H100 receives</text>
+  <text x="22" y="190" transform="rotate(-90 22 190)" text-anchor="middle">time per output token (ms)</text>
+  <path d="M466.738,40 V340" fill="none" stroke="#999" stroke-width="1" stroke-dasharray="2 3"/>
+  <text x="466.738" y="32" text-anchor="middle" class="sm">chat saturates: 7.8</text>
+  <path d="M733.698,40 V340" fill="none" stroke="#999" stroke-width="1" stroke-dasharray="2 3"/>
+  <text x="733.698" y="32" text-anchor="middle" class="sm">short saturates: 13.1</text>
+  <path d="M70,288.632 H780" fill="none" stroke="#999" stroke-width="1" stroke-dasharray="2 3"/>
+  <text x="496" y="304.632" class="sm">6.85 ms floor: weight reads only</text>
+  <path d="M70,265 H780" class="dash"/>
+  <text x="721.286" y="259" text-anchor="end" class="sm">10 ms budget (short answers)</text>
+  <path d="M70,152.5 H780" class="dash"/>
+  <text x="78" y="146.5" class="sm">25 ms budget (streamed chat)</text>
+  <path d="M70.0,288.6 L72.5,288.4 L75.1,288.2 L77.6,288.0 L80.1,287.8 L82.7,287.6 L85.2,287.4 L87.8,287.2 L90.3,287.0 L92.8,286.8 L95.4,286.6 L97.9,286.4 L100.4,286.2 L103.0,285.9 L105.5,285.7 L108.0,285.5 L110.6,285.3 L113.1,285.1 L115.6,284.8 L118.2,284.6 L120.7,284.4 L123.3,284.2 L125.8,283.9 L128.3,283.7 L130.9,283.4 L133.4,283.2 L135.9,283.0 L138.5,282.7 L141.0,282.5 L143.5,282.2 L146.1,282.0 L148.6,281.7 L151.1,281.5 L153.7,281.2 L156.2,281.0 L158.8,280.7 L161.3,280.4 L163.8,280.2 L166.4,279.9 L168.9,279.6 L171.4,279.4 L174.0,279.1 L176.5,278.8 L179.0,278.5 L181.6,278.3 L184.1,278.0 L186.6,277.7 L189.2,277.4 L191.7,277.1 L194.2,276.8 L196.8,276.5 L199.3,276.2 L201.9,275.9 L204.4,275.6 L206.9,275.3 L209.5,275.0 L212.0,274.7 L214.5,274.3 L217.1,274.0 L219.6,273.7 L222.1,273.4 L224.7,273.0 L227.2,272.7 L229.7,272.3 L232.3,272.0 L234.8,271.7 L237.4,271.3 L239.9,271.0 L242.4,270.6 L245.0,270.2 L247.5,269.9 L250.0,269.5 L252.6,269.1 L255.1,268.8 L257.6,268.4 L260.2,268.0 L262.7,267.6 L265.2,267.2 L267.8,266.8 L270.3,266.4 L272.9,266.0 L275.4,265.6 L277.9,265.2 L280.5,264.8 L283.0,264.4 L285.5,263.9 L288.1,263.5 L290.6,263.1 L293.1,262.6 L295.7,262.2 L298.2,261.7 L300.7,261.3 L303.3,260.8 L305.8,260.3 L308.4,259.8 L310.9,259.4 L313.4,258.9 L316.0,258.4 L318.5,257.9 L321.0,257.4 L323.6,256.9 L326.1,256.4 L328.6,255.8 L331.2,255.3 L333.7,254.8 L336.2,254.2 L338.8,253.7 L341.3,253.1 L343.9,252.5 L346.4,252.0 L348.9,251.4 L351.5,250.8 L354.0,250.2 L356.5,249.6 L359.1,249.0 L361.6,248.4 L364.1,247.7 L366.7,247.1 L369.2,246.5 L371.7,245.8 L374.3,245.1 L376.8,244.5 L379.4,243.8 L381.9,243.1 L384.4,242.4 L387.0,241.7 L389.5,241.0 L392.0,240.2 L394.6,239.5 L397.1,238.7 L399.6,237.9 L402.2,237.2 L404.7,236.4 L407.2,235.6 L409.8,234.7 L412.3,233.9 L414.9,233.1 L417.4,232.2 L419.9,231.3 L422.5,230.5 L425.0,229.6 L427.5,228.6 L430.1,227.7 L432.6,226.8 L435.1,225.8 L437.7,224.8 L440.2,223.8 L442.7,222.8 L445.3,221.8 L447.8,220.7 L450.4,219.7 L452.9,218.6 L455.4,217.5 L458.0,216.4 L460.5,215.2 L463.0,214.0 L465.6,212.8 L468.1,211.6 L470.6,210.4 L473.2,209.1 L475.7,207.9 L478.2,206.5 L480.8,205.2 L483.3,203.8 L485.9,202.4 L488.4,201.0 L490.9,199.6 L493.5,198.1 L496.0,196.6 L498.5,195.0 L501.1,193.4 L503.6,191.8 L506.1,190.2 L508.7,188.5 L511.2,186.8 L513.7,185.0 L516.3,183.2 L518.8,181.3 L521.4,179.4 L523.9,177.5 L526.4,175.5 L529.0,173.5 L531.5,171.4 L534.0,169.2 L536.6,167.1 L539.1,164.8 L541.6,162.5 L544.2,160.1 L546.7,157.7 L549.2,155.2 L551.8,152.6 L554.3,149.9 L556.9,147.2 L559.4,144.4 L561.9,141.5 L564.5,138.5 L567.0,135.5 L569.5,132.3 L572.1,129.1 L574.6,125.7 L577.1,122.2 L579.7,118.6 L582.2,114.9 L584.8,111.1 L587.3,107.1 L589.8,103.0 L592.4,98.8 L594.9,94.4 L597.4,89.8 L600.0,85.1 L602.5,80.1 L605.0,75.0 L607.6,69.7 L610.1,64.1 L612.6,58.4 L615.2,52.3 L617.7,46.1 L620.1,40.0" fill="none" stroke="#d79b00" stroke-width="2.2"/>
+  <path d="M70.0,288.6 L72.5,288.3 L75.1,288.0 L77.6,287.6 L80.1,287.3 L82.7,286.9 L85.2,286.6 L87.8,286.2 L90.3,285.9 L92.8,285.5 L95.4,285.1 L97.9,284.7 L100.4,284.4 L103.0,284.0 L105.5,283.6 L108.0,283.2 L110.6,282.8 L113.1,282.4 L115.6,282.0 L118.2,281.5 L120.7,281.1 L123.3,280.7 L125.8,280.2 L128.3,279.8 L130.9,279.3 L133.4,278.9 L135.9,278.4 L138.5,277.9 L141.0,277.4 L143.5,276.9 L146.1,276.4 L148.6,275.9 L151.1,275.4 L153.7,274.9 L156.2,274.4 L158.8,273.8 L161.3,273.3 L163.8,272.7 L166.4,272.2 L168.9,271.6 L171.4,271.0 L174.0,270.4 L176.5,269.8 L179.0,269.2 L181.6,268.5 L184.1,267.9 L186.6,267.2 L189.2,266.6 L191.7,265.9 L194.2,265.2 L196.8,264.5 L199.3,263.8 L201.9,263.1 L204.4,262.3 L206.9,261.6 L209.5,260.8 L212.0,260.0 L214.5,259.2 L217.1,258.4 L219.6,257.5 L222.1,256.7 L224.7,255.8 L227.2,254.9 L229.7,254.0 L232.3,253.1 L234.8,252.1 L237.4,251.2 L239.9,250.2 L242.4,249.1 L245.0,248.1 L247.5,247.0 L250.0,246.0 L252.6,244.8 L255.1,243.7 L257.6,242.5 L260.2,241.3 L262.7,240.1 L265.2,238.9 L267.8,237.6 L270.3,236.2 L272.9,234.9 L275.4,233.5 L277.9,232.1 L280.5,230.6 L283.0,229.1 L285.5,227.5 L288.1,225.9 L290.6,224.3 L293.1,222.6 L295.7,220.9 L298.2,219.1 L300.7,217.2 L303.3,215.3 L305.8,213.4 L308.4,211.3 L310.9,209.2 L313.4,207.1 L316.0,204.8 L318.5,202.5 L321.0,200.1 L323.6,197.7 L326.1,195.1 L328.6,192.4 L331.2,189.7 L333.7,186.8 L336.2,183.8 L338.8,180.7 L341.3,177.5 L343.9,174.2 L346.4,170.7 L348.9,167.0 L351.5,163.2 L354.0,159.2 L356.5,155.1 L359.1,150.7 L361.6,146.2 L364.1,141.4 L366.7,136.3 L369.2,131.0 L371.7,125.5 L374.3,119.6 L376.8,113.4 L379.4,106.8 L381.9,99.8 L384.4,92.4 L387.0,84.5 L389.5,76.1 L392.0,67.2 L394.6,57.6 L397.1,47.3 L398.8,40.0" fill="none" stroke="#6c8ebf" stroke-width="2.2"/>
+  <path d="M279.1,265.0 V340" fill="none" stroke="#d79b00" stroke-width="1" stroke-dasharray="3 3"/>
+  <circle cx="279.1" cy="265.0" r="4.5" fill="#d79b00" stroke="#000" stroke-width="1"/>
+  <text x="285.146" y="295" class="sm b">max 4.12 req/s</text>
+  <path d="M358.1,152.5 V340" fill="none" stroke="#6c8ebf" stroke-width="1" stroke-dasharray="3 3"/>
+  <circle cx="358.1" cy="152.5" r="4.5" fill="#6c8ebf" stroke="#000" stroke-width="1"/>
+  <text x="366.057" y="144.5" class="sm b">max 5.68 req/s</text>
+  <circle cx="237.3" cy="271.3" r="4.5" fill="#fff" stroke="#d79b00" stroke-width="2"/>
+  <circle cx="300.4" cy="217.4" r="4.5" fill="#fff" stroke="#6c8ebf" stroke-width="2"/>
+  <text x="292.446" y="211.448" text-anchor="end" class="sm">80% plan: 4.54</text>
+  <path d="M70,402 h28" stroke="#d79b00" stroke-width="2.2"/>
+  <text x="104" y="406" class="sm">short answers (100 tokens)</text>
+  <path d="M290,402 h28" stroke="#6c8ebf" stroke-width="2.2"/>
+  <text x="324" y="406" class="sm">streamed chat (500 tokens)</text>
+  <circle cx="524" cy="402" r="4.5" fill="#000"/>
+  <text x="534" y="406" class="sm">SLA limit</text>
+  <circle cx="610" cy="402" r="4.5" fill="#fff" stroke="#000" stroke-width="2"/>
+  <text x="620" y="406" class="sm">80% planned load</text>
+  <text x="70" y="426" class="sm">Model prediction: TPOT = 6.85 ms ÷ (1 − r ÷ r_sat), with 70% bandwidth efficiency and 50% MFU.</text>
+</svg>

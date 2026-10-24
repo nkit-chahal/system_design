@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="380" viewBox="0 0 840 380" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="60" y="30" class="b">Metric</text>
+  <text x="340" y="30" class="b">Question it answers</text>
+  <text x="600" y="30" class="b">Blind spot</text>
+  <line x1="60" y1="38" x2="830" y2="38" stroke="#999"/>
+
+  <!-- Arrow: stricter toward the bottom -->
+  <path d="M30,56 L30,348" class="edge"/>
+  <text x="18" y="202" text-anchor="middle" class="sm" transform="rotate(-90 18 202)">stricter: closer to useful work</text>
+
+  <!-- Row 1 -->
+  <rect x="60" y="48" width="260" height="52" rx="6" class="red"/>
+  <text x="190" y="70" text-anchor="middle" class="b">GPU-Util</text>
+  <text x="190" y="88" text-anchor="middle" class="sm">nvidia-smi; DCGM_FI_DEV_GPU_UTIL</text>
+  <text x="340" y="79">Was any kernel running?</text>
+  <text x="600" y="79">One tiny kernel reads 100%</text>
+
+  <!-- Row 2 -->
+  <rect x="60" y="112" width="260" height="52" rx="6" class="gray"/>
+  <text x="190" y="134" text-anchor="middle" class="b">SM activity</text>
+  <text x="190" y="152" text-anchor="middle" class="sm">DCGM_FI_PROF_SM_ACTIVE</text>
+  <text x="340" y="143">What share of SMs had work?</text>
+  <text x="600" y="143">Stalled warps still count</text>
+
+  <!-- Row 3 -->
+  <rect x="60" y="176" width="260" height="52" rx="6" class="gray"/>
+  <text x="190" y="198" text-anchor="middle" class="b">SM occupancy</text>
+  <text x="190" y="216" text-anchor="middle" class="sm">DCGM_FI_PROF_SM_OCCUPANCY</text>
+  <text x="340" y="207">How many warps per SM?</text>
+  <text x="600" y="207">Higher is not always faster</text>
+
+  <!-- Row 4 -->
+  <rect x="60" y="240" width="260" height="52" rx="6" class="orange"/>
+  <text x="190" y="262" text-anchor="middle" class="b">Tensor and DRAM activity</text>
+  <text x="190" y="280" text-anchor="middle" class="sm" style="font-size:11px">…PIPE_TENSOR_ACTIVE, …DRAM_ACTIVE</text>
+  <text x="340" y="271">Were math pipes or memory busy?</text>
+  <text x="600" y="271">Busy cycles, not useful work</text>
+
+  <!-- Row 5 -->
+  <rect x="60" y="304" width="260" height="52" rx="6" class="green"/>
+  <text x="190" y="326" text-anchor="middle" class="b">MFU and MBU</text>
+  <text x="190" y="344" text-anchor="middle" class="sm">tokens/s × model FLOPs or bytes</text>
+  <text x="340" y="335">How much model work vs the peak?</text>
+  <text x="600" y="335">Needs a FLOP and byte model</text>
+</svg>

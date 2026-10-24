@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="345" viewBox="0 0 820 345" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="24" class="b">One adapted layer for a batch of 6 token rows from 3 customers</text>
+
+  <!-- Batch rows, sorted into segments -->
+  <g class="sm">
+    <rect x="20" y="48" width="120" height="26" rx="3" class="purple"/><text x="80" y="65" text-anchor="middle">acme row</text>
+    <rect x="20" y="78" width="120" height="26" rx="3" class="purple"/><text x="80" y="95" text-anchor="middle">acme row</text>
+    <rect x="20" y="116" width="120" height="26" rx="3" class="purple"/><text x="80" y="133" text-anchor="middle">globex row</text>
+    <rect x="20" y="154" width="120" height="26" rx="3" class="purple"/><text x="80" y="171" text-anchor="middle">initech row</text>
+    <rect x="20" y="184" width="120" height="26" rx="3" class="purple"/><text x="80" y="201" text-anchor="middle">initech row</text>
+    <rect x="20" y="214" width="120" height="26" rx="3" class="purple"/><text x="80" y="231" text-anchor="middle">initech row</text>
+  </g>
+  <text x="80" y="262" text-anchor="middle" class="sm">batch sorted into</text>
+  <text x="80" y="278" text-anchor="middle" class="sm">3 segments</text>
+  <line x1="140" y1="61" x2="160" y2="61" stroke="#000" stroke-width="1"/>
+  <line x1="140" y1="91" x2="160" y2="91" stroke="#000" stroke-width="1"/>
+  <line x1="140" y1="129" x2="160" y2="129" stroke="#000" stroke-width="1"/>
+  <line x1="140" y1="167" x2="160" y2="167" stroke="#000" stroke-width="1"/>
+  <line x1="140" y1="197" x2="160" y2="197" stroke="#000" stroke-width="1"/>
+  <line x1="140" y1="227" x2="160" y2="227" stroke="#000" stroke-width="1"/>
+  <line x1="160" y1="61" x2="160" y2="227" stroke="#000" stroke-width="1.2"/>
+  <path d="M160,80 L258,80" class="edge"/>
+  <path d="M160,210 L208,210" class="edge"/>
+
+  <!-- Base path -->
+  <rect x="260" y="50" width="250" height="60" rx="6" class="gray"/>
+  <text x="385" y="74" text-anchor="middle" class="b">Base: one batched multiply</text>
+  <text x="385" y="95" text-anchor="middle" class="sm">all 6 rows × W (4,096 × 4,096)</text>
+
+  <!-- SGMV -->
+  <rect x="210" y="132" width="440" height="160" rx="4" class="group"/>
+  <text x="222" y="152" class="b">SGMV: each segment uses its own adapter</text>
+  <text x="222" y="186" class="sm">acme (2 rows)</text>
+  <rect x="330" y="168" width="130" height="28" rx="4" class="orange"/><text x="395" y="187" text-anchor="middle" class="sm">shrink: × A (acme)</text>
+  <path d="M460,182 L488,182" class="edge"/>
+  <rect x="490" y="168" width="130" height="28" rx="4" class="orange"/><text x="555" y="187" text-anchor="middle" class="sm">expand: × B (acme)</text>
+  <text x="222" y="226" class="sm">globex (1 row)</text>
+  <rect x="330" y="208" width="130" height="28" rx="4" class="orange"/><text x="395" y="227" text-anchor="middle" class="sm">shrink: × A (globex)</text>
+  <path d="M460,222 L488,222" class="edge"/>
+  <rect x="490" y="208" width="130" height="28" rx="4" class="orange"/><text x="555" y="227" text-anchor="middle" class="sm">expand: × B (globex)</text>
+  <text x="222" y="266" class="sm">initech (3 rows)</text>
+  <rect x="330" y="248" width="130" height="28" rx="4" class="orange"/><text x="395" y="267" text-anchor="middle" class="sm">shrink: × A (initech)</text>
+  <path d="M460,262 L488,262" class="edge"/>
+  <rect x="490" y="248" width="130" height="28" rx="4" class="orange"/><text x="555" y="267" text-anchor="middle" class="sm">expand: × B (initech)</text>
+
+  <!-- Merge -->
+  <line x1="620" y1="182" x2="664" y2="182" stroke="#000" stroke-width="1.2"/>
+  <line x1="620" y1="222" x2="664" y2="222" stroke="#000" stroke-width="1.2"/>
+  <line x1="620" y1="262" x2="664" y2="262" stroke="#000" stroke-width="1.2"/>
+  <line x1="664" y1="182" x2="664" y2="262" stroke="#000" stroke-width="1.2"/>
+  <path d="M664,222 L682,222" class="edge"/>
+  <path d="M510,80 L700,80 L700,204" class="edge"/>
+  <circle cx="700" cy="222" r="16" class="white"/>
+  <text x="700" y="228" text-anchor="middle" class="lg b">+</text>
+  <path d="M716,222 L740,222" class="edge"/>
+  <rect x="742" y="200" width="62" height="44" rx="6" class="blue"/>
+  <text x="773" y="219" text-anchor="middle" class="b">h</text>
+  <text x="773" y="236" text-anchor="middle" class="sm">6 rows</text>
+
+  <text x="16" y="322">W is read once for the whole batch; each adapter's A and B are read once for its segment.</text>
+</svg>

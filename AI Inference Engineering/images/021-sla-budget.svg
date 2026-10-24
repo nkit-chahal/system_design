@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.it{font-style:italic}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .line{fill:none;stroke:#000;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e6e6e6;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:6 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="40" y="26" class="b">Reading 1: p95 end-to-end ≤ 2 s (the answer is shown all at once)</text>
+  <rect x="40" y="40" width="180" height="40" class="purple"/>
+  <text x="130" y="65" text-anchor="middle">TTFT ≤ 0.5 s</text>
+  <rect x="220" y="40" width="540" height="40" class="orange"/>
+  <path d="M274,40 V80 M328,40 V80 M382,40 V80 M436,40 V80 M490,40 V80 M544,40 V80 M598,40 V80 M652,40 V80 M706,40 V80 " stroke="#d79b00" stroke-width="0.6" fill="none"/>
+  <rect x="370" y="49" width="240" height="22" fill="#ffe6cc"/>
+  <text x="490" y="65" text-anchor="middle">150 tokens × 10 ms = 1.5 s</text>
+  <path d="M40,88 H760" class="axis"/>
+  <path d="M40,88 V94" class="axis"/>
+  <text x="40" y="108" text-anchor="middle" class="sm">0.0 s</text>
+  <path d="M220,88 V94" class="axis"/>
+  <text x="220" y="108" text-anchor="middle" class="sm">0.5 s</text>
+  <path d="M400,88 V94" class="axis"/>
+  <text x="400" y="108" text-anchor="middle" class="sm">1.0 s</text>
+  <path d="M580,88 V94" class="axis"/>
+  <text x="580" y="108" text-anchor="middle" class="sm">1.5 s</text>
+  <path d="M760,88 V94" class="axis"/>
+  <text x="760" y="108" text-anchor="middle" class="sm">2.0 s</text>
+  <text x="430" y="134" text-anchor="middle">n_out ≤ (2 s − TTFT) ÷ TPOT:  (2.0 s − 0.5 s) ÷ 10 ms = 150 tokens</text>
+  <line x1="16" y1="152" x2="804" y2="152" stroke="#999" stroke-dasharray="5 4"/>
+  <text x="40" y="180" class="b">Reading 2: p95 TTFT ≤ 2 s, then at most 25 ms per token (streamed chat)</text>
+  <rect x="40" y="212" width="96" height="40" class="purple"/>
+  <rect x="136" y="212" width="600" height="40" class="orange"/>
+  <text x="436" y="237" text-anchor="middle">500 tokens streamed at ≤ 25 ms each = 12.5 s</text>
+  <path d="M40,260 H760" class="axis"/>
+  <path d="M40,260 V266" class="axis"/>
+  <text x="40" y="280" text-anchor="middle" class="sm">0 s</text>
+  <path d="M136,260 V266" class="axis"/>
+  <text x="136" y="280" text-anchor="middle" class="sm">2 s</text>
+  <path d="M232,260 V266" class="axis"/>
+  <text x="232" y="280" text-anchor="middle" class="sm">4 s</text>
+  <path d="M328,260 V266" class="axis"/>
+  <text x="328" y="280" text-anchor="middle" class="sm">6 s</text>
+  <path d="M424,260 V266" class="axis"/>
+  <text x="424" y="280" text-anchor="middle" class="sm">8 s</text>
+  <path d="M520,260 V266" class="axis"/>
+  <text x="520" y="280" text-anchor="middle" class="sm">10 s</text>
+  <path d="M616,260 V266" class="axis"/>
+  <text x="616" y="280" text-anchor="middle" class="sm">12 s</text>
+  <path d="M736,260 V266" class="axis"/>
+  <text x="736" y="280" text-anchor="middle" class="sm">14.5 s</text>
+  <text x="142" y="205" class="sm">← TTFT ≤ 2 s: the user sees the first token</text>
+  <text x="430" y="306" text-anchor="middle">The SLA covers only the first token; the stream ends after about 14.5 s.</text>
+</svg>

@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .mark{stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Bands -->
+  <rect x="60" y="36" width="200" height="50" rx="4" class="green"/>
+  <text x="160" y="57" text-anchor="middle" class="b">safe to retry elsewhere</text>
+  <text x="160" y="75" text-anchor="middle" class="sm">nothing sent to the client yet</text>
+  <rect x="264" y="36" width="516" height="50" rx="4" class="red"/>
+  <text x="522" y="57" text-anchor="middle" class="b">a retry would repeat or duplicate output</text>
+  <text x="522" y="75" text-anchor="middle" class="sm">return an error instead, or resume from the tokens already sent</text>
+
+  <!-- Timeline -->
+  <rect x="60" y="120" width="100" height="34" class="gray"/>
+  <text x="110" y="142" text-anchor="middle" class="sm">queue</text>
+  <rect x="160" y="120" width="100" height="34" class="orange"/>
+  <text x="210" y="142" text-anchor="middle" class="sm">prefill</text>
+  <line x1="262" y1="110" x2="262" y2="164" stroke="#000" stroke-width="2"/>
+  <text x="262" y="104" text-anchor="middle" class="sm b">first token</text>
+  <!-- token ticks every 20px from 280 to 540, gap, then 620 to 760 -->
+  <g class="blue">
+    <rect x="276" y="128" width="8" height="18"/><rect x="296" y="128" width="8" height="18"/><rect x="316" y="128" width="8" height="18"/>
+    <rect x="336" y="128" width="8" height="18"/><rect x="356" y="128" width="8" height="18"/><rect x="376" y="128" width="8" height="18"/>
+    <rect x="396" y="128" width="8" height="18"/><rect x="416" y="128" width="8" height="18"/><rect x="436" y="128" width="8" height="18"/>
+    <rect x="456" y="128" width="8" height="18"/><rect x="476" y="128" width="8" height="18"/><rect x="496" y="128" width="8" height="18"/>
+    <rect x="636" y="128" width="8" height="18"/><rect x="656" y="128" width="8" height="18"/><rect x="676" y="128" width="8" height="18"/>
+    <rect x="696" y="128" width="8" height="18"/><rect x="716" y="128" width="8" height="18"/><rect x="736" y="128" width="8" height="18"/>
+  </g>
+  <text x="570" y="142" text-anchor="middle" class="sm">stall</text>
+  <path d="M60,170 L790,170" class="edge"/>
+  <text x="790" y="190" text-anchor="end" class="sm">time</text>
+
+  <!-- Timeouts -->
+  <line x1="300" y1="176" x2="300" y2="204" class="mark"/>
+  <path d="M62,196 L298,196" class="edge" style="marker-start:url(#arrow)"/>
+  <text x="180" y="216" text-anchor="middle" class="sm b">TTFT timeout</text>
+  <text x="180" y="232" text-anchor="middle" class="sm">no first token in time:</text>
+  <text x="180" y="248" text-anchor="middle" class="sm">retry on another replica</text>
+  <path d="M506,196 L630,196" class="edge" style="marker-start:url(#arrow)"/>
+  <text x="568" y="216" text-anchor="middle" class="sm b">idle-gap timeout</text>
+  <text x="568" y="232" text-anchor="middle" class="sm">no new token for too long: abort</text>
+
+  <text x="16" y="276">On every retry, close the first attempt's connection so the engine aborts it and frees its KV cache.</text>
+  <text x="16" y="298">A single total timeout does not work: a 2,000-token answer is slow by design, not because it is stuck.</text>
+</svg>

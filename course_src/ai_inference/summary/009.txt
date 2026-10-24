@@ -1,0 +1,7 @@
+center: vLLM
+branch: V1 processes | API server process | engine core process | one worker per GPU
+branch: Scheduler | decodes first, then prompts | 8,192 token default budget | 2,048 tokens for latency
+branch: KV cache manager | 16-token blocks | 26,624 blocks in 52 GiB
+branch: Prefix caching | hash of full blocks | LRU free queue | 62 shared blocks
+branch: Startup | torch.compile cache | CUDA graphs | enforce eager
+branch: Deploy and observe | vllm serve | /metrics endpoint | vllm bench serve

@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="270" viewBox="0 0 860 270" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+    <pattern id="redhatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a8a6" stroke-width="3"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dedge{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .grid{stroke:#e3e3e3;stroke-width:1}
+    .guide{stroke:#666;stroke-width:1;stroke-dasharray:5 4;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="65" class="b">Full pull</text>
+  <text x="16" y="119" class="b">Lazy pull</text>
+  <text x="16" y="173" class="b">Pre-pulled</text>
+  <rect x="200.0" y="44" width="372.0" height="32" class="yellow"/>
+  <text x="386.0" y="65" text-anchor="middle" class="sm">download all layers (≈ 9 GB compressed)</text>
+  <rect x="572.0" y="44" width="186.0" height="32" class="orange"/>
+  <text x="665.0" y="65" text-anchor="middle" class="sm">decompress + extract</text>
+  <path d="M758.0,40 L758.0,80" stroke="#82b366" stroke-width="3"/>
+  <text x="764.0" y="38" class="sm b">container starts</text>
+  <rect x="200.0" y="98" width="24.8" height="32" class="yellow"/>
+  <rect x="224.8" y="98" width="533.2" height="32" fill="url(#hatch)" stroke="#999"/>
+  <text x="491.4" y="119" text-anchor="middle" class="sm">files fetched on first access; the rest streams in the background</text>
+  <path d="M224.8,94 L224.8,134" stroke="#82b366" stroke-width="3"/>
+  <text x="230.8" y="92" class="sm b">container starts</text>
+  <path d="M200.0,148 L200.0,188" stroke="#82b366" stroke-width="3"/>
+  <text x="206.0" y="146" class="sm b">container starts</text>
+  <text x="274.4" y="173" class="sm">image already in the node's cache (DaemonSet pre-pull or baked node image)</text>
+  <path d="M200,210 L826,210" class="axis"/>
+  <line x1="200.0" y1="210" x2="200.0" y2="215" class="tick"/>
+  <text x="200.0" y="229" text-anchor="middle" class="sm">0 s</text>
+  <line x1="324.0" y1="210" x2="324.0" y2="215" class="tick"/>
+  <text x="324.0" y="229" text-anchor="middle" class="sm">20 s</text>
+  <line x1="448.0" y1="210" x2="448.0" y2="215" class="tick"/>
+  <text x="448.0" y="229" text-anchor="middle" class="sm">40 s</text>
+  <line x1="572.0" y1="210" x2="572.0" y2="215" class="tick"/>
+  <text x="572.0" y="229" text-anchor="middle" class="sm">60 s</text>
+  <line x1="696.0" y1="210" x2="696.0" y2="215" class="tick"/>
+  <text x="696.0" y="229" text-anchor="middle" class="sm">80 s</text>
+  <line x1="820.0" y1="210" x2="820.0" y2="215" class="tick"/>
+  <text x="820.0" y="229" text-anchor="middle" class="sm">100 s</text>
+  <text x="16" y="258" class="sm">Illustrative timings. Lazy pulling needs a snapshotter such as SOCI or stargz, or a managed feature such as GKE Image streaming.</text>
+</svg>

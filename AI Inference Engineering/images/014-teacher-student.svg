@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="822" height="314" viewBox="0 0 822 314" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{stroke:#000;stroke-width:1.2;fill:none}
+    .grid{stroke:#ddd;stroke-width:1;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="16" y="40" width="170" height="56" rx="6" class="purple"/>
+  <text x="101" y="64" text-anchor="middle">production</text>
+  <text x="101" y="82" text-anchor="middle">prompts</text>
+  <path d="M186,68 L244,68" class="edge"/>
+  <rect x="246" y="34" width="230" height="68" rx="6" class="gray"/>
+  <text x="361" y="64" text-anchor="middle" class="b">Teacher: Llama 3.1 70B</text>
+  <text x="361" y="82" text-anchor="middle" class="sm">4 × H100 per replica</text>
+  <path d="M476,68 L534,68" class="edge"/>
+  <rect x="536" y="40" width="270" height="56" rx="6" class="blue"/>
+  <text x="671" y="64" text-anchor="middle">answers and</text>
+  <text x="671" y="82" text-anchor="middle">token probabilities</text>
+  <path d="M671,96 L671,164" class="edge"/>
+  <text x="681" y="136" class="sm">training targets</text>
+  <rect x="536" y="166" width="270" height="68" rx="6" class="orange"/>
+  <text x="671" y="196" text-anchor="middle" class="b">Student: Llama 3.1 8B</text>
+  <text x="671" y="214" text-anchor="middle" class="sm">trained to imitate the teacher</text>
+  <path d="M536,200 L478,200" class="edge"/>
+  <rect x="246" y="166" width="230" height="68" rx="6" class="green"/>
+  <text x="361" y="196" text-anchor="middle" class="b">serves the same traffic</text>
+  <text x="361" y="214" text-anchor="middle" class="sm">1 × H100 per replica</text>
+  <text x="16" y="276">Best-case serving cost (this lesson, assumed $3.00 per H100-hour):</text>
+  <text x="16" y="298">teacher ≈ $0.40 per million output tokens, student ≈ $0.11, about 3.8 times less.</text>
+</svg>

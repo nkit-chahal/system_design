@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="230" viewBox="0 0 820 230" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.it{font-style:italic}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .line{fill:none;stroke:#000;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e6e6e6;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:6 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="26" class="b">TP = 4: thirteen replicas of 4 GPUs (12 serving + 1 spare) = 52 GPUs</text>
+  <rect x="16" y="40" width="56" height="20" rx="3" class="group"/>
+  <rect x="21" y="45" width="10" height="10" class="orange"/>
+  <rect x="33" y="45" width="10" height="10" class="orange"/>
+  <rect x="45" y="45" width="10" height="10" class="orange"/>
+  <rect x="57" y="45" width="10" height="10" class="orange"/>
+  <rect x="76" y="40" width="56" height="20" rx="3" class="group"/>
+  <rect x="81" y="45" width="10" height="10" class="orange"/>
+  <rect x="93" y="45" width="10" height="10" class="orange"/>
+  <rect x="105" y="45" width="10" height="10" class="orange"/>
+  <rect x="117" y="45" width="10" height="10" class="orange"/>
+  <rect x="136" y="40" width="56" height="20" rx="3" class="group"/>
+  <rect x="141" y="45" width="10" height="10" class="orange"/>
+  <rect x="153" y="45" width="10" height="10" class="orange"/>
+  <rect x="165" y="45" width="10" height="10" class="orange"/>
+  <rect x="177" y="45" width="10" height="10" class="orange"/>
+  <rect x="196" y="40" width="56" height="20" rx="3" class="group"/>
+  <rect x="201" y="45" width="10" height="10" class="orange"/>
+  <rect x="213" y="45" width="10" height="10" class="orange"/>
+  <rect x="225" y="45" width="10" height="10" class="orange"/>
+  <rect x="237" y="45" width="10" height="10" class="orange"/>
+  <rect x="256" y="40" width="56" height="20" rx="3" class="group"/>
+  <rect x="261" y="45" width="10" height="10" class="orange"/>
+  <rect x="273" y="45" width="10" height="10" class="orange"/>
+  <rect x="285" y="45" width="10" height="10" class="orange"/>
+  <rect x="297" y="45" width="10" height="10" class="orange"/>
+  <rect x="316" y="40" width="56" height="20" rx="3" class="group"/>
+  <rect x="321" y="45" width="10" height="10" class="orange"/>
+  <rect x="333" y="45" width="10" height="10" class="orange"/>
+  <rect x="345" y="45" width="10" height="10" class="orange"/>
+  <rect x="357" y="45" width="10" height="10" class="orange"/>
+  <rect x="376" y="40" width="56" height="20" rx="3" class="group"/>
+  <rect x="381" y="45" width="10" height="10" class="orange"/>
+  <rect x="393" y="45" width="10" height="10" class="orange"/>
+  <rect x="405" y="45" width="10" height="10" class="orange"/>
+  <rect x="417" y="45" width="10" height="10" class="orange"/>
+  <rect x="436" y="40" width="56" height="20" rx="3" class="group"/>
+  <rect x="441" y="45" width="10" height="10" class="orange"/>
+  <rect x="453" y="45" width="10" height="10" class="orange"/>
+  <rect x="465" y="45" width="10" height="10" class="orange"/>
+  <rect x="477" y="45" width="10" height="10" class="orange"/>
+  <rect x="496" y="40" width="56" height="20" rx="3" class="group"/>
+  <rect x="501" y="45" width="10" height="10" class="orange"/>
+  <rect x="513" y="45" width="10" height="10" class="orange"/>
+  <rect x="525" y="45" width="10" height="10" class="orange"/>
+  <rect x="537" y="45" width="10" height="10" class="orange"/>
+  <rect x="556" y="40" width="56" height="20" rx="3" class="group"/>
+  <rect x="561" y="45" width="10" height="10" class="orange"/>
+  <rect x="573" y="45" width="10" height="10" class="orange"/>
+  <rect x="585" y="45" width="10" height="10" class="orange"/>
+  <rect x="597" y="45" width="10" height="10" class="orange"/>
+  <rect x="616" y="40" width="56" height="20" rx="3" class="group"/>
+  <rect x="621" y="45" width="10" height="10" class="orange"/>
+  <rect x="633" y="45" width="10" height="10" class="orange"/>
+  <rect x="645" y="45" width="10" height="10" class="orange"/>
+  <rect x="657" y="45" width="10" height="10" class="orange"/>
+  <rect x="676" y="40" width="56" height="20" rx="3" class="group"/>
+  <rect x="681" y="45" width="10" height="10" class="orange"/>
+  <rect x="693" y="45" width="10" height="10" class="orange"/>
+  <rect x="705" y="45" width="10" height="10" class="orange"/>
+  <rect x="717" y="45" width="10" height="10" class="orange"/>
+  <rect x="736" y="40" width="56" height="20" rx="3" class="group"/>
+  <rect x="741" y="45" width="10" height="10" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <rect x="753" y="45" width="10" height="10" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <rect x="765" y="45" width="10" height="10" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <rect x="777" y="45" width="10" height="10" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <text x="16" y="84" class="sm">Per replica: TPOT floor 17.1 ms, up to 1.75 req/s at 25 ms per token, batch ≈ 22, 448K tokens of KV cache</text>
+  <line x1="16" y1="102" x2="804" y2="102" stroke="#999" stroke-dasharray="5 4"/>
+  <text x="16" y="128" class="b">TP = 8: five replicas of 8 GPUs (4 serving + 1 spare) = 40 GPUs</text>
+  <rect x="16" y="142" width="104" height="20" rx="3" class="group"/>
+  <rect x="21" y="147" width="10" height="10" class="orange"/>
+  <rect x="33" y="147" width="10" height="10" class="orange"/>
+  <rect x="45" y="147" width="10" height="10" class="orange"/>
+  <rect x="57" y="147" width="10" height="10" class="orange"/>
+  <rect x="69" y="147" width="10" height="10" class="orange"/>
+  <rect x="81" y="147" width="10" height="10" class="orange"/>
+  <rect x="93" y="147" width="10" height="10" class="orange"/>
+  <rect x="105" y="147" width="10" height="10" class="orange"/>
+  <rect x="124" y="142" width="104" height="20" rx="3" class="group"/>
+  <rect x="129" y="147" width="10" height="10" class="orange"/>
+  <rect x="141" y="147" width="10" height="10" class="orange"/>
+  <rect x="153" y="147" width="10" height="10" class="orange"/>
+  <rect x="165" y="147" width="10" height="10" class="orange"/>
+  <rect x="177" y="147" width="10" height="10" class="orange"/>
+  <rect x="189" y="147" width="10" height="10" class="orange"/>
+  <rect x="201" y="147" width="10" height="10" class="orange"/>
+  <rect x="213" y="147" width="10" height="10" class="orange"/>
+  <rect x="232" y="142" width="104" height="20" rx="3" class="group"/>
+  <rect x="237" y="147" width="10" height="10" class="orange"/>
+  <rect x="249" y="147" width="10" height="10" class="orange"/>
+  <rect x="261" y="147" width="10" height="10" class="orange"/>
+  <rect x="273" y="147" width="10" height="10" class="orange"/>
+  <rect x="285" y="147" width="10" height="10" class="orange"/>
+  <rect x="297" y="147" width="10" height="10" class="orange"/>
+  <rect x="309" y="147" width="10" height="10" class="orange"/>
+  <rect x="321" y="147" width="10" height="10" class="orange"/>
+  <rect x="340" y="142" width="104" height="20" rx="3" class="group"/>
+  <rect x="345" y="147" width="10" height="10" class="orange"/>
+  <rect x="357" y="147" width="10" height="10" class="orange"/>
+  <rect x="369" y="147" width="10" height="10" class="orange"/>
+  <rect x="381" y="147" width="10" height="10" class="orange"/>
+  <rect x="393" y="147" width="10" height="10" class="orange"/>
+  <rect x="405" y="147" width="10" height="10" class="orange"/>
+  <rect x="417" y="147" width="10" height="10" class="orange"/>
+  <rect x="429" y="147" width="10" height="10" class="orange"/>
+  <rect x="448" y="142" width="104" height="20" rx="3" class="group"/>
+  <rect x="453" y="147" width="10" height="10" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <rect x="465" y="147" width="10" height="10" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <rect x="477" y="147" width="10" height="10" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <rect x="489" y="147" width="10" height="10" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <rect x="501" y="147" width="10" height="10" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <rect x="513" y="147" width="10" height="10" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <rect x="525" y="147" width="10" height="10" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <rect x="537" y="147" width="10" height="10" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <text x="16" y="186" class="sm">Per replica: TPOT floor 9.5 ms, up to 6.80 req/s at 25 ms per token, batch ≈ 85, 1.3M tokens of KV cache</text>
+  <rect x="16" y="204" width="12" height="12" class="orange"/>
+  <text x="34" y="214" class="sm">one H100 in a serving replica</text>
+  <rect x="236" y="204" width="12" height="12" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <text x="254" y="214" class="sm">one H100 in the spare replica</text>
+  <rect x="456" y="202" width="30" height="16" rx="3" class="group"/>
+  <text x="494" y="214" class="sm">one replica (one vLLM server)</text>
+</svg>

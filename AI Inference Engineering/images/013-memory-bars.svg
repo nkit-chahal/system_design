@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="366" viewBox="0 0 840 366" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{stroke:#000;stroke-width:1.2;fill:none}
+    .grid{stroke:#ddd;stroke-width:1;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <line x1="493.9" y1="24" x2="493.9" y2="314" stroke="#b85450" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <text x="498.9" y="20" class="sm">one H100: 79.6 GiB</text>
+  <line x1="232.2" y1="24" x2="232.2" y2="314" stroke="#b85450" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <text x="237.2" y="20" class="sm">L4: 24 GB ≈ 22.4 GiB</text>
+  <text x="16" y="48" class="b">Llama 3.1 8B</text>
+  <text x="120" y="75" text-anchor="end">BF16</text>
+  <rect x="130" y="60" width="68.4" height="20" class="blue"/>
+  <text x="206.4" y="75" style="paint-order:stroke;stroke:#fff;stroke-width:5px">15.0 GiB</text>
+  <text x="120" y="103" text-anchor="end">FP8 W8A8</text>
+  <rect x="130" y="88" width="38.7" height="20" class="orange"/>
+  <text x="176.7" y="103" style="paint-order:stroke;stroke:#fff;stroke-width:5px">8.5 GiB</text>
+  <text x="120" y="131" text-anchor="end">W4A16</text>
+  <rect x="130" y="116" width="24.5" height="20" class="orange"/>
+  <text x="162.5" y="131" style="paint-order:stroke;stroke:#fff;stroke-width:5px">5.3 GiB</text>
+  <text x="120" y="159" text-anchor="end">NVFP4</text>
+  <rect x="130" y="144" width="25.7" height="20" class="orange"/>
+  <text x="163.7" y="159" style="paint-order:stroke;stroke:#fff;stroke-width:5px">5.6 GiB</text>
+  <text x="16" y="186" class="b">Llama 3.1 70B</text>
+  <text x="120" y="213" text-anchor="end">BF16</text>
+  <rect x="130" y="198" width="600.8" height="20" class="blue"/>
+  <text x="738.8" y="213" style="paint-order:stroke;stroke:#fff;stroke-width:5px">131.4 GiB</text>
+  <text x="120" y="241" text-anchor="end">FP8 W8A8</text>
+  <rect x="130" y="226" width="309.3" height="20" class="orange"/>
+  <text x="447.3" y="241" style="paint-order:stroke;stroke:#fff;stroke-width:5px">67.7 GiB</text>
+  <text x="120" y="269" text-anchor="end">W4A16</text>
+  <rect x="130" y="254" width="169.4" height="20" class="orange"/>
+  <text x="307.4" y="269" style="paint-order:stroke;stroke:#fff;stroke-width:5px">37.1 GiB</text>
+  <text x="120" y="297" text-anchor="end">NVFP4</text>
+  <rect x="130" y="282" width="181.9" height="20" class="orange"/>
+  <text x="319.9" y="297" style="paint-order:stroke;stroke:#fff;stroke-width:5px">39.8 GiB</text>
+  <path d="M130,314 L770,314" class="axis"/>
+  <line x1="130.0" y1="314" x2="130.0" y2="319" stroke="#000" stroke-width="1"/>
+  <text x="130.0" y="334" text-anchor="middle" class="sm">0</text>
+  <line x1="221.4" y1="314" x2="221.4" y2="319" stroke="#000" stroke-width="1"/>
+  <text x="221.4" y="334" text-anchor="middle" class="sm">20</text>
+  <line x1="312.9" y1="314" x2="312.9" y2="319" stroke="#000" stroke-width="1"/>
+  <text x="312.9" y="334" text-anchor="middle" class="sm">40</text>
+  <line x1="404.3" y1="314" x2="404.3" y2="319" stroke="#000" stroke-width="1"/>
+  <text x="404.3" y="334" text-anchor="middle" class="sm">60</text>
+  <line x1="495.7" y1="314" x2="495.7" y2="319" stroke="#000" stroke-width="1"/>
+  <text x="495.7" y="334" text-anchor="middle" class="sm">80</text>
+  <line x1="587.1" y1="314" x2="587.1" y2="319" stroke="#000" stroke-width="1"/>
+  <text x="587.1" y="334" text-anchor="middle" class="sm">100</text>
+  <line x1="678.6" y1="314" x2="678.6" y2="319" stroke="#000" stroke-width="1"/>
+  <text x="678.6" y="334" text-anchor="middle" class="sm">120</text>
+  <line x1="770.0" y1="314" x2="770.0" y2="319" stroke="#000" stroke-width="1"/>
+  <text x="770.0" y="334" text-anchor="middle" class="sm">140</text>
+  <text x="450.0" y="354" text-anchor="middle" class="sm">weight memory (GiB); embeddings and LM head stay in BF16</text>
+</svg>

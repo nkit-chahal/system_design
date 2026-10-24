@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="260" viewBox="0 0 860 260" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .span{fill:none;stroke:#000;stroke-width:1.2;marker-start:url(#arrow);marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="40" y="58" class="sm">request</text>
+  <text x="40" y="72" class="sm">arrives</text>
+  <line x1="60" y1="80" x2="60" y2="140" stroke="#000" stroke-width="1.2"/>
+
+  <!-- queue and prefill -->
+  <rect x="60" y="92" width="70" height="36" class="gray"/>
+  <text x="95" y="115" text-anchor="middle" class="sm">queue</text>
+  <rect x="130" y="92" width="100" height="36" class="orange"/>
+  <text x="180" y="115" text-anchor="middle" class="sm">prefill</text>
+
+  <!-- decoded tokens, one per step -->
+  <g class="blue">
+    <rect x="232" y="96" width="20" height="28" rx="2"/><rect x="258" y="96" width="20" height="28" rx="2"/><rect x="284" y="96" width="20" height="28" rx="2"/><rect x="310" y="96" width="20" height="28" rx="2"/>
+    <rect x="336" y="96" width="20" height="28" rx="2"/><rect x="362" y="96" width="20" height="28" rx="2"/><rect x="388" y="96" width="20" height="28" rx="2"/><rect x="414" y="96" width="20" height="28" rx="2"/>
+    <rect x="440" y="96" width="20" height="28" rx="2"/><rect x="466" y="96" width="20" height="28" rx="2"/><rect x="492" y="96" width="20" height="28" rx="2"/><rect x="518" y="96" width="20" height="28" rx="2"/>
+  </g>
+  <text x="590" y="115" text-anchor="middle" style="font-size:20px">⋯</text>
+  <g class="blue">
+    <rect x="640" y="96" width="20" height="28" rx="2"/><rect x="666" y="96" width="20" height="28" rx="2"/><rect x="692" y="96" width="20" height="28" rx="2"/><rect x="718" y="96" width="20" height="28" rx="2"/>
+    <rect x="744" y="96" width="20" height="28" rx="2"/><rect x="770" y="96" width="20" height="28" rx="2"/>
+  </g>
+  <line x1="792" y1="80" x2="792" y2="140" stroke="#000" stroke-width="1.2"/>
+  <text x="800" y="58" class="sm">last token</text>
+  <text x="800" y="72" class="sm">arrives</text>
+  <text x="242" y="58" class="sm" text-anchor="middle">first token</text>
+  <path d="M242,62 L242,92" fill="none" stroke="#000" stroke-width="1" marker-end="url(#arrow)"/>
+
+  <!-- spans -->
+  <path d="M61,152 L229,152" class="span"/>
+  <text x="145" y="172" text-anchor="middle" class="b">TTFT</text>
+  <text x="145" y="188" text-anchor="middle" class="sm">time to first token</text>
+  <path d="M243,40 L267,40" class="span"/>
+  <text x="255" y="30" text-anchor="middle" class="sm">TPOT</text>
+  <path d="M233,152 L789,152" class="span"/>
+  <text x="510" y="172" text-anchor="middle" class="b">decode: one token every TPOT (time per output token)</text>
+  <path d="M61,206 L789,206" class="span"/>
+  <text x="425" y="226" text-anchor="middle" class="b">end-to-end latency = TTFT + TPOT × (output tokens − 1)</text>
+  <text x="425" y="246" text-anchor="middle" class="sm">example: 0.3 s + 25 ms × 499 = 12.8 s for a 500-token answer</text>
+</svg>

@@ -1,0 +1,495 @@
+<h2>Introduction</h2>
+<p>When p99 latency jumps, the first question is always "why?", and the answer is usually already in the metrics. The serving engine knows how long requests waited and how full its KV cache is; the GPU knows whether it was throttled; the request counters know whether traffic or prompt length changed. What is usually missing is a dashboard that puts those signals side by side in an order that leads from the symptom to the cause, and alerts that fire on the causes before users feel the symptom.</p>
+<p>In this lab we build that dashboard. vLLM exposes engine metrics on <code>/metrics</code>, NVIDIA's dcgm-exporter exposes GPU metrics, Prometheus scrapes both and evaluates alert rules, and Grafana draws the dashboard from provisioned files. Figure 1 shows the setup.</p>
+<fig src="032-setup.svg" caption="Metrics pipeline for the latency dashboard">On the GPU host, the vLLM server exposes vllm metrics on port 8000 and dcgm-exporter reads the H100 and exposes DCGM_FI metrics on port 9400. Prometheus scrapes both every 5 seconds and evaluates alert rules. Grafana queries Prometheus with PromQL and shows the dashboard, provisioned from files; Alertmanager, optional, routes firing alerts to people. Docker Compose runs Prometheus, Grafana, and dcgm-exporter; vLLM runs on the host.</fig>
+<p>In this lab, we start the monitoring stack, learn what each metric measures and how to read latency histograms, build a dashboard with five rows (user-facing latency, load, saturation, GPU, and errors), write alerts on leading indicators, map symptom combinations to causes with a decision tree, rehearse the common failure modes, and walk through an incident end to end. Stage 6's lessons explain the metrics in depth: Lesson 28, p50, p95 and p99 Latency; Lesson 29, Queue Depth; Lesson 30, GPU Metrics; and Lesson 31, Per-Request Token Accounting.</p>
+
+<h2>What You Need</h2>
+<table>
+<thead><tr><th></th><th>Small path</th><th>Full path</th></tr></thead>
+<tbody>
+<tr><td>Hardware</td><td>One NVIDIA GPU with 16–24 GB</td><td>One H100 SXM 80 GB</td></tr>
+<tr><td>Software</td><td>Linux (or WSL2), Docker with Compose and the NVIDIA Container Toolkit, vLLM, Python 3.10+</td><td>The same</td></tr>
+<tr><td>Model</td><td>Qwen2.5-1.5B-Instruct</td><td>Llama 3.1 8B Instruct</td></tr>
+<tr><td>Images</td><td colspan="2"><code>prom/prometheus:v3.15.1</code>, <code>grafana/grafana:13.2.4</code>, <code>nvcr.io/nvidia/k8s/dcgm-exporter:4.6.1-4.8.4</code></td></tr>
+<tr><td>Cost</td><td>Your own hardware</td><td>About $9 for three hours on one H100, assuming $3.00 per H100-hour</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Two ways to run this lab. GPU prices are an assumption.</p>
+<p>The profiling fields (<code>DCGM_FI_PROF_*</code>) need a data center GPU; on a consumer card those panels stay empty, and the other GPU panels still work. The dashboard works the same on one replica or a hundred, because every query aggregates across replicas.</p>
+
+<h2>Step 1: Start the Monitoring Stack</h2>
+<p>Start vLLM on the host as in earlier labs (<code>vllm serve meta-llama/Llama-3.1-8B-Instruct --gpu-memory-utilization 0.90</code>, setting 0.90 explicitly because recent releases default to 0.92). Then create the files below in one directory and run <code>docker compose up -d</code>. The first tab runs the three services. Prometheus reaches vLLM on the host through <code>host.docker.internal</code>, as in vLLM's own Prometheus and Grafana example [1]. dcgm-exporter needs the GPU and the <code>SYS_ADMIN</code> capability for the profiling fields [2].</p>
+<p>Two settings matter more than they look. dcgm-exporter collects every 30 seconds by default, too coarse for a spike that lasts a minute, so we set <code>DCGM_EXPORTER_INTERVAL</code> to 5,000 ms [3]. And the default collector list leaves out the fields we need most, such as <code>DCGM_FI_PROF_SM_ACTIVE</code> and the throttling counters, so the third tab supplies our own list [4]. These are the names dcgm-exporter exposes and the ones you query in Prometheus; newer DCGM releases document some fields under new canonical names, but the exporter's names are what appear on <code>/metrics</code>.</p>
+<codetabs>
+<tab label="docker-compose.yaml" lang="yaml">
+services:
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # vLLM runs on the host, port 8000
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./rules.yml:/etc/prometheus/rules.yml:ro
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:4.6.1-4.8.4
+    cap_add:
+      - SYS_ADMIN                          # required for the DCGM_FI_PROF_* fields
+    environment:
+      DCGM_EXPORTER_COLLECTORS: /etc/dcgm-exporter/custom.csv
+      DCGM_EXPORTER_INTERVAL: "5000"       # milliseconds; the default is 30000
+    volumes:
+      - ./custom.csv:/etc/dcgm-exporter/custom.csv:ro
+    ports:
+      - "9400:9400"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+</tab>
+<tab label="prometheus.yml" lang="yaml">
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules.yml
+
+scrape_configs:
+  - job_name: vllm
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+  - job_name: dcgm
+    static_configs:
+      - targets: ["dcgm-exporter:9400"]
+</tab>
+<tab label="custom.csv" lang="text">
+# DCGM field, Prometheus type, help
+DCGM_FI_DEV_GPU_UTIL,            gauge,   GPU utilization (in %).
+DCGM_FI_PROF_SM_ACTIVE,          gauge,   Ratio of cycles an SM has at least one warp assigned.
+DCGM_FI_PROF_DRAM_ACTIVE,        gauge,   Ratio of cycles the memory interface is busy.
+DCGM_FI_PROF_PIPE_TENSOR_ACTIVE, gauge,   Ratio of cycles the tensor pipe is active.
+DCGM_FI_DEV_FB_USED,             gauge,   Framebuffer memory used (in MiB).
+DCGM_FI_DEV_POWER_USAGE,         gauge,   Power draw (in W).
+DCGM_FI_DEV_POWER_MGMT_LIMIT,    gauge,   Power management limit (in W).
+DCGM_FI_DEV_SM_CLOCK,            gauge,   SM clock frequency (in MHz).
+DCGM_FI_DEV_GPU_TEMP,            gauge,   GPU temperature (in C).
+DCGM_FI_DEV_POWER_VIOLATION,     counter, Throttling duration due to power constraints.
+DCGM_FI_DEV_THERMAL_VIOLATION,   counter, Throttling duration due to thermal constraints.
+DCGM_FI_DEV_XID_ERRORS,          gauge,   Value of the last XID error encountered.
+</tab>
+</codetabs>
+<p>What you should see: <code>curl localhost:9400/metrics</code> prints lines starting with <code>DCGM_</code>, and <code>curl localhost:8000/metrics</code> prints lines starting with <code>vllm:</code>. On Prometheus's Targets page (<code>localhost:9090/targets</code>), both jobs are up.</p>
+
+<h2>Step 2: Know What Each Metric Measures</h2>
+<h3>Where the time goes</h3>
+<p>vLLM times each phase of a request with its own histogram [5]. Figure 2 places them on one request's timeline. TTFT covers waiting in vLLM's queue plus prefill; time per output token covers decode; end-to-end covers everything vLLM sees. None of them includes time spent in a gateway in front of vLLM or on the network, so a user can feel latency that vLLM never reports. If you run Lab 27's gateway, its metrics fill that gap.</p>
+<fig src="032-ttft-decomposition.svg" caption="One request's timeline and the vLLM histogram that times each part">A horizontal bar split into gateway wait, vLLM queue (request_queue_time), prefill (request_prefill_time), and decode (request_decode_time), with a marker at the first token. Braces show that time_to_first_token covers queue plus prefill, request_time_per_output_token and inter_token_latency cover decode, e2e_request_latency covers everything vLLM sees, and what the user feels adds the gateway wait and the network.</fig>
+<p>Table 2 lists the metrics the dashboard uses. Counters gain a <code>_total</code> suffix on <code>/metrics</code>, and histograms appear as <code>_bucket</code>, <code>_sum</code>, and <code>_count</code> series.</p>
+<table>
+<thead><tr><th>Row</th><th>Metric</th><th>Type</th><th>What it tells you</th></tr></thead>
+<tbody>
+<tr><td>Latency</td><td><code>vllm:time_to_first_token_seconds</code></td><td>Histogram</td><td>Queue plus prefill, per request</td></tr>
+<tr><td>Latency</td><td><code>vllm:request_time_per_output_token_seconds</code>, <code>vllm:inter_token_latency_seconds</code></td><td>Histogram</td><td>Decode speed per request, and every gap between tokens</td></tr>
+<tr><td>Latency</td><td><code>vllm:e2e_request_latency_seconds</code></td><td>Histogram</td><td>Whole request inside vLLM</td></tr>
+<tr><td>Load</td><td><code>vllm:request_success_total</code></td><td>Counter</td><td>Finished requests, labeled by <code>finished_reason</code></td></tr>
+<tr><td>Load</td><td><code>vllm:prompt_tokens_total</code>, <code>vllm:generation_tokens_total</code></td><td>Counter</td><td>Tokens in and out</td></tr>
+<tr><td>Load</td><td><code>vllm:request_prompt_tokens</code></td><td>Histogram</td><td>Prompt length distribution</td></tr>
+<tr><td>Load</td><td><code>vllm:prefix_cache_hits_total</code>, <code>vllm:prefix_cache_queries_total</code></td><td>Counter</td><td>Prefix cache hit rate, in tokens</td></tr>
+<tr><td>Saturation</td><td><code>vllm:num_requests_waiting</code>, <code>vllm:num_requests_running</code></td><td>Gauge</td><td>Queue depth and batch size</td></tr>
+<tr><td>Saturation</td><td><code>vllm:kv_cache_usage_perc</code></td><td>Gauge</td><td>KV cache use, 1 = 100%</td></tr>
+<tr><td>Saturation</td><td><code>vllm:num_preemptions_total</code></td><td>Counter</td><td>Requests evicted from a full cache</td></tr>
+<tr><td>GPU</td><td><code>DCGM_FI_PROF_SM_ACTIVE</code>, <code>DCGM_FI_PROF_DRAM_ACTIVE</code>, <code>DCGM_FI_PROF_PIPE_TENSOR_ACTIVE</code></td><td>Gauge</td><td>How busy the SMs, memory interface, and tensor cores are</td></tr>
+<tr><td>GPU</td><td><code>DCGM_FI_DEV_POWER_USAGE</code>, <code>DCGM_FI_DEV_SM_CLOCK</code>, <code>DCGM_FI_DEV_POWER_VIOLATION</code>, <code>DCGM_FI_DEV_THERMAL_VIOLATION</code></td><td>Gauge, counter</td><td>Power, clock speed, and time spent throttled</td></tr>
+<tr><td>Errors</td><td><code>vllm:admission_rejections_total</code>, <code>DCGM_FI_DEV_XID_ERRORS</code></td><td>Counter, gauge</td><td>Requests refused by a queue limit; the last GPU XID error</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: The metrics behind the dashboard</p>
+<p><code>DCGM_FI_DEV_GPU_UTIL</code> is worth one warning: it reports the share of time any kernel was running, so a GPU can read 100% while doing little work. <code>DCGM_FI_PROF_SM_ACTIVE</code> and <code>DCGM_FI_PROF_DRAM_ACTIVE</code> say how much of the chip is busy, which is what matters for a memory-bound decode (Lesson 30, GPU Metrics).</p>
+
+<h3>Reading latency histograms</h3>
+<p>Prometheus stores a histogram as cumulative bucket counters, one per upper bound <code>le</code>. <code>histogram_quantile()</code> finds the bucket that contains the requested rank and interpolates linearly inside it [6], so a percentile is an estimate whose precision depends on the bucket edges, as Figure 3 shows.</p>
+<fig src="032-histogram-quantile.svg" caption="How histogram_quantile estimates p95, and how to combine replicas">Left: cumulative TTFT buckets for 1,000 illustrative requests: 300 at or below 0.1 s, 720 at or below 0.25 s, 930 at or below 0.5 s, 980 at or below 0.75 s, 995 at or below 1 s, and 1,000 at or below 2.5 s. The p95 rank of 950 falls in the 0.5 to 0.75 s bucket, so the estimate is 0.5 + 20 ÷ 50 × 0.25 = 0.6 s, an interpolation, while the share under 0.5 s, 93%, is exact. Right: averaging per-replica p95s of 0.3 s and 2.0 s gives 1.15 s, which is not the p95 of any set of requests; instead, sum the buckets by le and then take the quantile.</fig>
+<ul>
+<li><strong>Aggregate buckets, never percentiles.</strong> Sum the bucket rates across replicas with <code>sum by (le)</code>, then take the quantile. An average of per-replica p95s has no meaning.</li>
+<li><strong>Use bucket edges for SLOs.</strong> vLLM's default TTFT buckets include an edge at 0.5 s and its inter-token buckets one at 0.025 s, exactly the course's targets. The share of requests within target, the bucket rate at <code>le="0.5"</code> divided by the count rate, is therefore exact rather than interpolated.</li>
+<li><strong>Know the coarse spots.</strong> The queue-time and end-to-end histograms share buckets that start at 0.3 s, so their p50 at light load is not precise.</li>
+</ul>
+
+<h2>Step 3: Build the Dashboard</h2>
+<p>The dashboard reads top to bottom as a diagnosis, the order of the four golden signals and the USE method [7][8]: what users feel, what arrived, what filled up, what the GPUs did, and what failed. Figure 4 shows the layout.</p>
+<fig src="032-dashboard-layout.svg" caption="Dashboard layout: five rows of four panels">Five rows. User-facing latency: TTFT p50/p95/p99, TPOT and p99 inter-token latency, end-to-end p50/p95/p99, and the share of TTFT under 500 ms. Load: finished requests by reason, prompt and output tokens per second, prompt length percentiles, and prefix cache hit rate. Saturation: waiting and running requests, KV cache usage, preemptions per second, and queue time. GPU: SM, DRAM, and tensor activity, power and limit, SM clock, and throttle counters. Errors: aborted and failed requests, admission rejections, gateway refusals, and the last XID error.</fig>
+<p>Grafana loads data sources and dashboards from files at start-up [9]. The first two tabs are the provisioning files; place them under <code>grafana/provisioning/datasources/</code> and <code>grafana/provisioning/dashboards/</code>. The data source has a fixed <code>uid</code> so that the dashboard can refer to it. The third tab generates the dashboard JSON in Grafana's classic JSON model, which Grafana 13 still loads through file provisioning; writing it from a short script keeps 20 panels consistent and easy to review. The last tab shows one panel of the generated file. Every query uses <code>$__rate_interval</code>, which Grafana sizes to the scrape interval.</p>
+<codetabs>
+<tab label="datasource" lang="yaml">
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 5s
+</tab>
+<tab label="dashboard provider" lang="yaml">
+apiVersion: 1
+providers:
+  - name: inference
+    orgId: 1
+    folder: Inference
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+</tab>
+<tab label="make_dashboard.py" lang="python">
+"""make_dashboard.py: writes grafana/dashboards/latency-spikes.json (Lesson 32)."""
+import json
+
+DS = {"type": "prometheus", "uid": "prometheus"}   # matches the provisioned data source
+RI = "$__rate_interval"
+
+
+def q(metric: str, p: float) -> str:
+    return f"histogram_quantile({p}, sum by (le) (rate({metric}_bucket[{RI}])))"
+
+
+def pcts(metric: str) -> list:
+    return [(q(metric, p), f"p{round(p * 100)}") for p in (0.5, 0.95, 0.99)]
+
+
+# row title -> panels of (title, unit, [(PromQL, legend)])
+ROWS = {
+    "User-facing latency": [
+        ("Time to first token", "s", pcts("vllm:time_to_first_token_seconds")),
+        ("Time per output token", "s", pcts("vllm:request_time_per_output_token_seconds")
+         + [(q("vllm:inter_token_latency_seconds", 0.99), "p99 inter-token")]),
+        ("End-to-end latency", "s", pcts("vllm:e2e_request_latency_seconds")),
+        ("Requests with TTFT under 500 ms", "percentunit",
+         [(f'sum(rate(vllm:time_to_first_token_seconds_bucket{{le="0.5"}}[{RI}]))'
+           f" / sum(rate(vllm:time_to_first_token_seconds_count[{RI}]))", "within target")]),
+    ],
+    "Load": [
+        ("Finished requests by reason", "reqps",
+         [(f"sum by (finished_reason) (rate(vllm:request_success_total[{RI}]))", "{{finished_reason}}")]),
+        ("Tokens per second", "short",
+         [(f"sum(rate(vllm:prompt_tokens_total[{RI}]))", "prompt"),
+          (f"sum(rate(vllm:generation_tokens_total[{RI}]))", "generated")]),
+        ("Prompt length", "short", pcts("vllm:request_prompt_tokens")),
+        ("Prefix cache hit rate", "percentunit",
+         [(f"sum(rate(vllm:prefix_cache_hits_total[{RI}])) / sum(rate(vllm:prefix_cache_queries_total[{RI}]))", "hits")]),
+    ],
+    "Saturation": [
+        ("Requests waiting and running", "short",
+         [("sum(vllm:num_requests_waiting)", "waiting"), ("sum(vllm:num_requests_running)", "running")]),
+        ("KV cache usage", "percentunit", [("max by (instance) (vllm:kv_cache_usage_perc)", "{{instance}}")]),
+        ("Preemptions per second", "short", [(f"sum(rate(vllm:num_preemptions_total[{RI}]))", "preemptions")]),
+        ("Queue time", "s", pcts("vllm:request_queue_time_seconds")),
+    ],
+    "GPU": [
+        ("SM, memory, and tensor activity", "percentunit",
+         [("avg by (gpu) (DCGM_FI_PROF_SM_ACTIVE)", "SM {{gpu}}"),
+          ("avg by (gpu) (DCGM_FI_PROF_DRAM_ACTIVE)", "DRAM {{gpu}}"),
+          ("avg by (gpu) (DCGM_FI_PROF_PIPE_TENSOR_ACTIVE)", "tensor {{gpu}}")]),
+        ("Power and limit", "watt",
+         [("max by (gpu) (DCGM_FI_DEV_POWER_USAGE)", "draw {{gpu}}"),
+          ("max by (gpu) (DCGM_FI_DEV_POWER_MGMT_LIMIT)", "limit {{gpu}}")]),
+        ("SM clock (MHz)", "short", [("max by (gpu) (DCGM_FI_DEV_SM_CLOCK)", "{{gpu}}")]),
+        ("Throttle counters (rate)", "short",
+         [(f"max by (gpu) (rate(DCGM_FI_DEV_POWER_VIOLATION[{RI}]))", "power {{gpu}}"),
+          (f"max by (gpu) (rate(DCGM_FI_DEV_THERMAL_VIOLATION[{RI}]))", "thermal {{gpu}}")]),
+    ],
+    "Errors": [
+        ("Aborted and failed requests", "reqps",
+         [(f'sum by (finished_reason) (rate(vllm:request_success_total{{finished_reason=~"abort|error"}}[{RI}]))',
+           "{{finished_reason}}")]),
+        ("Admission rejections", "reqps",
+         [(f"sum by (reason) (rate(vllm:admission_rejections_total[{RI}]))", "{{reason}}")]),
+        ("Gateway refusals (Lab 27)", "reqps",
+         [(f'sum by (outcome) (rate(gateway_requests_total{{outcome!="admitted"}}[{RI}]))', "{{outcome}}")]),
+        ("Last XID error", "short", [("max by (gpu) (DCGM_FI_DEV_XID_ERRORS)", "{{gpu}}")]),
+    ],
+}
+
+
+def build() -> dict:
+    panels, y, pid = [], 0, 1
+    for row, items in ROWS.items():
+        panels.append({"id": pid, "type": "row", "title": row, "collapsed": False,
+                       "gridPos": {"h": 1, "w": 24, "x": 0, "y": y}, "panels": []})
+        pid, y = pid + 1, y + 1
+        for i, (title, unit, targets) in enumerate(items):
+            panels.append({
+                "id": pid, "type": "timeseries", "title": title, "datasource": DS,
+                "gridPos": {"h": 8, "w": 6, "x": 6 * i, "y": y},
+                "fieldConfig": {"defaults": {"unit": unit}, "overrides": []},
+                "targets": [{"refId": chr(65 + k), "datasource": DS, "expr": expr, "legendFormat": legend}
+                            for k, (expr, legend) in enumerate(targets)],
+            })
+            pid += 1
+        y += 8
+    return {"uid": "llm-latency-spikes", "title": "LLM serving: why did latency spike?",
+            "schemaVersion": 42, "version": 1, "editable": True, "refresh": "10s",
+            "time": {"from": "now-1h", "to": "now"}, "tags": ["inference", "vllm"],
+            "templating": {"list": []}, "annotations": {"list": []}, "panels": panels}
+
+
+if __name__ == "__main__":
+    with open("grafana/dashboards/latency-spikes.json", "w") as f:
+        json.dump(build(), f, indent=2)
+    print("wrote grafana/dashboards/latency-spikes.json")
+</tab>
+<tab label="One generated panel" lang="json">
+{
+  "id": 2,
+  "type": "timeseries",
+  "title": "Time to first token",
+  "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+  },
+  "gridPos": {
+    "h": 8,
+    "w": 6,
+    "x": 0,
+    "y": 1
+  },
+  "fieldConfig": {
+    "defaults": {
+      "unit": "s"
+    },
+    "overrides": []
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "expr": "histogram_quantile(0.5, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket[$__rate_interval])))",
+      "legendFormat": "p50"
+    },
+    {
+      "refId": "B",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket[$__rate_interval])))",
+      "legendFormat": "p95"
+    },
+    {
+      "refId": "C",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "expr": "histogram_quantile(0.99, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket[$__rate_interval])))",
+      "legendFormat": "p99"
+    }
+  ]
+}
+</tab>
+</codetabs>
+<p>What you should see: run <code>python make_dashboard.py</code>, then <code>docker compose restart grafana</code>. At <code>localhost:3000</code> (first login admin/admin), the Inference folder holds "LLM serving: why did latency spike?" with five rows of panels. Send some traffic, for example with <code>vllm bench serve</code> as in Step 6, and the latency and load rows fill in within a minute.</p>
+
+<h2>Step 4: Alert on Leading Indicators</h2>
+<p>An alert on p95 TTFT tells you users are already suffering. The causes of a latency spike usually show up earlier: the queue starts growing, the KV cache fills, the prefix hit rate drops, a GPU gets throttled. Alerts on those <strong>leading indicators</strong> buy time to act, by adding replicas, shedding, or rolling back, before the symptom alert fires. Figure 5 shows the idea on an illustrative slow climb.</p>
+<fig src="032-leading-indicators.svg" caption="Leading indicators fire minutes before the latency alert (illustrative)">Three panels over 20 minutes. Waiting requests rise from minute 2 and the QueueBuilding alert fires at about minute 4.6. KV cache usage climbs from 55% toward 97% and KVCacheFillingUp fires at about minute 5.2. p95 TTFT crosses 0.5 s at about minute 6.7 and, after its 5-minute for period, TTFTSLOBreach fires at about minute 11.7: about 7 minutes after the first leading alert. The curves are illustrative.</fig>
+<p>The rule file has two groups [10]. The leading group uses <code>deriv()</code> on a subquery to require that the queue is still growing, <code>predict_linear()</code> to catch a cache that will fill within 10 minutes, a comparison with the same time yesterday (<code>offset 1d</code>) to catch a prefix-cache regression, and the DCGM violation counters for throttling [11]. The symptom group pages on the SLO itself and on XID errors, which usually mean a GPU needs to be drained and replaced (Lesson 40, Reliability and Rollouts). Each <code>for</code> period keeps a brief blip from paging anyone.</p>
+<codetabs>
+<tab label="rules.yml" lang="yaml">
+groups:
+  - name: llm-leading-indicators       # fire before users feel it
+    rules:
+      - alert: QueueBuilding
+        expr: sum(vllm:num_requests_waiting) > 5 and deriv(sum(vllm:num_requests_waiting)[5m:30s]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} requests waiting and the queue is still growing"
+      - alert: KVCacheFillingUp
+        expr: max(vllm:kv_cache_usage_perc) > 0.9 or max(predict_linear(vllm:kv_cache_usage_perc[10m], 600)) > 1
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "KV cache above 90% or on course to fill within 10 minutes"
+      - alert: Preempting
+        expr: sum(rate(vllm:num_preemptions_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "vLLM is preempting requests: the KV cache is overcommitted"
+      - alert: PrefixCacheHitRateDropped
+        expr: |
+          sum(rate(vllm:prefix_cache_hits_total[10m])) / sum(rate(vllm:prefix_cache_queries_total[10m]))
+            < 0.5 * (sum(rate(vllm:prefix_cache_hits_total[10m] offset 1d))
+                     / sum(rate(vllm:prefix_cache_queries_total[10m] offset 1d)))
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prefix cache hit rate is less than half of yesterday's"
+      - alert: GPUThrottling
+        expr: max by (gpu) (rate(DCGM_FI_DEV_POWER_VIOLATION[5m]) + rate(DCGM_FI_DEV_THERMAL_VIOLATION[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU {{ $labels.gpu }} is being slowed by power or thermal limits"
+  - name: llm-slo                      # fire when users already feel it
+    rules:
+      - alert: TTFTSLOBreach
+        expr: histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket[5m]))) > 0.5
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "p95 TTFT is {{ $value }} s (target 0.5 s)"
+      - alert: TPOTSLOBreach
+        expr: histogram_quantile(0.95, sum by (le) (rate(vllm:request_time_per_output_token_seconds_bucket[5m]))) > 0.025
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "p95 TPOT is {{ $value }} s (target 0.025 s)"
+      - alert: GPUXidError
+        expr: max by (gpu) (DCGM_FI_DEV_XID_ERRORS) > 0
+        labels:
+          severity: page
+        annotations:
+          summary: "GPU {{ $labels.gpu }} reported XID {{ $value }}"
+</tab>
+</codetabs>
+<p>Check the file with <code>promtool check rules rules.yml</code>; it should report 8 rules. Firing alerts appear on Prometheus's Alerts page; add Alertmanager to route them to people.</p>
+
+<h2>Step 5: From Symptom to Cause</h2>
+<p>When the SLO alert fires, walk the dashboard with the questions in Figure 6. Each question looks at one or two panels, and the first "yes" usually names the cause. The order matters: traffic and prompt changes are the most common causes and the easiest to confirm, so they come first.</p>
+<fig src="032-decision-tree.svg" caption="Root-cause decision tree for a latency spike">Starting from the symptom "p95 TTFT or TPOT above target", seven questions in order, each with a yes branch to a cause. Request rate up with prompt length unchanged: traffic surge, scale out and shed (Lab 27). Prompt length p95 up: long prompts (Lesson 36). Prefix hit rate down at the same rate: prefix-cache miss, diff the prompt template. KV usage near 100% with preemptions: cache thrash, lower max-num-seqs or add replicas. One GPU slow with its SM clock down or throttling: slow or throttled GPU, drain it (Lesson 40). Replica count just rose and only new pods are slow: cold replicas, warm-up and load-aware routing. One tenant's token share jumped: noisy tenant, rate-limit it (Lesson 26). With no match, check the errors row, then the gateway and network.</fig>
+<table>
+<thead><tr><th>Cause</th><th>What the dashboard shows</th></tr></thead>
+<tbody>
+<tr><td>Traffic surge</td><td>Finished requests and tokens/s up together; waiting rises; prompt length flat</td></tr>
+<tr><td>Long prompts</td><td>Prompt tokens/s and prompt length p95 up at a flat request rate; TTFT up more than TPOT</td></tr>
+<tr><td>Prefix-cache miss after a prompt change</td><td>Hit rate falls in a step at a deploy; prompt length flat; prefill work and TTFT rise</td></tr>
+<tr><td>Cache thrash</td><td>KV usage pinned near 100%; preemptions above zero; TPOT and end-to-end jump</td></tr>
+<tr><td>Slow or throttled GPU</td><td>One instance slower; its SM clock lower, its violation counters rising, or its temperature high</td></tr>
+<tr><td>Cold replicas</td><td>Replica count just rose; high TTFT and low hit rate only on the new instances</td></tr>
+<tr><td>Noisy tenant</td><td>One tenant's share of tokens jumps (needs per-tenant counters from a gateway, Lesson 31)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Symptom combinations for each cause</p>
+<p>To see one replica at a time, add <code>by (instance)</code> to a query; the cold-replica and slow-GPU checks depend on it.</p>
+
+<h2>Step 6: Rehearse the Failure Modes</h2>
+<p>A dashboard is only trustworthy once you have watched it explain failures you caused on purpose. Run a steady baseline with a shared prefix, then inject one cause at a time and check that the decision tree finds it. The baseline matches the running example: a 1,600-token shared prefix plus 400 random tokens, 500 output tokens, at 4 requests per second, about 80% of the course's figure of 5 requests per second per H100, which assumes no cache hits [12].</p>
+<codetabs>
+<tab label="Inject causes" lang="bash">
+# Baseline: shared 1,600-token prefix + 400 random tokens, 500 output tokens, 4 req/s.
+vllm bench serve --model meta-llama/Llama-3.1-8B-Instruct --dataset-name random \
+  --random-prefix-len 1600 --random-input-len 400 --random-output-len 500 --ignore-eos \
+  --request-rate 4 --num-prompts 2400
+
+# Traffic surge: the same requests at 8 req/s.
+vllm bench serve --model meta-llama/Llama-3.1-8B-Instruct --dataset-name random \
+  --random-prefix-len 1600 --random-input-len 400 --random-output-len 500 --ignore-eos \
+  --request-rate 8 --num-prompts 2400
+
+# Prefix-cache miss: same length and rate, but no shared prefix.
+vllm bench serve --model meta-llama/Llama-3.1-8B-Instruct --dataset-name random \
+  --random-prefix-len 0 --random-input-len 2000 --random-output-len 500 --ignore-eos \
+  --request-rate 4 --num-prompts 2400
+
+# Long prompts: same rate, 8,000-token prompts.
+vllm bench serve --model meta-llama/Llama-3.1-8B-Instruct --dataset-name random \
+  --random-prefix-len 1600 --random-input-len 6400 --random-output-len 500 --ignore-eos \
+  --request-rate 4 --num-prompts 2400
+
+# Throttled GPU (needs root; restore the default limit afterwards): cap power at 400 W.
+sudo nvidia-smi -i 0 -pl 400
+</tab>
+</codetabs>
+<p>What you should see: the surge raises the request rate and the waiting queue together; the prefix-cache miss leaves the request rate and prompt length unchanged while the hit rate falls from about 80% to near zero; long prompts raise prompt tokens per second and TTFT more than TPOT; and the power cap lowers the SM clock and starts the power-violation counter. If one of these does not show up where Table 3 says it should, fix the dashboard before you need it.</p>
+
+<h2>Reading the Results: A Worked Incident</h2>
+<p>Here is how the dashboard explains a real kind of incident. The timeline in Figure 7 is illustrative, but its numbers follow from the running example.</p>
+<p>A fleet of six H100 replicas serves the daily peak of about 33 requests per second, 5.5 per replica. The team sized it with prefix caching in mind: with 1,600 of each 2,000-token prompt served from cache, Lesson 21's capacity model gives about 9.6 requests per second per replica at the 25 ms target, so 5.5 looked comfortable. At 14:02 a deploy adds a request timestamp to the start of the system prompt.</p>
+<fig src="032-incident-timeline.svg" caption="An illustrative prefix-cache incident, from deploy to recovery">Four panels from 13:55 to 14:25. At 14:02 a deploy lands; the prefix hit rate falls from 80% to near zero, and prefill tokens computed per second jump from about 13,000 to about 67,000. Waiting requests climb to about 150 and p95 TTFT rises from 0.3 s to 1.6 s. QueueBuilding fires at about 14:05 and the TTFT alert at 14:09. A rollback at 14:16 restores the hit rate, and by 14:20 the queue and TTFT are back to normal. Illustrative.</fig>
+<ol>
+<li><strong>14:05, QueueBuilding fires.</strong> The on-call engineer opens the dashboard. Latency row: TTFT p95 is climbing while TPOT has risen only a little, so the pressure is in prefill.</li>
+<li><strong>Question 1, traffic surge?</strong> No: finished requests per second are flat at about 33.</li>
+<li><strong>Question 2, long prompts?</strong> No: prompt length p50 and p95 are unchanged at about 2,000 tokens.</li>
+<li><strong>Question 3, prefix-cache miss?</strong> Yes: the hit rate fell from about 80% to under 5% at 14:02, the minute of the deploy. Every request now prefills 2,000 tokens instead of 400, five times the prefill work: 33 × 2,000 ≈ 67,000 tokens per second instead of 13,000. Without cache hits, the model's limit per replica drops to about 5.7 requests per second, and each replica is receiving 5.5, so the fleet is at 96% of its new limit and the queue grows.</li>
+<li><strong>14:09, the TTFT alert pages.</strong> The cause is already known. The diff shows the timestamp at the start of the prompt, which makes every prompt unique from its first token, so no prefix is ever shared (Lesson 24, Prefix Caching).</li>
+<li><strong>14:16, rollback; 14:20, recovered.</strong> The hit rate returns within a minute, the queue drains, and TTFT falls back to 0.3 s.</li>
+</ol>
+<p>The follow-ups matter more than the fix: put variable content at the end of prompts, keep the PrefixCacheHitRateDropped alert, and either size the fleet to survive a total loss of cache hits or treat the hit rate as a capacity input that is watched like one.</p>
+
+<h2>Common Pitfalls</h2>
+<ul>
+<li><strong>Averaging percentiles.</strong> <code>avg(histogram_quantile(...))</code> across replicas is wrong; aggregate buckets with <code>sum by (le)</code> first.</li>
+<li><strong>Rate windows shorter than two scrapes.</strong> <code>rate()</code> needs at least two samples in the window. <code>$__rate_interval</code> handles this in Grafana; in alert rules, use windows of a minute or more with a 5-second scrape.</li>
+<li><strong>Trusting <code>DCGM_FI_DEV_GPU_UTIL</code>.</strong> A memory-bound decode can show 100% utilization while its SMs are mostly idle. Read SM and DRAM activity instead.</li>
+<li><strong>A coarse exporter interval.</strong> At dcgm-exporter's default 30 seconds, a 20-second throttle event can vanish between samples.</li>
+<li><strong>Missing the gateway's view.</strong> vLLM's TTFT starts when vLLM receives the request. Time queued in a gateway, a load balancer, or the client is invisible unless you export it too.</li>
+<li><strong>Too many alerts.</strong> Leading-indicator alerts should notify, not page. Page only on the SLO and on hardware errors, or people learn to ignore the pager.</li>
+<li><strong>High-cardinality labels.</strong> Per-request or per-user labels on server metrics can overwhelm Prometheus. Keep tenant-level accounting in the gateway or in logs (Lesson 31).</li>
+</ul>
+
+<h2>Stretch Goals</h2>
+<ul>
+<li>Add a <code>$instance</code> template variable so that every panel can switch between the fleet and one replica.</li>
+<li>Add recording rules for the p95 TTFT and the within-target share, and build a multi-window burn-rate alert on the SLO.</li>
+<li>Export per-tenant prompt and output token counters from Lab 27's gateway and add the noisy-tenant panel.</li>
+<li>Annotate deploys on the dashboard, so that a step change lines up with the change that caused it.</li>
+<li>Repeat Step 6 with Lab 27's spike test and check that the dashboard explains every phase of the timeline.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="032-summary.png" caption="Latency dashboard summary" optional="1">Mind map summarizing the lab: the monitoring stack, the metrics, the dashboard rows, leading-indicator alerts, the decision tree, and the worked incident.</fig>
+<ul>
+<li>Prometheus scrapes vLLM's <code>vllm:*</code> metrics and dcgm-exporter's <code>DCGM_FI_*</code> metrics every 5 seconds; set the exporter's collection interval to match and enable the profiling fields.</li>
+<li>TTFT is queue time plus prefill, TPOT is decode, and none of vLLM's histograms include time spent in front of vLLM.</li>
+<li>Aggregate histogram buckets across replicas before taking a quantile; with bucket edges at 0.5 s and 25 ms, the share of requests within target is exact.</li>
+<li>Lay out the dashboard as a diagnosis: latency, load, saturation, GPU, errors.</li>
+<li>Alert early on growing queues, a filling KV cache, a falling prefix hit rate, and throttling; page on the SLO.</li>
+<li>Walk the decision tree: surge, long prompts, prefix-cache miss, cache thrash, slow GPU, cold replicas, noisy tenant.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] vLLM example: Prometheus and Grafana. <a href="https://github.com/vllm-project/vllm/tree/main/examples/observability/prometheus_grafana" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm/tree/main/examples/observability/prometheus_grafana</a>.<br>
+[2] NVIDIA DCGM documentation: Install DCGM Exporter. <a href="https://docs.nvidia.com/datacenter/dcgm/latest/installation/install-dcgm-exporter.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/datacenter/dcgm/latest/installation/install-dcgm-exporter.html</a>.<br>
+[3] NVIDIA DCGM documentation: dcgm-exporter command reference. <a href="https://docs.nvidia.com/datacenter/dcgm/latest/reference/command-line-reference/dcgm-exporter.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/datacenter/dcgm/latest/reference/command-line-reference/dcgm-exporter.html</a>.<br>
+[4] NVIDIA DCGM documentation: DCGM Exporter Metrics. <a href="https://docs.nvidia.com/datacenter/dcgm/latest/reference/dcgm-exporter-metrics.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/datacenter/dcgm/latest/reference/dcgm-exporter-metrics.html</a>.<br>
+[5] vLLM documentation: Production Metrics. <a href="https://docs.vllm.ai/en/latest/usage/metrics.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/usage/metrics.html</a>.<br>
+[6] Prometheus documentation: Histograms and summaries. <a href="https://prometheus.io/docs/practices/histograms/" rel="noopener noreferrer" target="_blank">https://prometheus.io/docs/practices/histograms/</a>.<br>
+[7] Google SRE Book: Monitoring Distributed Systems. <a href="https://sre.google/sre-book/monitoring-distributed-systems/" rel="noopener noreferrer" target="_blank">https://sre.google/sre-book/monitoring-distributed-systems/</a>.<br>
+[8] Gregg. The USE Method. <a href="https://www.brendangregg.com/usemethod.html" rel="noopener noreferrer" target="_blank">https://www.brendangregg.com/usemethod.html</a>.<br>
+[9] Grafana documentation: Provision Grafana. <a href="https://grafana.com/docs/grafana/latest/administration/provisioning/" rel="noopener noreferrer" target="_blank">https://grafana.com/docs/grafana/latest/administration/provisioning/</a>.<br>
+[10] Prometheus documentation: Alerting rules. <a href="https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/" rel="noopener noreferrer" target="_blank">https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/</a>.<br>
+[11] Prometheus documentation: Query functions. <a href="https://prometheus.io/docs/prometheus/latest/querying/functions/" rel="noopener noreferrer" target="_blank">https://prometheus.io/docs/prometheus/latest/querying/functions/</a>.<br>
+[12] vLLM documentation: vllm bench serve. <a href="https://docs.vllm.ai/en/latest/cli/bench/serve.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/cli/bench/serve.html</a>.</p>

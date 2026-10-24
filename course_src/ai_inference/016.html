@@ -1,0 +1,440 @@
+<h2>Introduction</h2>
+<p>Lesson 13, Quantization - FP8, INT8 and 4-bit, showed that storing weights in fewer bits shrinks a model and often speeds up decode. The goal of this lab is the practical version of that promise: <strong>cut the model's weight memory by at least 50% and prove that quality held</strong>. Both halves matter. Memory is easy to measure and easy to get right. Quality is easy to measure badly, and a quantized model that quietly answers 3% of questions differently can pass a careless check.</p>
+<p>So we define what "quality held" means before touching the model, measure a BF16 baseline, quantize, serve the quantized model, and repeat exactly the same measurements. Figure 1 shows the loop.</p>
+<fig src="016-pipeline.svg" caption="The lab as a loop: define quality, measure the baseline, quantize, serve again, compare">Five boxes in a row: 1, define quality with evals and a threshold; 2, BF16 baseline of memory and quality; 3, quantize to FP8 or 4-bit weights; 4, serve again and rerun the same evals; 5, compare with a paired test and confidence interval. A pass leads to shipping; a fail loops back to step 3 with another method or with sensitive layers kept in BF16.</fig>
+<p>In this lab, we build an evaluation set from a public benchmark and our own prompts, quantize Llama 3.1 8B Instruct to FP8 and to 4-bit with llm-compressor, measure memory from the engine's log, and decide with a rule written down in advance. Along the way we find that the 50% target is harder than the bit widths suggest: FP8 weights alone cannot reach it on this model.</p>
+
+<h2>What You Need</h2>
+<p>vLLM and llm-compressor pin different library versions, and the vLLM documentation advises separate environments for them [11], so the lab uses two: one for quantizing and one for serving and evaluating.</p>
+<table>
+<thead><tr><th></th><th>Small path</th><th>Full path</th></tr></thead>
+<tbody>
+<tr><td>GPU</td><td>NVIDIA GPU with 8 GB or more</td><td>One H100 80 GB cloud instance</td></tr>
+<tr><td>Operating system</td><td>Linux, or WSL2 on Windows (vLLM needs one of them)</td><td>Ubuntu 22.04 or 24.04 with NVIDIA drivers</td></tr>
+<tr><td>Baseline model</td><td><code>Qwen/Qwen2.5-1.5B-Instruct</code>, BF16, 3.09 GB</td><td><code>meta-llama/Llama-3.1-8B-Instruct</code>, BF16, 16.06 GB (gated)</td></tr>
+<tr><td>Quantized model</td><td>Pre-quantized <code>Qwen/Qwen2.5-1.5B-Instruct-GPTQ-Int4</code>, 1.15 GB</td><td>FP8 and W4A16 checkpoints you build with llm-compressor 0.14</td></tr>
+<tr><td>Serving and evals</td><td colspan="2">vLLM 0.32 and <code>lm-eval[api]</code> 0.4.12 or newer in one environment; <code>httpx</code> for the task-set script</td></tr>
+<tr><td>Time</td><td>About two hours</td><td>Three to four hours</td></tr>
+<tr><td>Cost</td><td>Nothing beyond your machine</td><td>About $12, assuming $3.00 per H100-hour for four hours</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Hardware and software for the two paths. The H100 price is an assumption.</p>
+<p>FP8 needs care on older GPUs. vLLM runs FP8 matrix multiplications on GPUs with compute capability 8.9 or higher (Ada Lovelace, Hopper, Blackwell); on Turing and Ampere it still loads FP8 checkpoints, but as weight-only W8A16 through Marlin kernels, which saves the memory without the faster math [11]. 4-bit W4A16 checkpoints run on compute capability 8.0 and newer [12]. That is why the small path, which may run on an older consumer card, uses a 4-bit checkpoint.</p>
+
+<h2>Step 1: Define "Quality Held" Before You Start</h2>
+<p>An evaluation chosen after seeing the results is not an evaluation. We fix three things first: the public benchmark, our own task set, and the decision rule. Figure 2 shows how they fit together.</p>
+<fig src="016-eval-design.svg" caption="The evaluation set: a public benchmark plus your own tasks, scored per item on both models">Two sources, the GSM8K test set of 1,319 problems run 5-shot with exact match through lm-eval, and your own task set of 100 to 200 real prompts with automatic checks run through own_eval.py, feed the same commands on the BF16 server and then the quantized one. The per-item scores of both models go to compare.py, which computes the paired change, a 95% confidence interval and the flipped answers, and then a decision against a 1-point threshold set before quantizing.</fig>
+<p><strong>The public benchmark.</strong> We use GSM8K, 1,319 grade-school math problems whose answer is a single number [6], run 5-shot through lm-evaluation-harness [9]. It is generative, and one wrong step changes the final answer, so damage shows up as wrong answers rather than as subtle shifts in probability. MMLU, 14,042 multiple-choice questions across 57 subjects [7], is a common second benchmark; it scores by log-likelihood, so it is easiest to run with lm-eval's in-process vLLM backend while the server is stopped. Benchmark numbers are sensitive to prompt format, few-shot count, and answer extraction [8], so the only comparison that means anything is between two runs with identical settings, never against a number from a paper.</p>
+<p><strong>Your own task set.</strong> A public benchmark does not know what your product does. Collect 100 to 200 real prompts from your traffic, each with an answer that a script can check: an exact string, a number, a required phrase, a regular expression, or the keys a JSON reply must contain. The first tab below shows the format; the second scores the set against any OpenAI-compatible server.</p>
+<codetabs>
+<tab label="my_tasks.jsonl" lang="json">
+{"id": "invoice-001", "prompt": "An order has 3 items at $14.50 and 2 at $9.25. What is the total in dollars? Reply with the number only.", "check": {"type": "number", "value": 62}}
+{"id": "extract-002", "prompt": "Return JSON with keys name and city for: 'Maria Lopez moved to Porto in May.'", "check": {"type": "json_keys", "value": ["name", "city"]}}
+{"id": "policy-003", "prompt": "A customer asks to return shoes after 45 days. Our policy allows 30 days. What do we tell them?", "check": {"type": "contains", "value": "30 days"}}
+{"id": "ticket-004", "prompt": "Create a support ticket ID for this issue in the form TCK-<6 digits>.", "check": {"type": "regex", "value": "TCK-\\d{6}"}}
+</tab>
+<tab label="own_eval.py" lang="python">
+"""own_eval.py: score your own task prompts against an OpenAI-compatible server.
+
+Each line of the task file is a JSON object such as
+  {"id": "refund-017", "prompt": "...", "check": {"type": "number", "value": 42}}
+Check types: exact, contains, regex, number (last number in the answer), json_keys.
+Writes one JSON line per item ({"doc_id", "filter", "score", "output"}) for compare.py.
+"""
+import argparse
+import asyncio
+import json
+import re
+
+import httpx
+
+
+def last_number(text):
+    nums = re.findall(r"-?\d+(?:,\d{3})*(?:\.\d+)?", text)
+    return float(nums[-1].replace(",", "")) if nums else None
+
+
+def parse_json(text):
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
+def score(output, check):
+    kind, value = check["type"], check["value"]
+    if kind == "exact":
+        return float(" ".join(output.split()).lower() == " ".join(str(value).split()).lower())
+    if kind == "contains":
+        return float(str(value).lower() in output.lower())
+    if kind == "regex":
+        return float(re.search(value, output, flags=re.S) is not None)
+    if kind == "number":
+        got = last_number(output)
+        return float(got is not None and abs(got - float(value)) < 1e-6)
+    if kind == "json_keys":
+        obj = parse_json(output)
+        return float(isinstance(obj, dict) and all(k in obj for k in value))
+    raise ValueError(f"unknown check type {kind!r}")
+
+
+async def run_item(client, sem, args, item):
+    payload = {"model": args.model, "temperature": 0.0, "max_tokens": args.max_tokens,
+               "messages": [{"role": "user", "content": item["prompt"]}]}
+    async with sem:
+        for attempt in range(3):
+            try:
+                r = await client.post("/chat/completions", json=payload)
+                r.raise_for_status()
+                output = r.json()["choices"][0]["message"]["content"] or ""
+                break
+            except httpx.HTTPError:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(2)
+    return {"doc_id": item["id"], "filter": "own", "score": score(output, item["check"]),
+            "output": output}
+
+
+async def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--base-url", default="http://localhost:8000/v1")
+    ap.add_argument("--model", required=True)
+    ap.add_argument("--tasks", required=True, help="JSONL file of task prompts")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--max-tokens", type=int, default=512)
+    ap.add_argument("--concurrency", type=int, default=16)
+    args = ap.parse_args()
+
+    items = [json.loads(line) for line in open(args.tasks, encoding="utf-8") if line.strip()]
+    sem = asyncio.Semaphore(args.concurrency)
+    async with httpx.AsyncClient(base_url=args.base_url, timeout=300) as client:
+        rows = await asyncio.gather(*(run_item(client, sem, args, it) for it in items))
+    with open(args.out, "w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row) + "\n")
+    acc = sum(r["score"] for r in rows) / len(rows)
+    print(f"{len(rows)} items, accuracy {100 * acc:.1f}%")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+</tab>
+</codetabs>
+<p><strong>The threshold and the decision rule.</strong> We accept a quantized model if its score drops by <strong>no more than 1.0 point absolute</strong> on every evaluation. A single number is not enough on its own, because every score is a sample. At about 80% accuracy on 1,319 problems, the standard error of one score is √(0.8 × 0.2 ÷ 1,319) ≈ 1.1 points, so two independent runs could differ by a point by chance. Since both models answer the same items, we compare them <em>paired</em>, item by item, which is far tighter. On a 150-item task set one item is worth 0.67 points, so a 1-point threshold is a margin of 1.5 items; such a set catches large regressions but cannot prove a sub-point one. The full rule, in Step 5, therefore has a third outcome besides pass and fail: inconclusive, meaning "collect more items".</p>
+
+<h2>Step 2: Measure the BF16 Baseline</h2>
+<p>Serve the BF16 model, read its memory from the startup log, and run both evaluations against it. Every server in this lab answers to the model name <code>llm</code>, so the evaluation commands never change.</p>
+<codetabs>
+<tab label="Serve BF16" lang="bash">
+# Serving environment (venv A)
+uv venv venv-serve --python 3.12 --seed && source venv-serve/bin/activate
+uv pip install vllm --torch-backend=auto
+uv pip install "lm-eval[api]>=0.4.12" httpx
+
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --served-model-name llm \
+  --max-model-len 8192 \
+  --gpu-memory-utilization 0.90 \
+  --port 8000 2>&1 | tee bf16.log
+
+# Second terminal: memory as the engine sees it, and as the driver sees it.
+grep -E "Model loading took|Available KV cache memory|KV cache size" bf16.log
+nvidia-smi --query-gpu=memory.used,memory.total --format=csv
+</tab>
+<tab label="Evaluate" lang="bash">
+VARIANT=bf16      # then fp8, then w4a16: the commands stay the same
+TOKENIZER=meta-llama/Llama-3.1-8B-Instruct
+mkdir -p results/$VARIANT
+
+lm-eval run --model local-completions \
+  --model_args model=llm,base_url=http://localhost:8000/v1/completions,tokenizer=$TOKENIZER,num_concurrent=32,max_retries=3,tokenized_requests=False,max_length=4096 \
+  --tasks gsm8k --num_fewshot 5 \
+  --output_path results/$VARIANT --log_samples
+
+python own_eval.py --model llm --tasks my_tasks.jsonl --out results/$VARIANT/own.jsonl
+
+# lm-eval writes its per-item file one directory down; note its path.
+find results/$VARIANT -name "samples_gsm8k_*.jsonl"
+</tab>
+</codetabs>
+<p>We pass <code>--gpu-memory-utilization 0.90</code> explicitly, matching Lesson 3, KV Cache; recent vLLM releases default to 0.92. The <code>local-completions</code> model type sends each prompt to the server's <code>/v1/completions</code> endpoint with temperature 0, so the evaluation exercises exactly the deployment we are measuring [9].</p>
+<p><strong>What you should see.</strong> The log reports <code>Model loading took</code> about 15 GiB (the checkpoint is 16.06 GB, or 14.96 GiB), <code>Available KV cache memory</code> of about 52 GiB, and a KV cache of roughly 426,000 tokens. <code>nvidia-smi</code> shows about 72 GiB in use, roughly 90% of the card, because vLLM claims its whole budget at startup. lm-eval prints a table with two <code>gsm8k</code> rows, <code>flexible-extract</code> and <code>strict-match</code>, each with an <code>exact_match</code> value and its standard error, and writes a <code>samples_gsm8k_&lt;timestamp&gt;.jsonl</code> file with one line per problem and filter. We use the <code>flexible-extract</code> row throughout; choose one and stick with it. <code>own_eval.py</code> prints the task-set accuracy. On the small path, serve <code>Qwen/Qwen2.5-1.5B-Instruct</code> and set <code>TOKENIZER</code> to the same name.</p>
+
+<h2>Step 3: Quantize</h2>
+<p>We build two variants with llm-compressor [10], the quantization library maintained alongside vLLM. <strong>FP8 dynamic</strong> stores each Linear layer's weights in FP8 (E4M3) with one scale per output channel, and quantizes activations to FP8 on the fly with one scale per token, so it needs no calibration data [3][11]. <strong>W4A16</strong> stores weights in 4 bits in groups of 128, with one 16-bit scale per group, and keeps activations in 16 bits; it uses GPTQ, which quantizes one layer at a time and corrects the rounding error using 512 calibration samples [1][12]. Both recipes leave <code>lm_head</code>, the output projection, in BF16. Run the scripts in a second environment.</p>
+<codetabs>
+<tab label="quantize_fp8.py" lang="python">
+"""quantize_fp8.py: FP8 weights (per channel) and dynamic FP8 activations (per token).
+
+Run in the llm-compressor environment. Needs no calibration data.
+"""
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
+
+MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
+SAVE_DIR = "Llama-3.1-8B-Instruct-FP8-Dynamic"
+
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+
+# Every Linear layer except the output head. The embedding table is not a Linear
+# layer, so it also stays in BF16.
+recipe = QuantizationModifier(targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"])
+oneshot(model=model, recipe=recipe)
+
+model.save_pretrained(SAVE_DIR)
+tokenizer.save_pretrained(SAVE_DIR)
+</tab>
+<tab label="quantize_w4a16.py" lang="python">
+"""quantize_w4a16.py: 4-bit weights with GPTQ, groups of 128, activations stay 16-bit.
+
+Run in the llm-compressor environment. Uses 512 calibration samples.
+"""
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from llmcompressor import oneshot
+from llmcompressor.modifiers.gptq import GPTQModifier
+
+MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
+SAVE_DIR = "Llama-3.1-8B-Instruct-W4A16-G128"
+
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+
+recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+oneshot(
+    model=model,
+    dataset="perfectblend",          # general chat data; use your own data for a narrow domain
+    splits="train[:512]",
+    recipe=recipe,
+    max_seq_length=2048,
+    num_calibration_samples=512,
+)
+
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
+</tab>
+<tab label="Environment and pre-quantized options" lang="bash">
+# Quantization environment (venv B)
+uv venv venv-llmc --python 3.12 && source venv-llmc/bin/activate
+uv pip install llmcompressor
+python quantize_fp8.py && python quantize_w4a16.py
+du -sh Llama-3.1-8B-Instruct-FP8-Dynamic Llama-3.1-8B-Instruct-W4A16-G128
+
+# Or skip quantizing and download published checkpoints built with the same recipes:
+hf download RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic --local-dir Llama-3.1-8B-Instruct-FP8-Dynamic
+hf download RedHatAI/Meta-Llama-3.1-8B-Instruct-quantized.w4a16 --local-dir Llama-3.1-8B-Instruct-W4A16-G128
+
+# Small path: a 4-bit GPTQ build published by the Qwen team.
+hf download Qwen/Qwen2.5-1.5B-Instruct-GPTQ-Int4 --local-dir qwen25-1.5b-gptq-int4
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> Two directories of <code>safetensors</code> files with a <code>quantization_config</code> section in <code>config.json</code>. The FP8 checkpoint should be about 9.08 GB and the W4A16 one about 5.74 GB, the sizes of the published checkpoints made with the same recipes [14][15]. The FP8 run takes minutes; GPTQ takes longer because it runs calibration data through every layer. To try FP8 without llm-compressor, vLLM can also quantize a BF16 checkpoint while loading it with <code>--quantization fp8_per_tensor</code>, which uses one scale per tensor instead of per channel [11].</p>
+
+<h2>Step 4: Serve the Quantized Model and Re-Measure</h2>
+<p>vLLM reads the quantization settings from the checkpoint's <code>config.json</code>, so no quantization flag is needed. Serve each variant with the same flags as the baseline, read the same log lines, and rerun the evaluation tab from Step 2 with <code>VARIANT=fp8</code> and then <code>VARIANT=w4a16</code>.</p>
+<codetabs>
+<tab label="Serve FP8" lang="bash">
+vllm serve ./Llama-3.1-8B-Instruct-FP8-Dynamic \
+  --served-model-name llm \
+  --max-model-len 8192 \
+  --gpu-memory-utilization 0.90 \
+  --port 8000 2>&1 | tee fp8.log
+grep -E "Model loading took|Available KV cache memory|KV cache size" fp8.log
+nvidia-smi --query-gpu=memory.used,memory.total --format=csv
+</tab>
+<tab label="Serve W4A16" lang="bash">
+vllm serve ./Llama-3.1-8B-Instruct-W4A16-G128 \
+  --served-model-name llm \
+  --max-model-len 8192 \
+  --gpu-memory-utilization 0.90 \
+  --port 8000 2>&1 | tee w4a16.log
+grep -E "Model loading took|Available KV cache memory|KV cache size" w4a16.log
+nvidia-smi --query-gpu=memory.used,memory.total --format=csv
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> <code>Model loading took</code> drops to about 8.5 GiB for FP8 and about 5.3 GiB for W4A16. <code>nvidia-smi</code>, however, shows almost the same 72 GiB as before. This is the most common confusion in this lab, and Figure 3 explains it: vLLM sizes its KV cache to fill whatever its memory budget leaves after weights and runtime overhead, so every gigabyte saved on weights becomes cache. The saving appears as more cache tokens and more concurrent requests, not as free GPU memory. To see weight memory, read the engine's log line, or the size of the checkpoint files; to see free memory, you would have to lower <code>--gpu-memory-utilization</code>.</p>
+<fig src="016-gpu-budget.svg" caption="The same 0.90 memory budget with BF16, FP8 and W4A16 weights: smaller weights become a larger KV cache">Three bars of one H100's 79.6 GiB with vLLM's 0.90 budget. BF16: 14.96 GiB of weights, about 4.6 GiB of activations and graphs, about 52.1 GiB of KV cache, which is about 426K tokens. FP8: 8.46 GiB of weights and about 58.6 GiB of cache, about 480K tokens. W4A16: 5.34 GiB of weights and about 61.7 GiB of cache, about 505K tokens. Each bar keeps 10% held back. A note says nvidia-smi reports about the same used memory for all three.</fig>
+<p>Holding the runtime overhead at the 4.6 GiB of Lesson 3, the cache grows from about 52.1 GiB to 58.6 GiB with FP8 and 61.7 GiB with W4A16. At 8,192 tokens per GiB, that is about 426,000, 480,000, and 505,000 tokens: roughly 12% and 18% more concurrent chat requests on the same GPU.</p>
+
+<h2>Step 5: Compare and Decide</h2>
+<p>The comparison script reads two per-item files, the baseline's and a candidate's, and reports both scores, the paired change with a bootstrap 95% confidence interval, the answers that flipped, and the decision. It works on lm-eval's samples files and on <code>own_eval.py</code> output alike.</p>
+<codetabs>
+<tab label="compare.py" lang="python">
+"""compare.py: paired comparison of a baseline and a quantized run on the same items.
+
+Inputs are lm-eval samples files (samples_<task>_<time>.jsonl, from --log_samples) or
+own_eval.py output. Prints both accuracies, the paired difference with a bootstrap 95%
+confidence interval, the answers that flipped, and a decision against --threshold.
+"""
+import argparse
+import json
+import random
+
+
+def load(path, metric, filt):
+    scores = {}
+    for line in open(path, encoding="utf-8"):
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        if filt and rec.get("filter") != filt:
+            continue
+        scores[str(rec["doc_id"])] = float(rec[metric])
+    return scores
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("baseline")
+    ap.add_argument("candidate")
+    ap.add_argument("--metric", default="exact_match", help="'score' for own_eval.py files")
+    ap.add_argument("--filter", default="flexible-extract", help="'own' for own_eval.py files")
+    ap.add_argument("--threshold", type=float, default=1.0, help="largest acceptable drop, points")
+    ap.add_argument("--boot", type=int, default=10000)
+    args = ap.parse_args()
+
+    base = load(args.baseline, args.metric, args.filter)
+    cand = load(args.candidate, args.metric, args.filter)
+    ids = sorted(set(base) & set(cand))
+    if len(ids) != len(base) or len(ids) != len(cand):
+        raise SystemExit(f"item sets differ: {len(base)} vs {len(cand)}, {len(ids)} shared")
+    n = len(ids)
+    diffs = [cand[i] - base[i] for i in ids]
+    delta = 100 * sum(diffs) / n
+    lost = sum(1 for i in ids if base[i] > cand[i])
+    gained = sum(1 for i in ids if cand[i] > base[i])
+
+    rng = random.Random(0)
+    boots = sorted(100 * sum(rng.choice(diffs) for _ in range(n)) / n for _ in range(args.boot))
+    lo, hi = boots[int(0.025 * args.boot)], boots[int(0.975 * args.boot) - 1]
+
+    print(f"items: {n}")
+    print(f"baseline:  {100 * sum(base[i] for i in ids) / n:.2f}%")
+    print(f"candidate: {100 * sum(cand[i] for i in ids) / n:.2f}%")
+    print(f"change:    {delta:+.2f} points, 95% CI [{lo:+.2f}, {hi:+.2f}]")
+    print(f"flips:     {lost} items lost, {gained} gained ({100 * (lost + gained) / n:.1f}% changed)")
+    if -delta <= args.threshold:
+        print("decision:  ACCEPT, drop within threshold")
+    elif hi < 0:
+        print("decision:  REJECT, the drop is larger than the threshold and not noise")
+    else:
+        print("decision:  INCONCLUSIVE, drop above threshold but within noise; add items")
+
+
+if __name__ == "__main__":
+    main()
+</tab>
+<tab label="Run it" lang="bash">
+B=$(find results/bf16 -name "samples_gsm8k_*.jsonl")
+python compare.py "$B" "$(find results/fp8 -name 'samples_gsm8k_*.jsonl')"
+python compare.py "$B" "$(find results/w4a16 -name 'samples_gsm8k_*.jsonl')"
+
+python compare.py results/bf16/own.jsonl results/fp8/own.jsonl --metric score --filter own
+python compare.py results/bf16/own.jsonl results/w4a16/own.jsonl --metric score --filter own
+</tab>
+</codetabs>
+<p><strong>What you should see.</strong> For each pair, six lines: the item count (1,319 for GSM8K), both accuracies, the change with its interval, the lost and gained counts, and a decision. Figure 4 shows what the paired view adds: only items that changed between the two models move the score.</p>
+<fig src="016-paired-comparison.svg" caption="A paired comparison: only the items that flip between the two models change the score">A two-by-two grid with baseline right or wrong as rows and quantized right or wrong as columns. Both right and both wrong mean no change. Baseline right but quantized wrong is b items lost; baseline wrong but quantized right is c items gained. The change is c minus b divided by n, and the flips are b plus c. A hypothetical example with n of 1,319, b of 30 and c of 17 gives a change of minus 0.99 points, inside a 1-point threshold, yet 47 answers, 3.6%, changed.</fig>
+<p>Figure 5 is the decision rule from Step 1 in full. Apply it to each evaluation separately; a variant ships only if it passes all of them.</p>
+<fig src="016-decision-rule.svg" caption="The decision rule, fixed before quantizing">A flowchart. First question: is the drop at most 1.0 point on every eval? If yes, accept: ship it, then re-check speed. If no, second question: is the 95% confidence interval of the change entirely below zero? If yes, reject and try the next method. If no, the result is inconclusive: add items and rerun.</fig>
+<p>Record everything in one table. The memory columns come from the logs; the quality columns from <code>compare.py</code>.</p>
+<table>
+<thead><tr><th>Variant</th><th>Weights (log, GiB)</th><th>Weight reduction</th><th>KV cache tokens</th><th>GSM8K change [95% CI]</th><th>Task-set change [95% CI]</th><th>Flips (GSM8K)</th><th>Decision</th></tr></thead>
+<tbody>
+<tr><td>BF16 baseline</td><td>…</td><td>—</td><td>…</td><td>— (score: …)</td><td>— (score: …)</td><td>—</td><td>—</td></tr>
+<tr><td>FP8 dynamic</td><td>…</td><td>… (expect ≈ 43%)</td><td>…</td><td>… […, …]</td><td>… […, …]</td><td>…</td><td>…</td></tr>
+<tr><td>W4A16 GPTQ</td><td>…</td><td>… (expect ≈ 64%)</td><td>…</td><td>… […, …]</td><td>… […, …]</td><td>…</td><td>…</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Results template. Expected reductions come from the checkpoint sizes in Table 3; everything else is measured.</p>
+
+<h2>Reading the Results</h2>
+<h3>Why FP8 is not half and 4-bit is not a quarter</h3>
+<p>If every weight shrank with its bit width, FP8 would take 8.03 GB, exactly half of 16.06 GB, and 4-bit would take 4.02 GB, a quarter. The published checkpoints are 9.08 GB and 5.74 GB. Figure 6 shows where the difference comes from.</p>
+<fig src="016-weight-bytes.svg" caption="Checkpoint sizes of Llama 3.1 8B Instruct in BF16, FP8 dynamic and W4A16, split by component">Three horizontal bars at 40 pixels per GB. BF16: 13.96 GB of Linear layers plus 2.10 GB of embeddings and LM head, 16.06 GB in total. FP8 dynamic: 6.98 GB plus the same 2.10 GB, 9.08 GB, 43% smaller. W4A16: 3.49 GB plus about 0.14 GB of scales and zero points plus 2.10 GB, 5.74 GB, 64% smaller. Dashed lines mark the 50% target at 8.03 GB and a quarter at 4.02 GB; the FP8 bar ends to the right of the 50% line.</fig>
+<p>Two things do not shrink. The first and larger is the vocabulary. Llama 3.1 has 128,256 tokens, so its embedding table and its output head each hold 128,256 × 4,096 ≈ 525 million parameters: together 1.05 billion, 13% of the model. The embedding table is a lookup, not a Linear layer, and both recipes deliberately leave <code>lm_head</code> in BF16, so these 2.10 GB stay the same size in every variant. The second is metadata. FP8 per-channel scales are tiny, one per output row, about 3 MB in all. 4-bit groups of 128 need one 16-bit scale per 128 weights, plus a 4-bit zero point in asymmetric formats such as AWQ: 6.98 billion ÷ 128 ≈ 54.5 million groups, about 0.14 GB. Table 3 puts the pieces together.</p>
+<table>
+<thead><tr><th>Component</th><th>Parameters</th><th>BF16</th><th>FP8 dynamic</th><th>W4A16, group 128</th></tr></thead>
+<tbody>
+<tr><td>Linear layers in the 32 decoder blocks</td><td>6.98 B</td><td>13.96 GB</td><td>6.98 GB</td><td>3.49 GB</td></tr>
+<tr><td>Scales and zero points</td><td>—</td><td>—</td><td>≈ 0.003 GB</td><td>≈ 0.14 GB</td></tr>
+<tr><td>Embeddings + LM head (16-bit)</td><td>1.05 B</td><td>2.10 GB</td><td>2.10 GB</td><td>2.10 GB</td></tr>
+<tr><td><strong>Total (published checkpoint)</strong></td><td>8.03 B</td><td><strong>16.06 GB</strong></td><td><strong>9.08 GB</strong></td><td><strong>5.74 GB</strong></td></tr>
+<tr><td>Reduction vs BF16</td><td></td><td>—</td><td>43%</td><td>64%</td></tr>
+<tr><td>Naive estimate (bits only)</td><td></td><td>16.06 GB</td><td>8.03 GB</td><td>4.02 GB</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Weight memory of Llama 3.1 8B Instruct by component. Totals are the sizes of the published checkpoints [14][15]</p>
+<p>The consequence for our goal is direct: <strong>FP8 weights alone cannot cut this model's weight memory by 50%</strong>. Even quantizing the output head as well would only reach about 8.56 GB, 47%. The same arithmetic applies to FP8 plus an FP8 KV cache measured on total serving memory: at 170 chat requests of 2,500 tokens, BF16 needs 16.06 GB of weights plus 55.7 GB of cache, 71.8 GB, while FP8 for both needs 9.08 + 27.9 = 36.9 GB, a 48.5% cut. Because the 2.10 GB of 16-bit embeddings never shrink, an all-FP8 deployment approaches 50% but never passes it. So for this model, "50% or more" means 4-bit weights. If your team's goal is really "as much memory as possible with no measurable quality loss", define the metric that way and FP8 may be the better answer; the point is to say which metric you mean.</p>
+<p>Small models show the same effect more strongly. Qwen2.5-1.5B's embedding table is 233 million of its 1.54 billion parameters, 15%. Its official GPTQ-Int4 build is 1.15 GB, 63% smaller than the 3.09 GB BF16 model, but the official AWQ build is 1.61 GB, only 48% smaller, because it stores a separate 16-bit copy of the output head instead of sharing the embedding table. Two "4-bit" checkpoints of the same model land on opposite sides of the target, which is why we measure instead of assuming.</p>
+
+<h3>Did quality hold?</h3>
+<p>Figure 7 sketches the typical shape of the result. The horizontal position of each variant is fixed by the arithmetic above; the vertical position is what your evaluations decide, and it is drawn here only for illustration.</p>
+<fig src="016-results-map.svg" caption="Where the variants can land: memory reduction is known in advance, the quality change is measured (y positions illustrative)">A scatter plot of quality change in points against weight memory reduction from 0% to 80%. The green target region is at least 50% smaller with no more than a 1-point drop. The BF16 baseline sits at the origin. FP8 dynamic sits at 43%, left of the target region, with a small illustrative quality change: it misses the memory goal whatever its quality. W4A16 sits at 64% with an illustrative error bar crossing the minus-1 line: the evaluations decide which side it lands on.</fig>
+<p>A study of more than 500,000 evaluations across the Llama 3.1 family found FP8 weight-and-activation quantization effectively lossless and 4-bit weight-only quantization rivaling 8-bit [4], but "on average across benchmarks" is not "on your task set", which is why the lab exists. Look beyond the accuracy change, too. Two models can have the same accuracy while answering many questions differently. Dutta et al. call these changed answers <strong>flips</strong>, show that compressed models with near-identical accuracy can behave noticeably differently, and propose reporting flips alongside accuracy [5]. Read the lost items from <code>own.jsonl</code> by hand: they tell you what quantization damaged, for example long arithmetic, rare names, or strict output formats.</p>
+
+<h4>Which variant fits our deployment?</h4>
+<p>If W4A16 passes on both GSM8K and the task set, ship it: weights drop from 16.06 GB to 5.74 GB, 64%, and the same GPU holds about 18% more cache for concurrent requests. Then re-check speed with the client from Lesson 6, Lab - Measure TTFT and Throughput, because the formats trade places with load: the same study found W4A16 the most cost-efficient at low concurrency and W8A8 ahead under continuous batching [4] (Lesson 13). If W4A16 fails but FP8 passes, FP8 is the safe fallback: it misses the 50% target at 43%, says so honestly in the write-up, and can be paired with an FP8 KV cache for capacity. If both fail, the next section applies.</p>
+
+<h3>When the result fails, and what to try next</h3>
+<ul>
+<li><strong>Use a different method.</strong> If simple round-to-nearest 4-bit fails, calibration-based methods such as GPTQ [1] or AWQ [2] usually recover much of the loss. If 4-bit fails outright, step back to an 8-bit format: FP8 on Hopper, or INT8 weights and activations on GPUs without FP8.</li>
+<li><strong>Keep sensitive layers in higher precision.</strong> Add entries to the recipe's <code>ignore</code> list; llm-compressor accepts regular expressions with a <code>re:</code> prefix, such as <code>"re:.*mlp.down_proj"</code>. Common candidates are the first and last decoder blocks and the MLP down-projections, but measure which ones matter rather than guessing. Each kept layer costs memory, so recompute the reduction.</li>
+<li><strong>Calibrate on your own data.</strong> GPTQ and AWQ fit their corrections to the calibration set. If your traffic is code, legal text, or another language, replace the general chat data with a few hundred of your own prompts.</li>
+<li><strong>Treat the KV cache as a separate change.</strong> An FP8 KV cache (<code>--kv-cache-dtype fp8</code>) halves the cache per token, from 128 KiB to 64 KiB [13], but it is a different risk, mostly on long contexts. Evaluate it as its own step so that a regression can be traced to one change.</li>
+<li><strong>Grow the evaluation if the result was inconclusive.</strong> More items narrow the interval; a second public benchmark such as MMLU adds coverage.</li>
+<li><strong>Reconsider the model.</strong> A smaller model trained for the task can beat a heavily quantized larger one (Lesson 14, Distillation).</li>
+</ul>
+
+<h2>Common Pitfalls</h2>
+<ul>
+<li><strong>Reading nvidia-smi as weight memory.</strong> vLLM fills its budget with KV cache, so used memory hardly changes. Use the <code>Model loading took</code> line or the checkpoint size.</li>
+<li><strong>Changing two things at once.</strong> Different few-shot counts, a chat template on one run, a different <code>max_length</code>, or a different answer filter can move GSM8K by more than quantization does. Keep the evaluation command byte-for-byte identical.</li>
+<li><strong>Comparing with published numbers.</strong> A paper's GSM8K score for the same model used a different harness version and prompt. The only valid baseline is your own BF16 run.</li>
+<li><strong>Using <code>--limit</code> for the final decision.</strong> lm-eval's <code>--limit</code> is for testing commands; a 250-problem subset has an interval more than twice as wide as the full set.</li>
+<li><strong>Sampling with temperature.</strong> Non-zero temperature adds run-to-run noise to both models. Both scripts use temperature 0.</li>
+<li><strong>One environment for everything.</strong> llm-compressor and vLLM pin different library versions; install them separately.</li>
+<li><strong>Assuming "4-bit" means "a quarter".</strong> Embeddings, the output head, and scales stay large. Check the files.</li>
+</ul>
+
+<h2>Stretch Goals</h2>
+<ul>
+<li>Add an FP8 KV cache to the winning variant, rerun both evaluations, and report total serving memory for 170 concurrent chat requests as a second metric.</li>
+<li>Measure speed: run the concurrency sweep from Lesson 6, Lab - Measure TTFT and Throughput, for BF16, FP8, and W4A16 and plot per-user tokens/s at each concurrency.</li>
+<li>Run MMLU with lm-eval's in-process <code>vllm</code> backend for all three variants and add it to the decision rule.</li>
+<li>Quantize with a calibration set drawn from your own prompts and compare against the general-purpose calibration data.</li>
+<li>Use the same arithmetic to work out whether Llama 3.1 70B in W4A16 fits on one H100 with room for cache, then check it against Lesson 17, VRAM Budgeting.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="016-summary.png" caption="Lab summary: halving model memory without losing quality" optional="1">Mind map of the lab: defining quality, the memory math, the quantized variants, the paired comparison and decision rule, and what to try when a variant fails.</fig>
+<ul>
+<li>Define "quality held" first: GSM8K's 1,319 problems through lm-eval, 100 to 200 of your own auto-scored prompts, and a drop of at most 1 point on each.</li>
+<li>Compare paired, item by item, with a 95% confidence interval and a count of flipped answers; an inconclusive result means "add items", not "pass".</li>
+<li>Llama 3.1 8B checkpoints are 16.06 GB in BF16, 9.08 GB in FP8 dynamic (43% smaller), and 5.74 GB in W4A16 (64% smaller).</li>
+<li>FP8 is not half and 4-bit is not a quarter because the 2.10 GB of 16-bit embeddings and LM head never shrink; FP8 alone cannot reach a 50% cut on this model.</li>
+<li>vLLM turns saved weight memory into KV cache: about 426K, 480K, and 505K tokens on one H100, while nvidia-smi barely changes.</li>
+<li>If a variant fails, change the method, keep sensitive layers in BF16, calibrate on your own data, and evaluate an FP8 KV cache as a separate step.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Frantar et al. GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers. <a href="https://arxiv.org/abs/2210.17323" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2210.17323</a>.<br>
+[2] Lin et al. AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration. <a href="https://arxiv.org/abs/2306.00978" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2306.00978</a>.<br>
+[3] Micikevicius et al. FP8 Formats for Deep Learning. <a href="https://arxiv.org/abs/2209.05433" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2209.05433</a>.<br>
+[4] Kurtic et al. "Give Me BF16 or Give Me Death"? Accuracy-Performance Trade-Offs in LLM Quantization. <a href="https://arxiv.org/abs/2411.02355" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2411.02355</a>.<br>
+[5] Dutta et al. Accuracy is Not All You Need. <a href="https://arxiv.org/abs/2407.09141" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.09141</a>.<br>
+[6] Cobbe et al. Training Verifiers to Solve Math Word Problems. <a href="https://arxiv.org/abs/2110.14168" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2110.14168</a>.<br>
+[7] Hendrycks et al. Measuring Massive Multitask Language Understanding. <a href="https://arxiv.org/abs/2009.03300" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2009.03300</a>.<br>
+[8] Biderman et al. Lessons from the Trenches on Reproducible Evaluation of Language Models. <a href="https://arxiv.org/abs/2405.14782" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2405.14782</a>.<br>
+[9] EleutherAI. lm-evaluation-harness. <a href="https://github.com/EleutherAI/lm-evaluation-harness" rel="noopener noreferrer" target="_blank">https://github.com/EleutherAI/lm-evaluation-harness</a>.<br>
+[10] vLLM project. llm-compressor. <a href="https://github.com/vllm-project/llm-compressor" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/llm-compressor</a>.<br>
+[11] vLLM documentation: FP8 W8A8. <a href="https://docs.vllm.ai/en/latest/features/quantization/llm_compressor/fp8/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/quantization/llm_compressor/fp8/</a>.<br>
+[12] vLLM documentation: INT4 W4A16. <a href="https://docs.vllm.ai/en/latest/features/quantization/llm_compressor/int4/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/quantization/llm_compressor/int4/</a>.<br>
+[13] vLLM documentation: Quantized KV Cache. <a href="https://docs.vllm.ai/en/latest/features/quantization/quantized_kvcache/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/quantization/quantized_kvcache/</a>.<br>
+[14] Red Hat AI. Meta-Llama-3.1-8B-Instruct-FP8-dynamic model card. <a href="https://huggingface.co/RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic" rel="noopener noreferrer" target="_blank">https://huggingface.co/RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic</a>.<br>
+[15] Red Hat AI. Meta-Llama-3.1-8B-Instruct-quantized.w4a16 model card. <a href="https://huggingface.co/RedHatAI/Meta-Llama-3.1-8B-Instruct-quantized.w4a16" rel="noopener noreferrer" target="_blank">https://huggingface.co/RedHatAI/Meta-Llama-3.1-8B-Instruct-quantized.w4a16</a>.</p>

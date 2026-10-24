@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="300" viewBox="0 0 820 300" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Panel 1: vLLM, ratio 0 -->
+  <text x="140" y="26" text-anchor="middle" class="b">vllm bench serve</text>
+  <text x="140" y="44" text-anchor="middle" class="sm">--random-range-ratio 0 (default)</text>
+  <path d="M40,70 L40,210 L250,210" class="axis"/>
+  <rect x="236" y="90" width="8" height="120" class="green"/>
+  <text x="160" y="104" text-anchor="middle" class="sm">every prompt</text>
+  <text x="160" y="120" text-anchor="middle" class="sm">is 2,000 tokens</text>
+  <path d="M40,210 L40,214 M140,210 L140,214 M240,210 L240,214" class="tick"/>
+  <text x="40" y="228" text-anchor="middle" class="sm">0</text>
+  <text x="140" y="228" text-anchor="middle" class="sm">1,000</text>
+  <text x="240" y="228" text-anchor="middle" class="sm">2,000</text>
+  <text x="145" y="246" text-anchor="middle" class="sm">input tokens</text>
+
+  <!-- Panel 2: SGLang, ratio 0 -->
+  <text x="410" y="26" text-anchor="middle" class="b">sglang.bench_serving</text>
+  <text x="410" y="44" text-anchor="middle" class="sm">--random-range-ratio 0 (default)</text>
+  <path d="M310,70 L310,210 L520,210" class="axis"/>
+  <rect x="310" y="190" width="200" height="20" class="red"/>
+  <path d="M410,130 L410,210" stroke="#000" stroke-width="1.2" stroke-dasharray="4 4"/>
+  <text x="410" y="104" text-anchor="middle" class="sm">uniform from 1 to 2,000</text>
+  <text x="410" y="120" text-anchor="middle" class="sm">mean ≈ 1,000 tokens</text>
+  <path d="M310,210 L310,214 M410,210 L410,214 M510,210 L510,214" class="tick"/>
+  <text x="310" y="228" text-anchor="middle" class="sm">0</text>
+  <text x="410" y="228" text-anchor="middle" class="sm">1,000</text>
+  <text x="510" y="228" text-anchor="middle" class="sm">2,000</text>
+  <text x="415" y="246" text-anchor="middle" class="sm">input tokens</text>
+
+  <!-- Panel 3: SGLang, ratio 1 -->
+  <text x="680" y="26" text-anchor="middle" class="b">sglang.bench_serving</text>
+  <text x="680" y="44" text-anchor="middle" class="sm">--random-range-ratio 1</text>
+  <path d="M580,70 L580,210 L790,210" class="axis"/>
+  <rect x="776" y="90" width="8" height="120" class="green"/>
+  <text x="700" y="104" text-anchor="middle" class="sm">every prompt</text>
+  <text x="700" y="120" text-anchor="middle" class="sm">is 2,000 tokens</text>
+  <path d="M580,210 L580,214 M680,210 L680,214 M780,210 L780,214" class="tick"/>
+  <text x="580" y="228" text-anchor="middle" class="sm">0</text>
+  <text x="680" y="228" text-anchor="middle" class="sm">1,000</text>
+  <text x="780" y="228" text-anchor="middle" class="sm">2,000</text>
+  <text x="685" y="246" text-anchor="middle" class="sm">input tokens</text>
+
+  <text x="20" y="274" class="sm">vLLM draws lengths from [n × (1 − r), n × (1 + r)]; SGLang draws them from [max(n × r, 1), n]. Output lengths follow the same rule.</text>
+  <text x="20" y="292" class="sm">With both defaults, SGLang's tool sends about half the work of vLLM's for the same command line.</text>
+</svg>

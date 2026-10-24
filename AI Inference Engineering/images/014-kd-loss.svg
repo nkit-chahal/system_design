@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="856" height="406" viewBox="0 0 856 406" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{stroke:#000;stroke-width:1.2;fill:none}
+    .grid{stroke:#ddd;stroke-width:1;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="16" y="120" width="110" height="50" rx="6" class="purple"/>
+  <text x="71" y="141" text-anchor="middle">input</text>
+  <text x="71" y="159" text-anchor="middle">tokens</text>
+  <path d="M126,145 L143,145 L143,65 L158,65" class="edge"/>
+  <path d="M126,145 L143,145 L143,205 L158,205" class="edge"/>
+  <rect x="160" y="40" width="150" height="50" rx="6" class="gray"/>
+  <text x="235" y="61" text-anchor="middle" class="b">Teacher</text>
+  <text x="235" y="79" text-anchor="middle" class="sm">frozen</text>
+  <rect x="160" y="180" width="150" height="50" rx="6" class="orange"/>
+  <text x="235" y="201" text-anchor="middle" class="b">Student</text>
+  <text x="235" y="219" text-anchor="middle" class="sm">trainable</text>
+  <path d="M310,65 L343,65" class="edge"/>
+  <rect x="345" y="40" width="180" height="50" rx="6" class="blue"/>
+  <text x="435" y="61" text-anchor="middle">softmax(z_t / T)</text>
+  <text x="435" y="79" text-anchor="middle" class="sm">teacher soft targets</text>
+  <path d="M310,195 L326,195 L326,165 L343,165" class="edge"/>
+  <rect x="345" y="140" width="180" height="50" rx="6" class="blue"/>
+  <text x="435" y="161" text-anchor="middle">log-softmax(z_s / T)</text>
+  <text x="435" y="179" text-anchor="middle" class="sm">student, softened</text>
+  <path d="M310,215 L326,215 L326,265 L343,265" class="edge"/>
+  <rect x="345" y="240" width="180" height="50" rx="6" class="blue"/>
+  <text x="435" y="261" text-anchor="middle">softmax(z_s)</text>
+  <text x="435" y="279" text-anchor="middle" class="sm">student, T = 1</text>
+  <path d="M525,65 L541,65 L541,100 L558,100" class="edge"/>
+  <path d="M525,165 L541,165 L541,130 L558,130" class="edge"/>
+  <rect x="560" y="90" width="180" height="50" rx="6" class="orange"/>
+  <text x="650" y="111" text-anchor="middle">KL(teacher ‖ student)</text>
+  <text x="650" y="129" text-anchor="middle" class="sm">× α × T²</text>
+  <path d="M525,265 L558,265" class="edge"/>
+  <rect x="560" y="240" width="180" height="50" rx="6" class="orange"/>
+  <text x="650" y="261" text-anchor="middle">cross-entropy</text>
+  <text x="650" y="279" text-anchor="middle" class="sm">× (1 − α)</text>
+  <rect x="345" y="320" width="180" height="40" rx="6" class="gray"/>
+  <text x="435" y="345" text-anchor="middle">hard label y</text>
+  <path d="M525,340 L650,340 L650,292" class="edge"/>
+  <path d="M740,115 L760,115 L760,170 L770,170" class="edge"/>
+  <path d="M740,265 L760,265 L760,210 L770,210" class="edge"/>
+  <rect x="772" y="160" width="70" height="60" rx="6" class="green"/>
+  <text x="807" y="186" text-anchor="middle" class="b">loss</text>
+  <text x="807" y="204" text-anchor="middle" class="sm">sum</text>
+  <text x="16" y="392">Gradients flow only into the student. T² keeps the soft term on the same scale as the hard term when T changes.</text>
+</svg>

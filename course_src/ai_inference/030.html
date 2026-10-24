@@ -1,0 +1,242 @@
+<h2>Introduction</h2>
+<p>Engine metrics tell us what the serving software is doing: how many requests wait, how full the KV cache is, how fast tokens come out (Lesson 29, Queue Depth). GPU metrics tell us what the hardware is doing underneath: whether its streaming multiprocessors have work, whether its memory bandwidth is saturated, whether it is running at full clock speed, and whether it is healthy. When a replica is slow, the GPU metrics decide which of very different fixes applies: add capacity, fix a software bottleneck, or replace a failing card.</p>
+<p>The catch is that the two GPU numbers everyone knows are nearly useless for inference. <strong>GPU utilization</strong> from <code>nvidia-smi</code> reads close to 100% whenever any kernel is running, even a tiny one, and <strong>memory used</strong> reads about 90% from the moment a serving engine starts, because the engine reserves its KV cache up front. The useful signals come from NVIDIA's Data Center GPU Manager (DCGM), which reads the GPU's hardware performance counters and exports them to Prometheus.</p>
+<fig src="030-dcgm-pipeline.svg" caption="From GPU counters to dashboards and alerts">On each GPU node, the DCGM host engine reads counters from the H100s, and dcgm-exporter publishes the fields listed in its CSV file on port 9400 with pod, namespace and container labels taken from the kubelet pod-resources socket. The vLLM pods publish engine metrics on their own metrics endpoint. Prometheus scrapes both every 15 to 30 seconds and feeds Grafana dashboards and Alertmanager, which notifies the on-call engineer or triggers automation such as draining a node.</fig>
+<p>In this lesson, we build the metrics pipeline, go through the GPU metrics that matter for inference and what a bad value means, explain why high memory use is normal, read GPU and engine metrics together to tell compute-bound, memory-bound, idle, starved, and throttled replicas apart, cover the caveats of MIG and shared GPUs, and choose which GPU metrics deserve an alert.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>GPU monitoring questions in interviews usually start from a confusing dashboard. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: What does the serving fleet look like?<br>
+<strong>Interviewer</strong>: H100 SXM GPUs on Kubernetes, one vLLM replica of Llama 3.1 8B Instruct per GPU, five replicas at average load and nine at the daily peak, because the autoscaler keeps each replica at 75% of its 53-stream capacity (Lesson 22, Autoscaling). Prometheus already scrapes the vLLM metrics.</p>
+<p><strong>Candidate</strong>: Which GPU metrics do we collect today?<br>
+<strong>Interviewer</strong>: Only utilization and memory used from <code>nvidia-smi</code>. Utilization reads near 100% and memory near 90% around the clock, so nobody looks at them anymore.</p>
+<p><strong>Candidate</strong>: What should the GPU metrics help us decide?<br>
+<strong>Interviewer</strong>: Three things. When a replica is slow, is it overloaded, starved by something else, or impaired? Is a GPU failing before it crashes or returns garbage? And are we using the hardware we pay for?</p>
+<p><strong>Candidate</strong>: Do we share GPUs between workloads?<br>
+<strong>Interviewer</strong>: A separate pool runs small embedding and classification models on MIG slices of H100s.</p>
+<p><strong>Candidate</strong>: What are the rules for paging?<br>
+<strong>Interviewer</strong>: Page only for things that need a human right now. Everything else goes to tickets or dashboards.</p>
+<p>The question underneath is: <em>which GPU metrics should we collect, how do we read them together with the engine's metrics to diagnose a slow replica, and which of them deserve an alert?</em> We start with how the numbers are collected, because the collection method limits what they can mean.</p>
+
+<h2>Collecting GPU Metrics</h2>
+<h3>NVML, DCGM, and dcgm-exporter</h3>
+<p>Three layers sit between the hardware and a dashboard. <strong>NVML</strong>, the NVIDIA Management Library, ships with the driver and powers <code>nvidia-smi</code>: it reports device-level counters such as utilization, memory, power, temperature, and clocks. <strong>DCGM</strong> builds on it with health checks, error tracking, and <em>profiling</em> metrics read from the GPU's hardware performance counters, available on datacenter GPUs from Volta onward [1]. <strong>dcgm-exporter</strong> wraps DCGM and serves the fields listed in a CSV file as Prometheus metrics on port 9400 at <code>/metrics</code> [3].</p>
+<p>The CSV file matters more than it looks. The exporter's default list includes GPU utilization, memory, power, temperatures, clocks, PCIe, XID errors, row remapping, and three profiling fields (graphics engine, tensor pipe, and DRAM activity). It leaves out SM activity, SM occupancy, the power limit, ECC error counts, throttling counters, and per-direction NVLink traffic [4]. For inference, several of those are exactly the metrics we need, so we ship our own CSV.</p>
+<p>Two caveats apply to profiling fields. Some can only be collected in separate hardware passes, so DCGM multiplexes them by sampling, and very high collection frequencies can return zeros [1]. And the newest DCGM field reference renames many fields while keeping their IDs: field 1002 is listed as <code>DCGM_FI_PROF_SM_UTIL_RATIO</code>, and <code>DCGM_FI_DEV_GPU_UTIL</code> is deprecated in favor of <code>DCGM_FI_DEV_GPU_UTIL_RATIO</code> [2]. Lesson 19, GPU Utilization, explains the renaming. This lesson uses the names that dcgm-exporter exposes, because the exporter names each Prometheus metric after the field name in its CSV, and those are the names you query.</p>
+
+<h3>Deploying on Kubernetes</h3>
+<p>On Kubernetes, dcgm-exporter runs as a DaemonSet, one pod per GPU node. The NVIDIA GPU Operator deploys it by default; without the Operator, NVIDIA publishes a Helm chart [5][11]. Three details of the chart are worth knowing:</p>
+<ul>
+<li><strong>Pod attribution</strong>: with Kubernetes mapping enabled, the exporter reads the kubelet pod-resources socket and adds <code>pod</code>, <code>namespace</code>, and <code>container</code> labels to each GPU's metrics [5]. This is what lets us join GPU metrics with the engine metrics of the vLLM pod on that GPU.</li>
+<li><strong>Privileges</strong>: profiling fields (<code>DCGM_FI_PROF_*</code>) need the <code>SYS_ADMIN</code> capability, which the chart grants by default [5].</li>
+<li><strong>Scraping</strong>: the chart creates a Prometheus Operator ServiceMonitor with a 30-second interval, and a custom field list can replace the default CSV through the chart's <code>customMetrics</code> value. It replaces the list rather than adding to it, so the custom list must be complete [5].</li>
+</ul>
+
+<h2>The Metrics That Matter for Inference</h2>
+<h3>What each metric measures</h3>
+<p>Each metric watches one part of the GPU. Figure 2 maps them onto an H100: the 132 streaming multiprocessors (SMs) with their tensor cores, the 80 GB of HBM3 memory, the PCIe link to the host, the NVLink links to other GPUs, and the power and thermal controls [12]. Lesson 33, GPU Architecture and Attention Kernels, explains what these parts do; here we only need to know which counter watches which part.</p>
+<fig src="030-gpu-anatomy.svg" caption="Which DCGM field watches which part of an H100">A block diagram of an H100 SXM. The 132 streaming multiprocessors, each with tensor cores, are watched by GPU utilization, graphics engine activity, SM activity, SM occupancy and tensor pipe activity. The 80 GB of HBM3 is watched by DRAM activity, framebuffer used and free, memory temperature, ECC errors and row remapping. The PCIe link to the host CPU is watched by PCIe transmit and receive bytes and PCIe replays. NVLink to peer GPUs is watched by NVLink bytes. Power and thermal control is watched by power draw and limit, GPU temperature, SM clock and throttling counters. XID errors come from the driver.</fig>
+<p>Table 1 lists the fields we collect, what each one means, and what a bad value suggests. Fields marked with an asterisk are not in the exporter's default CSV and must be added [4][6].</p>
+<table>
+<thead><tr><th>Metric (dcgm-exporter name)</th><th>What it measures</th><th>What a bad value suggests</th></tr></thead>
+<tbody>
+<tr><td><code>DCGM_FI_DEV_GPU_UTIL</code> (%)</td><td>Share of the sample period in which at least one kernel was running; the period is 1/6 s to 1 s depending on the product [7]</td><td>Low while requests wait: the engine or host is the bottleneck. High says almost nothing.</td></tr>
+<tr><td><code>DCGM_FI_PROF_GR_ENGINE_ACTIVE</code> (0–1)</td><td>Share of time the graphics or compute engine was active; also reported per MIG instance</td><td>Same reading as GPU utilization; use it on MIG.</td></tr>
+<tr><td><code>DCGM_FI_PROF_SM_ACTIVE</code>* (0–1)</td><td>Share of time at least one warp was active on an SM, averaged over all SMs</td><td>Below 0.5 under load: kernels too small to fill the GPU, launch overhead, or a CPU bottleneck.</td></tr>
+<tr><td><code>DCGM_FI_PROF_SM_OCCUPANCY</code>* (0–1)</td><td>Resident warps as a share of the maximum an SM can hold</td><td>Not bad by itself; low occupancy hurts memory-bound kernels most.</td></tr>
+<tr><td><code>DCGM_FI_PROF_PIPE_TENSOR_ACTIVE</code> (0–1)</td><td>Share of cycles the tensor core pipe was active</td><td>Near zero during prefill-heavy load: the model is not using tensor cores (wrong dtype or fallback kernels).</td></tr>
+<tr><td><code>DCGM_FI_PROF_DRAM_ACTIVE</code> (0–1)</td><td>Share of cycles the memory interface was sending or receiving data; about 0.8 is the practical maximum [1]</td><td>Near 0.8 during decode: memory-bound, as expected. Low at full batch: time is going somewhere else.</td></tr>
+<tr><td><code>DCGM_FI_DEV_FB_USED</code>, <code>DCGM_FI_DEV_FB_FREE</code> (MiB)</td><td>Frame buffer (GPU memory) used and free</td><td>About 90% used is normal for inference engines. Free near zero, or used above the engine's budget: another process on the GPU, or an out-of-memory risk.</td></tr>
+<tr><td><code>DCGM_FI_DEV_POWER_USAGE</code>, <code>DCGM_FI_DEV_ENFORCED_POWER_LIMIT</code>* (W)</td><td>Power draw and the limit the driver enforces (up to 700 W on H100 SXM)</td><td>Draw pinned at the limit with falling clocks: power capping.</td></tr>
+<tr><td><code>DCGM_FI_DEV_GPU_TEMP</code>, <code>DCGM_FI_DEV_MEMORY_TEMP</code> (°C)</td><td>GPU and HBM temperature</td><td>Well above peer GPUs: a cooling problem that precedes thermal slowdown.</td></tr>
+<tr><td><code>DCGM_FI_DEV_SM_CLOCK</code> (MHz), <code>DCGM_FI_DEV_POWER_VIOLATION</code>*, <code>DCGM_FI_DEV_THERMAL_VIOLATION</code>* (ns)</td><td>SM clock and the time spent slowed by power or thermal limits</td><td>Clock below peers while violation counters grow: the GPU is throttled.</td></tr>
+<tr><td><code>DCGM_FI_PROF_PCIE_TX_BYTES</code>, <code>DCGM_FI_PROF_PCIE_RX_BYTES</code> (B/s), <code>DCGM_FI_DEV_PCIE_REPLAY_COUNTER</code></td><td>Host link traffic and link-level retries</td><td>Sustained traffic during serving: KV offload or host copies. Rising replays: a failing link.</td></tr>
+<tr><td><code>DCGM_FI_DEV_NVLINK_BANDWIDTH_TOTAL</code> (MB/s), <code>DCGM_FI_PROF_NVLINK_TX_BYTES</code>*</td><td>GPU-to-GPU traffic</td><td>Near its ceiling with tensor parallelism: all-reduce bound (Lesson 18). Zero is normal for one GPU per replica.</td></tr>
+<tr><td><code>DCGM_FI_DEV_ECC_DBE_VOL_TOTAL</code>*, <code>DCGM_FI_DEV_UNCORRECTABLE_REMAPPED_ROWS</code>, <code>DCGM_FI_DEV_ROW_REMAP_FAILURE</code></td><td>Uncorrectable memory errors and HBM row remapping</td><td>Any increase: the memory is failing. A remap failure means the GPU should be taken out of service.</td></tr>
+<tr><td><code>DCGM_FI_DEV_XID_ERRORS</code></td><td>Code of the last XID error the driver reported</td><td>48 (double-bit ECC), 79 (fallen off the bus), 94/95 (contained/uncontained memory error) need action; 13 and 31 are often application faults [10].</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: GPU metrics for inference. *Not in dcgm-exporter's default CSV.</p>
+
+<h3>Utilization is not work</h3>
+<p>GPU utilization is defined as the share of time in which <em>one or more kernels</em> was running [7]. It does not ask how much of the GPU each kernel used. A decode step at batch size 1 launches a long sequence of small kernels, each of which keeps only a fraction of the 132 SMs busy, yet the GPU always has some kernel running, so utilization reads 100%. SM activity averages over all SMs and tells the two cases apart, as Figure 3 shows.</p>
+<fig src="030-util-vs-sm-active.svg" caption="Two workloads with 100% GPU utilization and very different SM activity">Two panels, each showing one second of a GPU with its 132 SMs drawn as twelve groups. In the first, small decode kernels run back to back but occupy only three of the twelve groups at a time: GPU utilization reads 100 percent and SM activity about 0.25. In the second, a large batch keeps eleven of the twelve groups busy: GPU utilization still reads 100 percent and SM activity about 0.9.</fig>
+<p>NVIDIA's guidance for SM activity is that 0.8 or more is necessary, but not sufficient, for effective use of the GPU, and that values below 0.5 likely indicate ineffective use [1]. Even SM activity cannot say whether the active warps do useful arithmetic or wait on memory; that needs the tensor and DRAM counters, or the model-level MFU and MBU of Lesson 19, GPU Utilization.</p>
+
+<h3>Why high memory use is normal</h3>
+<p>Lesson 3 showed how vLLM budgets an H100: with <code>--gpu-memory-utilization 0.90</code>, set explicitly since recent vLLM versions default to 0.92, it takes 90% of the card's memory at startup, loads 15 GiB of weights, reserves about 4.6 GiB for activations and CUDA graphs, and turns the remaining ~52 GiB into KV cache blocks. All of that is allocated whether one request is running or two hundred. The frame buffer therefore reads about 72 GiB used (0.90 × 79.6 GiB) from the first second and stays there, as Figure 4 shows.</p>
+<fig src="030-memory-preallocated.svg" caption="Frame buffer used stays flat while KV cache usage follows traffic (illustrative day)">A 24-hour chart for one replica in a fixed pool of nine H100s. Frame buffer used jumps to about 72 GiB, 90 percent of the H100, when the server starts and stays flat all day. The engine's KV cache usage follows the daily traffic cycle, from about 5 percent at night to about 21 percent at the afternoon peak.</fig>
+<p>Load lives in the engine's own metric, <code>vllm:kv_cache_usage_perc</code> (Lesson 29). Frame buffer metrics are still worth watching for two other reasons. If used memory rises above the engine's budget, something else is on the GPU, such as a stray notebook or a second process. And because vLLM's memory fraction is a per-instance limit, two engines placed on the same GPU each try to take their full fraction; the vLLM documentation suggests 0.5 each for two instances on one GPU [13].</p>
+
+<h2>Reading GPU and Engine Metrics Together</h2>
+<h3>What our replica should look like</h3>
+<p>Before diagnosing anything, we work out what healthy readings look like. Lesson 19 modeled our replica at its capacity of about 5 requests per second: about 53 streams decode together, each step takes about 21 ms, and prefill takes about 31% of the GPU's time. Two lines of arithmetic turn that into expected counter levels:</p>
+<ul>
+<li><strong>Compute</strong>: 5 requests per second bring 12,500 prompt and output tokens per second. At about 2 × 8.03 billion FLOPs per token, that is about 200 TFLOPS, or 20% of the H100's 989 dense BF16 TFLOPS. Tensor activity should sit well below 0.5.</li>
+<li><strong>Bandwidth</strong>: each decode step reads 16 GB of weights plus the cache of 53 requests at about 2,250 tokens each, 53 × 2,250 × 128 KiB ≈ 15.6 GB, for 31.7 GB per step. Over a 21 ms step that averages 1.5 TB/s, about 45% of 3.35 TB/s; during the decode part of the step it is about 65%, Lesson 19's MBU. DRAM activity should read roughly 0.45 to 0.5.</li>
+<li><strong>GPU utilization</strong>: close to 100%, as it is at one request per second.</li>
+</ul>
+<p>These numbers set expectations. A replica at capacity that shows DRAM activity of 0.2 is spending its step time on something other than reading memory, such as CPU overhead between kernels, and that is worth investigating. A replica at 0.75 is near the practical ceiling of about 0.8 and has no bandwidth left for more streams.</p>
+<callout kind="tip" title="Interview tip">Before reading a GPU dashboard, estimate what it should say: tokens per second times 2 × parameters for compute, and bytes per step divided by step time for bandwidth. A reading far from the estimate is more informative than any threshold.</callout>
+
+<h3>Telling the states apart</h3>
+<p>A slow or underperforming replica is usually in one of five states. Each has a different signature across GPU and engine metrics and needs a different response, as Figure 5 shows.</p>
+<fig src="030-state-decision-table.svg" caption="Reading GPU and engine metrics together to classify a replica">A decision table with five rows. Compute-bound: SM activity and tensor activity high, DRAM moderate, many prompt tokens per second and TTFT rising with prompt length; this is normal for prefill-heavy load, so add capacity or use FP8. Memory-bound: DRAM activity near 0.8, tensor activity low to moderate, many running requests with high KV usage and rising time per output token; normal for decode, so use FP8 KV cache, speculative decoding or more replicas. Idle: all activity low, nothing running or waiting; scale down. Starved: GPU activity low while requests wait; the bottleneck is outside the GPU, so check CPU, tokenizer, network or a hung worker. Throttled: activity normal but SM clock below peers, power at its limit or high temperature, violation counters growing, and lower throughput than peer replicas at the same load; fix cooling or power and drain the node if it persists.</fig>
+<ul>
+<li><strong>Compute-bound</strong>: SM and tensor activity are high and DRAM activity moderate, while the engine shows many prompt tokens per second and TTFT that grows with prompt length. This is normal for prefill-heavy traffic. The fixes are more GPUs, FP8 compute (Lesson 13), or a cap on prefill tokens per step to protect decode latency.</li>
+<li><strong>Memory-bound</strong>: DRAM activity is near 0.8 and tensor activity low to moderate, while running requests and KV usage are high and the time per output token grows with the batch. This is the normal state of a busy decode replica. The fixes reduce bytes per token: an FP8 KV cache (Lesson 3), quantized weights (Lesson 13), speculative decoding (Lesson 15), or more replicas.</li>
+<li><strong>Idle</strong>: everything is low and the engine has nothing running or waiting. The fleet is over-provisioned at this hour; the autoscaler should remove replicas (Lesson 22).</li>
+<li><strong>Starved</strong>: GPU activity is low or bursty while the engine has requests waiting. The bottleneck is outside the GPU: a CPU-bound tokenizer or scheduler, kernel launch overhead that CUDA graphs would remove (Lesson 19), slow network input, or a hung worker. GPU utilization alone often hides this state, because short kernels still keep it high.</li>
+<li><strong>Throttled</strong>: activity looks normal, but the SM clock is below that of peer GPUs, power sits at its limit or temperature is high, and the violation counters grow. The engine shows lower throughput than its peers at the same load. The fix is physical: cooling, power configuration, or draining the node.</li>
+</ul>
+<p>Comparing a replica with its peers is often the fastest test. Identical GPUs serving the same traffic mix through the same router should show nearly identical clocks, temperatures, and time per output token; the odd one out is the one to drain. Figure 6 shows an illustrative cooling failure: one GPU's temperature climbs from about 62 °C to 88 °C, its SM clock falls to about 80% of the fleet median once thermal slowdown begins, and its replica's time per output token rises from 21 ms to 23 ms while its peers stay flat.</p>
+<fig src="030-throttled-peer.svg" caption="One throttled GPU among five peers (illustrative)">Three aligned panels over 60 minutes for five GPUs. Four peers stay flat. One GPU's temperature climbs from about 62 to 88 degrees Celsius between minutes 20 and 35. From minute 32, its SM clock falls to about 80 percent of the fleet median, and its replica's time per output token rises from 21 to 23 milliseconds.</fig>
+
+<h3>MIG and shared GPUs</h3>
+<p><strong>Multi-Instance GPU</strong> (MIG) splits one H100 into up to seven isolated GPU instances, each with its own SMs and memory; on the H100 80 GB, profiles range from <code>1g.10gb</code> (one seventh of the SMs, one eighth of the memory) to <code>7g.80gb</code> [9]. MIG changes how metrics read:</p>
+<ul>
+<li><strong>No utilization per instance</strong>: NVML, and therefore <code>nvidia-smi</code> and <code>DCGM_FI_DEV_GPU_UTIL</code>, cannot attribute utilization to MIG devices and reports it as not available [8]. Use DCGM's profiling fields, such as <code>DCGM_FI_PROF_GR_ENGINE_ACTIVE</code>, which DCGM reports per GPU instance.</li>
+<li><strong>Instance-relative values</strong>: an instance's activity is relative to its own SMs. The whole GPU's activity is the average weighted by each instance's share of compute, which DCGM's documentation illustrates with a worked example [1].</li>
+<li><strong>Labels</strong>: dcgm-exporter adds <code>GPU_I_PROFILE</code> and <code>GPU_I_ID</code> labels to per-instance series, so dashboards must group by them [3].</li>
+</ul>
+<fig src="030-mig-attribution.svg" caption="Per-instance activity on a MIG-partitioned H100 and the whole-GPU value (illustrative)">An H100 split into a 3g.40gb instance at 0.90 graphics engine activity, a 2g.20gb instance at 0.50, a 1g.10gb instance at 0.20, and an idle 1g.10gb instance at 0. GPU utilization reads not available. Weighting each instance by its sevenths of the compute gives 3 times 0.9 plus 2 times 0.5 plus 1 times 0.2 plus 0, divided by 7, which is about 0.56 for the whole GPU.</fig>
+<p>Figure 7 shows why per-instance reading matters: the busiest instance is at 0.90 and would benefit from more capacity, while the whole GPU reads 0.56 and looks comfortable. Without MIG, GPUs can also be shared by time-slicing or by running several processes on one card. Then every GPU metric describes the whole card, and pod labels can attribute the same GPU to several pods, so per-workload numbers have to come from the engines themselves.</p>
+
+<h2>Alerting on GPU Metrics</h2>
+<h3>Three kinds of GPU signal</h3>
+<p>Brendan Gregg's USE method asks three questions of every resource: how utilized it is, how saturated it is, and whether it has errors [14]. For a GPU serving LLMs, the answers come from different places. Utilization comes from the profiling fields. Saturation is best read from the engine, as queue depth and KV cache usage (Lesson 29). Errors come from XID codes, ECC counters, row remapping, and PCIe replays. Only errors and throttling describe a problem with the GPU itself; the rest describe load, and load is already covered by the engine and latency alerts.</p>
+<table>
+<thead><tr><th>Signal</th><th>Condition</th><th>Severity</th><th>Action</th></tr></thead>
+<tbody>
+<tr><td>Fatal XID</td><td><code>DCGM_FI_DEV_XID_ERRORS</code> is 48, 79, 94 or 95</td><td>Page</td><td>Drain the node; replace or reset the GPU</td></tr>
+<tr><td>Row remap failure</td><td><code>DCGM_FI_DEV_ROW_REMAP_FAILURE &gt; 0</code></td><td>Page</td><td>Drain; the GPU needs service</td></tr>
+<tr><td>GPU missing</td><td>Fewer GPUs reporting than expected</td><td>Page</td><td>Node or driver failure</td></tr>
+<tr><td>Uncorrectable memory errors</td><td>Remapped rows or double-bit errors increased</td><td>Ticket</td><td>Schedule a reset; watch for repeats</td></tr>
+<tr><td>Throttling</td><td>Power or thermal violation above 5% of time for 15 minutes</td><td>Ticket</td><td>Check cooling and power caps</td></tr>
+<tr><td>Starved GPU</td><td>Requests waiting while SM activity is below 0.2 for 5 minutes</td><td>Warning</td><td>Look for a host bottleneck or hung worker</td></tr>
+<tr><td>Utilization, SM, tensor, DRAM, memory used</td><td>None</td><td>Dashboard only</td><td>Capacity planning and diagnosis</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Which GPU signals alert, and how loudly</p>
+
+<h4>Which metrics to alert on for our deployment?</h4>
+<p>For our H100 fleet behind a TTFT objective, we page on only three GPU conditions: a fatal XID code, a row remap failure, and a GPU that stops reporting. Each of them means the hardware can no longer be trusted, and automation should drain the node at the same moment the page goes out, since a fleet of five replicas at average load has little spare capacity. Lesson 40, Reliability and Rollouts, covers draining, replacing, and returning failed GPUs. Throttling and growing memory error counts open tickets, because they degrade a GPU slowly and can wait for business hours. The "starved GPU" condition is a warning that usually explains a TTFT page rather than replacing it.</p>
+<p>We deliberately put no alert on GPU utilization, SM activity, tensor or DRAM activity, or memory used. High values are normal for a busy inference server, and low values are already caught as idle capacity by the autoscaler or as starvation by the combined rule. These metrics earn their place on the dashboard next to the engine panels, where they answer "why" once a symptom alert has fired.</p>
+
+<h2>In Practice</h2>
+<p>The first tab is a counters CSV for dcgm-exporter that keeps the useful defaults and adds SM activity, occupancy, the power limit, throttling counters, ECC errors, and NVLink bytes [4]. The second tab installs the exporter with NVIDIA's Helm chart and points it at that list through the chart's ConfigMap [5]. The third tab collects the PromQL queries used in this lesson, including the join between GPU and engine metrics, which assumes the engine's scrape configuration attaches a <code>pod</code> label, as Prometheus Operator ServiceMonitors do.</p>
+<codetabs>
+<tab label="Counters CSV" lang="text">
+# dcgm-metrics.csv: DCGM field, Prometheus type, help text
+DCGM_FI_DEV_GPU_UTIL,             gauge,   GPU utilization (in %).
+DCGM_FI_DEV_SM_CLOCK,             gauge,   SM clock frequency (in MHz).
+DCGM_FI_DEV_MEM_CLOCK,            gauge,   Memory clock frequency (in MHz).
+DCGM_FI_DEV_GPU_TEMP,             gauge,   GPU temperature (in C).
+DCGM_FI_DEV_MEMORY_TEMP,          gauge,   Memory temperature (in C).
+DCGM_FI_DEV_POWER_USAGE,          gauge,   Power draw (in W).
+DCGM_FI_DEV_ENFORCED_POWER_LIMIT, gauge,   Effective power limit enforced by the driver (in W).
+DCGM_FI_DEV_POWER_VIOLATION,      counter, Throttling duration due to power constraints (in ns).
+DCGM_FI_DEV_THERMAL_VIOLATION,    counter, Throttling duration due to thermal constraints (in ns).
+DCGM_FI_DEV_FB_FREE,              gauge,   Framebuffer memory free (in MiB).
+DCGM_FI_DEV_FB_USED,              gauge,   Framebuffer memory used (in MiB).
+DCGM_FI_DEV_XID_ERRORS,           gauge,   Value of the last XID error encountered.
+DCGM_FI_DEV_ECC_DBE_VOL_TOTAL,    counter, Total number of double-bit volatile ECC errors.
+DCGM_FI_DEV_UNCORRECTABLE_REMAPPED_ROWS, counter, Number of remapped rows for uncorrectable errors.
+DCGM_FI_DEV_ROW_REMAP_FAILURE,    gauge,   Whether remapping of rows has failed.
+DCGM_FI_DEV_PCIE_REPLAY_COUNTER,  counter, Total number of PCIe retries.
+DCGM_FI_DEV_NVLINK_BANDWIDTH_TOTAL, gauge, Aggregate NVLink throughput across all lanes (in MB/s).
+DCGM_FI_PROF_GR_ENGINE_ACTIVE,    gauge,   Ratio of time the graphics engine is active.
+DCGM_FI_PROF_SM_ACTIVE,           gauge,   Ratio of cycles an SM has at least 1 warp assigned.
+DCGM_FI_PROF_SM_OCCUPANCY,        gauge,   Ratio of number of warps resident on an SM.
+DCGM_FI_PROF_PIPE_TENSOR_ACTIVE,  gauge,   Ratio of cycles the tensor (HMMA) pipe is active.
+DCGM_FI_PROF_DRAM_ACTIVE,         gauge,   Ratio of cycles the device memory interface is active.
+DCGM_FI_PROF_PCIE_TX_BYTES,       gauge,   PCIe transmit rate (in B/s).
+DCGM_FI_PROF_PCIE_RX_BYTES,       gauge,   PCIe receive rate (in B/s).
+DCGM_FI_PROF_NVLINK_TX_BYTES,     gauge,   NVLink transmit rate (in B/s).
+DCGM_FI_PROF_NVLINK_RX_BYTES,     gauge,   NVLink receive rate (in B/s).
+</tab>
+<tab label="Helm" lang="bash">
+helm repo add gpu-helm-charts https://nvidia.github.io/dcgm-exporter/helm-charts
+helm repo update
+
+# customMetrics replaces the default list, so the CSV must be complete.
+# The chart stores it in the ConfigMap "exporter-metrics-config-map";
+# "-m namespace:name" tells the exporter to read its fields from there.
+helm install dcgm-exporter gpu-helm-charts/dcgm-exporter \
+  --namespace gpu-monitoring --create-namespace \
+  --set-file customMetrics=dcgm-metrics.csv \
+  --set 'arguments={-m,gpu-monitoring:exporter-metrics-config-map}'
+
+# Check one node's output:
+kubectl -n gpu-monitoring port-forward ds/dcgm-exporter 9400:9400 &
+curl -s localhost:9400/metrics | grep -E 'DCGM_FI_PROF_(SM_ACTIVE|DRAM_ACTIVE)'
+</tab>
+<tab label="PromQL" lang="promql">
+# SM activity and memory bandwidth per serving pod (0 to 1)
+avg by (pod) (DCGM_FI_PROF_SM_ACTIVE)
+avg by (pod) (DCGM_FI_PROF_DRAM_ACTIVE)
+
+# "Busy" but not working: kernels running, SMs mostly idle
+DCGM_FI_DEV_GPU_UTIL > 90 and DCGM_FI_PROF_SM_ACTIVE < 0.3
+
+# Share of time slowed by power capping or heat (counters in ns)
+rate(DCGM_FI_DEV_POWER_VIOLATION[5m]) / 1e9
+rate(DCGM_FI_DEV_THERMAL_VIOLATION[5m]) / 1e9
+
+# Power headroom (1.0 = at the enforced limit)
+DCGM_FI_DEV_POWER_USAGE / DCGM_FI_DEV_ENFORCED_POWER_LIMIT
+
+# Odd one out: SM clock relative to the fleet median
+DCGM_FI_DEV_SM_CLOCK / scalar(quantile(0.5, DCGM_FI_DEV_SM_CLOCK))
+
+# Starved: requests waiting while the GPU does little (join on pod)
+(sum by (pod) (vllm:num_requests_waiting) > 5)
+  and on (pod)
+(avg by (pod) (DCGM_FI_PROF_SM_ACTIVE) < 0.2)
+
+# Hardware health
+DCGM_FI_DEV_XID_ERRORS == 48 or DCGM_FI_DEV_XID_ERRORS == 79
+  or DCGM_FI_DEV_XID_ERRORS == 94 or DCGM_FI_DEV_XID_ERRORS == 95
+DCGM_FI_DEV_ROW_REMAP_FAILURE > 0
+increase(DCGM_FI_DEV_UNCORRECTABLE_REMAPPED_ROWS[1h]) > 0
+count(DCGM_FI_DEV_GPU_TEMP) < 5   # GPUs expected in the pool
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Model FLOPs utilization and model bandwidth utilization, which convert tokens per second into the share of peak compute and bandwidth that the model actually uses (Lesson 19, GPU Utilization).</li>
+<li>Energy per token: dcgm-exporter's default list includes a total energy counter, which divided by tokens served gives joules per token, a useful efficiency metric next to cost per million tokens (Lesson 20).</li>
+<li>DCGM health checks and diagnostics (<code>dcgmi diag</code>) run before a node joins the serving pool, so a weak GPU is caught before it serves traffic [1] (Lesson 40, Reliability and Rollouts).</li>
+<li>Fabric and NVLink health on multi-GPU servers, where one bad link slows every tensor-parallel replica that uses it (Lesson 18).</li>
+<li>Recent dcgm-exporter versions offer opt-in metrics that count XID errors and clock events per code over a time window, which are easier to alert on than the last-XID gauge [6].</li>
+<li>Sampling rate: profiling metrics are averages over the collection interval, so a one-second spike disappears in a 30-second scrape; use a shorter interval only on nodes under investigation [1].</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="030-summary.png" caption="GPU metrics summary" optional="1">Mind map summarizing the GPU metrics lesson: the DCGM pipeline, the key metrics, why memory looks full, reading GPU and engine metrics together, MIG caveats, and what to alert on.</fig>
+<ul>
+<li>dcgm-exporter publishes DCGM fields to Prometheus on port 9400; its default CSV omits SM activity, occupancy, the power limit, throttling, and ECC counters, so inference fleets should ship their own list.</li>
+<li>GPU utilization only says that some kernel was running; SM activity, tensor activity, and DRAM activity say how much of the GPU was working, with about 0.8 as the practical DRAM ceiling.</li>
+<li>Inference engines pre-allocate memory, so about 72 GiB (90%) used on an H100 is normal at any load; read load from the engine's KV cache usage instead.</li>
+<li>At its capacity of about 5 requests per second, our replica should use about 20% of peak compute and 45% of peak bandwidth; readings far from these estimates are worth investigating.</li>
+<li>GPU and engine metrics together separate compute-bound, memory-bound, idle, starved, and throttled replicas, each with a different fix.</li>
+<li>With MIG, per-instance profiling fields replace GPU utilization. Page only on GPU health (fatal XIDs, row remap failures, missing GPUs), and keep load metrics on dashboards.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] NVIDIA DCGM documentation: Feature Overview. <a href="https://docs.nvidia.com/datacenter/dcgm/latest/user-guide/feature-overview.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/datacenter/dcgm/latest/user-guide/feature-overview.html</a>.<br>
+[2] NVIDIA DCGM documentation: Field Identifiers. <a href="https://docs.nvidia.com/datacenter/dcgm/latest/dcgm-api/dcgm-api-field-ids.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/datacenter/dcgm/latest/dcgm-api/dcgm-api-field-ids.html</a>.<br>
+[3] NVIDIA documentation: DCGM Exporter. <a href="https://docs.nvidia.com/datacenter/cloud-native/gpu-telemetry/latest/dcgm-exporter.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/datacenter/cloud-native/gpu-telemetry/latest/dcgm-exporter.html</a>.<br>
+[4] NVIDIA dcgm-exporter: default counters. <a href="https://github.com/NVIDIA/dcgm-exporter/blob/main/etc/default-counters.csv" rel="noopener noreferrer" target="_blank">https://github.com/NVIDIA/dcgm-exporter/blob/main/etc/default-counters.csv</a>.<br>
+[5] NVIDIA DCGM documentation: Install DCGM Exporter. <a href="https://docs.nvidia.com/datacenter/dcgm/latest/installation/install-dcgm-exporter.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/datacenter/dcgm/latest/installation/install-dcgm-exporter.html</a>.<br>
+[6] NVIDIA DCGM documentation: DCGM Exporter Metrics. <a href="https://docs.nvidia.com/datacenter/dcgm/latest/reference/dcgm-exporter-metrics.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/datacenter/dcgm/latest/reference/dcgm-exporter-metrics.html</a>.<br>
+[7] NVIDIA documentation: nvidia-smi. <a href="https://docs.nvidia.com/deploy/nvidia-smi/index.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/deploy/nvidia-smi/index.html</a>.<br>
+[8] NVIDIA MIG User Guide: Getting Started with MIG. <a href="https://docs.nvidia.com/datacenter/tesla/mig-user-guide/latest/getting-started-with-mig.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/datacenter/tesla/mig-user-guide/latest/getting-started-with-mig.html</a>.<br>
+[9] NVIDIA MIG User Guide: Supported MIG Profiles. <a href="https://docs.nvidia.com/datacenter/tesla/mig-user-guide/latest/supported-mig-profiles.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/datacenter/tesla/mig-user-guide/latest/supported-mig-profiles.html</a>.<br>
+[10] NVIDIA documentation: Xid catalog. <a href="https://docs.nvidia.com/deploy/xid-errors/analyzing-xid-catalog.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/deploy/xid-errors/analyzing-xid-catalog.html</a>.<br>
+[11] NVIDIA GPU Operator documentation: Getting Started. <a href="https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html</a>.<br>
+[12] NVIDIA Technical Blog: NVIDIA Hopper Architecture In-Depth. <a href="https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/" rel="noopener noreferrer" target="_blank">https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/</a>.<br>
+[13] vLLM documentation: Engine Arguments. <a href="https://docs.vllm.ai/en/latest/configuration/engine_args.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/engine_args.html</a>.<br>
+[14] Gregg. The USE Method. <a href="https://www.brendangregg.com/usemethod.html" rel="noopener noreferrer" target="_blank">https://www.brendangregg.com/usemethod.html</a>.</p>

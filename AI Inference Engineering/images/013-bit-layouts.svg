@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="386" viewBox="0 0 840 386" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="24" class="b">One cell per bit. Exponent bits buy range; mantissa bits buy precision.</text>
+  <text x="16" y="56" class="b">BF16</text><text x="16" y="71" class="sm">16 bits</text>
+  <rect x="150" y="44" width="24" height="26" class="gray"/><text x="162" y="62" text-anchor="middle" class="sm">S</text>
+  <rect x="174" y="44" width="24" height="26" class="blue"/><text x="186" y="62" text-anchor="middle" class="sm">E</text>
+  <rect x="198" y="44" width="24" height="26" class="blue"/><text x="210" y="62" text-anchor="middle" class="sm">E</text>
+  <rect x="222" y="44" width="24" height="26" class="blue"/><text x="234" y="62" text-anchor="middle" class="sm">E</text>
+  <rect x="246" y="44" width="24" height="26" class="blue"/><text x="258" y="62" text-anchor="middle" class="sm">E</text>
+  <rect x="270" y="44" width="24" height="26" class="blue"/><text x="282" y="62" text-anchor="middle" class="sm">E</text>
+  <rect x="294" y="44" width="24" height="26" class="blue"/><text x="306" y="62" text-anchor="middle" class="sm">E</text>
+  <rect x="318" y="44" width="24" height="26" class="blue"/><text x="330" y="62" text-anchor="middle" class="sm">E</text>
+  <rect x="342" y="44" width="24" height="26" class="blue"/><text x="354" y="62" text-anchor="middle" class="sm">E</text>
+  <rect x="366" y="44" width="24" height="26" class="orange"/><text x="378" y="62" text-anchor="middle" class="sm">M</text>
+  <rect x="390" y="44" width="24" height="26" class="orange"/><text x="402" y="62" text-anchor="middle" class="sm">M</text>
+  <rect x="414" y="44" width="24" height="26" class="orange"/><text x="426" y="62" text-anchor="middle" class="sm">M</text>
+  <rect x="438" y="44" width="24" height="26" class="orange"/><text x="450" y="62" text-anchor="middle" class="sm">M</text>
+  <rect x="462" y="44" width="24" height="26" class="orange"/><text x="474" y="62" text-anchor="middle" class="sm">M</text>
+  <rect x="486" y="44" width="24" height="26" class="orange"/><text x="498" y="62" text-anchor="middle" class="sm">M</text>
+  <rect x="510" y="44" width="24" height="26" class="orange"/><text x="522" y="62" text-anchor="middle" class="sm">M</text>
+  <text x="554" y="62">range of FP32 (max ≈ 3.4 × 10³⁸)</text>
+  <text x="16" y="94" class="b">FP16</text><text x="16" y="109" class="sm">16 bits</text>
+  <rect x="150" y="82" width="24" height="26" class="gray"/><text x="162" y="100" text-anchor="middle" class="sm">S</text>
+  <rect x="174" y="82" width="24" height="26" class="blue"/><text x="186" y="100" text-anchor="middle" class="sm">E</text>
+  <rect x="198" y="82" width="24" height="26" class="blue"/><text x="210" y="100" text-anchor="middle" class="sm">E</text>
+  <rect x="222" y="82" width="24" height="26" class="blue"/><text x="234" y="100" text-anchor="middle" class="sm">E</text>
+  <rect x="246" y="82" width="24" height="26" class="blue"/><text x="258" y="100" text-anchor="middle" class="sm">E</text>
+  <rect x="270" y="82" width="24" height="26" class="blue"/><text x="282" y="100" text-anchor="middle" class="sm">E</text>
+  <rect x="294" y="82" width="24" height="26" class="orange"/><text x="306" y="100" text-anchor="middle" class="sm">M</text>
+  <rect x="318" y="82" width="24" height="26" class="orange"/><text x="330" y="100" text-anchor="middle" class="sm">M</text>
+  <rect x="342" y="82" width="24" height="26" class="orange"/><text x="354" y="100" text-anchor="middle" class="sm">M</text>
+  <rect x="366" y="82" width="24" height="26" class="orange"/><text x="378" y="100" text-anchor="middle" class="sm">M</text>
+  <rect x="390" y="82" width="24" height="26" class="orange"/><text x="402" y="100" text-anchor="middle" class="sm">M</text>
+  <rect x="414" y="82" width="24" height="26" class="orange"/><text x="426" y="100" text-anchor="middle" class="sm">M</text>
+  <rect x="438" y="82" width="24" height="26" class="orange"/><text x="450" y="100" text-anchor="middle" class="sm">M</text>
+  <rect x="462" y="82" width="24" height="26" class="orange"/><text x="474" y="100" text-anchor="middle" class="sm">M</text>
+  <rect x="486" y="82" width="24" height="26" class="orange"/><text x="498" y="100" text-anchor="middle" class="sm">M</text>
+  <rect x="510" y="82" width="24" height="26" class="orange"/><text x="522" y="100" text-anchor="middle" class="sm">M</text>
+  <text x="554" y="100">max 65,504</text>
+  <text x="16" y="132" class="b">FP8 E4M3</text><text x="16" y="147" class="sm">8 bits</text>
+  <rect x="150" y="120" width="24" height="26" class="gray"/><text x="162" y="138" text-anchor="middle" class="sm">S</text>
+  <rect x="174" y="120" width="24" height="26" class="blue"/><text x="186" y="138" text-anchor="middle" class="sm">E</text>
+  <rect x="198" y="120" width="24" height="26" class="blue"/><text x="210" y="138" text-anchor="middle" class="sm">E</text>
+  <rect x="222" y="120" width="24" height="26" class="blue"/><text x="234" y="138" text-anchor="middle" class="sm">E</text>
+  <rect x="246" y="120" width="24" height="26" class="blue"/><text x="258" y="138" text-anchor="middle" class="sm">E</text>
+  <rect x="270" y="120" width="24" height="26" class="orange"/><text x="282" y="138" text-anchor="middle" class="sm">M</text>
+  <rect x="294" y="120" width="24" height="26" class="orange"/><text x="306" y="138" text-anchor="middle" class="sm">M</text>
+  <rect x="318" y="120" width="24" height="26" class="orange"/><text x="330" y="138" text-anchor="middle" class="sm">M</text>
+  <text x="554" y="138">max ±448, no infinity</text>
+  <text x="16" y="170" class="b">FP8 E5M2</text><text x="16" y="185" class="sm">8 bits</text>
+  <rect x="150" y="158" width="24" height="26" class="gray"/><text x="162" y="176" text-anchor="middle" class="sm">S</text>
+  <rect x="174" y="158" width="24" height="26" class="blue"/><text x="186" y="176" text-anchor="middle" class="sm">E</text>
+  <rect x="198" y="158" width="24" height="26" class="blue"/><text x="210" y="176" text-anchor="middle" class="sm">E</text>
+  <rect x="222" y="158" width="24" height="26" class="blue"/><text x="234" y="176" text-anchor="middle" class="sm">E</text>
+  <rect x="246" y="158" width="24" height="26" class="blue"/><text x="258" y="176" text-anchor="middle" class="sm">E</text>
+  <rect x="270" y="158" width="24" height="26" class="blue"/><text x="282" y="176" text-anchor="middle" class="sm">E</text>
+  <rect x="294" y="158" width="24" height="26" class="orange"/><text x="306" y="176" text-anchor="middle" class="sm">M</text>
+  <rect x="318" y="158" width="24" height="26" class="orange"/><text x="330" y="176" text-anchor="middle" class="sm">M</text>
+  <text x="554" y="176">max ±57,344, has inf and NaN</text>
+  <text x="16" y="208" class="b">INT8</text><text x="16" y="223" class="sm">8 bits</text>
+  <rect x="150" y="196" width="24" height="26" class="yellow"/><text x="162" y="214" text-anchor="middle" class="sm">I</text>
+  <rect x="174" y="196" width="24" height="26" class="yellow"/><text x="186" y="214" text-anchor="middle" class="sm">I</text>
+  <rect x="198" y="196" width="24" height="26" class="yellow"/><text x="210" y="214" text-anchor="middle" class="sm">I</text>
+  <rect x="222" y="196" width="24" height="26" class="yellow"/><text x="234" y="214" text-anchor="middle" class="sm">I</text>
+  <rect x="246" y="196" width="24" height="26" class="yellow"/><text x="258" y="214" text-anchor="middle" class="sm">I</text>
+  <rect x="270" y="196" width="24" height="26" class="yellow"/><text x="282" y="214" text-anchor="middle" class="sm">I</text>
+  <rect x="294" y="196" width="24" height="26" class="yellow"/><text x="306" y="214" text-anchor="middle" class="sm">I</text>
+  <rect x="318" y="196" width="24" height="26" class="yellow"/><text x="330" y="214" text-anchor="middle" class="sm">I</text>
+  <text x="554" y="214">integers −128 … 127</text>
+  <text x="16" y="246" class="b">INT4</text><text x="16" y="261" class="sm">4 bits</text>
+  <rect x="150" y="234" width="24" height="26" class="yellow"/><text x="162" y="252" text-anchor="middle" class="sm">I</text>
+  <rect x="174" y="234" width="24" height="26" class="yellow"/><text x="186" y="252" text-anchor="middle" class="sm">I</text>
+  <rect x="198" y="234" width="24" height="26" class="yellow"/><text x="210" y="252" text-anchor="middle" class="sm">I</text>
+  <rect x="222" y="234" width="24" height="26" class="yellow"/><text x="234" y="252" text-anchor="middle" class="sm">I</text>
+  <text x="554" y="252">integers −8 … 7 (16 levels)</text>
+  <text x="16" y="284" class="b">FP4 E2M1</text><text x="16" y="299" class="sm">4 bits</text>
+  <rect x="150" y="272" width="24" height="26" class="gray"/><text x="162" y="290" text-anchor="middle" class="sm">S</text>
+  <rect x="174" y="272" width="24" height="26" class="blue"/><text x="186" y="290" text-anchor="middle" class="sm">E</text>
+  <rect x="198" y="272" width="24" height="26" class="blue"/><text x="210" y="290" text-anchor="middle" class="sm">E</text>
+  <rect x="222" y="272" width="24" height="26" class="orange"/><text x="234" y="290" text-anchor="middle" class="sm">M</text>
+  <text x="554" y="290">±0, 0.5, 1, 1.5, 2, 3, 4, 6</text>
+  <rect x="16" y="318" width="18" height="14" class="gray"/><text x="42" y="330" class="sm">sign</text>
+  <rect x="100" y="318" width="18" height="14" class="blue"/><text x="126" y="330" class="sm">exponent</text>
+  <rect x="212" y="318" width="18" height="14" class="orange"/><text x="238" y="330" class="sm">mantissa</text>
+  <rect x="324" y="318" width="18" height="14" class="yellow"/><text x="350" y="330" class="sm">integer bits</text>
+  <text x="16" y="358">NVFP4 = FP4 E2M1 values + one FP8 (E4M3) scale per 16 values + one FP32 scale per tensor: ≈ 4.5 bits per value.</text>
+  <text x="16" y="378">MXFP4 = FP4 E2M1 values + one power-of-two (E8M0) scale per 32 values: ≈ 4.25 bits per value.</text>
+</svg>

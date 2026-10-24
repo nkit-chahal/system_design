@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="372" viewBox="0 0 860 372" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{stroke:#000;stroke-width:1.2;fill:none}
+    .grid{stroke:#ddd;stroke-width:1;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <line x1="80" y1="258.0" x2="640" y2="258.0" class="grid"/>
+  <text x="72" y="262.0" text-anchor="end" class="sm">0.5×</text>
+  <line x1="80" y1="198.0" x2="640" y2="198.0" class="grid"/>
+  <text x="72" y="202.0" text-anchor="end" class="sm">1×</text>
+  <line x1="80" y1="138.0" x2="640" y2="138.0" class="grid"/>
+  <text x="72" y="142.0" text-anchor="end" class="sm">1.5×</text>
+  <line x1="80" y1="78.0" x2="640" y2="78.0" class="grid"/>
+  <text x="72" y="82.0" text-anchor="end" class="sm">2×</text>
+  <line x1="80.0" y1="270" x2="80.0" y2="275" stroke="#000" stroke-width="1"/>
+  <text x="80.0" y="290" text-anchor="middle" class="sm">1</text>
+  <line x1="142.2" y1="270" x2="142.2" y2="275" stroke="#000" stroke-width="1"/>
+  <text x="142.2" y="290" text-anchor="middle" class="sm">2</text>
+  <line x1="204.4" y1="270" x2="204.4" y2="275" stroke="#000" stroke-width="1"/>
+  <text x="204.4" y="290" text-anchor="middle" class="sm">4</text>
+  <line x1="266.7" y1="270" x2="266.7" y2="275" stroke="#000" stroke-width="1"/>
+  <text x="266.7" y="290" text-anchor="middle" class="sm">8</text>
+  <line x1="328.9" y1="270" x2="328.9" y2="275" stroke="#000" stroke-width="1"/>
+  <text x="328.9" y="290" text-anchor="middle" class="sm">16</text>
+  <line x1="391.1" y1="270" x2="391.1" y2="275" stroke="#000" stroke-width="1"/>
+  <text x="391.1" y="290" text-anchor="middle" class="sm">32</text>
+  <line x1="453.3" y1="270" x2="453.3" y2="275" stroke="#000" stroke-width="1"/>
+  <text x="453.3" y="290" text-anchor="middle" class="sm">64</text>
+  <line x1="515.6" y1="270" x2="515.6" y2="275" stroke="#000" stroke-width="1"/>
+  <text x="515.6" y="290" text-anchor="middle" class="sm">128</text>
+  <line x1="577.8" y1="270" x2="577.8" y2="275" stroke="#000" stroke-width="1"/>
+  <text x="577.8" y="290" text-anchor="middle" class="sm">256</text>
+  <line x1="640.0" y1="270" x2="640.0" y2="275" stroke="#000" stroke-width="1"/>
+  <text x="640.0" y="290" text-anchor="middle" class="sm">512</text>
+  <path d="M80,30 L80,270 L640,270" class="axis"/>
+  <line x1="80" y1="198.0" x2="640" y2="198.0" stroke="#000" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <text x="86" y="214.0" class="sm">below this line, speculation slows the server down</text>
+  <text x="360.0" y="312" text-anchor="middle">concurrent sequences in the batch (log scale)</text>
+  <text x="26" y="150.0" text-anchor="middle" transform="rotate(-90 26 150.0)">modeled speedup</text>
+  <polyline points="80.0,69.4 142.2,70.6 204.4,72.7 266.7,76.3 328.9,82.1 391.1,89.7 453.3,97.9 515.6,105.0" fill="none" stroke="#6c8ebf" stroke-width="2.4"/>
+  <circle cx="80.0" cy="69.4" r="3" fill="#6c8ebf"/>
+  <circle cx="142.2" cy="70.6" r="3" fill="#6c8ebf"/>
+  <circle cx="204.4" cy="72.7" r="3" fill="#6c8ebf"/>
+  <circle cx="266.7" cy="76.3" r="3" fill="#6c8ebf"/>
+  <circle cx="328.9" cy="82.1" r="3" fill="#6c8ebf"/>
+  <circle cx="391.1" cy="89.7" r="3" fill="#6c8ebf"/>
+  <circle cx="453.3" cy="97.9" r="3" fill="#6c8ebf"/>
+  <circle cx="515.6" cy="105.0" r="3" fill="#6c8ebf"/>
+  <polyline points="80.0,68.3 142.2,68.4 204.4,68.6 266.7,69.0 328.9,69.8 391.1,71.2 453.3,73.8 489.7,123.4 515.6,155.0 535.6,176.1 552.0,191.3 577.8,211.5 640.0,244.8" fill="none" stroke="#d79b00" stroke-width="2.4"/>
+  <circle cx="80.0" cy="68.3" r="3" fill="#d79b00"/>
+  <circle cx="142.2" cy="68.4" r="3" fill="#d79b00"/>
+  <circle cx="204.4" cy="68.6" r="3" fill="#d79b00"/>
+  <circle cx="266.7" cy="69.0" r="3" fill="#d79b00"/>
+  <circle cx="328.9" cy="69.8" r="3" fill="#d79b00"/>
+  <circle cx="391.1" cy="71.2" r="3" fill="#d79b00"/>
+  <circle cx="453.3" cy="73.8" r="3" fill="#d79b00"/>
+  <circle cx="489.7" cy="123.4" r="3" fill="#d79b00"/>
+  <circle cx="515.6" cy="155.0" r="3" fill="#d79b00"/>
+  <circle cx="535.6" cy="176.1" r="3" fill="#d79b00"/>
+  <circle cx="552.0" cy="191.3" r="3" fill="#d79b00"/>
+  <circle cx="577.8" cy="211.5" r="3" fill="#d79b00"/>
+  <circle cx="640.0" cy="244.8" r="3" fill="#d79b00"/>
+  <text x="507.6" y="169.0" text-anchor="end" class="sm">1.36</text>
+  <text x="569.8" y="225.5" text-anchor="end" class="sm">0.89</text>
+  <text x="646.0" y="236.8" class="sm">0.61</text>
+  <text x="521.6" y="97.0" class="sm">1.78</text>
+  <line x1="664" y1="46" x2="690" y2="46" stroke="#6c8ebf" stroke-width="2.4"/>
+  <text x="698" y="51" class="sm">2,500-token contexts</text>
+  <line x1="664" y1="70" x2="690" y2="70" stroke="#d79b00" stroke-width="2.4"/>
+  <text x="698" y="75" class="sm">200-token contexts</text>
+  <text x="16" y="340" class="sm">Modeled roofline bound for Llama 3.1 8B on one H100 with a Llama 3.2 1B draft, α = 0.8, k = 4. Each step reads weights and KV cache;</text>
+  <text x="16" y="356" class="sm">verification is compute-bound once B × (k + 1) tokens pass the ridge. Real engines cross over earlier. The long-context curve stops near the memory limit.</text>
+</svg>

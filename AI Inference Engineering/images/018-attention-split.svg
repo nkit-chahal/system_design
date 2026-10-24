@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="346" viewBox="0 0 860 346" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .note{font-size:12px;fill:#666}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="10" y="24" class="b">Attention with TP = 4 for Llama 3.1 70B (64 query heads, 8 KV heads)</text>
+
+  <!-- input, copied to every GPU -->
+  <rect x="10" y="46" width="90" height="254" rx="6" class="blue"/>
+  <text x="55" y="160" text-anchor="middle" class="b">x</text>
+  <text x="55" y="178" text-anchor="middle" class="sm">T × 8,192</text>
+  <text x="55" y="196" text-anchor="middle" class="sm">copied to</text>
+  <text x="55" y="212" text-anchor="middle" class="sm">every GPU</text>
+
+  <!-- all-reduce bar and output -->
+  <rect x="752" y="46" width="32" height="254" rx="4" class="purple"/>
+  <text x="768" y="173" text-anchor="middle" class="sm b" transform="rotate(-90 768 173)">all-reduce: sum of 4 partials</text>
+  <path d="M784,173 H796" class="edge"/>
+  <rect x="798" y="146" width="56" height="54" rx="6" class="blue"/>
+  <text x="826" y="168" text-anchor="middle" class="b">y</text>
+  <text x="826" y="186" text-anchor="middle" class="sm">T×8,192</text>
+
+  <!-- GPU 0 -->
+  <rect x="124" y="46" width="616" height="56" rx="4" class="group"/>
+  <text x="130" y="60" class="sm b">GPU 0</text>
+  <path d="M100,74 H188" class="edge"/>
+  <rect x="190" y="50" width="140" height="48" rx="4" class="orange"/>
+  <text x="260" y="70" text-anchor="middle">Wqkv slice</text>
+  <text x="260" y="88" text-anchor="middle" class="sm">16 Q + 2 KV heads</text>
+  <path d="M330,74 H344" class="edge"/>
+  <rect x="346" y="50" width="140" height="48" rx="4" class="gray"/>
+  <text x="416" y="70" text-anchor="middle">attention</text>
+  <text x="416" y="88" text-anchor="middle" class="sm">KV cache: heads 0–1</text>
+  <path d="M486,74 H500" class="edge"/>
+  <rect x="502" y="50" width="130" height="48" rx="4" class="orange"/>
+  <text x="567" y="70" text-anchor="middle">Wo slice</text>
+  <text x="567" y="88" text-anchor="middle" class="sm">2,048 × 8,192</text>
+  <path d="M632,74 H646" class="edge"/>
+  <rect x="648" y="50" width="84" height="48" rx="4" class="white"/>
+  <text x="690" y="70" text-anchor="middle">partial</text>
+  <text x="690" y="88" text-anchor="middle" class="sm">T × 8,192</text>
+  <path d="M732,74 H750" class="edge"/>
+
+  <!-- GPU 1 -->
+  <rect x="124" y="112" width="616" height="56" rx="4" class="group"/>
+  <text x="130" y="126" class="sm b">GPU 1</text>
+  <path d="M100,140 H188" class="edge"/>
+  <rect x="190" y="116" width="140" height="48" rx="4" class="orange"/>
+  <text x="260" y="136" text-anchor="middle">Wqkv slice</text>
+  <text x="260" y="154" text-anchor="middle" class="sm">16 Q + 2 KV heads</text>
+  <path d="M330,140 H344" class="edge"/>
+  <rect x="346" y="116" width="140" height="48" rx="4" class="gray"/>
+  <text x="416" y="136" text-anchor="middle">attention</text>
+  <text x="416" y="154" text-anchor="middle" class="sm">KV cache: heads 2–3</text>
+  <path d="M486,140 H500" class="edge"/>
+  <rect x="502" y="116" width="130" height="48" rx="4" class="orange"/>
+  <text x="567" y="136" text-anchor="middle">Wo slice</text>
+  <text x="567" y="154" text-anchor="middle" class="sm">2,048 × 8,192</text>
+  <path d="M632,140 H646" class="edge"/>
+  <rect x="648" y="116" width="84" height="48" rx="4" class="white"/>
+  <text x="690" y="136" text-anchor="middle">partial</text>
+  <text x="690" y="154" text-anchor="middle" class="sm">T × 8,192</text>
+  <path d="M732,140 H750" class="edge"/>
+
+  <!-- GPU 2 -->
+  <rect x="124" y="178" width="616" height="56" rx="4" class="group"/>
+  <text x="130" y="192" class="sm b">GPU 2</text>
+  <path d="M100,206 H188" class="edge"/>
+  <rect x="190" y="182" width="140" height="48" rx="4" class="orange"/>
+  <text x="260" y="202" text-anchor="middle">Wqkv slice</text>
+  <text x="260" y="220" text-anchor="middle" class="sm">16 Q + 2 KV heads</text>
+  <path d="M330,206 H344" class="edge"/>
+  <rect x="346" y="182" width="140" height="48" rx="4" class="gray"/>
+  <text x="416" y="202" text-anchor="middle">attention</text>
+  <text x="416" y="220" text-anchor="middle" class="sm">KV cache: heads 4–5</text>
+  <path d="M486,206 H500" class="edge"/>
+  <rect x="502" y="182" width="130" height="48" rx="4" class="orange"/>
+  <text x="567" y="202" text-anchor="middle">Wo slice</text>
+  <text x="567" y="220" text-anchor="middle" class="sm">2,048 × 8,192</text>
+  <path d="M632,206 H646" class="edge"/>
+  <rect x="648" y="182" width="84" height="48" rx="4" class="white"/>
+  <text x="690" y="202" text-anchor="middle">partial</text>
+  <text x="690" y="220" text-anchor="middle" class="sm">T × 8,192</text>
+  <path d="M732,206 H750" class="edge"/>
+
+  <!-- GPU 3 -->
+  <rect x="124" y="244" width="616" height="56" rx="4" class="group"/>
+  <text x="130" y="258" class="sm b">GPU 3</text>
+  <path d="M100,272 H188" class="edge"/>
+  <rect x="190" y="248" width="140" height="48" rx="4" class="orange"/>
+  <text x="260" y="268" text-anchor="middle">Wqkv slice</text>
+  <text x="260" y="286" text-anchor="middle" class="sm">16 Q + 2 KV heads</text>
+  <path d="M330,272 H344" class="edge"/>
+  <rect x="346" y="248" width="140" height="48" rx="4" class="gray"/>
+  <text x="416" y="268" text-anchor="middle">attention</text>
+  <text x="416" y="286" text-anchor="middle" class="sm">KV cache: heads 6–7</text>
+  <path d="M486,272 H500" class="edge"/>
+  <rect x="502" y="248" width="130" height="48" rx="4" class="orange"/>
+  <text x="567" y="268" text-anchor="middle">Wo slice</text>
+  <text x="567" y="286" text-anchor="middle" class="sm">2,048 × 8,192</text>
+  <path d="M632,272 H646" class="edge"/>
+  <rect x="648" y="248" width="84" height="48" rx="4" class="white"/>
+  <text x="690" y="268" text-anchor="middle">partial</text>
+  <text x="690" y="286" text-anchor="middle" class="sm">T × 8,192</text>
+  <path d="M732,272 H750" class="edge"/>
+
+  <text x="10" y="330" class="note">Each GPU computes attention for its own heads with no communication. The only exchange is one all-reduce after Wo, and every GPU receives the same y.</text>
+</svg>

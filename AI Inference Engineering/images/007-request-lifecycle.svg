@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="830" height="320" viewBox="0 0 830 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- States -->
+  <rect x="16" y="120" width="110" height="48" rx="6" class="white"/>
+  <text x="71" y="149" text-anchor="middle">New request</text>
+  <rect x="180" y="120" width="140" height="48" rx="6" class="purple"/>
+  <text x="250" y="141" text-anchor="middle" class="b">Waiting</text>
+  <text x="250" y="158" text-anchor="middle" class="sm">no KV blocks</text>
+  <rect x="500" y="120" width="160" height="48" rx="6" class="orange"/>
+  <text x="580" y="141" text-anchor="middle" class="b">Running</text>
+  <text x="580" y="158" text-anchor="middle" class="sm">owns KV blocks</text>
+  <rect x="704" y="120" width="110" height="48" rx="6" class="green"/>
+  <text x="759" y="141" text-anchor="middle" class="b">Finished</text>
+  <text x="759" y="158" text-anchor="middle" class="sm">blocks freed</text>
+  <rect x="330" y="246" width="200" height="48" rx="6" class="red"/>
+  <text x="430" y="267" text-anchor="middle" class="b">Preempted</text>
+  <text x="430" y="284" text-anchor="middle" class="sm">all its blocks freed at once</text>
+
+  <!-- Transitions -->
+  <path d="M126,144 L178,144" class="edge"/>
+  <text x="152" y="136" text-anchor="middle" class="sm">arrives</text>
+
+  <path d="M320,144 L498,144" class="edge"/>
+  <text x="409" y="120" text-anchor="middle" class="sm">admit if budget is left,</text>
+  <text x="409" y="135" text-anchor="middle" class="sm">below the sequence cap,</text>
+  <text x="409" y="162" text-anchor="middle" class="sm">and the prompt fits in</text>
+  <text x="409" y="177" text-anchor="middle" class="sm">free KV blocks</text>
+
+  <path d="M660,144 L702,144" class="edge"/>
+  <text x="681" y="136" text-anchor="middle" class="sm">done</text>
+
+  <!-- self loop on Running -->
+  <path d="M545,120 C545,70 615,70 615,118" class="edge"/>
+  <text x="580" y="50" text-anchor="middle" class="sm">every step: one decode token</text>
+  <text x="580" y="65" text-anchor="middle" class="sm">or the next prefill chunk</text>
+
+  <!-- Running -> Preempted -->
+  <path d="M600,168 L600,270 L532,270" class="edge"/>
+  <text x="610" y="214" class="sm">cache full: the newest</text>
+  <text x="610" y="229" class="sm">running request is evicted</text>
+
+  <!-- Preempted -> Waiting -->
+  <path d="M330,270 L250,270 L250,170" class="edge"/>
+  <text x="242" y="214" text-anchor="end" class="sm">back to the front of the queue;</text>
+  <text x="242" y="229" text-anchor="end" class="sm">prompt + generated tokens</text>
+  <text x="242" y="244" text-anchor="end" class="sm">are recomputed on readmission</text>
+
+  <text x="16" y="28" class="b">A request inside vLLM's scheduler (default FCFS policy, recompute on preemption)</text>
+</svg>

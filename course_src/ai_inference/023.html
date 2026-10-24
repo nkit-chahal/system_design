@@ -1,0 +1,317 @@
+<h2>Introduction</h2>
+<p>A <strong>cold start</strong> is the time between "we need another replica" and "that replica is serving requests at full speed". For a typical web service it takes seconds: schedule a pod, pull a small image, start a process. For an LLM server it takes minutes, because before the first token the system must find a GPU, pull an image of about 9 GB, move 16 GB or more of weights into GPU memory, and prepare the engine's kernels and memory pools.</p>
+<p>Cold starts set the pace of everything elastic in a serving system. They decide how much spare capacity autoscaling must hold (Lesson 22, Autoscaling), how long a fleet runs short after a node fails, how slow a rolling deploy is, and whether scaling a rarely used model to zero is acceptable. Figure 1 breaks a cold start into its phases.</p>
+<fig src="023-cold-start-anatomy.svg" caption="The phases of a cold start for Llama 3.1 8B on one H100 (planning values)">Three timelines. A replica on a new GPU node takes about 8.4 minutes, dominated by 4 minutes of node provisioning, 1.5 minutes of image pull, 1 minute of weight download, and 1 minute of engine initialization; a replica on a running node with a free GPU takes about 2.9 minutes; the target after the fixes in this lesson is about 1.5 minutes.</fig>
+<p>In this lesson, we take a cold start apart phase by phase, do the arithmetic for downloading and loading weights, survey the mitigations from image caching to process snapshots, show how to measure each phase, and decide which fixes are worth their cost.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Cold-start questions usually arrive as a symptom: "scaling up is too slow". Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: What starts when we add a replica?<br>
+<strong>Interviewer</strong>: A vLLM pod on one H100 serving Llama 3.1 8B Instruct in BF16, about 16 GB of safetensors. We are also evaluating Llama 3.1 70B on four H100s with tensor parallelism.</p>
+<p><strong>Candidate</strong>: Where do the image and the weights come from today?<br>
+<strong>Interviewer</strong>: The pod pulls <code>vllm/vllm-openai</code> from Docker Hub and downloads the weights from the Hugging Face Hub at startup, at roughly 250 MB/s.</p>
+<p><strong>Candidate</strong>: How long does it take, and how long does a new node take?<br>
+<strong>Interviewer</strong>: About 8 minutes end to end on a new node, and the node alone takes about 4 minutes to join the cluster. On a running node with a free GPU it is about 3 minutes. Nobody knows exactly where the rest goes.</p>
+<p><strong>Candidate</strong>: What is the target?<br>
+<strong>Interviewer</strong>: The autoscaling team wants new replicas serving within about 1.5 minutes on a running node. We also have a few internal models used a handful of times a day that should not hold GPUs around the clock.</p>
+<p><strong>Candidate</strong>: What does the hardware offer?<br>
+<strong>Interviewer</strong>: GPU nodes have local NVMe SSDs and 100 Gbps networking, and we can create object storage buckets in the same region.</p>
+<p>The question underneath is: <em>where do the minutes go, which phases can we remove, shorten, overlap, or pay for in advance, and what does each fix cost?</em></p>
+
+<h2>The Anatomy of a Cold Start</h2>
+<p>Table 1 lists the phases with the planning values used in Figure 1. They come from the interviewer's numbers and typical behavior; your own will differ, which is why the last part of this lesson is about measuring them.</p>
+<table>
+<thead><tr><th>Phase</th><th>What happens</th><th>Planning value</th><th>Main lever</th></tr></thead>
+<tbody>
+<tr><td>1. Detect and schedule</td><td>Metrics scrape, autoscaler loop, pod scheduling</td><td>0.5 min</td><td>Autoscaler tuning (Lesson 22)</td></tr>
+<tr><td>2. GPU node provisioning</td><td>VM boots, joins the cluster, GPU driver and device plugin become ready</td><td>4 min</td><td>Spare GPU capacity</td></tr>
+<tr><td>3. Image pull</td><td>Download about 9 GB of compressed layers, decompress, extract</td><td>1.5 min</td><td>Pre-pull, lazy pull</td></tr>
+<tr><td>4. Weight download</td><td>16 GB from the Hub at about 250 MB/s</td><td>1 min</td><td>Local cache, same-region storage, streaming</td></tr>
+<tr><td>5. Load into GPU memory</td><td>Read safetensors, copy over PCIe</td><td>0.2 min</td><td>Fast disk, memory mapping</td></tr>
+<tr><td>6. Engine initialization</td><td>Memory profiling, KV cache allocation, torch.compile, CUDA graph capture</td><td>1 min</td><td>Compile cache, fewer graph sizes</td></tr>
+<tr><td>7. Warmup and readiness</td><td>First requests, readiness probe</td><td>0.2 min</td><td>Probe settings</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Cold-start phases for Llama 3.1 8B on one H100, with planning values that sum to 8.4 minutes</p>
+
+<h3>Getting a GPU node</h3>
+<p>If no running node has a free GPU, the pod stays Pending until a node autoscaler creates one. The VM must boot, join the cluster, and expose its GPUs through the driver and device plugin. Our interviewer measured about 4 minutes, and it can be much longer, or fail outright, when the region is short of GPU capacity. This phase is the hardest to shorten and the easiest to avoid: a replica that lands on a running node with a free GPU skips it entirely.</p>
+
+<h3>Pulling the container image</h3>
+<p>Inference images are large because they bundle CUDA libraries, PyTorch, and compiled kernels. In October 2026, the <code>vllm/vllm-openai:latest</code> image for amd64 was about 9.2 GB compressed on Docker Hub [1], and SGLang's <code>lmsysorg/sglang:latest</code> about 15.6 GB. A pull downloads every layer, then decompresses and extracts it, and extraction is often as slow as the download. Container startup has long been dominated by this step: the Slacker study found that pulling accounted for 76% of container start time, while only 6.4% of the pulled data was read during startup [2].</p>
+
+<h3>Downloading the weights</h3>
+<p>The weights are the largest thing the replica needs, and the arithmetic is simple:</p>
+<texblock>t_{\text{download}} = \frac{\text{weight bytes}}{\text{achieved bandwidth}}</texblock>
+<p>The important word is <em>achieved</em>. A 100 Gbps network interface moves at most 12.5 GB/s, but a single HTTP download from a model hub or another region often reaches only a few hundred MB/s. At the interviewer's 250 MB/s, 16 GB takes 64 seconds. For Llama 3.1 70B, 141 GB takes 564 seconds, more than 9 minutes. Table 2 shows how strongly bandwidth drives the answer.</p>
+<table>
+<thead><tr><th>Achieved bandwidth</th><th>16 GB (Llama 3.1 8B)</th><th>141 GB (Llama 3.1 70B)</th></tr></thead>
+<tbody>
+<tr><td>0.1 GB/s (0.8 Gbps)</td><td>160 s</td><td>1,410 s (23.5 min)</td></tr>
+<tr><td>0.5 GB/s (4 Gbps)</td><td>32 s</td><td>282 s (4.7 min)</td></tr>
+<tr><td>1 GB/s (8 Gbps)</td><td>16 s</td><td>141 s (2.4 min)</td></tr>
+<tr><td>2.5 GB/s (20 Gbps)</td><td>6.4 s</td><td>56 s</td></tr>
+<tr><td>5 GB/s (40 Gbps)</td><td>3.2 s</td><td>28 s</td></tr>
+<tr><td>12.5 GB/s (100 Gbps line rate)</td><td>1.3 s</td><td>11 s</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Time to fetch BF16 weights at a given achieved bandwidth (1 GB = 10<sup>9</sup> bytes)</p>
+<p>Weights travel through several hops on their way to the GPU, shown in Figure 2. The slowest hop sets the time. From the network, data lands on local disk or directly in host memory, then crosses PCIe into GPU memory. The H100's PCIe Gen5 link is rated at 128 GB/s in both directions combined [3], about 64 GB/s each way, so even a full 16 GB copy takes about a quarter of a second at peak. A local NVMe drive reads at a few GB/s, so 16 GB takes a few seconds. The network is almost always the bottleneck.</p>
+<fig src="023-weight-data-path.svg" caption="The path weights take from storage to GPU memory">Weights move from an object store or model hub over the network (0.1 to 12.5 GB/s) to local NVMe (2 to 7 GB/s per drive), into host RAM, and over PCIe Gen5 (about 64 GB/s each way) into GPU memory; a dashed path shows streaming loaders reading object storage straight into a CPU buffer. For 16 GB, the hops take 1.3 to 160 s, 2.3 to 8 s, and about 0.25 s.</fig>
+<fig src="023-download-time.svg" caption="Time to fetch the weights versus achieved bandwidth">Log-log lines for 16 GB and 141 GB of weights against achieved bandwidth from 0.05 to 20 GB/s, with a 90-second budget line. The 8B model fits the budget above 0.18 GB/s; the 70B model needs at least 1.57 GB/s; a 100 Gbps NIC caps bandwidth at 12.5 GB/s.</fig>
+<p>Turn the question around and Figure 3 gives a requirement: to fetch the weights within a 90-second budget, the 8B model needs at least 0.18 GB/s, but the 70B model needs 1.57 GB/s, which a single-stream hub download will not reach. Large models make the storage layout a design decision.</p>
+
+<h3>Loading into GPU memory</h3>
+<p>Modern checkpoints use <strong>safetensors</strong>, a simple format for storing tensors safely, as opposed to pickle, that is still fast because it supports zero-copy loading [4]. The loader memory-maps each file and copies tensors to the GPU as it reads them. vLLM's default strategy memory-maps the files; its <code>--safetensors-load-strategy eager</code> option reads whole files into CPU memory first, which the vLLM documentation recommends for network filesystems such as NFS or Lustre where random reads are slow [5]. With tensor parallelism, each GPU holds only a slice of every layer, about 35 GB per GPU for the 70B model on four H100s (Lesson 18, Tensor Parallelism), but with an ordinary checkpoint each rank may read far more than its own quarter. Pre-sharded checkpoints let each rank read only its own files.</p>
+
+<h3>Initializing the engine</h3>
+<p>Once the weights are in place, the engine prepares to run fast:</p>
+<ul>
+<li><strong>Memory profiling and KV cache allocation</strong>: vLLM runs a forward pass at its maximum number of batched tokens to measure activation memory, then gives what remains of its budget to the KV cache, about 52 GiB on our H100 with <code>--gpu-memory-utilization</code> set to 0.90 (Lesson 3, KV Cache).</li>
+<li><strong>torch.compile</strong>: vLLM compiles the model's graph into optimized kernels. The first compile is slow; the artifacts are stored under <code>~/.cache/vllm/torch_compile_cache</code>, keyed by a hash of the configuration and code, and a later start with the same hash loads them instead of compiling [6].</li>
+<li><strong>CUDA graph capture</strong>: the engine records the decode step for a list of batch sizes so that later steps replay without per-kernel launch overhead (Lesson 33, GPU Architecture and Attention Kernels). More captured sizes mean a longer capture.</li>
+</ul>
+<p>Together these take about a minute in our planning numbers. The <code>--enforce-eager</code> flag skips both torch.compile and CUDA graphs [5], which shortens startup but makes every decode step slower for the life of the replica. That trade suits a model that is started often and used lightly, not a busy chat fleet.</p>
+
+<h3>Warming up and declaring readiness</h3>
+<p>The first requests can still hit slow paths, such as kernels compiled or tuned on first use for an unseen shape. A short warmup, a few requests with typical prompt lengths sent before the pod reports ready, keeps real users from paying for them. Kubernetes needs two probes here: a <strong>startup probe</strong> with a generous budget, so the kubelet does not kill a pod that is still loading, and a <strong>readiness probe</strong> on vLLM's <code>/health</code> endpoint that admits traffic only once the server answers [7].</p>
+
+<h2>Mitigations</h2>
+<h3>Faster images</h3>
+<p>The simplest fix is to make sure the image is already on the node. A DaemonSet that runs the serving image on every GPU node pulls it as soon as the node joins, before any replica needs it, and baking the image into the node's machine image does the same at boot. Pin the exact tag, so the pre-pulled image is the one the Deployment uses.</p>
+<p><strong>Lazy pulling</strong> starts the container before the image is fully downloaded and fetches files on first access, with the rest streaming in the background. AWS's SOCI snapshotter does this for unmodified OCI images using a separately stored index [8]; the stargz snapshotter uses a converted image format, eStargz [9]; and GKE's Image streaming lets workloads initialize without waiting for the entire image to download [10]. Since startup reads only a small fraction of the image, lazy pulling removes most of the pull time. Figure 4 compares the three cases.</p>
+<fig src="023-image-pull.svg" caption="Full pull, lazy pull, and a pre-pulled image (illustrative)">A full pull downloads about 9 GB of layers and extracts them before the container starts at about 90 seconds; a lazy pull starts the container after a few seconds and fetches files on first access; a pre-pulled image starts at once.</fig>
+<p>Keep the weights out of the image. A 25 GB image that bundles weights is slow to pull, slow to build, and must be rebuilt for every model version. If you want registry-style distribution and node caching for weights, Kubernetes <strong>image volumes</strong>, stable since v1.36, mount the contents of an OCI image as a read-only volume, so a weights-only image is pulled and cached separately from the serving image [11].</p>
+
+<h3>Weights close to the GPU</h3>
+<p>Three changes shrink the download, in order of effect:</p>
+<ul>
+<li><strong>Same-region object storage.</strong> Mirror the weights from the hub into a bucket in the serving region. With parallel range requests, a same-region bucket can often deliver several GB/s to a node with a 100 Gbps interface; measure it. At 2.5 GB/s, 16 GB takes under 10 seconds and 141 GB about a minute (Table 2).</li>
+<li><strong>A node-local cache.</strong> Stage the weights on each GPU node's NVMe when the node joins, using the same DaemonSet that pre-pulls the image. A replica then reads from local disk at a few GB/s, and the network leaves the critical path.</li>
+<li><strong>Smaller weights.</strong> An FP8 checkpoint is about half the bytes for the 70B and 57% for the 8B, whose embeddings and output layer stay in BF16 (Lesson 13, Quantization - FP8, INT8 and 4-bit), so it downloads and loads in roughly half the time.</li>
+</ul>
+
+<h3>Faster loaders and weight streaming</h3>
+<p>A conventional loader downloads every file to disk and only then reads it into the GPU. A <strong>streaming loader</strong> reads tensors from storage with many concurrent readers into a CPU buffer and copies each tensor to the GPU as soon as it arrives, so network, CPU, and PCIe work overlap and nothing waits on a local disk. Figure 5 shows the difference.</p>
+<fig src="023-streaming-loader.svg" caption="Download-then-load versus streaming the same weights (illustrative)">Downloading 16 GB on one stream at 0.5 GB/s, then reading and copying it, puts the weights on the GPU at about 37.6 seconds. Sixteen concurrent readers at 2 GB/s in total, with GPU copies overlapping the reads, finish at about 8.3 seconds.</fig>
+<p>vLLM integrates the <strong>Run:ai Model Streamer</strong> with <code>--load-format runai_streamer</code>. It loads safetensors weights from a local path, S3, Google Cloud Storage, or Azure Blob Storage, and <code>--model-loader-extra-config</code> sets options such as <code>concurrency</code>, the number of reader threads or S3 clients, and <code>memory_limit</code> for the CPU buffer [12]. A sharded variant, <code>runai_streamer_sharded</code>, reads per-rank files, so each tensor-parallel worker loads only its own shard [12]. vLLM also supports CoreWeave's Tensorizer with <code>--load-format tensorizer</code> [5][13]. Whichever loader you choose, measure it on your own storage before and after: the gain depends entirely on where the bottleneck was.</p>
+
+<h3>Caching compilation artifacts</h3>
+<p>Copy the warm <code>torch_compile_cache</code> directory to new replicas, or put vLLM's cache root (<code>VLLM_CACHE_ROOT</code>, <code>~/.cache/vllm</code> by default) on the node's persistent NVMe, so only the first replica on each node compiles. vLLM's documentation describes copying the cache to another deployment to avoid recompilation, along with Triton's cache directory if <code>TRITON_CACHE_DIR</code> is set [6]. The cache is keyed by configuration and code, so it must be rebuilt after an engine upgrade or a flag change. CUDA graph capture can also be shortened by capturing fewer batch sizes through <code>--compilation-config</code>, at some cost in decode speed for batch sizes that are not captured [5].</p>
+
+<h3>Snapshot and restore</h3>
+<p>The most aggressive idea is to skip initialization entirely: start a replica once, wait until it is fully warm, save the whole process, and restore copies of it. CRIU (Checkpoint/Restore In Userspace) checkpoints and restores Linux process trees but cannot capture GPU state [14]. NVIDIA's <code>cuda-checkpoint</code> utility fills that gap: it suspends a process's CUDA state by completing submitted work, copying device memory into host memory, and releasing the GPU, after which CRIU can dump the process; restore reverses the steps [15]. It requires display driver 550 or newer, with CRIU integration from driver 570, and it does not support unified virtual memory or some kinds of inter-process memory sharing [15].</p>
+<p>Two cautions keep this in the experimental column. A snapshot contains all device memory the process allocated: a vLLM process that reserved 92% of an H100, the current default, carries about 73 GiB, which takes about 26 seconds to read back from NVMe at 3 GB/s, before counting the restore itself. And the tool's documentation does not cover multi-GPU processes such as tensor-parallel workers that share NCCL communicators. Test it on your exact driver, engine version, and parallelism before planning around it.</p>
+
+<h3>Sleep mode, warm pools, and scale to zero</h3>
+<p>vLLM's <strong>sleep mode</strong> (<code>--enable-sleep-mode</code>) keeps a process alive while giving back most of its GPU memory. Level 1 offloads the weights to CPU memory and discards the KV cache; level 2 discards both [16]. Waking from level 1 copies the weights back over PCIe, which is seconds instead of minutes. The control endpoints (<code>/sleep</code>, <code>/wake_up</code>, <code>/is_sleeping</code>) are development endpoints enabled with <code>VLLM_SERVER_DEV_MODE=1</code> and should not be exposed to users [16]. Sleep mode helps when several models take turns on the same GPU; if one pod owns the GPU and nothing else uses it, the GPU is idle either way.</p>
+<p>Everything else on the <strong>warmth ladder</strong> in Figure 6 trades idle cost for startup time. Placeholder pods with a low priority can hold a spare GPU node so that real replicas preempt them and start without provisioning [17]. When GPU nodes carry several GPUs, as many H100 instance types do, the free GPUs on nodes we already pay for are the cheapest warm pool; keeping a couple of them free keeps node provisioning out of the scale-up path. Minimum replicas, the top of the ladder, cost a whole idle GPU each.</p>
+<fig src="023-warmth-ladder.svg" caption="The warmth ladder: startup time versus what you pay while idle">Five levels: cold with no GPU node (about 8.4 minutes, nothing paid while idle), node up with the image cached (about 2.9 minutes, idle GPUs on the node), plus weights and compile cache on NVMe (about 1.5 minutes, plus local disk), a sleeping engine (seconds, a GPU slot and CPU RAM), and a hot replica (no wait, a whole idle GPU).</fig>
+<p><strong>Scale to zero</strong> sits at the bottom of the ladder. Assume $3.00 per H100-hour (an assumption, not a quote). An always-on replica of an internal model costs $72 a day. If the model sees 6 sessions a day of 30 minutes each, and the autoscaler removes the replica after 10 idle minutes, each session uses 1.5 + 30 + 10 = 41.5 GPU-minutes, or 249 minutes a day: about $12.45, an 83% saving. The price is that the first request of each session waits for a cold start, about 1.5 minutes with cached images and weights, or 8.4 minutes when a node must be created. Knative's activator can hold that request while the replica starts [18], but the caller must tolerate the wait. That is acceptable for internal tools and batch jobs, not for a chat product.</p>
+<table>
+<thead><tr><th>Mitigation</th><th>Phase it attacks</th><th>Typical effect</th><th>Cost or risk</th></tr></thead>
+<tbody>
+<tr><td>Spare GPU capacity (free GPUs, placeholder pods)</td><td>Node provisioning</td><td>Removes about 4 min</td><td>Idle GPUs</td></tr>
+<tr><td>Pre-pulled or baked image</td><td>Image pull</td><td>Removes about 1.5 min</td><td>Disk space; pin tags</td></tr>
+<tr><td>Lazy pulling (SOCI, stargz, Image streaming)</td><td>Image pull</td><td>Most of the pull</td><td>Snapshotter setup; first reads slower</td></tr>
+<tr><td>Same-region bucket, parallel reads</td><td>Weight download</td><td>Minutes to seconds</td><td>Storage copy per region</td></tr>
+<tr><td>Node-local NVMe cache</td><td>Weight download</td><td>Network off the critical path</td><td>Staging job, disk space</td></tr>
+<tr><td>Streaming loader (Run:ai, Tensorizer)</td><td>Download and load</td><td>Overlaps fetch and copy</td><td>Another component to operate</td></tr>
+<tr><td>Persistent compile cache</td><td>Engine init</td><td>Skips recompilation</td><td>Invalidated by upgrades</td></tr>
+<tr><td>CUDA checkpoint and restore</td><td>Everything after scheduling</td><td>Potentially largest</td><td>Experimental; huge snapshots</td></tr>
+<tr><td>Sleep mode</td><td>Everything after scheduling</td><td>Wake in seconds</td><td>Holds a GPU slot and CPU RAM</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Cold-start mitigations, the phase each attacks, and its cost</p>
+
+<h2>Measuring Each Phase</h2>
+<p>Most of the timestamps already exist. Kubernetes records when the pod was created, when it was scheduled, when the image pull started and finished, when the container started, and when the pod became ready; the Node object records when the node was created. vLLM's startup log reports how long model loading, torch.compile, CUDA graph capture, and engine initialization took. Figure 7 shows where each one sits on the cold path.</p>
+<fig src="023-measure-phases.svg" caption="Where to read each phase's timestamps">On a time axis, Kubernetes markers for pod created, PodScheduled and Pulling, Pulled and Started, and Ready divide the cold start into waiting for a GPU node, image pull, and weights plus engine plus warmup. vLLM log lines for model loading, torch.compile, CUDA graph capture, and engine initialization subdivide the last phase.</fig>
+<ul>
+<li><strong>Waiting for a node</strong>: pod creation to the <code>PodScheduled</code> condition; compare with the node's creation time to see whether a new node was involved.</li>
+<li><strong>Image pull</strong>: the <code>Pulling</code> and <code>Pulled</code> events. The kubelet's message reads "Successfully pulled image … in … (… including waiting). Image size: … bytes."</li>
+<li><strong>Weights</strong>: vLLM logs "Model loading took … GiB memory and … seconds"; this time includes any download the loader performed.</li>
+<li><strong>Engine</strong>: "torch.compile took … s in total", "Graph capturing finished in … secs", and "init engine (profile, create kv cache, warmup model) took … s". These are current log formats and may change between versions.</li>
+<li><strong>Readiness</strong>: the <code>Ready</code> condition, then the TTFT of the first real requests, which shows whether the warmup worked.</li>
+</ul>
+<p>Collect these for every replica start, not just in a test. Cold starts vary with the region's GPU supply, the registry's speed, and whether the node had the image cached, and the 95th percentile of startup time, not the median, is what the headroom math in Lesson 22 needs.</p>
+<callout kind="tip" title="Interview tip">When asked to speed up cold starts, start by asking for the phase breakdown. "We cut image pull from 90 seconds to 5" is a strong answer only if image pull was the bottleneck; a 4-minute node provisioning step dwarfs everything else in this scenario.</callout>
+
+<h4>Which mitigations fit our deployment?</h4>
+<p>For the 8B chat fleet, we take the cheap, certain wins first. A DaemonSet on every GPU node pre-pulls the pinned serving image and stages the weights from a same-region bucket onto local NVMe; replicas load from local disk, and vLLM's cache root lives on the same disk so torch.compile runs once per node. That takes the weight download out of the 2.9-minute path and the image pull out of new nodes; with the compile cache, a replica on a running node starts in about 1.5 minutes, which is what Lesson 22's 75% target requires. Node provisioning stays the dominant risk, so we keep at least two free GPUs in the cluster and let the autoscaler add a node when that buffer is used. For the 70B evaluation, we mirror a pre-sharded checkpoint to the bucket and load it with <code>runai_streamer_sharded</code>, keeping the local cache for restarts. The rarely used internal models scale to zero with the same image and weight caches, accepting a 1.5-minute first request. CUDA checkpoint and restore goes on the watch list: promising, but not yet something to build a production plan on.</p>
+
+<h2>In Practice</h2>
+<p>The first tab starts vLLM two ways: streaming weights from a same-region bucket, and loading them from the node's NVMe, with the compile cache on persistent disk. The second is the DaemonSet that pre-pulls the serving image and stages the weights on every GPU node. The third prints a phase-by-phase breakdown of a pod's cold start from Kubernetes timestamps and vLLM's log.</p>
+<codetabs>
+<tab label="vLLM startup" lang="bash">
+# Keep vLLM's torch.compile cache on the node's NVMe so restarts skip compilation.
+export VLLM_CACHE_ROOT=/mnt/nvme/vllm-cache
+
+# Option A: stream weights from a same-region bucket straight into GPU memory.
+pip install "vllm[runai]"
+vllm serve s3://models-us-east-1/Llama-3.1-8B-Instruct \
+  --load-format runai_streamer \
+  --model-loader-extra-config '{"concurrency": 16}' \
+  --served-model-name llama-8b-chat 2>&1 | tee vllm.log
+
+# Option B: weights already staged on local NVMe by the DaemonSet (next tab).
+vllm serve /mnt/nvme/models/Llama-3.1-8B-Instruct \
+  --served-model-name llama-8b-chat 2>&1 | tee vllm.log
+
+# Read the phase timings from the startup log.
+grep -E "Model loading took|torch.compile took|Graph capturing finished|init engine" vllm.log
+</tab>
+<tab label="Node warmer DaemonSet" lang="yaml">
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: llm-node-warmer
+  namespace: inference
+spec:
+  selector:
+    matchLabels:
+      app: llm-node-warmer
+  template:
+    metadata:
+      labels:
+        app: llm-node-warmer
+    spec:
+      nodeSelector:
+        pool: h100                        # your GPU node pool's label
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      initContainers:
+      # Running the serving image caches it on the node; the script stages the weights.
+      - name: stage-weights
+        image: vllm/vllm-openai:latest    # use the exact tag the serving Deployment pins
+        command: ["python3", "-c"]
+        args:
+        - |
+          from huggingface_hub import snapshot_download
+          snapshot_download("meta-llama/Llama-3.1-8B-Instruct",
+                            local_dir="/models/Llama-3.1-8B-Instruct",
+                            allow_patterns=["*.json", "*.safetensors", "tokenizer*"])
+        env:
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-token
+              key: token
+        volumeMounts:
+        - name: models
+          mountPath: /models
+      containers:
+      - name: pause                       # keeps the pod alive without requesting a GPU
+        image: registry.k8s.io/pause:3.10
+      volumes:
+      - name: models
+        hostPath:
+          path: /mnt/nvme/models
+          type: DirectoryOrCreate
+</tab>
+<tab label="Cold-start report" lang="python">
+"""Break a vLLM pod's cold start into phases.
+Usage: python cold_start_report.py <pod-name> [namespace]"""
+import json
+import re
+import subprocess
+import sys
+from datetime import datetime
+
+
+def kubectl(*args: str) -> str:
+    return subprocess.run(["kubectl", *args], check=True, capture_output=True, text=True).stdout
+
+
+def ts(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def secs(start, end) -> float:
+    return (end - start).total_seconds() if start and end else float("nan")
+
+
+pod_name = sys.argv[1]
+ns = sys.argv[2] if len(sys.argv) > 2 else "default"
+pod = json.loads(kubectl("get", "pod", pod_name, "-n", ns, "-o", "json"))
+created = ts(pod["metadata"]["creationTimestamp"])
+cond = {c["type"]: ts(c["lastTransitionTime"]) for c in pod["status"].get("conditions", [])}
+node = json.loads(kubectl("get", "node", pod["spec"]["nodeName"], "-o", "json"))
+new_node = ts(node["metadata"]["creationTimestamp"]) > created
+
+events = json.loads(kubectl("get", "events", "-n", ns, "-o", "json",
+                            "--field-selector", f"involvedObject.name={pod_name}"))["items"]
+first = {}
+for e in events:
+    when = e.get("firstTimestamp") or e.get("eventTime")
+    if when:
+        t = ts(when)
+        first[e["reason"]] = min(t, first.get(e["reason"], t))
+
+print(f"new node provisioned for this pod: {new_node}")
+for name, a, b in [("wait for scheduling", created, cond.get("PodScheduled")),
+                   ("image pull", first.get("Pulling"), first.get("Pulled")),
+                   ("container start to Ready", first.get("Started"), cond.get("Ready")),
+                   ("total: created to Ready", created, cond.get("Ready"))]:
+    print(f"{name:40s} {secs(a, b):8.1f} s")
+
+log = kubectl("logs", pod_name, "-n", ns)
+patterns = {
+    "  model loading (incl. download)": r"Model loading took [\d.]+ GiB memory and ([\d.]+) seconds",
+    "  torch.compile": r"torch\.compile took ([\d.]+) s in total",
+    "  CUDA graph capture": r"Graph capturing finished in ([\d.]+) secs",
+    "  engine init (profile, KV cache, warmup)": r"init engine \(profile, create kv cache, warmup model\) took ([\d.]+) s",
+}
+for name, pattern in patterns.items():
+    m = re.search(pattern, log)
+    print(f"{name:40s} {float(m.group(1)) if m else float('nan'):8.1f} s")
+</tab>
+</codetabs>
+<p>In Kubernetes, the serving Deployment mounts the host's <code>/mnt/nvme/models</code> read-only at <code>/models</code> and starts vLLM with <code>--model /models/Llama-3.1-8B-Instruct</code>. If the image was already on the node, the kubelet records no <code>Pulling</code> event and the report prints <code>nan</code> for the pull, which is the result you want.</p>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>ServerlessLLM's loading-optimized checkpoint format, multi-tier loading across SSD and host memory, and scheduling that places models on servers whose local storage already holds their checkpoints [19].</li>
+<li>Loading weights from running replicas over the fast GPU network instead of from storage, and serving layer by layer before the load completes, as in BlitzScale [20].</li>
+<li>LoRA adapters: one base model loaded once can serve many fine-tunes, each adapter loading in a fraction of the time of a full model (Lesson 37, Multi-LoRA and Multi-Tenant Serving).</li>
+<li>Rolling deploys as repeated cold starts: a surge of new pods needs free GPUs, and a slow start stretches the deploy and the time two versions run side by side (Lesson 40, Reliability and Rollouts).</li>
+<li>GPU node images with drivers preinstalled versus installing drivers when the node boots, which adds minutes to provisioning.</li>
+<li>Peer-to-peer distribution of images and weights inside a cluster, so the hundredth node does not download from the registry or bucket like the first.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="023-summary.png" caption="Cold starts summary" optional="1">Mind map summarizing the cold starts lesson: the phases of a cold start, the download math, mitigations, measurement, and the scale-to-zero trade-off.</fig>
+<ul>
+<li>A cold start has seven phases; for Llama 3.1 8B on one H100 our planning values sum to about 8.4 minutes on a new node and 2.9 minutes on a running node.</li>
+<li>Node provisioning (about 4 minutes) is the hardest phase to shorten; avoid it with free GPUs on running nodes or placeholder pods.</li>
+<li>Download time is weight bytes divided by achieved bandwidth: 16 GB at 250 MB/s takes 64 s, and 141 GB needs 1.57 GB/s to fit a 90-second budget.</li>
+<li>Pre-pull or lazily pull the roughly 9 GB image, keep weights out of it, and put weights on node-local NVMe or a same-region bucket read in parallel or streamed.</li>
+<li>Engine initialization (profiling, KV cache, torch.compile, CUDA graphs) takes about a minute; a persistent compile cache removes most of the compile time.</li>
+<li>Sleep mode and CUDA checkpoint and restore can cut startup to seconds, at the price of held resources or experimental tooling.</li>
+<li>Scale to zero saves most of an idle model's cost, about 83% in our example, but every session's first request pays a full cold start.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Docker Hub: vllm/vllm-openai tags. <a href="https://hub.docker.com/r/vllm/vllm-openai/tags" rel="noopener noreferrer" target="_blank">https://hub.docker.com/r/vllm/vllm-openai/tags</a>.<br>
+[2] Harter et al. Slacker: Fast Distribution with Lazy Docker Containers. USENIX FAST 2016. <a href="https://www.usenix.org/conference/fast16/technical-sessions/presentation/harter" rel="noopener noreferrer" target="_blank">https://www.usenix.org/conference/fast16/technical-sessions/presentation/harter</a>.<br>
+[3] NVIDIA H100 Tensor Core GPU. <a href="https://www.nvidia.com/en-us/data-center/h100/" rel="noopener noreferrer" target="_blank">https://www.nvidia.com/en-us/data-center/h100/</a>.<br>
+[4] Hugging Face documentation: Safetensors. <a href="https://huggingface.co/docs/safetensors/index" rel="noopener noreferrer" target="_blank">https://huggingface.co/docs/safetensors/index</a>.<br>
+[5] vLLM documentation: vllm serve. <a href="https://docs.vllm.ai/en/latest/cli/serve/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/cli/serve/</a>.<br>
+[6] vLLM documentation: torch.compile integration. <a href="https://docs.vllm.ai/en/latest/design/torch_compile/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/torch_compile/</a>.<br>
+[7] Kubernetes documentation: Configure Liveness, Readiness and Startup Probes. <a href="https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/" rel="noopener noreferrer" target="_blank">https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/</a>.<br>
+[8] SOCI Snapshotter. <a href="https://github.com/awslabs/soci-snapshotter" rel="noopener noreferrer" target="_blank">https://github.com/awslabs/soci-snapshotter</a>.<br>
+[9] Stargz Snapshotter. <a href="https://github.com/containerd/stargz-snapshotter" rel="noopener noreferrer" target="_blank">https://github.com/containerd/stargz-snapshotter</a>.<br>
+[10] Google Kubernetes Engine documentation: Use Image streaming to pull container images. <a href="https://docs.cloud.google.com/kubernetes-engine/docs/how-to/image-streaming" rel="noopener noreferrer" target="_blank">https://docs.cloud.google.com/kubernetes-engine/docs/how-to/image-streaming</a>.<br>
+[11] Kubernetes documentation: Use an Image Volume With a Pod. <a href="https://kubernetes.io/docs/tasks/configure-pod-container/image-volumes/" rel="noopener noreferrer" target="_blank">https://kubernetes.io/docs/tasks/configure-pod-container/image-volumes/</a>.<br>
+[12] vLLM documentation: Loading models with Run:ai Model Streamer. <a href="https://docs.vllm.ai/en/latest/models/extensions/runai_model_streamer/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/models/extensions/runai_model_streamer/</a>.<br>
+[13] CoreWeave Tensorizer. <a href="https://github.com/coreweave/tensorizer" rel="noopener noreferrer" target="_blank">https://github.com/coreweave/tensorizer</a>.<br>
+[14] CRIU: Checkpoint/Restore In Userspace. <a href="https://criu.org/Main_Page" rel="noopener noreferrer" target="_blank">https://criu.org/Main_Page</a>.<br>
+[15] NVIDIA cuda-checkpoint. <a href="https://github.com/NVIDIA/cuda-checkpoint" rel="noopener noreferrer" target="_blank">https://github.com/NVIDIA/cuda-checkpoint</a>.<br>
+[16] vLLM documentation: Sleep Mode. <a href="https://docs.vllm.ai/en/latest/features/sleep_mode/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/sleep_mode/</a>.<br>
+[17] Kubernetes documentation: Pod Priority and Preemption. <a href="https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/" rel="noopener noreferrer" target="_blank">https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/</a>.<br>
+[18] Knative documentation: Request flow. <a href="https://knative.dev/docs/serving/request-flow/" rel="noopener noreferrer" target="_blank">https://knative.dev/docs/serving/request-flow/</a>.<br>
+[19] Fu et al. ServerlessLLM: Low-Latency Serverless Inference for Large Language Models. <a href="https://arxiv.org/abs/2401.14351" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.14351</a>.<br>
+[20] Zhang et al. BlitzScale: Fast and Live Large Model Autoscaling with O(1) Host Caching. <a href="https://arxiv.org/abs/2412.17246" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2412.17246</a>.</p>

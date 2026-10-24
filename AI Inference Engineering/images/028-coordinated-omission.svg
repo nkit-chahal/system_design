@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="300" viewBox="0 0 820 300" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .axis{stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <!-- x = 120 + 110 * seconds -->
+  <rect x="340" y="30" width="220" height="176" fill="#f8cecc" opacity="0.4"/>
+  <text x="450" y="24" text-anchor="middle" class="sm b">server stalls for 2 s</text>
+
+  <!-- Closed loop -->
+  <text x="16" y="62" class="b">Closed loop</text>
+  <text x="16" y="78" class="sm">waits for replies</text>
+  <rect x="120" y="54" width="11" height="16" class="green"/>
+  <rect x="175" y="54" width="11" height="16" class="green"/>
+  <rect x="230" y="54" width="11" height="16" class="green"/>
+  <rect x="285" y="54" width="11" height="16" class="green"/>
+  <rect x="340" y="54" width="220" height="16" class="red"/>
+  <text x="450" y="66" text-anchor="middle" class="sm">2.0 s</text>
+  <rect x="604" y="54" width="11" height="16" class="green"/>
+  <rect x="659" y="54" width="11" height="16" class="green"/>
+  <rect x="714" y="54" width="11" height="16" class="green"/>
+  <text x="572" y="96" class="sm">nothing is sent during the stall</text>
+
+  <!-- Open loop -->
+  <text x="16" y="138" class="b">Open loop</text>
+  <text x="16" y="154" class="sm">fixed schedule</text>
+  <rect x="120" y="124" width="11" height="14" class="green"/>
+  <rect x="175" y="124" width="11" height="14" class="green"/>
+  <rect x="230" y="124" width="11" height="14" class="green"/>
+  <rect x="285" y="124" width="11" height="14" class="green"/>
+  <rect x="340" y="124" width="220" height="14" class="red"/><text x="450" y="135" text-anchor="middle" class="sm">2.0 s</text>
+  <rect x="395" y="142" width="165" height="14" class="red"/><text x="477" y="153" text-anchor="middle" class="sm">1.5 s</text>
+  <rect x="450" y="160" width="110" height="14" class="red"/><text x="505" y="171" text-anchor="middle" class="sm">1.0 s</text>
+  <rect x="505" y="178" width="55" height="14" class="red"/><text x="532" y="189" text-anchor="middle" class="sm">0.5 s</text>
+  <rect x="563" y="124" width="11" height="14" class="green"/>
+  <rect x="615" y="124" width="11" height="14" class="green"/>
+  <rect x="670" y="124" width="11" height="14" class="green"/>
+  <rect x="725" y="124" width="11" height="14" class="green"/>
+
+  <!-- Axis -->
+  <line x1="120" y1="214" x2="790" y2="214" class="axis"/>
+  <g class="sm" text-anchor="middle">
+    <text x="120" y="232">0</text><text x="230" y="232">1</text><text x="340" y="232">2</text><text x="450" y="232">3</text>
+    <text x="560" y="232">4</text><text x="670" y="232">5</text><text x="780" y="232">6 s</text>
+  </g>
+
+  <text x="16" y="264">Closed loop: 1 slow sample out of 8, so even its p80 looks healthy.</text>
+  <text x="16" y="286">Open loop: 4 slow samples out of 12, each measured from when it should have been sent.</text>
+</svg>

@@ -1,0 +1,239 @@
+<h2>Introduction</h2>
+<p>During decode, a model produces one token per sequence per forward pass, and every pass must read all of the model's weights from GPU memory. For Llama 3.1 8B on an H100, that read takes about 4.8 ms, while the arithmetic for a single token takes about 0.016 ms. At small batch sizes the GPU's compute units sit idle for more than 99% of each step, and the stream is limited to roughly 200 tokens per second no matter how fast the tensor cores are.</p>
+<p><strong>Speculative decoding</strong> puts that idle compute to work. A cheap <strong>draft</strong> guesses the next few tokens, and the expensive <strong>target</strong> model checks all of the guesses in a single forward pass, which costs about the same as generating one token. Every accepted guess is a token gained for free. A carefully designed acceptance rule guarantees that the output follows exactly the same distribution as the target model alone, so quality does not change. Figure 1 shows one round.</p>
+<fig src="015-draft-verify.svg" caption="One round of speculative decoding: the draft proposes four tokens and the target verifies them in one pass">After the prompt "def add(a, b):", a cheap draft proposes four tokens in four quick steps: return, a, plus, and c. The target model processes all four in a single forward pass. It accepts return, a and plus, rejects c, and samples b in its place, so the round produces four tokens for one target pass instead of one.</fig>
+<p>In this lesson, we show why decode leaves compute idle, walk through the draft-then-verify algorithm and the rejection-sampling rule that makes it lossless, derive how many tokens each target pass yields and what speedup to expect for a given draft cost, compare the ways to get a draft (separate models, n-gram lookup, Medusa, EAGLE, and multi-token prediction), explain when speculation helps and when it slows a server down, and configure it in vLLM and SGLang.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Speculative decoding questions usually come from a per-user latency complaint. Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: Which model and GPU are we serving?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct in BF16 on one H100 per replica, behind a coding assistant.</p>
+<p><strong>Candidate</strong>: What is the complaint?<br>
+<strong>Interviewer</strong>: We meet our targets of p95 time to first token under 500 ms and p95 time per output token under 25 ms, but users still wait: a 2,000-token code edit at 25 ms per token takes 50 seconds to stream.</p>
+<p><strong>Candidate</strong>: How loaded is each replica?<br>
+<strong>Interviewer</strong>: Usually 4 to 16 concurrent requests per replica. At the daily peak, about 50, close to the 53 streams an H100 holds within the latency targets.</p>
+<p><strong>Candidate</strong>: Can the outputs change at all?<br>
+<strong>Interviewer</strong>: No. The quality team signed off on this model's behavior. Code edits use temperature 0, chat uses 0.7.</p>
+<p><strong>Candidate</strong>: Can we spend extra GPU memory or train something small?<br>
+<strong>Interviewer</strong>: A few GB of memory is fine. We would rather use published components than train our own.</p>
+<p>The question underneath is: <em>how much faster can each stream get without changing the output distribution, and at what load does speculation stop paying for itself?</em> We start with where the idle compute comes from.</p>
+
+<h2>Why Decode Leaves Compute Idle</h2>
+<p>A forward pass over <tex>M</tex> new tokens must read every weight once, whatever <tex>M</tex> is, and does about <tex>2 \times \text{params}</tex> floating-point operations per token. For Llama 3.1 8B on an H100:</p>
+<ul>
+<li><strong>Memory</strong>: 16.06 GB of weights ÷ 3.35 TB/s ≈ 4.79 ms per step.</li>
+<li><strong>Compute for one token</strong>: <tex>2 \times 8.03 \times 10^9</tex> ≈ 16 GFLOPs ÷ 989 TFLOPS ≈ 0.016 ms.</li>
+<li><strong>Compute for five tokens</strong>: about 0.081 ms, still hidden under the 4.79 ms weight read.</li>
+</ul>
+<p>As Lesson 13 showed, an H100 running BF16 stays memory-bound until a step processes about 295 tokens. Below that, adding tokens to a forward pass is almost free. Prefill already exploits this: it processes the whole prompt in one pass (Lesson 2, Prefill vs Decode). Decode cannot, because each token depends on the one before it. But if we had good guesses for the next few tokens, we could check them all in one pass. Figure 2 shows the imbalance.</p>
+<fig src="015-idle-compute.svg" caption="Time per decode step for Llama 3.1 8B on one H100: weight reads versus arithmetic">Bars of milliseconds per step. Reading the weights always takes 4.79 ms. The arithmetic takes 0.016 ms for one token, 0.081 ms for five tokens, and only reaches 4.79 ms at about 295 tokens per step. Up to that point, extra tokens in a pass cost almost nothing.</fig>
+
+<h2>Draft, Then Verify</h2>
+<h3>The algorithm</h3>
+<p>Speculative decoding was introduced independently by Leviathan, Kalman, and Matias [1] and by Chen et al. [2]. One round works like this:</p>
+<ol>
+<li><strong>Draft.</strong> A cheap draft proposes <tex>k</tex> tokens, one after another, recording its probability <tex>q</tex> for each.</li>
+<li><strong>Verify.</strong> The target runs one forward pass over the context plus the <tex>k</tex> draft tokens. Because attention is causal, this single pass yields the target's probability <tex>p</tex> at each of the <tex>k</tex> draft positions, plus one more position after the last draft token.</li>
+<li><strong>Accept or reject</strong> each draft token from left to right with the rule below. At the first rejection, sample a replacement token from a corrected distribution and discard the remaining drafts.</li>
+<li><strong>Bonus token.</strong> If all <tex>k</tex> drafts are accepted, sample one more token from the target's distribution at the extra position.</li>
+</ol>
+<p>Every round emits between 1 and <tex>k + 1</tex> tokens, never fewer than normal decoding. The KV cache entries for rejected tokens are simply discarded, and the next round starts from the last emitted token.</p>
+
+<h3>Why the output distribution does not change</h3>
+<p>The acceptance rule is a form of rejection sampling. For a draft token <tex>x</tex>, proposed by the draft with probability <tex>q(x)</tex> and given probability <tex>p(x)</tex> by the target:</p>
+<texblock>P(\text{accept } x) = \min\left(1, \frac{p(x)}{q(x)}\right), \qquad \text{on rejection, sample from } \frac{\max\left(0,\, p - q\right)}{\sum_y \max\left(0,\, p(y) - q(y)\right)}</texblock>
+<p>If the target likes a token at least as much as the draft does, it is always kept. If the draft was overconfident, the token is kept only in proportion. Rejections are then resampled from the tokens the draft under-proposed. The two paths add up exactly: the probability of emitting <tex>x</tex> is <tex>\min(p(x), q(x)) + \max(0, p(x) - q(x)) = p(x)</tex>. Figure 3 checks this on a four-token example.</p>
+<fig src="015-rejection-sampling.svg" caption="Rejection sampling on a four-token vocabulary keeps the target's distribution">The draft distribution q over cat, dog, fox and owl is 0.5, 0.3, 0.1 and 0.1; the target distribution p is 0.4, 0.2, 0.3 and 0.1. Acceptance probabilities are 0.8 for cat, 0.67 for dog and 1 for fox and owl. Overall a draft token is accepted with probability 0.8. On rejection the replacement comes from the positive part of p minus q, which is all on fox. The final output probabilities are 0.4, 0.2, 0.3 and 0.1, exactly p.</fig>
+<p>In the example, a draft token is accepted with probability <tex>\sum_x \min(p(x), q(x)) = 0.4 + 0.2 + 0.1 + 0.1 = 0.8</tex>. This quantity, one minus the total variation distance between the two distributions, is the <strong>acceptance rate</strong> <tex>\alpha</tex> for that position: the closer the draft is to the target, the more drafts survive. With greedy decoding the rule reduces to a simple check: keep the draft token if it is the target's top token. vLLM describes its implementation as lossless up to the precision limits of hardware numerics, though log probabilities can differ slightly with batch composition [3].</p>
+
+<h3>How many tokens per target pass</h3>
+<p>If each draft token is accepted independently with probability <tex>\alpha</tex>, the expected number of tokens emitted per target pass, counting the corrected or bonus token, is [1]:</p>
+<texblock>E(\alpha, k) = 1 + \alpha + \alpha^2 + \dots + \alpha^k = \frac{1 - \alpha^{k+1}}{1 - \alpha}</texblock>
+<p>The first token is free because the verify pass always produces one; each further token requires every earlier draft to have survived. Table 1 evaluates the formula, and Figure 4 plots it.</p>
+<table>
+<thead><tr><th>Acceptance rate α</th><th>k = 1</th><th>k = 2</th><th>k = 3</th><th>k = 4</th><th>k = 5</th><th>k = 8</th><th>Limit 1 / (1 − α)</th></tr></thead>
+<tbody>
+<tr><td>0.6</td><td>1.60</td><td>1.96</td><td>2.18</td><td>2.31</td><td>2.38</td><td>2.47</td><td>2.50</td></tr>
+<tr><td>0.7</td><td>1.70</td><td>2.19</td><td>2.53</td><td>2.77</td><td>2.94</td><td>3.20</td><td>3.33</td></tr>
+<tr><td>0.8</td><td>1.80</td><td>2.44</td><td>2.95</td><td>3.36</td><td>3.69</td><td>4.33</td><td>5.00</td></tr>
+<tr><td>0.9</td><td>1.90</td><td>2.71</td><td>3.44</td><td>4.10</td><td>4.69</td><td>6.13</td><td>10.00</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Expected tokens per target forward pass, E = (1 − α<sup>k+1</sup>) / (1 − α)</p>
+<fig src="015-expected-tokens.svg" caption="Expected tokens per target pass as the number of drafted tokens grows">Line chart of expected tokens per target pass against k from 1 to 8 for acceptance rates 0.6, 0.7, 0.8 and 0.9. Each curve rises quickly and then flattens toward its limit of 1 divided by 1 minus alpha: 2.5, 3.33, 5 and 10. At k equal to 4 the values are 2.31, 2.77, 3.36 and 4.10.</fig>
+<p>Two lessons follow. Returns diminish quickly: at <tex>\alpha = 0.6</tex>, drafting more than three or four tokens adds almost nothing, because the chance that all of them survive collapses. And the acceptance rate matters more than <tex>k</tex>: going from 0.7 to 0.9 raises the ceiling from 3.3 to 10 tokens per pass. Real acceptance is not independent from token to token, and it varies with the text (boilerplate code is easy, a creative answer is not), so treat the formula as a model and measure <tex>\alpha</tex> on your own traffic.</p>
+
+<h3>Speedup versus draft cost</h3>
+<p>Drafting is not free. Let <tex>c</tex> be the time of one draft step divided by the time of one target step. A round costs <tex>k</tex> draft steps plus one verify pass, which takes about one target step while decode is memory-bound. The speedup over plain decoding is then [1]:</p>
+<texblock>S(\alpha, k, c) = \frac{1 - \alpha^{k+1}}{(1 - \alpha)(kc + 1)}</texblock>
+<p><strong>Worked example.</strong> Use Llama 3.2 1B Instruct as the draft for Llama 3.1 8B. It has about 1.24 billion parameters and shares the target's 128,256-token vocabulary. Its weights are about 2.47 GB, so a draft step takes at least 2.47 GB ÷ 3.35 TB/s ≈ 0.74 ms against 4.79 ms for the target, giving <tex>c \approx 0.15</tex>. With <tex>\alpha = 0.8</tex> and <tex>k = 4</tex>:</p>
+<ul>
+<li>Tokens per round: <tex>E = 3.36</tex>.</li>
+<li>Time per round: <tex>4.79 + 4 \times 0.74 \approx 7.74</tex> ms.</li>
+<li>Stream speed: <tex>3.36 / 7.74 \text{ ms} \approx 434</tex> tokens per second, against <tex>1 / 4.79 \text{ ms} \approx 209</tex> without speculation: about <strong>2.1×</strong>.</li>
+</ul>
+<p>A cheaper draft changes the picture. An EAGLE-3 draft head for Llama 3.1 8B is a single transformer layer with a 32,000-token draft vocabulary, about 0.85 GB on disk [4], so <tex>c</tex> is closer to 0.05. Figure 5 plots the speedup against <tex>k</tex> for these cases.</p>
+<fig src="015-speedup-vs-k.svg" caption="Modeled speedup against the number of drafted tokens for different acceptance rates and draft costs">Line chart of speedup against k from 1 to 10. With alpha 0.8 and c 0.05, speedup rises to a peak of about 3.09 at k equal to 8. With alpha 0.8 and c 0.15, it peaks at about 2.11 at k equal to 5. With alpha 0.6 and c 0.15, it peaks at about 1.51 at k equal to 2 and falls back toward 1.0 by k equal to 10.</fig>
+<p>The best <tex>k</tex> grows with the acceptance rate and shrinks with the draft cost: about 8 for a very cheap, accurate draft, 5 for the 1B draft at <tex>\alpha = 0.8</tex>, and only 2 when acceptance falls to 0.6. Too large a <tex>k</tex> spends draft time on tokens that will almost certainly be rejected. This is why engines expose <tex>k</tex> as a setting and why it should be tuned on measured acceptance, not guessed.</p>
+<callout kind="tip" title="Interview tip">Write down E = (1 − α^(k+1)) / (1 − α) and S = E / (kc + 1), then plug in numbers: "with α = 0.8, four drafts, and a draft at 15% of the target's step time, we get 3.36 tokens per pass and about a 2.1× faster stream."</callout>
+
+<h2>Where the Draft Comes From</h2>
+<p>The draft only has to be cheap and agree with the target often. Several designs meet that goal in different ways; Figure 6 sketches them.</p>
+<fig src="015-variants.svg" caption="Four ways to produce draft tokens">Four panels. A separate draft model: a small model with the same tokenizer runs k steps. N-gram prompt lookup: the last few tokens are matched against the prompt and the tokens that followed are copied as the draft. Medusa: extra heads on the target's last hidden state each predict one future position. EAGLE and multi-token prediction: a one-layer draft head reads the target's hidden features and predicts the next tokens autoregressively.</fig>
+
+<h4>A separate draft model</h4>
+<p>The original approach uses a smaller model from the same family, which shares the tokenizer: Llama 3.2 1B for Llama 3.1 8B or 70B, or Qwen3-0.6B for a larger Qwen3. It needs no training if a suitable model exists, but it adds its own weights and its own KV cache, and its cost ratio <tex>c</tex> is typically 0.1 to 0.2. A draft distilled on the target's outputs agrees with it more often, as Lesson 14, Distillation, describes.</p>
+
+<h4>N-gram and prompt lookup</h4>
+<p>Many outputs copy spans of their input: code edits repeat most of the file, summaries quote the document, and retrieval answers cite passages. <strong>Prompt lookup decoding</strong> exploits this with no model at all: it matches the last few generated tokens against the prompt and proposes the tokens that followed the match [5]. The draft costs almost nothing, so <tex>c \approx 0</tex>. The vLLM team measured up to 2.8× faster generation with n-gram speculation on a summarization dataset at low load [6]. When nothing matches, no tokens are proposed and decoding proceeds normally.</p>
+
+<h4>Medusa heads</h4>
+<p><strong>Medusa</strong> adds several extra decoding heads to the target model, each predicting the token one, two, or more positions ahead from the target's last hidden state, and verifies a tree of candidate continuations at once with a tree-shaped attention mask [7]. Training only the heads on a frozen model gave over 2.2× speedups without changing outputs; training heads and backbone together reached 2.3 to 3.6×, at the cost of a special training recipe.</p>
+
+<h4>The EAGLE family</h4>
+<p><strong>EAGLE</strong> drafts at the feature level: a lightweight head reads the target's second-to-top-layer features together with the token sequence and predicts the next features autoregressively, reporting 2.7 to 3.5× lower latency on LLaMA2-Chat 70B [8]. <strong>EAGLE-2</strong> builds a draft tree whose shape adapts to the draft's confidence, reaching 3.05 to 4.26× [9]. <strong>EAGLE-3</strong> drops feature prediction in favor of direct token prediction, fuses features from several target layers, and is trained with a technique its authors call training-time test; it reports speedups up to 6.5×, about 1.4× better than EAGLE-2, and a 1.38× throughput gain at batch size 64 in SGLang [10]. EAGLE-3 heads for popular models are published on Hugging Face, so no training is needed for Llama 3.1 8B.</p>
+
+<h4>Multi-token prediction</h4>
+<p>Some models are trained from the start to predict more than one token. DeepSeek-V3 adds a <strong>multi-token prediction</strong> (MTP) module that predicts one extra token beyond the next; at inference the module can be discarded or repurposed as a built-in draft. DeepSeek reports that the second token is accepted 85% to 90% of the time, which gives about 1.8 times the tokens per second [11]. vLLM and SGLang can use such MTP modules directly. DeepSeek-V3 is a mixture-of-experts model, whose serving is covered in Lesson 35, Mixture-of-Experts Serving.</p>
+<table>
+<thead><tr><th>Method</th><th>Where the draft comes from</th><th>Extra training</th><th>Draft cost</th><th>Shines on</th></tr></thead>
+<tbody>
+<tr><td>Separate draft model</td><td>Small model with the same tokenizer</td><td>None if one exists; distilling helps</td><td>c ≈ 0.1–0.2, plus its own KV cache</td><td>Model families with small siblings</td></tr>
+<tr><td>N-gram / prompt lookup</td><td>Copies spans from the prompt</td><td>None</td><td>c ≈ 0</td><td>Code edits, summaries, retrieval answers</td></tr>
+<tr><td>Medusa</td><td>Extra heads on the target</td><td>Train the heads</td><td>Small</td><td>General text, tree verification</td></tr>
+<tr><td>EAGLE-3</td><td>One-layer head on target features</td><td>Train the head (published for many models)</td><td>c ≈ 0.05</td><td>General text; best acceptance of the add-ons</td></tr>
+<tr><td>MTP modules</td><td>Built into the model at pre-training</td><td>None (comes with the model)</td><td>Small</td><td>Models that ship them, e.g. DeepSeek-V3</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Ways to produce draft tokens</p>
+
+<h2>When It Helps and When It Hurts</h2>
+<h3>Where speculation pays off</h3>
+<ul>
+<li><strong>Low batch sizes and latency-sensitive streams</strong>, where the GPU is memory-bound and most compute is idle. This is the regime the vLLM documentation targets: reducing inter-token latency at medium to low load [3].</li>
+<li><strong>Predictable outputs</strong>: code, edits that copy input, boilerplate, and structured formats such as JSON, where many tokens are forced (Lesson 38, Structured Output and Tool Calling). Acceptance rates are higher, and n-gram drafts become effective.</li>
+<li><strong>Greedy or low-temperature sampling</strong>. At high temperature, the target's distribution is flatter and harder to guess, so acceptance drops.</li>
+<li><strong>Long contexts</strong>. Each decode step also reads the whole KV cache, which keeps the GPU memory-bound even at larger batch sizes. MagicDec showed speedups of up to 2.51× for Llama 3.1 8B at batch sizes from 32 to 256 on moderate-to-long sequences, using a draft with a sparse KV cache [12]. Lesson 36, Long-Context Serving, covers this regime.</li>
+</ul>
+
+<h3>Where it hurts</h3>
+<p>The verify pass processes <tex>k + 1</tex> tokens for every sequence in the batch. At batch size <tex>B</tex>, that is <tex>B(k+1)</tex> tokens per step. Once that number passes the GPU's ridge point, about 295 tokens for BF16 on an H100, verification becomes compute-bound: the extra tokens now cost real time, and every rejected draft is wasted arithmetic that a plain batch could have spent on other users' tokens. The draft's own steps and memory also compete with the target's KV cache.</p>
+<p>Figure 7 shows this in the same roofline model, for <tex>\alpha = 0.8</tex>, <tex>k = 4</tex>, and the 1B draft. With short 200-token contexts, the modeled speedup holds near 2× up to about 64 concurrent sequences, falls to 1.36× at 128, and turns into a slowdown above roughly 200, where each verify pass carries more than 1,000 tokens. With 2,500-token contexts, reading the cache keeps decode memory-bound and the modeled gain stays near 1.8× up to 128 sequences, about as many as fit once the draft's weights and cache take their share of memory.</p>
+<fig src="015-batch-effect.svg" caption="Modeled speedup of speculative decoding against batch size (roofline bound)">Line chart of modeled speedup against concurrent sequences from 1 to 512 on a log scale, for alpha 0.8, k equal to 4 and a 1B draft on one H100. With 200-token contexts, speedup stays about 2.0 up to 64 sequences, then drops to 1.36 at 128, 1.06 at 192, 0.89 at 256 and 0.61 at 512. With 2,500-token contexts, it declines slowly from 2.07 to about 1.78 at 128 sequences, near the memory limit. A dashed line marks a speedup of 1.0.</fig>
+<p>Real engines cross over sooner than this ideal model, because kernels do not reach peak compute and drafting has fixed per-step overheads. The vLLM team measured 1.4× and 1.8× <em>slowdowns</em> at high request rates for Llama 3 70B on four H100s, on the same workloads that sped up at low load [6]. Better methods move the crossover out but do not remove it, so the practical answer is to adapt: recent vLLM releases can lower <tex>k</tex> as the batch grows, down to zero at high concurrency, through the <code>num_speculative_tokens_per_batch_size</code> setting; check its documentation for the model runner it requires [13].</p>
+
+<h4>Which method fits our deployment?</h4>
+<p>For the coding assistant on H100s, with 4 to 16 concurrent streams most of the time, we choose <strong>EAGLE-3 with a published Llama 3.1 8B head and three speculative tokens</strong>. The head is cheap (about 0.85 GB, one layer), needs no training, works for both code and chat, and is supported by vLLM and SGLang. We start at <tex>k = 3</tex> because acceptance at temperature 0.7 will be lower than on greedy code edits, then tune <tex>k</tex> from the measured acceptance length. N-gram lookup is the strongest choice for pure edit traffic, where outputs copy the input, and costs nothing; if edits become a large, separate workload, we can run an n-gram pool for them behind the router (Lesson 25, Request Routing). At the daily peak of about 50 streams, each verify pass carries about 200 tokens with <tex>k = 3</tex> (50 × 4), still under the ridge point in our model, but prefill chunks share those steps and push them toward it. So we confirm with a load test at peak concurrency (Lesson 12, Lab - Benchmark Two Engines at 50 Concurrent Users) that speculation still helps, and let <tex>k</tex> fall with batch size if it does not. Throughout, we watch the acceptance counters and inter-token latency, and turn speculation down if acceptance drops after a model or traffic change.</p>
+
+<h2>In Practice</h2>
+<p>The first tab serves Llama 3.1 8B with an EAGLE-3 head in vLLM, configured through the JSON <code>--speculative-config</code> flag [3], and shows the n-gram and draft-model alternatives. The second tab is the SGLang equivalent, adapted from its documentation, where <code>--speculative-num-steps</code> sets the draft depth, <code>--speculative-eagle-topk</code> the branching per step, and <code>--speculative-num-draft-tokens</code> the maximum tokens verified per pass [14]. The third computes the expected speedup and reads vLLM's acceptance counters from its metrics endpoint to infer the real acceptance rate.</p>
+<codetabs>
+<tab label="vLLM" lang="bash">
+# EAGLE-3 draft head trained for Llama 3.1 8B Instruct, three draft tokens per round.
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --speculative-config '{"method": "eagle3",
+                         "model": "RedHatAI/Llama-3.1-8B-Instruct-speculator.eagle3",
+                         "num_speculative_tokens": 3}'
+
+# Alternatives (one method per server):
+# n-gram prompt lookup, no extra model; good for code edits and summaries
+#   --speculative-config '{"method": "ngram", "num_speculative_tokens": 4,
+#                          "prompt_lookup_min": 2, "prompt_lookup_max": 5}'
+# a separate draft model that shares the tokenizer
+#   --speculative-config '{"method": "draft_model",
+#                          "model": "meta-llama/Llama-3.2-1B-Instruct",
+#                          "num_speculative_tokens": 4}'
+
+# Acceptance counters on the Prometheus endpoint:
+curl -s localhost:8000/metrics | grep spec_decode
+</tab>
+<tab label="SGLang" lang="bash">
+python3 -m sglang.launch_server \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --speculative-algorithm EAGLE3 \
+  --speculative-draft-model-path jamesliu1/sglang-EAGLE3-Llama-3.1-Instruct-8B \
+  --speculative-num-steps 3 \
+  --speculative-eagle-topk 4 \
+  --speculative-num-draft-tokens 16 \
+  --mem-fraction-static 0.7 \
+  --dtype float16
+
+# Other values of --speculative-algorithm include EAGLE, STANDALONE
+# (a separate draft model) and NGRAM.
+</tab>
+<tab label="Acceptance and speedup" lang="python">
+import urllib.request
+
+def expected_tokens(alpha: float, k: int) -> float:
+    """Tokens per target pass, including the corrected or bonus token."""
+    return (1 - alpha ** (k + 1)) / (1 - alpha)
+
+def speedup(alpha: float, k: int, c: float) -> float:
+    """c = draft step time / target step time; verification costs about one target step."""
+    return expected_tokens(alpha, k) / (k * c + 1)
+
+for k in (1, 2, 3, 4, 5, 8):
+    print(f"k={k}: E={expected_tokens(0.8, k):.2f}, speedup with c=0.15: {speedup(0.8, k, 0.15):.2f}")
+
+# Measured acceptance from a running vLLM server (counters are cumulative).
+def counter(text: str, name: str) -> float:
+    total = 0.0
+    for line in text.splitlines():
+        if line.startswith(name + "{") or line.startswith(name + " "):
+            total += float(line.rsplit(" ", 1)[1])
+    return total
+
+metrics = urllib.request.urlopen("http://localhost:8000/metrics").read().decode()
+drafts = counter(metrics, "vllm:spec_decode_num_drafts_total")
+drafted = counter(metrics, "vllm:spec_decode_num_draft_tokens_total")
+accepted = counter(metrics, "vllm:spec_decode_num_accepted_tokens_total")
+if drafts:
+    k = round(drafted / drafts)
+    mean_len = 1 + accepted / drafts   # measured tokens per target pass
+    lo, hi = 0.0, 0.999                # solve expected_tokens(alpha, k) = mean_len
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if expected_tokens(mid, k) < mean_len else (lo, mid)
+    print(f"k={k}, mean acceptance length {mean_len:.2f}, implied alpha {lo:.2f}")
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Tree verification, as in SpecInfer, which checks a tree of candidate continuations in one pass with a tree attention mask, trading more verified tokens for a higher chance of a long accepted path [15].</li>
+<li>Lookahead decoding, which generates and verifies n-grams from the target model itself with no draft model at all [16].</li>
+<li>Why speculation helps tensor-parallel and multi-GPU deployments: the large model's step is slow and communication-heavy, so saving target steps saves the most time.</li>
+<li>Lossy variants that relax the acceptance rule to accept more tokens, and why they need the same quality evaluation as quantization (Lesson 13, Quantization - FP8, INT8 and 4-bit).</li>
+<li>How speculative decoding interacts with continuous batching (Lesson 7, Continuous Batching): sequences in one batch accept different numbers of tokens, so the scheduler must handle ragged progress.</li>
+<li>Monitoring: per-request acceptance metrics show which traffic benefits, so speculation can be enabled per route or per tenant.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="015-summary.png" caption="Speculative decoding summary" optional="1">Mind map summarizing the speculative decoding lesson: idle compute in decode, draft and verify, lossless rejection sampling, expected tokens and speedup, draft methods, and when it helps or hurts.</fig>
+<ul>
+<li>Decode is memory-bound: for Llama 3.1 8B on an H100, reading the weights takes 4.79 ms while one token's arithmetic takes 0.016 ms, so verifying several tokens per pass is almost free.</li>
+<li>A cheap draft proposes <tex>k</tex> tokens; the target verifies them in one pass. Rejection sampling with acceptance <tex>\min(1, p/q)</tex> and a corrected resample keeps the output distribution exactly the target's.</li>
+<li>Expected tokens per target pass are <tex>(1 - \alpha^{k+1}) / (1 - \alpha)</tex>: 3.36 at <tex>\alpha = 0.8, k = 4</tex>. The speedup divides that by <tex>kc + 1</tex>: about 2.1× with a 1B draft.</li>
+<li>Drafts come from small models, n-gram lookup of the prompt, Medusa heads, EAGLE-3 heads, or built-in multi-token prediction modules.</li>
+<li>It helps most at low batch sizes, low temperature, predictable outputs, and long contexts; it hurts once <tex>B(k+1)</tex> tokens per step make verification compute-bound.</li>
+<li>For our coding assistant: EAGLE-3 with three draft tokens, tuned from vLLM's acceptance metrics, with <tex>k</tex> reduced at peak load.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Leviathan et al. Fast Inference from Transformers via Speculative Decoding. <a href="https://arxiv.org/abs/2211.17192" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.17192</a>.<br>
+[2] Chen et al. Accelerating Large Language Model Decoding with Speculative Sampling. <a href="https://arxiv.org/abs/2302.01318" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2302.01318</a>.<br>
+[3] vLLM documentation: Speculative Decoding. <a href="https://docs.vllm.ai/en/latest/features/speculative_decoding/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/speculative_decoding/</a>.<br>
+[4] EAGLE-3 draft head for Llama 3.1 8B Instruct. <a href="https://huggingface.co/yuhuili/EAGLE3-LLaMA3.1-Instruct-8B" rel="noopener noreferrer" target="_blank">https://huggingface.co/yuhuili/EAGLE3-LLaMA3.1-Instruct-8B</a>.<br>
+[5] Saxena. Prompt Lookup Decoding. <a href="https://github.com/apoorvumang/prompt-lookup-decoding" rel="noopener noreferrer" target="_blank">https://github.com/apoorvumang/prompt-lookup-decoding</a>.<br>
+[6] vLLM Team. How Speculative Decoding Boosts vLLM Performance by up to 2.8x. <a href="https://vllm.ai/blog/2024-10-17-spec-decode" rel="noopener noreferrer" target="_blank">https://vllm.ai/blog/2024-10-17-spec-decode</a>.<br>
+[7] Cai et al. Medusa: Simple LLM Inference Acceleration Framework with Multiple Decoding Heads. <a href="https://arxiv.org/abs/2401.10774" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.10774</a>.<br>
+[8] Li et al. EAGLE: Speculative Sampling Requires Rethinking Feature Uncertainty. <a href="https://arxiv.org/abs/2401.15077" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.15077</a>.<br>
+[9] Li et al. EAGLE-2: Faster Inference of Language Models with Dynamic Draft Trees. <a href="https://arxiv.org/abs/2406.16858" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2406.16858</a>.<br>
+[10] Li et al. EAGLE-3: Scaling up Inference Acceleration of Large Language Models via Training-Time Test. <a href="https://arxiv.org/abs/2503.01840" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2503.01840</a>.<br>
+[11] DeepSeek-AI. DeepSeek-V3 Technical Report. <a href="https://arxiv.org/abs/2412.19437" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2412.19437</a>.<br>
+[12] Sadhukhan et al. MagicDec: Breaking the Latency-Throughput Tradeoff for Long Context Generation with Speculative Decoding. <a href="https://arxiv.org/abs/2408.11049" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2408.11049</a>.<br>
+[13] vLLM documentation: Dynamic Speculative Decoding. <a href="https://docs.vllm.ai/en/latest/features/speculative_decoding/dynamic_speculative_decoding/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/speculative_decoding/dynamic_speculative_decoding/</a>.<br>
+[14] SGLang documentation: Speculative Decoding. <a href="https://docs.sglang.io/docs/advanced_features/speculative_decoding" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/speculative_decoding</a>.<br>
+[15] Miao et al. SpecInfer: Accelerating Generative Large Language Model Serving with Tree-based Speculative Inference and Verification. <a href="https://arxiv.org/abs/2305.09781" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.09781</a>.<br>
+[16] Fu et al. Break the Sequential Dependency of LLM Inference Using Lookahead Decoding. <a href="https://arxiv.org/abs/2402.02057" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2402.02057</a>.</p>

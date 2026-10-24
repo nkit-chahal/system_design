@@ -1,0 +1,239 @@
+<h2>Introduction</h2>
+<p>"Tokens per second" sounds like one number, but in LLM serving it names two very different ones. The first is how fast text appears for <em>one</em> user: the time between tokens in a single stream. The second is how many tokens the GPU produces for <em>all</em> users together. A GPU can make the first number excellent and the second poor, or the other way around, and most confusion about LLM performance comes from mixing them up.</p>
+<p>Both numbers come from the same decode step. Every step produces one token for each sequence in the batch, so a single user receives one token per step, while the GPU as a whole produces as many tokens per step as there are sequences. Figure 1 shows the two views of one H100 decoding 170 chat requests.</p>
+<fig src="005-two-numbers.svg" caption="Per-user speed and system throughput come from the same decode step">Left panel: one user's stream receives a token about every 21 ms, about 47 tokens per second. Right panel: the GPU produces a token for each of 170 streams in every step, about 7,900 tokens per second in total, counting decode only. A note says both numbers come from the same 21.4 ms step, which reads 16 GB of weights and 56 GB of KV cache at 3.35 TB/s, and that raising the batch raises the total while lowering the per-user speed.</fig>
+<p>In this lesson, we define both numbers precisely, connect them to end-to-end latency, derive the trade-off between them from decode's memory-bandwidth math, introduce goodput as the number that captures both, separate input from output tokens, and show how to read vendor claims and how to measure each number yourself.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Throughput questions usually arrive as a disagreement between two teams. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: What are we serving, and how much traffic is there?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct in BF16 on H100s. Chat requests average about 2,000 prompt tokens and 500 output tokens, and traffic averages 1,000 requests per minute.</p>
+<p><strong>Candidate</strong>: What are the latency targets?<br>
+<strong>Interviewer</strong>: p95 time to first token of at most 500 ms and p95 time per output token of at most 25 ms, which is at least 40 tokens per second for every stream.</p>
+<p><strong>Candidate</strong>: What does each team see today?<br>
+<strong>Interviewer</strong>: Product sees streams of about 45 tokens per second at peak and wants them faster. Finance found a vendor benchmark claiming over 20,000 tokens per second on one H100 and asks why we need so many GPUs when each one produces only a few thousand.</p>
+<p><strong>Candidate</strong>: Should I assume a GPU price?<br>
+<strong>Interviewer</strong>: Assume $3.00 per H100-hour.</p>
+<p>The question underneath is: <em>which "tokens per second" does each team mean, how do the two trade against each other, and what single number should we plan capacity with?</em> We start with precise definitions.</p>
+
+<h2>Two Different Numbers</h2>
+<h3>Per-user speed: TPOT and ITL</h3>
+<p>The speed one user experiences is measured by the gap between consecutive tokens of their stream. Two metrics describe it:</p>
+<ul>
+<li><strong>Inter-token latency</strong> (ITL) is each individual gap between two consecutive tokens. A request with 500 output tokens has 499 of them. ITL captures stalls, such as the prefill interference of Lesson 2, Prefill vs Decode.</li>
+<li><strong>Time per output token</strong> (TPOT) is the average gap of one request, excluding the first token: <tex>\text{TPOT} = (\text{E2E} - \text{TTFT}) / (N - 1)</tex>, where <tex>N</tex> is the number of output tokens. Its inverse is the request's output speed in tokens per second.</li>
+</ul>
+<p>The first token is excluded because it comes out of the prefill pass, not a decode step (Lesson 4, Time to First Token). vLLM follows this convention: it exports <code>vllm:inter_token_latency_seconds</code> with one sample per gap and <code>vllm:request_time_per_output_token_seconds</code> with one sample per finished request [2]. Benchmarking tools do not all agree: NVIDIA notes that GenAI-Perf excludes TTFT from its average while LLMPerf includes it, so the same run can report different "per-user" numbers [1].</p>
+
+<h3>System throughput</h3>
+<p><strong>Output throughput</strong> is the total number of output tokens the server produces per second across all requests. Its sibling, <strong>request throughput</strong>, counts finished requests per second. For a fixed request shape the two are proportional: at 500 output tokens per request, 5 requests per second is 2,500 output tokens per second. Throughput is what the operator pays for, since it divides directly into the GPU bill.</p>
+
+<h3>End-to-end latency</h3>
+<p>A streamed request's total time combines both phases, as Figure 2 shows:</p>
+<texblock>\text{E2E latency} = \text{TTFT} + \text{TPOT} \times (N - 1)</texblock>
+<fig src="005-latency-anatomy.svg" caption="Anatomy of one streamed request: TTFT, inter-token gaps, and end-to-end latency">A timeline starting when the request is sent. A purple queue-plus-prefill segment ends at token 1, which marks the time to first token. Green ticks for tokens 2, 3 and onward follow with small gaps labeled ITL, one larger gap labeled as a stall, and token N at the end. Brackets mark decode time as TPOT times N minus 1 and end-to-end latency as TTFT plus TPOT times N minus 1. A note gives the example 0.2 s plus 21.4 ms times 499, about 10.9 s.</fig>
+<p>For a 500-token answer, decode dominates. With a TTFT of 0.2 s and a TPOT of 21.4 ms, the request takes 0.2 + 0.0214 × 499 ≈ 10.9 s, of which TTFT is 2%. On an otherwise idle H100, the ideal numbers from Lesson 2 give 0.067 + 0.0049 × 499 ≈ 2.5 s. The fourfold difference is not wasted work: it is the price of sharing the GPU with 169 other users.</p>
+
+<h2>The Throughput–Latency Trade-off</h2>
+<h3>Where the trade-off comes from</h3>
+<p>Decode is memory-bound (Lesson 2), so a decode step lasts at least as long as it takes to read the weights plus every sequence's KV cache from HBM (Lesson 3, KV Cache):</p>
+<texblock>t_{\text{step}} \geq \frac{\text{weight bytes} + B \times \text{KV bytes per sequence}}{\text{memory bandwidth}}</texblock>
+<p>With <tex>B</tex> sequences in the batch, each user gets <tex>1 / t_{\text{step}}</tex> tokens per second and the GPU produces <tex>B / t_{\text{step}}</tex>. For Llama 3.1 8B on an H100, the weights are 16.06 GB, and a chat request counted at its full 2,500 tokens holds 2,500 × 128 KiB ≈ 0.33 GB of KV cache. Figure 3 and Table 1 work through the bound.</p>
+<fig src="005-bytes-per-step.svg" caption="Bytes read per decode step as the batch grows, with the resulting speeds (ideal bound)">Five stacked bars for batches of 1, 32, 64, 128 and 170. Each has a fixed 16 GB orange weights segment and a blue KV cache segment that grows from 0.3 GB to 55.7 GB. Columns on the right list the step time (4.9, 7.9, 11.1, 17.3 and 21.4 ms), the per-user speed (204, 126, 90, 58 and 47 tokens per second) and the total throughput (204, 4,038, 5,790, 7,393 and 7,936 tokens per second).</fig>
+<table>
+<thead><tr><th>Batch</th><th>Bytes per step</th><th>Step time (ideal)</th><th>Per user</th><th>Total output</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>16.4 GB</td><td>4.9 ms</td><td>204 tok/s</td><td>204 tok/s</td></tr>
+<tr><td>8</td><td>18.7 GB</td><td>5.6 ms</td><td>179 tok/s</td><td>1,435 tok/s</td></tr>
+<tr><td>32</td><td>26.6 GB</td><td>7.9 ms</td><td>126 tok/s</td><td>4,038 tok/s</td></tr>
+<tr><td>64</td><td>37.0 GB</td><td>11.1 ms</td><td>90 tok/s</td><td>5,790 tok/s</td></tr>
+<tr><td>128</td><td>58.0 GB</td><td>17.3 ms</td><td>58 tok/s</td><td>7,393 tok/s</td></tr>
+<tr><td>170 (KV cache full)</td><td>71.8 GB</td><td>21.4 ms</td><td>47 tok/s</td><td>7,936 tok/s</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Decode-only lower bounds for Llama 3.1 8B on one H100 (2,500-token contexts, 3.35 TB/s)</p>
+<p>Going from batch 1 to batch 170 multiplies total throughput by 39 while dividing each user's speed by 4.4. The reason is visible in Figure 3: the 16 GB weight read is shared by the whole batch, so adding sequences is cheap at first, but every sequence adds its own 0.33 GB of cache to every step, and eventually the cache dominates. Pope et al. analyze the same tension for large models and many chips [3].</p>
+
+<h3>The frontier, ideal and real</h3>
+<p>Plotting per-user speed against total throughput for every batch size traces the frontier in Figure 4. Moving along it to the upper left buys throughput with per-user speed.</p>
+<fig src="005-throughput-frontier.svg" caption="Per-user speed against total throughput: the ideal frontier and a realistic planning point">An orange curve runs from batch 1 at about 204 tokens per second per user and 204 in total, through batches 8, 32, 64 and 128, to batch 170 at about 47 per user and 7,936 in total. A red dashed vertical line at 40 tokens per second marks the 25 ms TPOT target; every orange point is to its right. An open point marks batch 53 on the ideal curve at about 100 per user and 5,300 in total, and a dashed arrow leads from it to a red planning point at about 48 per user and 2,500 in total, labeled as Lesson 19's estimate of 53 streams at about 21 ms per step.</fig>
+<p>The orange curve is a lower bound on step time, so it is an upper bound on speed. It says every batch up to the cache limit meets the 25 ms TPOT target. Real serving falls well short of it, for three reasons: kernels reach only part of the HBM bandwidth, steps also carry chunks of other requests' prefills (Lesson 2), and the scheduler, sampling, and detokenization add overhead. Lesson 19, GPU Utilization, builds a model that accounts for these and estimates that one H100 holds about 53 concurrent streams at about 21 ms per step within our targets. That is the red point: about 48 tokens per second per user, 53 ÷ 0.021 ≈ 2,500 output tokens per second in total, or about 5 requests per second. The ideal model would run those 53 streams at 10 ms per step; the realistic step takes twice as long.</p>
+<callout kind="tip" title="Interview tip">Use the bandwidth bound to explain the shape of the trade-off and to sanity-check claims, but plan capacity with measured numbers. Saying "the ideal bound is 5,300 tokens per second at 53 streams, and real engines reach about half of that" shows you know both the physics and its limits.</callout>
+
+<h4>Which operating point fits our deployment?</h4>
+<p>Our targets fix the operating point: the largest load at which p95 TPOT stays at or below 25 ms and p95 TTFT at or below 500 ms. With Lesson 19's estimate of about 5 requests per second per H100, the evening peak of about 33 requests per second needs at least 7 GPUs, before any headroom for bursts. On each replica we cap the batch with vLLM's <code>--max-num-seqs</code> near the measured concurrency where p95 TPOT reaches 25 ms, so a surge queues at the router or spills to another replica instead of slowing every stream on one GPU. Product's 45 tokens per second is therefore not a bug: it is what the 25 ms target buys. Faster streams would require a lower batch cap and more GPUs, or techniques that change the bytes per step, such as quantization (Lesson 13) or speculative decoding (Lesson 15).</p>
+
+<h2>Goodput</h2>
+<p>Raw throughput rewards a server for producing tokens no matter how late they arrive. <strong>Goodput</strong> counts only the requests that met their latency targets. DistServe defines it as the maximum request rate a system can serve while meeting both TTFT and TPOT targets for a required share of requests [4]. Figure 5 shows the typical shape.</p>
+<fig src="005-goodput.svg" caption="Throughput and goodput as offered load rises (illustrative)">An illustrative chart of completed requests per second against arriving requests per second. The orange throughput line rises with the load and flattens near 9 requests per second. The green goodput line follows it up to about 5 requests per second, peaks near 4.8, then collapses toward zero by about 8 requests per second as most requests miss their TTFT or TPOT target.</fig>
+<p>As load rises past the knee, queues grow, TTFT climbs (Lesson 4), and batches grow, which stretches TPOT. Throughput keeps rising until the GPU saturates, but goodput peaks earlier and then falls, because more and more requests finish late. The illustrative peak near 5 requests per second matches the planning figure above; the saturation point near 9 is a number no user would enjoy.</p>
+<p>Goodput is the right number for capacity planning because it already contains the latency targets. <code>vllm bench serve</code> reports it as "Request goodput (req/s)" when you pass targets in milliseconds, for example <code>--goodput ttft:500 tpot:25</code> [5]. MLPerf Inference's server scenario has the same spirit: its score is the highest Poisson arrival rate a system sustains while meeting the benchmark's latency limits at the 99th percentile [6].</p>
+
+<h2>Input Versus Output Tokens</h2>
+<p>A chat request has two kinds of tokens. Input tokens are processed by prefill in parallel; output tokens are produced by decode one step at a time. Figure 6 compares their share of one request's tokens, arithmetic, and time.</p>
+<fig src="005-input-vs-output.svg" caption="One chat request's tokens, FLOPs, and wall-clock time, split into prompt and output">Three 100% bars. Tokens: 2,000 input (80%) and 500 output (20%). FLOPs: prefill 33.2 TFLOP (79%) and decode 8.6 TFLOP (21%). Wall-clock time: prefill about 67 ms (0.6%) and decode 499 steps of 21.4 ms, about 10.7 s. A note says the GPU reads about 30,000 input tokens per second during prefill.</fig>
+<p>Input tokens are fast: prefill ingests about 30,000 per second and takes 0.6% of the request's time. But they are not free. Each costs the same 16 GFLOPs as an output token, so for our 4-to-1 traffic they account for about four fifths of the GPU's arithmetic. This changes the throughput ceiling. The decode-only bound of 7,900 output tokens per second at full cache ignores prefill entirely. Paying for each request's 2,000-token prefill on the same GPU at 50% MFU lowers the ideal ceiling to about 3,800 output tokens per second if prefill and decode take turns, or about 5,900 if they overlap perfectly. Alongside those output tokens, the GPU processes four times as many input tokens.</p>
+<p>The consequence for reporting is simple. "Total token throughput" counts input and output together, and for this traffic it is five times the output throughput: the same server at saturation could be described as producing about 5,000 output tokens per second or about 25,000 tokens per second. Providers usually price input and output tokens separately for the same reason.</p>
+
+<h2>Reading Vendor Claims</h2>
+<p>We can now answer finance. A claim of "over 20,000 tokens per second on one H100" for this model is plausible, and it is consistent with our users seeing 45: it counts input and output tokens, at a load where no latency target applies. Figure 7 states three honest numbers for the same GPU at our planning point.</p>
+<fig src="005-three-numbers.svg" caption="Three honest numbers for one H100 at the planning point">Three cards. Per-user speed: about 48 tokens per second, one stream, output only, one over 21 ms per step. Output throughput: about 2,500 tokens per second, 53 streams, 5 requests per second times 500 tokens. Total throughput: about 12,500 tokens per second, input plus output, 5 requests per second times 2,500 tokens. A note says the planning point comes from Lesson 19 and all three describe the same GPU at the same moment.</fig>
+<p>The denominators matter for cost too. At an assumed $3.00 per H100-hour and 2,500 output tokens per second, one GPU produces 9 million output tokens per hour, so output costs about $0.33 per million tokens. Divided over all 45 million tokens per hour, input included, the same GPU costs about $0.07 per million. Lesson 20, Cost per Million Tokens, builds this calculation properly. Table 2 lists the questions to ask before comparing any two "tokens per second" figures.</p>
+<table>
+<thead><tr><th>Question</th><th>Why it matters</th></tr></thead>
+<tbody>
+<tr><td>Per user or across all users?</td><td>The two differ by the batch size, often 50 to 200 times</td></tr>
+<tr><td>Output tokens only, or input plus output?</td><td>For 2,000-in, 500-out traffic, the total is 5 times the output figure</td></tr>
+<tr><td>What input and output lengths?</td><td>Short prompts and long answers favor decode-heavy numbers; long contexts shrink the batch</td></tr>
+<tr><td>At what concurrency, and what latency at that point?</td><td>Throughput at saturation can come with TPOT far above any usable target</td></tr>
+<tr><td>Which precision and which hardware, how many GPUs?</td><td>FP8 or 4-bit weights move fewer bytes per step; per-GPU and per-node figures differ</td></tr>
+<tr><td>Speculative decoding or prefix caching enabled?</td><td>Both depend on the data: acceptance rates and cache hits on a benchmark may not match your traffic</td></tr>
+<tr><td>Mean, median, or p95, and from which tool?</td><td>Tools define TPOT and throughput differently [1]</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Questions to ask about a "tokens per second" claim</p>
+
+<h2>Human Reading Speed as a Reference</h2>
+<p>How fast does a stream need to be? A meta-analysis of 190 studies puts the average adult's silent reading speed for English non-fiction at 238 words per minute [7], about 4 words per second. NVIDIA's rule of thumb is about 0.75 words per token [1], roughly 1.3 tokens per word; on the text of Lesson 3, the Llama 3.1 tokenizer produced 1.43 tokens per word. Reading therefore consumes about 5 to 6 tokens per second, and a 48-token-per-second stream outruns a careful reader about eight to nine times over.</p>
+<p>Faster streams still matter. People skim rather than read word by word, code and tables are scanned rather than read, reasoning models generate hidden thinking tokens before the visible answer, and agents and tools consume output programmatically, where only end-to-end time counts. Benchmarks reflect this spread: MLPerf's Llama 3.1 8B benchmark sets a TPOT limit of 100 ms (10 tokens per second) for its conversational category and 30 ms (about 33 tokens per second) for its interactive one [6]. Our 25 ms target sits just above the interactive bar.</p>
+
+<h2>Measuring Each Number</h2>
+<p>Each number has a natural place to measure it:</p>
+<ul>
+<li><strong>Per-user speed</strong>, at the client: record the time of the first content chunk and the last, take the output token count from the response's usage field, and compute TPOT as (last − first) ÷ (N − 1). Do not count streamed chunks as tokens: a chunk can carry several tokens, for example with speculative decoding, so chunk gaps are an approximation of ITL.</li>
+<li><strong>Per-user speed</strong>, at the server: the histograms <code>vllm:request_time_per_output_token_seconds</code> and <code>vllm:inter_token_latency_seconds</code> [2].</li>
+<li><strong>Output and input throughput</strong>: the counters <code>vllm:generation_tokens_total</code> and <code>vllm:prompt_tokens_total</code>, taken as rates and summed across replicas [2].</li>
+<li><strong>The frontier</strong>: a benchmark that sweeps concurrency, recording output throughput and p95 TPOT at each level. <code>vllm bench serve --max-concurrency</code> does this and reports output and total token throughput separately [5].</li>
+<li><strong>Goodput</strong>: the same benchmark with <code>--goodput</code> targets, or, in production, the share of finished requests whose TTFT and TPOT met the targets (Lesson 31, Per-Request Token Accounting).</li>
+</ul>
+<p>Use the realistic request shape. A benchmark with 128-token prompts and 128-token answers will report a frontier that has little to do with 2,000-token prompts and 500-token answers, because both the KV cache per sequence and the prefill share change.</p>
+
+<h2>In Practice</h2>
+<p>The first tab runs a fixed number of concurrent streams against a vLLM server and reports per-user TPOT, the p95 chunk gap, aggregate output throughput, and the share of requests within both targets; run it at several concurrency levels to trace your own frontier. The second does the same sweep with <code>vllm bench serve</code> and its built-in goodput [5]. The third holds PromQL queries for the production versions of these numbers.</p>
+<codetabs>
+<tab label="Concurrent client" lang="python">
+import asyncio
+import time
+import uuid
+
+from openai import AsyncOpenAI
+
+client = AsyncOpenAI(base_url="http://localhost:8000/v1", api_key="EMPTY")
+MODEL = "meta-llama/Llama-3.1-8B-Instruct"
+CONCURRENCY, REQUESTS = 32, 128
+TTFT_SLO, TPOT_SLO = 0.500, 0.025  # seconds: p95 targets from this course
+FILLER = "The quick brown fox jumps over the lazy dog. " * 180  # about 2,000 tokens
+
+
+async def one_request() -> dict:
+    prompt = f"[{uuid.uuid4()}] Continue this text at length.\n{FILLER}"  # unique: no cache hits
+    start = time.perf_counter()
+    arrivals, n_out = [], 0
+    stream = await client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=500,
+        stream=True,
+        stream_options={"include_usage": True},
+        extra_body={"ignore_eos": True},  # vLLM option: always generate 500 tokens
+    )
+    async for chunk in stream:
+        if chunk.choices and chunk.choices[0].delta.content:
+            arrivals.append(time.perf_counter())
+        if chunk.usage:
+            n_out = chunk.usage.completion_tokens
+    ttft = arrivals[0] - start
+    tpot = (arrivals[-1] - arrivals[0]) / max(n_out - 1, 1)
+    gaps = [b - a for a, b in zip(arrivals, arrivals[1:])]  # chunk gaps approximate ITL
+    return {"ttft": ttft, "tpot": tpot, "gaps": gaps, "tokens": n_out}
+
+
+def p95(values: list[float]) -> float:
+    ordered = sorted(values)
+    return ordered[int(0.95 * (len(ordered) - 1))]
+
+
+async def main() -> None:
+    gate = asyncio.Semaphore(CONCURRENCY)
+
+    async def guarded() -> dict:
+        async with gate:
+            return await one_request()
+
+    t0 = time.perf_counter()
+    results = await asyncio.gather(*(guarded() for _ in range(REQUESTS)))
+    wall = time.perf_counter() - t0
+    out_tokens = sum(r["tokens"] for r in results)
+    good = sum(r["ttft"] <= TTFT_SLO and r["tpot"] <= TPOT_SLO for r in results)
+    print(f"concurrency {CONCURRENCY}: p95 TTFT {p95([r['ttft'] for r in results]) * 1e3:.0f} ms, "
+          f"p95 TPOT {p95([r['tpot'] for r in results]) * 1e3:.1f} ms, "
+          f"p95 gap {p95([g for r in results for g in r['gaps']]) * 1e3:.1f} ms")
+    print(f"output throughput {out_tokens / wall:,.0f} tok/s, "
+          f"{good}/{len(results)} requests met both targets")
+
+
+asyncio.run(main())
+</tab>
+<tab label="Concurrency sweep" lang="bash">
+# Trace the frontier: same request shape, increasing concurrency.
+# The report includes output and total token throughput, TTFT/TPOT/ITL
+# percentiles, and "Request goodput (req/s)" for the given targets (ms).
+for c in 8 16 32 64 128; do
+  vllm bench serve \
+    --model meta-llama/Llama-3.1-8B-Instruct \
+    --dataset-name random --random-input-len 2000 --random-output-len 500 \
+    --ignore-eos --num-prompts $((c * 8)) --max-concurrency "$c" \
+    --percentile-metrics ttft,tpot,itl --metric-percentiles 50,95 \
+    --goodput ttft:500 tpot:25 \
+    --save-result --result-filename "sweep_c${c}.json"
+done
+</tab>
+<tab label="PromQL" lang="promql">
+# Output and input tokens per second, summed over replicas
+sum(rate(vllm:generation_tokens_total[1m]))
+sum(rate(vllm:prompt_tokens_total[1m]))
+
+# p95 time per output token (one sample per finished request)
+histogram_quantile(0.95, sum by (le) (rate(vllm:request_time_per_output_token_seconds_bucket[5m])))
+
+# p95 gap between streamed tokens (one sample per gap): catches stalls
+histogram_quantile(0.95, sum by (le) (rate(vllm:inter_token_latency_seconds_bucket[5m])))
+
+# Average batch size per replica: running requests
+avg by (instance) (vllm:num_requests_running)
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Speculative decoding raises per-user speed by verifying several drafted tokens in one step; its benefit shrinks at large batch sizes, where the GPU has less idle compute to spare (Lesson 15, Speculative Decoding) [8].</li>
+<li>Weight and KV cache quantization shrink the bytes per step, which moves the whole frontier outward (Lesson 13, Quantization - FP8, INT8 and 4-bit).</li>
+<li>Tensor parallelism splits each step's reads across several GPUs, raising per-user speed for large models at the cost of more GPUs per replica (Lesson 18, Tensor Parallelism).</li>
+<li>Offline batch jobs have no per-user target, so they should run at the far end of the frontier, ideally on separate capacity or at low priority (Lesson 39, Batch and Offline Inference).</li>
+<li>Chunked prefill trades the smoothness of every stream against how fast new requests start; Sarathi-Serve frames this as the throughput-latency trade-off of LLM serving [9].</li>
+<li>Per-request token accounting lets you compute goodput and cost per tenant from production traffic instead of benchmarks (Lesson 31, Per-Request Token Accounting).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="005-summary.png" caption="Tokens per second summary" optional="1">Mind map summarizing the lesson: per-user speed versus system throughput, end-to-end latency, the batch trade-off, goodput, input versus output tokens, and how to read and measure tokens-per-second claims.</fig>
+<ul>
+<li>Per-user speed (TPOT, ITL) and system throughput (total output tokens per second) come from the same decode step: 1 ÷ step time versus batch size ÷ step time.</li>
+<li>End-to-end latency = TTFT + TPOT × (N − 1); for a 500-token answer at 21.4 ms per step it is about 10.9 s, almost all decode.</li>
+<li>Step time ≥ (weights + KV read) ÷ bandwidth. For Llama 3.1 8B on an H100, batch 1 to 170 raises the ideal total from 204 to about 7,900 tokens per second while each user drops from 204 to 47.</li>
+<li>Real engines reach roughly half the ideal bound: the planning figure is about 53 streams at about 21 ms per step, about 2,500 output tokens per second or 5 requests per second per H100 within p95 TTFT ≤ 500 ms and p95 TPOT ≤ 25 ms.</li>
+<li>Goodput, the request rate that meets the latency targets, is the number to plan capacity with; raw throughput keeps rising after goodput has collapsed.</li>
+<li>Input tokens are fast but carry about four fifths of the arithmetic for 2,000-in, 500-out traffic; "total tokens per second" is five times the output figure.</li>
+<li>Human silent reading is about 238 words per minute, roughly 5 to 6 tokens per second, so 40 to 50 tokens per second is ample for reading but not for agents or reasoning models.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Nguyen et al. LLM Inference Benchmarking: Fundamental Concepts. NVIDIA Technical Blog. <a href="https://developer.nvidia.com/blog/llm-benchmarking-fundamental-concepts/" rel="noopener noreferrer" target="_blank">https://developer.nvidia.com/blog/llm-benchmarking-fundamental-concepts/</a>.<br>
+[2] vLLM documentation: Production Metrics. <a href="https://docs.vllm.ai/en/latest/usage/metrics.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/usage/metrics.html</a>.<br>
+[3] Pope et al. Efficiently Scaling Transformer Inference. <a href="https://arxiv.org/abs/2211.05102" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.05102</a>.<br>
+[4] Zhong et al. DistServe: Disaggregating Prefill and Decoding for Goodput-optimized Large Language Model Serving. <a href="https://arxiv.org/abs/2401.09670" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.09670</a>.<br>
+[5] vLLM documentation: vllm bench serve. <a href="https://docs.vllm.ai/en/latest/cli/bench/serve.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/cli/bench/serve.html</a>.<br>
+[6] MLCommons. MLPerf Inference Rules. <a href="https://github.com/mlcommons/inference_policies/blob/master/inference_rules.adoc" rel="noopener noreferrer" target="_blank">https://github.com/mlcommons/inference_policies/blob/master/inference_rules.adoc</a>.<br>
+[7] Brysbaert. How many words do we read per minute? A review and meta-analysis of reading rate. Journal of Memory and Language, 2019. <a href="https://doi.org/10.1016/j.jml.2019.104047" rel="noopener noreferrer" target="_blank">https://doi.org/10.1016/j.jml.2019.104047</a>.<br>
+[8] Leviathan et al. Fast Inference from Transformers via Speculative Decoding. <a href="https://arxiv.org/abs/2211.17192" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.17192</a>.<br>
+[9] Agrawal et al. Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve. <a href="https://arxiv.org/abs/2403.02310" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2403.02310</a>.</p>

@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="392" viewBox="0 0 1000 392" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:12px;fill:#000}
+    .b{font-weight:bold}.hd{font-size:13px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <!-- generated: column i at x = 6 + i*142, width 136; rows every 32px from y=72; labs at y=336 -->
+  <g>
+    <rect x="6" y="6" width="136" height="380" rx="4" class="group"/>
+    <text x="74" y="28" text-anchor="middle" class="b hd">Stage 1</text>
+    <text x="74" y="44" text-anchor="middle">How a model</text>
+    <text x="74" y="58" text-anchor="middle">generates</text>
+    <rect x="10" y="72" width="128" height="26" rx="4" class="orange"/><text x="74" y="89" text-anchor="middle">Prefill vs Decode</text>
+    <rect x="10" y="104" width="128" height="26" rx="4" class="orange"/><text x="74" y="121" text-anchor="middle">KV Cache</text>
+    <rect x="10" y="136" width="128" height="26" rx="4" class="orange"/><text x="74" y="153" text-anchor="middle">Time to First Token</text>
+    <rect x="10" y="168" width="128" height="26" rx="4" class="orange"/><text x="74" y="185" text-anchor="middle">Tokens per Second</text>
+    <rect x="10" y="336" width="128" height="44" rx="4" class="green"/><text x="74" y="354" text-anchor="middle">Lab: measure TTFT</text><text x="74" y="369" text-anchor="middle">and throughput</text>
+  </g>
+  <g>
+    <rect x="148" y="6" width="136" height="380" rx="4" class="group"/>
+    <text x="216" y="28" text-anchor="middle" class="b hd">Stage 2</text>
+    <text x="216" y="44" text-anchor="middle">Serving</text>
+    <text x="216" y="58" text-anchor="middle">engines</text>
+    <rect x="152" y="72" width="128" height="26" rx="4" class="orange"/><text x="216" y="89" text-anchor="middle">Continuous Batching</text>
+    <rect x="152" y="104" width="128" height="26" rx="4" class="orange"/><text x="216" y="121" text-anchor="middle">PagedAttention</text>
+    <rect x="152" y="136" width="128" height="26" rx="4" class="orange"/><text x="216" y="153" text-anchor="middle">vLLM</text>
+    <rect x="152" y="168" width="128" height="26" rx="4" class="orange"/><text x="216" y="185" text-anchor="middle">SGLang</text>
+    <rect x="152" y="200" width="128" height="26" rx="4" class="orange"/><text x="216" y="217" text-anchor="middle">TensorRT-LLM</text>
+    <rect x="152" y="336" width="128" height="44" rx="4" class="green"/><text x="216" y="354" text-anchor="middle">Lab: two engines,</text><text x="216" y="369" text-anchor="middle">50 concurrent users</text>
+  </g>
+  <g>
+    <rect x="290" y="6" width="136" height="380" rx="4" class="group"/>
+    <text x="358" y="28" text-anchor="middle" class="b hd">Stage 3</text>
+    <text x="358" y="44" text-anchor="middle">Smaller and</text>
+    <text x="358" y="58" text-anchor="middle">faster models</text>
+    <rect x="294" y="72" width="128" height="26" rx="4" class="orange"/><text x="358" y="89" text-anchor="middle">Quantization</text>
+    <rect x="294" y="104" width="128" height="26" rx="4" class="orange"/><text x="358" y="121" text-anchor="middle">Distillation</text>
+    <rect x="294" y="136" width="128" height="26" rx="4" class="orange"/><text x="358" y="153" text-anchor="middle">Speculative Decoding</text>
+    <rect x="294" y="336" width="128" height="44" rx="4" class="green"/><text x="358" y="354" text-anchor="middle">Lab: halve memory,</text><text x="358" y="369" text-anchor="middle">keep quality</text>
+  </g>
+  <g>
+    <rect x="432" y="6" width="136" height="380" rx="4" class="group"/>
+    <text x="500" y="28" text-anchor="middle" class="b hd">Stage 4</text>
+    <text x="500" y="44" text-anchor="middle">GPU math</text>
+    <text x="500" y="58" text-anchor="middle">and cost</text>
+    <rect x="436" y="72" width="128" height="26" rx="4" class="orange"/><text x="500" y="89" text-anchor="middle">VRAM Budgeting</text>
+    <rect x="436" y="104" width="128" height="26" rx="4" class="orange"/><text x="500" y="121" text-anchor="middle">Tensor Parallelism</text>
+    <rect x="436" y="136" width="128" height="26" rx="4" class="orange"/><text x="500" y="153" text-anchor="middle">GPU Utilization</text>
+    <rect x="436" y="168" width="128" height="26" rx="4" class="orange"/><text x="500" y="185" text-anchor="middle">Cost per 1M Tokens</text>
+    <rect x="436" y="336" width="128" height="44" rx="4" class="green"/><text x="500" y="354" text-anchor="middle">Lab: GPUs for</text><text x="500" y="369" text-anchor="middle">1,000 req/min</text>
+  </g>
+  <g>
+    <rect x="574" y="6" width="136" height="380" rx="4" class="group"/>
+    <text x="642" y="28" text-anchor="middle" class="b hd">Stage 5</text>
+    <text x="642" y="44" text-anchor="middle">Production</text>
+    <text x="642" y="58" text-anchor="middle">serving</text>
+    <rect x="578" y="72" width="128" height="26" rx="4" class="orange"/><text x="642" y="89" text-anchor="middle">Autoscaling</text>
+    <rect x="578" y="104" width="128" height="26" rx="4" class="orange"/><text x="642" y="121" text-anchor="middle">Cold Starts</text>
+    <rect x="578" y="136" width="128" height="26" rx="4" class="orange"/><text x="642" y="153" text-anchor="middle">Prefix Caching</text>
+    <rect x="578" y="168" width="128" height="26" rx="4" class="orange"/><text x="642" y="185" text-anchor="middle">Request Routing</text>
+    <rect x="578" y="200" width="128" height="26" rx="4" class="orange"/><text x="642" y="217" text-anchor="middle">Rate Limiting</text>
+    <rect x="578" y="336" width="128" height="44" rx="4" class="green"/><text x="642" y="354" text-anchor="middle">Lab: survive a</text><text x="642" y="369" text-anchor="middle">10x traffic spike</text>
+  </g>
+  <g>
+    <rect x="716" y="6" width="136" height="380" rx="4" class="group"/>
+    <text x="784" y="28" text-anchor="middle" class="b hd">Stage 6</text>
+    <text x="784" y="44" text-anchor="middle">Observability</text>
+    <rect x="720" y="72" width="128" height="26" rx="4" class="orange"/><text x="784" y="89" text-anchor="middle">Latency Percentiles</text>
+    <rect x="720" y="104" width="128" height="26" rx="4" class="orange"/><text x="784" y="121" text-anchor="middle">Queue Depth</text>
+    <rect x="720" y="136" width="128" height="26" rx="4" class="orange"/><text x="784" y="153" text-anchor="middle">GPU Metrics</text>
+    <rect x="720" y="168" width="128" height="26" rx="4" class="orange"/><text x="784" y="185" text-anchor="middle">Token Accounting</text>
+    <rect x="720" y="336" width="128" height="44" rx="4" class="green"/><text x="784" y="354" text-anchor="middle">Lab: dashboard that</text><text x="784" y="369" text-anchor="middle">explains spikes</text>
+  </g>
+  <g>
+    <rect x="858" y="6" width="136" height="380" rx="4" class="group"/>
+    <text x="926" y="28" text-anchor="middle" class="b hd">Stage 7</text>
+    <text x="926" y="44" text-anchor="middle">Advanced</text>
+    <text x="926" y="58" text-anchor="middle">serving</text>
+    <rect x="862" y="72" width="128" height="26" rx="4" class="purple"/><text x="926" y="89" text-anchor="middle">GPU and Kernels</text>
+    <rect x="862" y="104" width="128" height="26" rx="4" class="purple"/><text x="926" y="121" text-anchor="middle">Disaggregated P/D</text>
+    <rect x="862" y="136" width="128" height="26" rx="4" class="purple"/><text x="926" y="153" text-anchor="middle">MoE Serving</text>
+    <rect x="862" y="168" width="128" height="26" rx="4" class="purple"/><text x="926" y="185" text-anchor="middle">Long Context</text>
+    <rect x="862" y="200" width="128" height="26" rx="4" class="purple"/><text x="926" y="217" text-anchor="middle">Multi-LoRA</text>
+    <rect x="862" y="232" width="128" height="26" rx="4" class="purple"/><text x="926" y="249" text-anchor="middle">Structured Output</text>
+    <rect x="862" y="264" width="128" height="26" rx="4" class="purple"/><text x="926" y="281" text-anchor="middle">Batch Inference</text>
+    <rect x="862" y="296" width="128" height="26" rx="4" class="purple"/><text x="926" y="313" text-anchor="middle">Reliability</text>
+  </g>
+</svg>

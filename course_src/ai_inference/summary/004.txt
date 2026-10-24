@@ -1,0 +1,6 @@
+center: Time to First Token
+branch: Breakdown | network + prepare | queue + prefill | stream out
+branch: Prompt length | 2 × params × tokens | 65 ms for 2,000 tokens | 1.63 s at 32K
+branch: Spikes under load | queueing, not prefill | ρ ÷ (1 − ρ) | bursts form a staircase
+branch: Levers | prefix caching | priority scheduling | admission control
+branch: Measuring | first non-empty chunk | queue vs prefill time | p99, not the mean

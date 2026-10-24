@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="858" height="370" viewBox="0 0 858 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{stroke:#000;stroke-width:1.2;fill:none}
+    .grid{stroke:#ddd;stroke-width:1;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="12" y="10" width="270" height="350" rx="4" class="group"/>
+  <text x="147" y="36" text-anchor="middle" class="lg b">Logit-level</text>
+  <rect x="47" y="56" width="200" height="52" rx="6" class="blue"/>
+  <text x="147" y="78" text-anchor="middle">fixed text</text>
+  <text x="147" y="96" text-anchor="middle">(corpus or prompts)</text>
+  <path d="M147,108 L147,138" class="edge"/>
+  <rect x="47" y="140" width="200" height="52" rx="6" class="gray"/>
+  <text x="147" y="162" text-anchor="middle">teacher and student</text>
+  <text x="147" y="180" text-anchor="middle">read the same text</text>
+  <path d="M147,192 L147,222" class="edge"/>
+  <rect x="47" y="224" width="200" height="52" rx="6" class="orange"/>
+  <text x="147" y="246" text-anchor="middle">student matches the</text>
+  <text x="147" y="264" text-anchor="middle">full distribution</text>
+  <text x="147" y="322" text-anchor="middle" class="sm">same tokenizer needed;</text>
+  <text x="147" y="338" text-anchor="middle" class="sm">teacher runs per training token</text>
+  <rect x="294" y="10" width="270" height="350" rx="4" class="group"/>
+  <text x="429" y="36" text-anchor="middle" class="lg b">Sequence-level</text>
+  <rect x="329" y="56" width="200" height="52" rx="6" class="purple"/>
+  <text x="429" y="87" text-anchor="middle">prompts</text>
+  <path d="M429,108 L429,138" class="edge"/>
+  <rect x="329" y="140" width="200" height="52" rx="6" class="gray"/>
+  <text x="429" y="162" text-anchor="middle">teacher generates</text>
+  <text x="429" y="180" text-anchor="middle">answers once</text>
+  <path d="M429,192 L429,222" class="edge"/>
+  <rect x="329" y="224" width="200" height="52" rx="6" class="orange"/>
+  <text x="429" y="246" text-anchor="middle">student fine-tuned</text>
+  <text x="429" y="264" text-anchor="middle">with cross-entropy</text>
+  <text x="429" y="322" text-anchor="middle" class="sm">any tokenizer; data can</text>
+  <text x="429" y="338" text-anchor="middle" class="sm">be filtered before training</text>
+  <rect x="576" y="10" width="270" height="350" rx="4" class="group"/>
+  <text x="711" y="36" text-anchor="middle" class="lg b">On-policy</text>
+  <rect x="611" y="56" width="200" height="52" rx="6" class="purple"/>
+  <text x="711" y="87" text-anchor="middle">prompts</text>
+  <path d="M711,108 L711,138" class="edge"/>
+  <rect x="611" y="140" width="200" height="52" rx="6" class="orange"/>
+  <text x="711" y="162" text-anchor="middle">student generates</text>
+  <text x="711" y="180" text-anchor="middle">its own answer</text>
+  <path d="M711,192 L711,222" class="edge"/>
+  <rect x="611" y="224" width="200" height="52" rx="6" class="gray"/>
+  <text x="711" y="246" text-anchor="middle">teacher scores every</text>
+  <text x="711" y="264" text-anchor="middle">token the student wrote</text>
+  <path d="M811,250 L831,250 L831,166 L813,166" class="edge"/>
+  <text x="711" y="294" text-anchor="middle" class="sm">loop: update with per-token reverse KL</text>
+  <text x="711" y="322" text-anchor="middle" class="sm">same tokenizer; teacher runs</text>
+  <text x="711" y="338" text-anchor="middle" class="sm">inside the training loop</text>
+</svg>

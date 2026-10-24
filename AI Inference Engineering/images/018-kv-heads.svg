@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="326" viewBox="0 0 800 326" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .node{stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="20" y="22" class="b">Where Llama 3.1 70B's 8 KV heads live as TP grows (boxes are GPUs, chips are KV heads)</text>
+
+  <!-- TP = 4 -->
+  <text x="20" y="63" class="b">TP = 4</text>
+  <rect x="110.0" y="40" width="136.0" height="36" rx="3" class="white"/>
+  <rect x="147.0" y="49" width="26" height="18" rx="3" class="orange"/><text x="160.0" y="63" text-anchor="middle" class="sm">0</text>
+  <rect x="183.0" y="49" width="26" height="18" rx="3" class="orange"/><text x="196.0" y="63" text-anchor="middle" class="sm">1</text>
+  <rect x="254.0" y="40" width="136.0" height="36" rx="3" class="white"/>
+  <rect x="291.0" y="49" width="26" height="18" rx="3" class="orange"/><text x="304.0" y="63" text-anchor="middle" class="sm">2</text>
+  <rect x="327.0" y="49" width="26" height="18" rx="3" class="orange"/><text x="340.0" y="63" text-anchor="middle" class="sm">3</text>
+  <rect x="398.0" y="40" width="136.0" height="36" rx="3" class="white"/>
+  <rect x="435.0" y="49" width="26" height="18" rx="3" class="orange"/><text x="448.0" y="63" text-anchor="middle" class="sm">4</text>
+  <rect x="471.0" y="49" width="26" height="18" rx="3" class="orange"/><text x="484.0" y="63" text-anchor="middle" class="sm">5</text>
+  <rect x="542.0" y="40" width="136.0" height="36" rx="3" class="white"/>
+  <rect x="579.0" y="49" width="26" height="18" rx="3" class="orange"/><text x="592.0" y="63" text-anchor="middle" class="sm">6</text>
+  <rect x="615.0" y="49" width="26" height="18" rx="3" class="orange"/><text x="628.0" y="63" text-anchor="middle" class="sm">7</text>
+  <text x="110" y="94" class="sm">16 query heads and 2 KV heads per GPU · 80 KiB of cache per token per GPU</text>
+  <!-- TP = 8 -->
+  <text x="20" y="135" class="b">TP = 8</text>
+  <rect x="110.0" y="112" width="64.0" height="36" rx="3" class="white"/>
+  <rect x="129.0" y="121" width="26" height="18" rx="3" class="orange"/><text x="142.0" y="135" text-anchor="middle" class="sm">0</text>
+  <rect x="182.0" y="112" width="64.0" height="36" rx="3" class="white"/>
+  <rect x="201.0" y="121" width="26" height="18" rx="3" class="orange"/><text x="214.0" y="135" text-anchor="middle" class="sm">1</text>
+  <rect x="254.0" y="112" width="64.0" height="36" rx="3" class="white"/>
+  <rect x="273.0" y="121" width="26" height="18" rx="3" class="orange"/><text x="286.0" y="135" text-anchor="middle" class="sm">2</text>
+  <rect x="326.0" y="112" width="64.0" height="36" rx="3" class="white"/>
+  <rect x="345.0" y="121" width="26" height="18" rx="3" class="orange"/><text x="358.0" y="135" text-anchor="middle" class="sm">3</text>
+  <rect x="398.0" y="112" width="64.0" height="36" rx="3" class="white"/>
+  <rect x="417.0" y="121" width="26" height="18" rx="3" class="orange"/><text x="430.0" y="135" text-anchor="middle" class="sm">4</text>
+  <rect x="470.0" y="112" width="64.0" height="36" rx="3" class="white"/>
+  <rect x="489.0" y="121" width="26" height="18" rx="3" class="orange"/><text x="502.0" y="135" text-anchor="middle" class="sm">5</text>
+  <rect x="542.0" y="112" width="64.0" height="36" rx="3" class="white"/>
+  <rect x="561.0" y="121" width="26" height="18" rx="3" class="orange"/><text x="574.0" y="135" text-anchor="middle" class="sm">6</text>
+  <rect x="614.0" y="112" width="64.0" height="36" rx="3" class="white"/>
+  <rect x="633.0" y="121" width="26" height="18" rx="3" class="orange"/><text x="646.0" y="135" text-anchor="middle" class="sm">7</text>
+  <text x="110" y="166" class="sm">8 query heads and 1 KV head per GPU · 40 KiB per token per GPU</text>
+  <!-- TP = 16 -->
+  <text x="20" y="207" class="b">TP = 16</text>
+  <rect x="110.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="114.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="125.0" y="207" text-anchor="middle" class="sm">0</text>
+  <rect x="146.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="150.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="161.0" y="207" text-anchor="middle" class="sm">0</text>
+  <rect x="182.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="186.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="197.0" y="207" text-anchor="middle" class="sm">1</text>
+  <rect x="218.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="222.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="233.0" y="207" text-anchor="middle" class="sm">1</text>
+  <rect x="254.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="258.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="269.0" y="207" text-anchor="middle" class="sm">2</text>
+  <rect x="290.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="294.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="305.0" y="207" text-anchor="middle" class="sm">2</text>
+  <rect x="326.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="330.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="341.0" y="207" text-anchor="middle" class="sm">3</text>
+  <rect x="362.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="366.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="377.0" y="207" text-anchor="middle" class="sm">3</text>
+  <rect x="398.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="402.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="413.0" y="207" text-anchor="middle" class="sm">4</text>
+  <rect x="434.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="438.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="449.0" y="207" text-anchor="middle" class="sm">4</text>
+  <rect x="470.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="474.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="485.0" y="207" text-anchor="middle" class="sm">5</text>
+  <rect x="506.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="510.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="521.0" y="207" text-anchor="middle" class="sm">5</text>
+  <rect x="542.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="546.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="557.0" y="207" text-anchor="middle" class="sm">6</text>
+  <rect x="578.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="582.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="593.0" y="207" text-anchor="middle" class="sm">6</text>
+  <rect x="614.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="618.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="629.0" y="207" text-anchor="middle" class="sm">7</text>
+  <rect x="650.0" y="184" width="30.0" height="36" rx="3" class="white"/>
+  <rect x="654.0" y="193" width="22" height="18" rx="3" class="orange"/><text x="665.0" y="207" text-anchor="middle" class="sm">7</text>
+  <line x1="395" y1="178" x2="395" y2="226" class="node"/>
+  <text x="110" y="238" class="sm">two nodes · 4 query heads per GPU, each KV head copied to 2 GPUs · still 40 KiB per GPU, 640 KiB per token in all</text>
+  <!-- TP = 3 -->
+  <text x="20" y="279" class="b">TP = 3</text>
+  <rect x="110" y="256" width="184" height="36" rx="3" class="red"/><text x="202" y="279" text-anchor="middle" class="sm">64 ÷ 3 query heads?</text>
+  <rect x="302" y="256" width="184" height="36" rx="3" class="red"/><text x="394" y="279" text-anchor="middle" class="sm">64 ÷ 3 query heads?</text>
+  <rect x="494" y="256" width="184" height="36" rx="3" class="red"/><text x="586" y="279" text-anchor="middle" class="sm">64 ÷ 3 query heads?</text>
+  <text x="110" y="310" class="sm">vLLM refuses to start: "Total number of attention heads (64) must be divisible by tensor parallel size (3)."</text>
+</svg>

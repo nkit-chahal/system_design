@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="466" viewBox="0 0 860 466" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .thick{fill:none;stroke:#000;stroke-width:2.4;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .ref{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="10" y="16" width="140" height="40" rx="6" class="white"/>
+  <text x="80" y="41" text-anchor="middle" class="b">Client</text>
+  <line x1="80" y1="56" x2="80" y2="456" stroke="#999" stroke-dasharray="5 4"/>
+  <rect x="210" y="16" width="140" height="40" rx="6" class="purple"/>
+  <text x="280" y="41" text-anchor="middle" class="b">Router</text>
+  <line x1="280" y1="56" x2="280" y2="456" stroke="#999" stroke-dasharray="5 4"/>
+  <rect x="420" y="16" width="140" height="40" rx="6" class="orange"/>
+  <text x="490" y="41" text-anchor="middle" class="b">Prefill worker</text>
+  <line x1="490" y1="56" x2="490" y2="456" stroke="#999" stroke-dasharray="5 4"/>
+  <rect x="700" y="16" width="140" height="40" rx="6" class="orange"/>
+  <text x="770" y="41" text-anchor="middle" class="b">Decode worker</text>
+  <line x1="770" y1="56" x2="770" y2="456" stroke="#999" stroke-dasharray="5 4"/>
+  <path d="M86,90 L274,90" class="edge"/>
+  <rect x="102.4" y="70" width="155.2" height="16" fill="#fff"/>
+  <text x="180.0" y="83" text-anchor="middle" class="sm">1  prompt, 2,000 tokens</text>
+  <path d="M286,130 L484,130" class="edge"/>
+  <rect x="278.6" y="110" width="212.8" height="16" fill="#fff"/>
+  <text x="385.0" y="123" text-anchor="middle" class="sm">2  prefill only (max_tokens = 1)</text>
+  <rect x="480" y="138" width="20" height="62" rx="2" class="orange"/>
+  <text x="508" y="166" class="sm">prefill ≈ 64 ms;</text>
+  <text x="508" y="182" class="sm">KV cache stays in its HBM</text>
+  <path d="M484,222 L286,222" class="edge"/>
+  <rect x="272.2" y="202" width="225.6" height="16" fill="#fff"/>
+  <text x="385.0" y="215" text-anchor="middle" class="sm">3  first token + transfer metadata</text>
+  <path d="M274,248 L86,248" class="dash"/>
+  <rect x="105.6" y="228" width="148.8" height="16" fill="#fff"/>
+  <text x="180.0" y="241" text-anchor="middle" class="sm">first token (optional)</text>
+  <path d="M286,286 L764,286" class="edge"/>
+  <rect x="412.2" y="266" width="225.6" height="16" fill="#fff"/>
+  <text x="525.0" y="279" text-anchor="middle" class="sm">4  request + block IDs and address</text>
+  <path d="M502,330 L756,330" class="thick"/>
+  <rect x="537.0" y="300" width="186" height="20" rx="3" class="blue"/>
+  <text x="630.0" y="315" text-anchor="middle" class="sm">250 MiB of KV blocks</text>
+  <text x="630.0" y="350" text-anchor="middle" class="sm">5  decode pulls them by RDMA,</text>
+  <text x="630.0" y="366" text-anchor="middle" class="sm">≈ 5 ms at 400 Gb/s; prefill frees them</text>
+  <rect x="760" y="380" width="20" height="52" rx="2" class="orange"/>
+  <text x="714" y="400" class="sm">decode</text>
+  <text x="714" y="416" class="sm">batch</text>
+  <path d="M764,440 L86,440" class="edge"/>
+  <rect x="248.2" y="420" width="353.6" height="16" fill="#fff"/>
+  <text x="425.0" y="433" text-anchor="middle" class="sm">6  tokens 2 … 500 stream to the client (≈ 21 ms apart)</text>
+</svg>

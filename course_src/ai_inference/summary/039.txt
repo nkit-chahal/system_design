@@ -1,0 +1,7 @@
+center: Batch and Offline Inference
+branch: Workloads | evaluations and labeling | synthetic data | embedding backfills
+branch: Throughput settings | KV cache limits the batch | 3,640 to 11,180 tokens/s | prefill-heavy jobs gain less
+branch: Offline APIs | vLLM LLM class | vllm run-batch | Ray Data checkpoints
+branch: Sharing with chat | priority scheduling | cap batch in flight | lend the night valley
+branch: Cheap capacity | spot GPUs | small idempotent shards | hosted batch APIs
+branch: Cost | utilization 48% to 85% | 1,030 GPU-hours | about $0 extra

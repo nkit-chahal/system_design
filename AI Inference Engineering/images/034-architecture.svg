@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="866" height="350" viewBox="0 0 866 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .thick{fill:none;stroke:#000;stroke-width:2.4;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .ref{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="16" y="135" width="92" height="52" rx="6" class="purple"/>
+  <text x="62" y="157" text-anchor="middle">users</text>
+  <text x="62" y="175" text-anchor="middle" class="sm">prompts</text>
+  <path d="M108,161 L142,161" class="edge"/>
+  <rect x="144" y="135" width="104" height="52" rx="6" class="purple"/>
+  <text x="196" y="157" text-anchor="middle" class="b">router</text>
+  <text x="196" y="175" text-anchor="middle" class="sm">picks P and D</text>
+  <path d="M248,161 L288,161" class="edge"/>
+  <rect x="290" y="40" width="210" height="232" rx="4" class="group"/>
+  <text x="395" y="62" text-anchor="middle" class="b">Prefill pool</text>
+  <rect x="310" y="76" width="170" height="38" rx="6" class="orange"/>
+  <text x="395" y="100" text-anchor="middle">prefill worker P1</text>
+  <rect x="310" y="126" width="170" height="38" rx="6" class="orange"/>
+  <text x="395" y="150" text-anchor="middle">prefill worker P2</text>
+  <rect x="310" y="176" width="170" height="38" rx="6" class="orange"/>
+  <text x="395" y="200" text-anchor="middle">prefill worker P3</text>
+  <text x="395" y="238" text-anchor="middle" class="sm">compute-bound</text>
+  <text x="395" y="254" text-anchor="middle" class="sm">sized for TTFT</text>
+  <rect x="536" y="82" width="120" height="62" rx="6" class="blue"/>
+  <text x="596" y="104" text-anchor="middle" class="sm b">KV cache</text>
+  <text x="596" y="120" text-anchor="middle" class="sm">250 MiB per</text>
+  <text x="596" y="136" text-anchor="middle" class="sm">2,000 tokens</text>
+  <path d="M500,170 L668,170" class="thick"/>
+  <text x="584" y="192" text-anchor="middle" class="sm">NVLink or RDMA</text>
+  <text x="584" y="208" text-anchor="middle" class="sm">one transfer</text>
+  <text x="584" y="224" text-anchor="middle" class="sm">per request</text>
+  <rect x="670" y="40" width="180" height="232" rx="4" class="group"/>
+  <text x="760" y="62" text-anchor="middle" class="b">Decode pool</text>
+  <rect x="686" y="74" width="148" height="32" rx="6" class="orange"/>
+  <text x="760" y="95" text-anchor="middle">decode worker D1</text>
+  <rect x="686" y="114" width="148" height="32" rx="6" class="orange"/>
+  <text x="760" y="135" text-anchor="middle">decode worker D2</text>
+  <rect x="686" y="154" width="148" height="32" rx="6" class="orange"/>
+  <text x="760" y="175" text-anchor="middle">decode worker D3</text>
+  <rect x="686" y="194" width="148" height="32" rx="6" class="orange"/>
+  <text x="760" y="215" text-anchor="middle">decode worker D4</text>
+  <text x="760" y="244" text-anchor="middle" class="sm">memory-bound</text>
+  <text x="760" y="260" text-anchor="middle" class="sm">sized for TPOT</text>
+  <path d="M760,272 L760,306 L62,306 L62,189" class="edge"/>
+  <text x="420" y="300" text-anchor="middle" class="sm">tokens 2 … 500 stream back to the user</text>
+  <text x="16" y="336" class="sm">Decode workers never run a prompt, so a long prefill cannot pause anyone's stream. Each pool is tuned and scaled on its own.</text>
+</svg>

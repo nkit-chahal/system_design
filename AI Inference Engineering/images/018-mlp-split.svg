@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="318" viewBox="0 0 860 318" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .note{font-size:12px;fill:#666}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .other{fill:#fff;stroke:#999;stroke-width:1;stroke-dasharray:3 3}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="10" y="24" class="b">MLP with TP = 2 for Llama 3.1 70B: column-parallel, then row-parallel</text>
+
+  <!-- GPU 0 lane: boxes at y=70..126 -->
+  <rect x="10" y="44" width="702" height="96" rx="4" class="group"/>
+  <text x="18" y="60" class="sm b">GPU 0</text>
+  <rect x="20" y="70" width="84" height="56" rx="4" class="blue"/>
+  <text x="62" y="94" text-anchor="middle" class="b">X</text>
+  <text x="62" y="112" text-anchor="middle" class="sm">T × 8,192</text>
+  <path d="M104,98 H128" class="edge"/>
+  <rect x="130" y="70" width="70" height="56" class="orange"/>
+  <rect x="200" y="70" width="70" height="56" class="other"/>
+  <text x="200" y="94" text-anchor="middle">gate, up</text>
+  <text x="200" y="112" text-anchor="middle" class="sm">left half of columns</text>
+  <path d="M270,98 H298" class="edge"/>
+  <rect x="300" y="70" width="140" height="56" rx="4" class="gray"/>
+  <text x="370" y="94" text-anchor="middle">SiLU(gate) × up</text>
+  <text x="370" y="112" text-anchor="middle" class="sm">T × 14,336</text>
+  <path d="M440,98 H468" class="edge"/>
+  <rect x="470" y="70" width="120" height="28" class="orange"/>
+  <rect x="470" y="98" width="120" height="28" class="other"/>
+  <text x="530" y="89" text-anchor="middle">down</text>
+  <text x="530" y="117" text-anchor="middle" class="sm">top half of rows</text>
+  <path d="M590,98 H618" class="edge"/>
+  <rect x="620" y="70" width="84" height="56" rx="4" class="white"/>
+  <text x="662" y="94" text-anchor="middle">partial Z₀</text>
+  <text x="662" y="112" text-anchor="middle" class="sm">T × 8,192</text>
+  <path d="M704,98 H730" class="edge"/>
+
+  <!-- GPU 1 lane: boxes at y=190..246 -->
+  <rect x="10" y="164" width="702" height="96" rx="4" class="group"/>
+  <text x="18" y="180" class="sm b">GPU 1</text>
+  <rect x="20" y="190" width="84" height="56" rx="4" class="blue"/>
+  <text x="62" y="214" text-anchor="middle" class="b">X</text>
+  <text x="62" y="232" text-anchor="middle" class="sm">T × 8,192</text>
+  <path d="M104,218 H128" class="edge"/>
+  <rect x="130" y="190" width="70" height="56" class="other"/>
+  <rect x="200" y="190" width="70" height="56" class="orange"/>
+  <text x="200" y="214" text-anchor="middle">gate, up</text>
+  <text x="200" y="232" text-anchor="middle" class="sm">right half of columns</text>
+  <path d="M270,218 H298" class="edge"/>
+  <rect x="300" y="190" width="140" height="56" rx="4" class="gray"/>
+  <text x="370" y="214" text-anchor="middle">SiLU(gate) × up</text>
+  <text x="370" y="232" text-anchor="middle" class="sm">T × 14,336</text>
+  <path d="M440,218 H468" class="edge"/>
+  <rect x="470" y="190" width="120" height="28" class="other"/>
+  <rect x="470" y="218" width="120" height="28" class="orange"/>
+  <text x="530" y="209" text-anchor="middle">down</text>
+  <text x="530" y="237" text-anchor="middle" class="sm">bottom half of rows</text>
+  <path d="M590,218 H618" class="edge"/>
+  <rect x="620" y="190" width="84" height="56" rx="4" class="white"/>
+  <text x="662" y="214" text-anchor="middle">partial Z₁</text>
+  <text x="662" y="232" text-anchor="middle" class="sm">T × 8,192</text>
+  <path d="M704,218 H730" class="edge"/>
+
+  <!-- all-reduce and output -->
+  <rect x="732" y="70" width="32" height="176" rx="4" class="purple"/>
+  <text x="748" y="158" text-anchor="middle" class="sm b" transform="rotate(-90 748 158)">all-reduce</text>
+  <path d="M764,158 H782" class="edge"/>
+  <rect x="784" y="128" width="70" height="60" rx="6" class="blue"/>
+  <text x="819" y="152" text-anchor="middle" class="b">Z</text>
+  <text x="819" y="170" text-anchor="middle" class="sm">Z₀ + Z₁</text>
+
+  <text x="10" y="284" class="note">Each GPU holds 14,336 of the 28,672 MLP columns. SiLU and the product are element-wise, so nothing moves between the two</text>
+  <text x="10" y="302" class="note">matrix multiplies; the row-parallel down projection leaves partial sums that one all-reduce adds up. Dashed boxes: the other GPU's half.</text>
+</svg>

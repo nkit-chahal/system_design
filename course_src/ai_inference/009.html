@@ -1,0 +1,268 @@
+<h2>Introduction</h2>
+<p>vLLM is the most widely deployed open-source engine for serving large language models. It began in 2023 in the Sky Computing Lab at UC Berkeley as the reference implementation of PagedAttention [1], and it has since grown into a community project with more than 2,000 contributors that runs on NVIDIA, AMD, and Intel GPUs, on CPUs, and on other accelerators through plugins [2]. When a team says "we serve open models," vLLM is usually the first engine they try.</p>
+<p>An engine is more than its famous idea. Between an HTTP request and a GPU kernel, vLLM tokenizes text, decides which requests run in the next step, allocates and shares KV cache blocks, replays pre-recorded CUDA graphs, samples tokens, and streams them back. Knowing where each of these happens tells you which flags change capacity, which change latency, and which metric to read when something goes wrong. Figure 1 shows the path one request takes through vLLM's current engine, called <strong>V1</strong>.</p>
+<fig src="009-v1-architecture.svg" caption="The path of one request through the vLLM V1 engine">A client on the left sends a request through three dashed process groups. The API server process receives the HTTP request and tokenizes it, then sends it over ZMQ to the engine core process, where the scheduler picks tokens for the next step and the KV cache manager hands out blocks. The step is broadcast over a shared-memory queue to one GPU worker process per GPU, which run the forward pass and sampling and talk to each other over NCCL. Sampled token IDs return to the engine core, which updates requests and sends outputs over ZMQ back to the API server, which detokenizes and streams text to the client. Numbered circles 1 to 6 mark the order.</fig>
+<p>In this lesson, we walk through the V1 architecture, see how continuous batching (Lesson 7, Continuous Batching) and PagedAttention (Lesson 8, PagedAttention) appear in its scheduler and KV cache manager, cover the features that change capacity and latency, and then deploy and monitor vLLM for our running example. Flags, defaults, and metric names are as of late 2026 (vLLM v0.32); check them against the documentation of the version you run.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Engine questions in interviews usually start from a concrete deployment. Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: Which model are we serving, and on what hardware?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct in BF16, one NVIDIA H100 80 GB per replica.</p>
+<p><strong>Candidate</strong>: What does the traffic look like?<br>
+<strong>Interviewer</strong>: Chat requests with about 2,000 prompt tokens and 500 output tokens. The first 1,000 tokens of every prompt are the same system prompt. The fleet receives about 1,000 requests per minute on average, or 16.7 per second, and about twice that at the daily peak. We plan for about 50 concurrent users per H100.</p>
+<p><strong>Candidate</strong>: What latency do users need?<br>
+<strong>Interviewer</strong>: A p95 time to first token of at most 500 ms and a p95 time per output token of at most 25 ms.</p>
+<p><strong>Candidate</strong>: How do clients call the model?<br>
+<strong>Interviewer</strong>: The application uses the OpenAI Python SDK. Some calls must return JSON that matches a schema.</p>
+<p><strong>Candidate</strong>: Where will it run, and how do we monitor it?<br>
+<strong>Interviewer</strong>: Containers on Kubernetes. Prometheus scrapes every service.</p>
+<p>The question underneath is: <em>what does vLLM do with each request at each step, and which few settings decide whether one H100 can carry about 50 of those users within the latency targets?</em> Lesson 19, GPU Utilization, estimates about 53 concurrent streams, or about 5 requests per second, per H100 at these targets, so the plan is realistic. We start with the processes that make up the engine.</p>
+
+<h2>Inside the V1 Engine</h2>
+<h3>Three kinds of processes</h3>
+<p>V1 splits the work across separate operating-system processes so that CPU work never stalls the GPU [3][4]:</p>
+<ul>
+<li>The <strong>API server process</strong> runs the HTTP server and the OpenAI-compatible API. It renders chat templates, tokenizes prompts, loads images, and on the way back detokenizes output tokens and streams them to the client.</li>
+<li>The <strong>engine core process</strong> runs the scheduler and the KV cache manager in a busy loop. It talks to the API server over ZMQ sockets. There is one engine core per data-parallel rank.</li>
+<li>The <strong>GPU worker processes</strong>, one per GPU, load the weights and run the forward pass through a model runner. The engine core broadcasts each step's work to them over a shared-memory queue, and tensor-parallel workers exchange activations over NCCL.</li>
+</ul>
+<p>When data parallelism is on, a small <strong>DP coordinator</strong> process balances load across engine cores. The documentation gives the process count as <tex>A + DP + N</tex>, plus one coordinator if <tex>DP > 1</tex>, where <tex>A</tex> is the number of API servers (default <tex>DP</tex>) and <tex>N</tex> the number of GPUs [4]. Our single-H100 replica therefore runs 1 + 1 + 1 = 3 processes. Each one wants a physical CPU core, and the engine core's busy loop is especially sensitive to CPU starvation, so the pod needs at least 3 physical cores, or 6 vCPUs with hyperthreading [5]. A CPU-starved pod shows up as high time to first token while the GPU sits idle.</p>
+<p>The separation pays off. The V1 announcement reported up to 1.7× higher throughput than the previous engine, largely because tokenization and detokenization now overlap with model execution instead of running between steps [3].</p>
+
+<h3>One engine step</h3>
+<p>The engine core repeats the same three phases, as Figure 2 shows. <strong>Schedule</strong>: the scheduler decides how many tokens each request processes in this step and makes sure the KV cache has room for them. <strong>Execute</strong>: the workers run one forward pass over all scheduled tokens and sample the next token for every request that finished its prompt. <strong>Update</strong>: the scheduler appends the new tokens, checks stop conditions, frees the blocks of finished requests, and sends outputs to the API server.</p>
+<fig src="009-engine-step.svg" caption="Engine core steps without and with asynchronous scheduling (illustrative timing)">Two timelines with a CPU row and a GPU row. Without async scheduling, the GPU waits while the CPU schedules step n plus one and updates step n, leaving gaps between forward passes. With async scheduling, the CPU prepares step n plus one while the GPU is still running step n, so forward passes run back to back. Durations are illustrative.</fig>
+<p>In a naive loop the GPU waits while the CPU schedules and updates. vLLM now enables <strong>asynchronous scheduling</strong> by default when the configuration supports it: the scheduler prepares step <tex>n+1</tex> while the GPU is still running step <tex>n</tex>, which removes those gaps [6]. SGLang and TensorRT-LLM implement the same idea under the name "overlap scheduler" (Lesson 10, SGLang). The catch is that the scheduler commits to step <tex>n+1</tex> before it has seen step <tex>n</tex>'s tokens, so it reserves placeholder slots for them and reconciles once they arrive.</p>
+
+<h3>The scheduler: one token budget for prefill and decode</h3>
+<p>The V1 scheduler treats prompt tokens and output tokens the same way. Its decision for a step is a mapping from request ID to the number of tokens that request processes, for example <code>{A: 1, B: 1, C: 1008}</code> [3]. A decoding request needs 1 token; a new request needs its whole prompt, or a <strong>chunk</strong> of it. Two limits bound each step: <code>--max-num-seqs</code> caps the number of requests, and <code>--max-num-batched-tokens</code> caps the total tokens.</p>
+<p>The scheduler fills the budget in a fixed order. It schedules every running (decoding) request first, then spends the rest on waiting requests, splitting any prompt that does not fit into chunks. This <strong>chunked prefill</strong> is on by default [5][17]. For <code>vllm serve</code> on a GPU with at least 70 GiB, such as the H100, the defaults are 8,192 batched tokens and 1,024 sequences per step; smaller GPUs get 2,048 and 256 [6]. Lesson 7, Continuous Batching, explains why mixing prefill and decode in one step keeps the GPU busy.</p>
+<p>Figure 3 applies the budget to our traffic. With 50 users decoding, each step spends 50 tokens on decode and has 8,142 left for prompts. If a new request's first 992 tokens are already in the prefix cache (we will see why 992 and not 1,000 shortly), it needs 1,008 tokens of prefill, so 8 new requests fit in one step (8 × 1,008 = 8,064). A 32,768-token document with nothing cached needs 5 steps of up to 8,142 tokens each.</p>
+<fig src="009-token-budget.svg" caption="Filling one step's token budget with 50 decoding users">Two horizontal bars represent one step. With the default budget of 8,192 tokens, 50 decode tokens are followed by eight prefill chunks of 1,008 tokens and 78 unused tokens; the step needs at least 133 ms of compute. With a budget of 2,048 tokens, 50 decode tokens are followed by one 1,008-token prefill and a 990-token chunk of the next prompt; the step needs at least 33 ms.</fig>
+<p>The budget also sets the longest gap between tokens, because every decoding user waits for the whole step. A pure decode step for about 50 users takes roughly 14 ms in Lesson 19's model, and about 21 ms once that lesson's prompt chunks are mixed in, inside our 25 ms target. A forward pass costs about <tex>2 \times \text{params}</tex> FLOPs per token, so even at the H100's full 989 TFLOPS, a step that also carries 8,192 tokens needs at least</p>
+<texblock>\frac{2 \times 8.03 \times 10^{9} \times 8192}{989 \times 10^{12}\ \text{FLOP/s}} \approx 133\ \text{ms}</texblock>
+<p>Every decoding user sees such a step as a stall of 133 ms or more. Time per output token averages over a whole 500-token answer, so a few stalls barely move it, but they show up in p99 inter-token latency and as visible hiccups in the stream. A budget of 2,048 tokens caps the stall near 33 ms, at the cost of spreading long prompts over more steps. The documentation describes the same trade-off: smaller values give better inter-token latency, larger values give better time to first token and throughput [5].</p>
+<p>What does move time per output token is the total amount of prefill, whatever the budget. At 5 requests per second, each with 1,008 uncached prompt tokens, the GPU spends at least 5 × 1,008 × 16.2 µs ≈ 82 ms of every second on prompts, where 16.2 µs = 2 × 8.03 × 10<sup>9</sup> ÷ (989 × 10<sup>12</sup>) seconds is the compute floor per prompt token. If none of that work overlapped with decoding, the 14 ms decode step would stretch to about 14 ÷ (1 − 0.082) ≈ 15 ms per token. Real prefill runs nearer half of peak (Lesson 19 assumes 32,000 prompt tokens per second, 52% MFU), which doubles the share to about 16% and gives about 17 ms. Without the prefix cache, prompts are twice as long, the share doubles again to about 31%, and the estimate reaches about 20 ms, close to Lesson 19's 21 ms for 53 streams: still inside the target, with little room to spare.</p>
+<p>When a running request needs a new block and none is free, the scheduler <strong>preempts</strong> the request at the back of the running queue (the most recently admitted one under the default first-come-first-served policy), frees its blocks, and later recomputes its tokens, as Lesson 3, KV Cache, described. The engine logs a warning and counts each event in a metric, which we will watch in production.</p>
+
+<h3>PagedAttention as implemented: the KV cache manager</h3>
+<p>At startup, vLLM loads the weights, runs a dummy forward pass to measure peak activation memory, and accounts for CUDA graph memory. Everything that remains under <code>--gpu-memory-utilization</code> becomes a pool of fixed-size <strong>blocks</strong> of 16 tokens each [6]. For Llama 3.1 8B one block holds 16 × 128 KiB = 2 MiB, so the 52 GiB from Lesson 3 becomes 26,624 blocks, or 425,984 tokens. The startup log reports this number as the GPU KV cache size.</p>
+<p>The default for <code>--gpu-memory-utilization</code> is 0.92 in current releases (as of late 2026) [6]; earlier releases used 0.90. This course passes 0.90 explicitly so the numbers match Lesson 3. The extra 0.02 × 79.6 GiB ≈ 1.6 GiB would hold about 13,000 more tokens. To pin the cache size instead of deriving it, <code>--kv-cache-memory-bytes</code> sets it directly and skips the profiling run.</p>
+<p>Each request keeps a block table that maps its logical token positions to physical blocks, which is the PagedAttention idea from Lesson 8. The manager tracks a reference count on every block and keeps free blocks in a doubly linked <strong>free queue</strong>, so it can move a block to the head or tail in constant time [7].</p>
+
+<h3>Automatic prefix caching</h3>
+<p>Prefix caching is on by default in V1. vLLM identifies each <em>full</em> block by a hash of three things: the hash of the block before it, the token IDs in the block, and extra keys such as a LoRA adapter ID, image hashes, or a per-request <code>cache_salt</code> [7]. Because each hash includes its parent, equal hashes mean equal prefixes. When a request arrives, the manager hashes its prompt block by block and reuses cached blocks until the first miss. Figure 4 shows two requests that share our system prompt.</p>
+<fig src="009-prefix-cache-hash.svg" caption="Hash-chained blocks let two requests share the system prompt">Request A and Request B each have a block table. Their first 62 blocks have the same chained hashes, h1 through h62, so both tables point to the same 62 physical blocks, which carry a reference count of 2. Block 63 holds the last 8 system prompt tokens plus different user tokens, so it gets a different hash for each request and is not shared. Below, a free queue holds evictable cached blocks with the least recently used one at the head.</fig>
+<p>Only full blocks are shared. Our 1,000-token system prompt fills 62 blocks (992 tokens); its last 8 tokens share a block with user text, so that block differs per request and is recomputed. That is why each new request needs 2,000 − 992 = 1,008 tokens of prefill instead of 2,000, which roughly halves prefill work. With 50 users, the other 49 requests point at the same 62 blocks instead of holding copies, which saves 49 × 62 × 2 MiB ≈ 5.9 GiB of cache.</p>
+<p>When a request finishes, its blocks return to the free queue but keep their hashes, so a later request can still hit them. New allocations take blocks from the head of the queue, which makes eviction least recently used. A request's blocks are returned in reverse order, so its last blocks, which are the least likely to be shared, are evicted first [7]. The V1 design makes prefix caching nearly free even when nothing hits, which is why it is on by default [3]. In multi-tenant systems, <code>cache_salt</code> limits sharing to requests that use the same salt, which closes a timing side channel. Lesson 24, Prefix Caching, covers cache-aware design in depth.</p>
+
+<h3>CUDA graphs and torch.compile</h3>
+<p>For a small model, launching hundreds of kernels from Python each step can cost as much as running them. vLLM attacks this overhead in two ways. First, <code>torch.compile</code> is on by default: at startup vLLM compiles the model into fused kernels and stores the result in a cache under <code>~/.cache/vllm/torch_compile_cache</code>, and all compilation finishes before the server accepts a request [8]. Second, vLLM records <strong>CUDA graphs</strong> for a set of batch sizes and replays a whole step with one launch. The default mode, <code>FULL_AND_PIECEWISE</code>, captures a full graph for pure decode batches and a piecewise graph, with attention left outside, for mixed prefill and decode batches [9]. Lesson 33, GPU Architecture and Attention Kernels, explains why launch overhead and kernel fusion matter.</p>
+<fig src="009-startup-sequence.svg" caption="What vLLM does between process start and the first request">Six boxes in a row: load weights, profile memory, allocate KV blocks, torch.compile (cached), capture CUDA graphs, and ready, where the health endpoint returns 200. Arrows run left to right. Notes under the boxes say that the compile cache can be copied into the container image and that --enforce-eager skips compilation and graph capture.</fig>
+<p>Both cost startup time and some memory, as Figure 5 shows. The <code>-O</code> optimization levels (<code>-O0</code> to <code>-O3</code>, default <code>-O2</code>) trade startup time for speed, and <code>--enforce-eager</code> skips compilation and graph capture entirely for the fastest start and the slowest decode [5]. This matters for autoscaling: Lesson 23, Cold Starts, shows how shipping the compile cache inside the container image shortens the time before a new replica can take traffic.</p>
+
+<h2>Features That Change Capacity and Latency</h2>
+<p>Most vLLM features are one flag away. Table 1 lists the ones that change how many users a replica serves or how fast it answers.</p>
+<table>
+<thead><tr><th>Feature</th><th>How to enable</th><th>Effect</th><th>Covered in</th></tr></thead>
+<tbody>
+<tr><td>Weight quantization</td><td>Pre-quantized checkpoint (FP8, NVFP4, INT8, INT4 GPTQ/AWQ) or online FP8 with <code>--quantization fp8_per_tensor</code></td><td>FP8 halves weight memory and bytes read per step</td><td>Lesson 13</td></tr>
+<tr><td>FP8 KV cache</td><td><code>--kv-cache-dtype fp8</code></td><td>Twice the tokens per GiB</td><td>Lesson 3</td></tr>
+<tr><td>Tensor parallelism</td><td><code>-tp N</code></td><td>Splits every layer across N GPUs; lower latency, more KV room</td><td>Lesson 18</td></tr>
+<tr><td>Pipeline parallelism</td><td><code>-pp N</code></td><td>Splits layers across GPUs or nodes</td><td>Lesson 18</td></tr>
+<tr><td>Data parallelism</td><td><code>-dp N</code></td><td>N replicas behind one endpoint; more throughput</td><td>Lesson 25</td></tr>
+<tr><td>Expert parallelism</td><td><code>--enable-expert-parallel</code></td><td>Spreads MoE experts across GPUs</td><td>Lesson 35</td></tr>
+<tr><td>Speculative decoding</td><td><code>--speculative-config '{...}'</code></td><td>Lower inter-token latency at low to medium load</td><td>Lesson 15</td></tr>
+<tr><td>Multi-LoRA</td><td><code>--enable-lora --lora-modules name=path</code></td><td>Many fine-tunes on one base model</td><td>Lesson 37</td></tr>
+<tr><td>Structured outputs</td><td>On by default; request field <code>response_format</code> or <code>structured_outputs</code></td><td>Output always matches a schema</td><td>Lesson 38</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: vLLM features that change capacity and latency (flags as of late 2026)</p>
+
+<h4>Quantization</h4>
+<p>vLLM loads quantized checkpoints in many formats, including FP8, NVFP4, INT8, INT4 GPTQ and AWQ, GGUF, and compressed-tensors checkpoints made with LLM Compressor or NVIDIA Model Optimizer [10]. It can also quantize a BF16 checkpoint to FP8 while loading it: in late-2026 releases the documented online schemes are <code>--quantization fp8_per_tensor</code> and <code>fp8_per_block</code> [10]. An FP8 checkpoint of our model needs about 9.1 GB of weights instead of 16 GB (embeddings and the output layer stay in BF16), which frees about 6.5 GiB for the KV cache and cuts the bytes read in every decode step. Lesson 13 compares the formats and Lesson 16 shows how to check that quality holds.</p>
+
+<h4>Parallelism</h4>
+<p>vLLM supports tensor, pipeline, data, expert, and context parallelism; Lesson 35, Mixture-of-Experts Serving, and Lesson 36, Long-Context Serving, cover the last two. On one node it uses Python multiprocessing; across nodes it uses Ray or its own multi-node launcher (<code>--nnodes</code>, <code>--node-rank</code>, <code>--master-addr</code>) [11]. Figure 6 shows three ways to use an 8-GPU node and the processes each one starts.</p>
+<fig src="009-parallel-layouts.svg" caption="Three layouts for one 8-GPU node and the processes each starts">Three panels of eight GPU squares. With -tp 8, one engine core drives all eight GPUs as one model copy: 1 API server, 1 engine core and 8 workers make 10 processes. With -tp 2 -dp 4, four engine cores each drive a pair of GPUs: 4 API servers, 4 engine cores, 8 workers and 1 coordinator make 17 processes. With -dp 8, eight engine cores each drive one GPU: 8 plus 8 plus 8 plus 1 make 25 processes.</fig>
+<p>For an 8B model that fits on one GPU, tensor parallelism mostly adds communication. More replicas, either with <code>-dp</code> or as separate pods behind a router (Lesson 25, Request Routing), give more throughput. Tensor parallelism earns its cost for models that do not fit on one GPU, such as Llama 3.1 70B, whose 141 GB of BF16 weights need at least two H100s (Lesson 18, Tensor Parallelism).</p>
+
+<h4>Speculative decoding, LoRA, and structured outputs</h4>
+<p><strong>Speculative decoding</strong> is configured with one JSON flag, for example <code>--speculative-config '{"method": "eagle3", "model": "...", "num_speculative_tokens": 2}'</code>. Supported methods include n-gram matching, suffix decoding, EAGLE and EAGLE-3 draft heads [20], multi-token prediction, and separate draft models [12]. The documentation recommends it for memory-bound traffic at low to medium load; Lesson 15 explains why the gain shrinks as batches grow.</p>
+<p><strong>Multi-LoRA</strong> serving loads small adapter weights next to one base model. <code>--max-loras</code> (default 1) caps the adapters in one batch and <code>--max-lora-rank</code> (default 16) sets the largest rank, which sizes the reserved memory [6][13]. A request selects an adapter by passing its name as the <code>model</code> field. Lesson 37, Multi-LoRA and Multi-Tenant Serving, covers adapter scheduling in depth.</p>
+<p><strong>Structured outputs</strong> constrain sampling so the output always matches a JSON schema, regular expression, choice list, or grammar. vLLM uses XGrammar [19] or LLGuidance as the backend and picks one automatically by default [14]. Clients pass a standard <code>response_format</code> with a JSON schema, or vLLM's own <code>structured_outputs</code> field through <code>extra_body</code>. The older <code>guided_json</code> style fields were removed in v0.12.0 [14]. Lesson 38, Structured Output and Tool Calling, goes deeper.</p>
+
+<h2>Deploying and Observing vLLM</h2>
+<h3>Launching the server</h3>
+<p>One command starts the API server, the engine core, and the workers: <code>vllm serve &lt;model&gt; [flags]</code>. The server listens on port 8000 and exposes <code>/v1/chat/completions</code>, <code>/v1/completions</code>, <code>/v1/models</code>, and <code>/v1/responses</code>, plus <code>/health</code> for readiness probes and <code>/metrics</code> for Prometheus. Any OpenAI client works by pointing its base URL at the server. A handful of flags decide most of the capacity and latency:</p>
+<ul>
+<li><code>--max-model-len</code>: the longest prompt plus output the server accepts. Llama 3.1 defaults to its 131,072-token context; our requests need 2,500, so we cap it at 8,192 to reject runaway requests early.</li>
+<li><code>--gpu-memory-utilization</code>: the share of GPU memory vLLM may use for weights, activations, and KV cache.</li>
+<li><code>--max-num-batched-tokens</code> and <code>--max-num-seqs</code>: the per-step budget from Figure 3.</li>
+<li><code>--kv-cache-dtype</code>: <code>fp8</code> doubles cache capacity once evaluations allow it.</li>
+<li><code>-tp</code>, <code>-dp</code>: parallelism, as in Figure 6.</li>
+</ul>
+
+<h4>Which settings fit our deployment?</h4>
+<p>For Llama 3.1 8B on one H100 with 50 users, we keep the defaults that already help us (chunked prefill, prefix caching, asynchronous scheduling, CUDA graphs) and change three things. We set <code>--max-model-len 8192</code>, since no request needs more and a smaller limit lets the scheduler admit requests confidently. We pass <code>--gpu-memory-utilization 0.90</code> explicitly to match our capacity math: about 426,000 tokens, or 170 requests of 2,500 tokens, far above 50 users. Most importantly, we lower <code>--max-num-batched-tokens</code> to 2,048, because the default 8,192-token step can stall every decoding user for at least 133 ms whenever a burst of prompts arrives. With 50 decoders, 1,998 tokens per step remain for prompts, enough for one cached-prefix request per step plus most of the next one. At 5 new requests per second, a new prompt waits only a few steps of roughly 33 ms or more, far inside the 500 ms time-to-first-token target. We do not enable the FP8 KV cache yet; with 50 users the cache is not the bottleneck, so we would take the quality risk for no gain. Lesson 12 benchmarks this configuration at 50 concurrent users.</p>
+
+<h3>Observing vLLM: the /metrics endpoint</h3>
+<p>The API server publishes Prometheus metrics at <code>/metrics</code> on the same port [15]. Counters gain a <code>_total</code> suffix when exported, so the counter <code>vllm:num_preemptions</code> appears as <code>vllm:num_preemptions_total</code>. Figure 7 places the most useful series on a request's timeline.</p>
+<fig src="009-metrics-map.svg" caption="Where vLLM's key Prometheus metrics sit in a request's life">A request timeline runs from arrival through queued, prefill, and decode to finished. Histograms span the phases: request_queue_time_seconds over the queued phase, time_to_first_token_seconds from arrival to the first token, inter_token_latency_seconds between decode tokens, and e2e_request_latency_seconds over the whole request. Below, gauges describe the engine at any moment: num_requests_waiting, num_requests_running, and kv_cache_usage_perc. Counters for preemptions, prompt and generation tokens, and prefix cache queries and hits sit at the bottom.</fig>
+<p>Read them in pairs. Rising <code>vllm:num_requests_waiting</code> with <code>vllm:kv_cache_usage_perc</code> near 1 means the cache is full and requests are queuing for memory; a non-zero rate of <code>vllm:num_preemptions_total</code> confirms it. Rising waiting requests with a half-empty cache points at the per-step limits or at CPU starvation instead. The ratio of <code>vllm:prefix_cache_hits_total</code> to <code>vllm:prefix_cache_queries_total</code> is the prefix hit rate; for our traffic it should sit near 992 ÷ 2,000 ≈ 50%. Lessons 28 to 32 build dashboards from these series.</p>
+<p>For load testing, <code>vllm bench serve</code> drives any OpenAI-compatible server and reports the mean, median, and chosen percentiles of TTFT, time per output token, and inter-token latency, measured at the client [16]. Two cautions from its documentation: repeated runs against the same server reuse the prefix cache and inflate results, and for production benchmarks the vLLM team recommends GuideLLM.</p>
+
+<h3>Strengths and weaknesses</h3>
+<p>vLLM's strengths are breadth and defaults. It supports more than 200 model architectures and usually runs new open models on release day. It runs on the widest range of hardware of the three engines in this stage, and its V1 goal of "zero configs" means chunked prefill, prefix caching, CUDA graphs, and compilation are already on. It also has the largest community, so problems are often already reported and fixed.</p>
+<p>The weaknesses come from the same pace. Defaults change between releases, as the move from 0.90 to 0.92 memory utilization shows, so pin the version and re-read the release notes before upgrading. Startup includes compilation and graph capture, which lengthens cold starts unless you ship the caches. Its prefix cache works in full 16-token blocks and reuses only exact prefixes, while SGLang's radix tree matches at token granularity and is built around multi-call programs. On NVIDIA GPUs, a carefully tuned TensorRT-LLM deployment can reach higher peak throughput for some models, at a higher setup cost (Lesson 11, TensorRT-LLM).</p>
+
+<h3>How vLLM differs from SGLang and TensorRT-LLM</h3>
+<ul>
+<li><strong>Prefix cache</strong>: vLLM hashes full 16-token blocks; SGLang keeps a token-level radix tree; TensorRT-LLM keeps a radix tree of 32-token blocks with priority-based eviction.</li>
+<li><strong>Memory knob</strong>: vLLM's <code>--gpu-memory-utilization</code> is a share of total GPU memory for everything. SGLang's <code>--mem-fraction-static</code> covers only weights plus the KV pool. TensorRT-LLM's <code>kv_cache_free_gpu_memory_fraction</code> is a share of the memory left after weights and buffers.</li>
+<li><strong>Admission</strong>: vLLM allocates blocks as tokens arrive and preempts when it runs out. TensorRT-LLM by default reserves blocks for a request's maximum length before admitting it. SGLang admits against an estimate of future tokens and retracts requests when the pool fills.</li>
+</ul>
+<p>Lesson 11 puts the three engines side by side in one table.</p>
+
+<h4>When to choose vLLM</h4>
+<p>Choose vLLM as the default when you need broad model and hardware support, an OpenAI-compatible server with little tuning, and a large community, which describes most teams serving open models. Look at SGLang when traffic is dominated by long shared prefixes, multi-turn agents, or multi-call programs, and at TensorRT-LLM when you run a fixed model on NVIDIA GPUs at a scale where a few percent of throughput pays for extra engineering.</p>
+
+<h2>In Practice</h2>
+<p>The first tab starts vLLM with the settings we chose and checks that it is ready. The second calls it with the OpenAI SDK, measures time to first token on the client, and requests schema-constrained JSON. The third runs a 50-user benchmark with <code>vllm bench serve</code> and reads the key metrics; the fourth gives PromQL queries for a dashboard.</p>
+<codetabs>
+<tab label="Serve" lang="bash">
+# One H100, Llama 3.1 8B in BF16, settings from "Which settings fit our deployment?"
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --max-model-len 8192 \
+  --gpu-memory-utilization 0.90 \
+  --max-num-batched-tokens 2048 \
+  --port 8000
+
+# Readiness: /health returns 200 once weights, KV cache and CUDA graphs are ready.
+until curl -sf http://localhost:8000/health; do sleep 5; done
+curl -s http://localhost:8000/v1/models
+</tab>
+<tab label="Client" lang="python">
+import time
+from openai import OpenAI
+from pydantic import BaseModel
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="EMPTY")
+MODEL = "meta-llama/Llama-3.1-8B-Instruct"
+
+# 1) Streaming chat: measure time to first token on the client.
+start = time.perf_counter()
+first = None
+stream = client.chat.completions.create(
+    model=MODEL,
+    messages=[{"role": "user", "content": "Explain the KV cache in two sentences."}],
+    max_tokens=200,
+    stream=True,
+)
+for chunk in stream:
+    if chunk.choices and chunk.choices[0].delta.content and first is None:
+        first = time.perf_counter() - start
+print(f"TTFT {first * 1000:.0f} ms, total {time.perf_counter() - start:.2f} s")
+
+# 2) Structured output: the reply always matches this schema.
+class Ticket(BaseModel):
+    category: str
+    priority: int
+    summary: str
+
+reply = client.chat.completions.create(
+    model=MODEL,
+    messages=[{"role": "user", "content": "My invoice is wrong and I am charged twice."}],
+    response_format={
+        "type": "json_schema",
+        "json_schema": {"name": "ticket", "schema": Ticket.model_json_schema()},
+    },
+)
+print(Ticket.model_validate_json(reply.choices[0].message.content))
+</tab>
+<tab label="Benchmark" lang="bash">
+# 50 concurrent users, 2,000-token prompts and 500-token outputs (fixed lengths).
+vllm bench serve \
+  --backend openai-chat \
+  --endpoint /v1/chat/completions \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --dataset-name random \
+  --random-input-len 2000 \
+  --random-output-len 500 \
+  --ignore-eos \
+  --num-prompts 500 \
+  --max-concurrency 50 \
+  --percentile-metrics ttft,tpot,itl,e2el \
+  --metric-percentiles 50,95,99
+
+# Snapshot of the engine while the benchmark runs.
+curl -s http://localhost:8000/metrics | grep -E \
+  '^vllm:(num_requests_waiting|num_requests_running|kv_cache_usage_perc|num_preemptions_total)'
+</tab>
+<tab label="PromQL" lang="promql">
+# p95 time to first token over 5 minutes
+histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket[5m])))
+
+# p95 time per output token (one sample per request; target <= 25 ms)
+histogram_quantile(0.95, sum by (le) (rate(vllm:request_time_per_output_token_seconds_bucket[5m])))
+
+# p99 inter-token latency (one sample per gap; shows stalls from long steps)
+histogram_quantile(0.99, sum by (le) (rate(vllm:inter_token_latency_seconds_bucket[5m])))
+
+# Queue depth and KV cache pressure
+max(vllm:num_requests_waiting)
+max(vllm:kv_cache_usage_perc)
+
+# Preemptions per second (should be zero in steady state)
+sum(rate(vllm:num_preemptions_total[5m]))
+
+# Prefix cache hit rate (token-weighted)
+sum(rate(vllm:prefix_cache_hits_total[5m])) / sum(rate(vllm:prefix_cache_queries_total[5m]))
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>The <code>priority</code> scheduling policy (<code>--scheduling-policy priority</code>) for running batch jobs next to interactive traffic (Lesson 39, Batch and Offline Inference) [6].</li>
+<li>Why V1 schedules decodes before prefills, and how Sarathi-Serve's stall-free batching motivated chunked prefill [17].</li>
+<li>Iteration-level scheduling from Orca, the idea underneath every continuous-batching engine [18].</li>
+<li>Disaggregated prefill and decode in vLLM, where KV blocks move between instances through connectors such as NIXL or LMCache (Lesson 34, Disaggregated Prefill and Decode).</li>
+<li>Using <code>cache_salt</code> to stop one tenant from inferring another tenant's prompts through prefix-cache timing.</li>
+<li>Why the <code>--prefix-caching-hash-algo</code> default is SHA-256, and when a faster non-cryptographic hash is acceptable [6][7].</li>
+<li>Sizing CPU for a pod: at least <tex>2 + N</tex> physical cores for <tex>N</tex> GPUs, more with data parallelism [5].</li>
+<li>Sleep mode and pre-built compile caches for fast scale-up, and their effect on cold-start time (Lesson 23).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="009-summary.png" caption="vLLM summary" optional="1">Mind map summarizing the vLLM lesson: the V1 processes, the scheduler's token budget, the KV cache manager and prefix caching, startup optimizations, deployment flags, and metrics.</fig>
+<ul>
+<li>vLLM V1 runs an API server process, an engine core process with the scheduler and KV cache manager, and one GPU worker process per GPU; a single-GPU replica is 3 processes and needs at least 3 physical CPU cores.</li>
+<li>The scheduler spends a per-step token budget on decodes first and prompt chunks second. On an H100 the default is 8,192 tokens, which can stall every decoding user of an 8B model for at least 133 ms; 2,048 tokens caps the stall near 33 ms.</li>
+<li>The KV cache is a pool of 16-token blocks: 2 MiB each for Llama 3.1 8B, or 26,624 blocks in 52 GiB.</li>
+<li>Automatic prefix caching hashes full blocks with their parent's hash and evicts least recently used blocks; our 1,000-token system prompt shares 62 blocks, halving prefill and saving about 5.9 GiB across 50 users.</li>
+<li>torch.compile and CUDA graphs are on by default; they speed up decode but lengthen startup, which matters for cold starts.</li>
+<li>Deploy with <code>vllm serve</code> and a few flags (<code>--max-model-len</code>, <code>--gpu-memory-utilization</code>, <code>--max-num-batched-tokens</code>); watch <code>vllm:num_requests_waiting</code>, <code>vllm:kv_cache_usage_perc</code>, preemptions, and the latency histograms on <code>/metrics</code>.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Kwon et al. Efficient Memory Management for Large Language Model Serving with PagedAttention. <a href="https://arxiv.org/abs/2309.06180" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.06180</a>.<br>
+[2] vLLM GitHub repository. <a href="https://github.com/vllm-project/vllm" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm</a>.<br>
+[3] vLLM Team. vLLM V1: A Major Upgrade to vLLM's Core Architecture. <a href="https://vllm.ai/blog/2025-01-27-v1-alpha-release" rel="noopener noreferrer" target="_blank">https://vllm.ai/blog/2025-01-27-v1-alpha-release</a>.<br>
+[4] vLLM documentation: Architecture Overview. <a href="https://docs.vllm.ai/en/latest/design/arch_overview.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/arch_overview.html</a>.<br>
+[5] vLLM documentation: Optimization and Tuning. <a href="https://docs.vllm.ai/en/latest/configuration/optimization.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/optimization.html</a>.<br>
+[6] vLLM documentation: Engine Arguments. <a href="https://docs.vllm.ai/en/latest/configuration/engine_args.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/engine_args.html</a>.<br>
+[7] vLLM documentation: Automatic Prefix Caching. <a href="https://docs.vllm.ai/en/latest/design/prefix_caching.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/prefix_caching.html</a>.<br>
+[8] vLLM documentation: torch.compile integration. <a href="https://docs.vllm.ai/en/latest/design/torch_compile.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/torch_compile.html</a>.<br>
+[9] vLLM documentation: CUDA Graphs. <a href="https://docs.vllm.ai/en/latest/design/cuda_graphs.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/cuda_graphs.html</a>.<br>
+[10] vLLM documentation: Quantization. <a href="https://docs.vllm.ai/en/latest/features/quantization/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/quantization/</a>.<br>
+[11] vLLM documentation: Parallelism and Scaling. <a href="https://docs.vllm.ai/en/latest/serving/parallelism_scaling.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/serving/parallelism_scaling.html</a>.<br>
+[12] vLLM documentation: Speculative Decoding. <a href="https://docs.vllm.ai/en/latest/features/speculative_decoding/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/speculative_decoding/</a>.<br>
+[13] vLLM documentation: LoRA Adapters. <a href="https://docs.vllm.ai/en/latest/features/lora.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/lora.html</a>.<br>
+[14] vLLM documentation: Structured Outputs. <a href="https://docs.vllm.ai/en/latest/features/structured_outputs.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/structured_outputs.html</a>.<br>
+[15] vLLM documentation: Production Metrics. <a href="https://docs.vllm.ai/en/latest/usage/metrics.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/usage/metrics.html</a>.<br>
+[16] vLLM documentation: Benchmark CLI. <a href="https://docs.vllm.ai/en/latest/benchmarking/cli.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/benchmarking/cli.html</a>.<br>
+[17] Agrawal et al. Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve. <a href="https://arxiv.org/abs/2403.02310" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2403.02310</a>.<br>
+[18] Yu et al. Orca: A Distributed Serving System for Transformer-Based Generative Models. OSDI 2022. <a href="https://www.usenix.org/conference/osdi22/presentation/yu" rel="noopener noreferrer" target="_blank">https://www.usenix.org/conference/osdi22/presentation/yu</a>.<br>
+[19] Dong et al. XGrammar: Flexible and Efficient Structured Generation Engine for Large Language Models. <a href="https://arxiv.org/abs/2411.15100" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2411.15100</a>.<br>
+[20] Li et al. EAGLE-3: Scaling up Inference Acceleration of Large Language Models via Training-Time Test. <a href="https://arxiv.org/abs/2503.01840" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2503.01840</a>.</p>

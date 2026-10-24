@@ -1,0 +1,6 @@
+center: Measure TTFT and Throughput
+branch: Setup | vLLM or Ollama server | streaming client | vllm bench serve
+branch: Four metrics | TTFT | ITL and TPOT | end-to-end latency
+branch: Prompt sweep | flat below 295 tokens | 133 ms at 8,192 | TPOT nearly flat
+branch: Concurrency sweep | per-user speed falls | total throughput rises | 6,137 tokens/s ceiling
+branch: Pitfalls | prefix cache hits | early EOS | parallel caps

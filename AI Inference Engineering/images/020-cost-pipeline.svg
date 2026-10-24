@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="290" viewBox="0 0 840 290" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="420" y="26" text-anchor="middle" class="b">$ per 1M tokens = GPU $ per hour ÷ (tokens per second × 3,600) × 1,000,000</text>
+
+  <!-- Input: GPU price -->
+  <rect x="16" y="112" width="170" height="64" rx="6" class="gray"/>
+  <text x="101" y="134" text-anchor="middle" class="b">GPU price</text>
+  <text x="101" y="152" text-anchor="middle">$3.00 per H100-hour</text>
+  <text x="101" y="168" text-anchor="middle" class="sm">(assumption)</text>
+
+  <path d="M186,144 L246,144" class="edge"/>
+  <text x="216" y="136" text-anchor="middle" class="sm">÷ 3,600 s</text>
+
+  <rect x="248" y="112" width="170" height="64" rx="6" class="gray"/>
+  <text x="333" y="138" text-anchor="middle" class="b">$0.000833</text>
+  <text x="333" y="158" text-anchor="middle">per GPU-second</text>
+
+  <!-- Fan out -->
+  <path d="M418,144 L468,144 L468,70 L518,70" class="edge"/>
+  <path d="M418,144 L518,144" class="edge"/>
+  <path d="M418,144 L468,144 L468,218 L518,218" class="edge"/>
+
+  <rect x="520" y="44" width="300" height="52" rx="6" class="orange"/>
+  <text x="670" y="64" text-anchor="middle" class="sm">÷ 2,500 output tokens/s</text>
+  <text x="670" y="84" text-anchor="middle" class="b">$0.33 per 1M output tokens</text>
+
+  <rect x="520" y="118" width="300" height="52" rx="6" class="blue"/>
+  <text x="670" y="138" text-anchor="middle" class="sm">÷ 12,500 input + output tokens/s</text>
+  <text x="670" y="158" text-anchor="middle" class="b">$0.067 per 1M tokens (blended)</text>
+
+  <rect x="520" y="192" width="300" height="52" rx="6" class="green"/>
+  <text x="670" y="212" text-anchor="middle" class="sm">÷ 5 requests/s</text>
+  <text x="670" y="232" text-anchor="middle" class="b">$0.17 per 1,000 requests</text>
+
+  <text x="16" y="276" class="sm">Throughput from a load test at the latency target: one H100 serving Llama 3.1 8B, 5 requests/s of 2,000 input + 500 output tokens, at full load.</text>
+</svg>

@@ -1,0 +1,274 @@
+<h2>Introduction</h2>
+<p>Most companies that serve open models do not serve just one model. A support platform fine-tunes the base model for each enterprise customer on that customer's tickets. A developer tools company keeps one variant for SQL, one for code review, and one for commit messages. A marketplace lets every seller upload a tone-of-voice tune. The result is dozens, hundreds, or thousands of <strong>fine-tuned variants</strong> of the same base model, most of them used only occasionally.</p>
+<p>Serving each variant as its own deployment is simple and very wasteful. Every deployment holds a full copy of the weights, 16 GB for Llama 3.1 8B, on a GPU that mostly sits idle waiting for that variant's few requests. If the variants were trained with <strong>LoRA</strong>, almost all of those 16 GB are identical across variants: the fine-tune lives in a small set of extra matrices, tens of megabytes each. <strong>Multi-LoRA serving</strong> keeps one copy of the base model on the GPU and swaps or mixes the small adapters per request, so one GPU can serve hundreds of variants.</p>
+<fig src="037-one-vs-many.svg" caption="One deployment per fine-tuned variant versus one base model with many adapters">On the left, three fine-tuned variants each run on their own GPU with a full 15 GiB copy of the weights; each GPU is mostly idle. On the right, a single GPU holds one 15 GiB copy of the base model plus many 80 MiB adapters, and requests for different customers are batched together. A note says 500 variants would need 500 GPUs on the left and a handful on the right.</fig>
+<p>Sharing a GPU among customers also makes the deployment <strong>multi-tenant</strong>: requests from different customers, using different adapters, run in the same batch. That raises questions a single-model deployment never faces: who may use which adapter, how one customer's burst affects another's latency, and how to bill each customer for the GPU time it used.</p>
+<p>In this lesson, we recap LoRA from a serving point of view and compute adapter sizes for Llama 3.1 8B, compare merged and unmerged adapters, look at the kernels and memory managers that batch many adapters in one forward pass, map the engine flags, and then design a multi-tenant deployment for 500 customer adapters with worked memory numbers.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Multi-LoRA questions usually start from a platform with many customers. Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: How many fine-tuned variants do we serve, and what do they share?<br>
+<strong>Interviewer</strong>: 500 enterprise customers, each with its own LoRA adapter trained on Llama 3.1 8B Instruct from its support tickets. A few new adapters arrive every week.</p>
+<p><strong>Candidate</strong>: What rank and target modules does the training pipeline use?<br>
+<strong>Interviewer</strong>: Rank 16 on all linear layers by default. A handful of customers paid for rank 64.</p>
+<p><strong>Candidate</strong>: How is traffic spread across customers?<br>
+<strong>Interviewer</strong>: Together they send our usual volume, about 1,000 requests per minute (16.7 per second) with a daily cycle of 8 to 33 per second. It is skewed: the top 50 customers send most of it, and many customers send only a few requests a day.</p>
+<p><strong>Candidate</strong>: Do the usual latency targets apply to every customer, including rarely used adapters?<br>
+<strong>Interviewer</strong>: Yes. p95 TTFT under 500 ms and p95 TPOT under 25 ms, for everyone.</p>
+<p><strong>Candidate</strong>: What are the isolation requirements?<br>
+<strong>Interviewer</strong>: A customer must never reach another customer's adapter or see any trace of another customer's data. Contracts also require a monthly usage report per customer.</p>
+<p>This lesson deliberately changes the running example: the same model and the same total traffic, but split across 500 customer adapters. The question underneath is: <em>how do we serve 500 adapters at the course's latency targets on a few GPUs instead of 500, and keep the customers isolated, fairly treated, and correctly billed?</em></p>
+
+<h2>LoRA from a Serving Point of View</h2>
+<h3>Frozen weights plus a low-rank update</h3>
+<p>Full fine-tuning changes every weight of the model. <strong>LoRA</strong> (low-rank adaptation) freezes the pretrained weights and learns a small correction for selected weight matrices [1]. For a frozen matrix <tex>W</tex> of shape <tex>d_{\text{out}} \times d_{\text{in}}</tex>, LoRA learns two thin matrices, <tex>A</tex> of shape <tex>r \times d_{\text{in}}</tex> and <tex>B</tex> of shape <tex>d_{\text{out}} \times r</tex>, where the <strong>rank</strong> <tex>r</tex> is small, typically 8 to 64. The layer's output becomes:</p>
+<texblock>h = W x + \frac{\alpha}{r} B A x</texblock>
+<p>The scaling factor <tex>\alpha</tex> is a training hyperparameter stored in the adapter's config. <tex>B</tex> starts at zero, so training begins from the base model's behavior. Figure 2 shows the shapes for the query projection of Llama 3.1 8B.</p>
+<fig src="037-lora-math.svg" caption="LoRA on one projection of Llama 3.1 8B at rank 16">The input x of 4,096 numbers flows through two paths. The frozen base weight W, 4,096 by 4,096, holds 16.8 million parameters. The LoRA path first multiplies by A, 16 by 4,096, shrinking x to 16 numbers, then by B, 4,096 by 16, expanding back to 4,096. The two paths are added. A and B together hold 131,072 parameters, 0.8% of W.</fig>
+<p>Two properties matter for serving. First, the adapter is tiny compared with the base model, so many adapters fit where one extra model copy would not. Second, the base path <tex>W x</tex> is the same for every adapter, so requests for different adapters can share it, as long as the engine computes each request's own <tex>BAx</tex> term.</p>
+
+<h3>How big is an adapter?</h3>
+<p>Each adapted matrix adds <tex>r \times (d_{\text{in}} + d_{\text{out}})</tex> parameters. Llama 3.1 8B has a hidden size of 4,096, a feed-forward size of 14,336, 32 query heads and 8 KV heads of dimension 128, and 32 layers [2]. Its seven linear projections per layer have these shapes:</p>
+<ul>
+<li><strong>Attention</strong>: <code>q_proj</code> and <code>o_proj</code> are 4,096 × 4,096, so each adds <tex>r \times 8{,}192</tex>. <code>k_proj</code> and <code>v_proj</code> map 4,096 to 8 × 128 = 1,024, so each adds <tex>r \times 5{,}120</tex>. Together: <tex>r \times 26{,}624</tex> per layer.</li>
+<li><strong>MLP</strong>: <code>gate_proj</code>, <code>up_proj</code>, and <code>down_proj</code> connect 4,096 and 14,336, so each adds <tex>r \times 18{,}432</tex>. Together: <tex>r \times 55{,}296</tex> per layer.</li>
+<li><strong>All seven</strong>: <tex>r \times 81{,}920</tex> per layer, or <tex>r \times 2{,}621{,}440</tex> over 32 layers.</li>
+</ul>
+<p>At rank 16 on all linear layers, that is 16 × 2,621,440 = 41,943,040 parameters, which at 2 bytes each in BF16 is 83,886,080 bytes, exactly 80 MiB. Table 1 repeats the calculation for common choices.</p>
+<table>
+<thead><tr><th>Target modules</th><th>Parameters per rank</th><th>Rank 8</th><th>Rank 16</th><th>Rank 64</th></tr></thead>
+<tbody>
+<tr><td><code>q_proj</code>, <code>v_proj</code> (the original LoRA paper's choice)</td><td>425,984</td><td>6.5 MiB</td><td>13 MiB</td><td>52 MiB</td></tr>
+<tr><td>All attention projections</td><td>851,968</td><td>13 MiB</td><td>26 MiB</td><td>104 MiB</td></tr>
+<tr><td>All linear layers (attention + MLP)</td><td>2,621,440</td><td>40 MiB</td><td>80 MiB</td><td>320 MiB</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: LoRA adapter size for Llama 3.1 8B in BF16 (parameters per rank × rank × 2 bytes)</p>
+<p>Our default adapter, 80 MiB, is 0.52% of the 8.03B-parameter base model, so 500 of them total 500 × 80 MiB ≈ 39 GiB, less than three copies of the base weights. The rank-64 adapters are four times larger, 320 MiB each. Size scales linearly with rank and with the number of adapted modules, which is why the serving team should have a say in the training defaults.</p>
+
+<h3>Merged versus unmerged adapters</h3>
+<p>Because <tex>W x + \frac{\alpha}{r} BAx = (W + \frac{\alpha}{r} BA)x</tex>, an adapter can be <strong>merged</strong> into the base weights once, producing an ordinary model with exactly the base model's speed. The LoRA paper highlights this: a merged adapter adds no inference latency [1]. The price is flexibility. A merged model serves one adapter only, and switching adapters means rewriting 16 GB of weights.</p>
+<p>An <strong>unmerged</strong> adapter stays separate, and the engine computes the extra <tex>BAx</tex> term at every adapted layer for every token. The extra arithmetic is small: 2 FLOPs per adapter parameter per token, or about 84 MFLOPs against 16 GFLOPs for the base model, about 0.5%. The real cost is that these thin matrix products run poorly on GPUs and add kernel launches and memory reads. In exchange, one copy of the base model serves every adapter, and requests for different adapters can share a batch. Figure 3 compares the two.</p>
+<fig src="037-merged-vs-unmerged.svg" caption="Merged and unmerged adapters">On the left, merged: each adapter is folded into its own copy of the weights, W plus BA for customer A and W plus BA for customer B, each on its own GPU. There is no extra latency, but one copy per adapter and no batching across adapters. On the right, unmerged: one shared W computes Wx for a mixed batch, and small per-request BAx terms are added from an adapter store. One copy serves all adapters, at the cost of some extra latency per step.</fig>
+<p>Neither choice is always right. A single high-traffic variant that fills its own GPUs should be merged and served like any other model. A long tail of low-traffic variants should stay unmerged and share GPUs. dLoRA switches between the two at runtime, merging when one adapter dominates a replica's traffic and unmerging when traffic is mixed [3].</p>
+
+<h2>Batching Many Adapters in One Forward Pass</h2>
+<h3>Why the naive approach fails</h3>
+<p>The simplest multi-adapter engine keeps several adapters in GPU memory but runs one adapter at a time: it batches the requests for adapter A, runs a step, then those for adapter B. Continuous batching (Lesson 7, Continuous Batching) gets its throughput from putting many requests in each step, and splitting the batch by adapter destroys that. With 500 adapters and 53 concurrent streams per GPU, most batches would contain only one or two requests.</p>
+<p>The fix is to run the shared base computation <tex>W x</tex> as one large matrix multiply over the whole batch, then add each request's own <tex>BAx</tex>. The hard part is the second step: each row of the batch needs a different pair of small matrices.</p>
+
+<h3>Punica and the SGMV kernel</h3>
+<p>Punica introduced a CUDA kernel for exactly this, called <strong>Segmented Gather Matrix-Vector multiplication</strong> (SGMV) [4]. The batch is sorted so that requests using the same adapter sit next to each other, forming segments. For each segment, the kernel gathers that adapter's <tex>A</tex> and <tex>B</tex> and applies them only to that segment's rows. It runs in two steps: a <strong>shrink</strong> that multiplies by <tex>A</tex> and reduces each row from 4,096 numbers to <tex>r</tex>, and an <strong>expand</strong> that multiplies by <tex>B</tex> and brings it back to 4,096, where it is added to the base output. Figure 4 shows one layer for a batch of six tokens from three customers.</p>
+<fig src="037-sgmv-batch.svg" caption="One adapted layer for a mixed batch with Punica's SGMV">A batch of six token rows is sorted into segments: two rows for customer A, one for B, three for C. All six rows go through one batched multiply with the shared base weight W. In parallel, the SGMV shrink step multiplies each segment by its own adapter's A, producing rank-16 rows, and the expand step multiplies by its own B. The LoRA outputs are added to the base outputs. A note says the base weights are read once for the whole batch.</fig>
+<p>Punica reports 12× higher throughput than state-of-the-art serving systems when serving multiple LoRA models, while adding about 2 ms of latency per token [4]. Its scheduler also consolidates work: it sends new requests to a small set of busy GPUs and migrates requests to free others. Today's engines descend from this design. vLLM's LoRA layers call Triton <code>lora_shrink</code> and <code>lora_expand</code> kernels through a wrapper still named after Punica [16], and SGLang's default LoRA backend is a chunked SGMV kernel, <code>csgmv</code> [8].</p>
+
+<h3>S-LoRA and unified paging</h3>
+<p>Punica solved the compute side. S-LoRA tackled memory: how to keep thousands of adapters available without fragmenting GPU memory [5]. It stores all adapters in host memory and copies the ones the current batch needs to the GPU, predicting the next batch's adapters from the waiting queue so that copies overlap with computation.</p>
+<p>Its key idea is <strong>unified paging</strong>: one memory pool holds both the KV cache and the adapter weights, in pages that are each a vector of the model's hidden size. A KV cache for <tex>S</tex> tokens takes <tex>S</tex> pages and a rank-<tex>R</tex> adapter takes <tex>R</tex> pages, interleaved and non-contiguous, as the top of Figure 5 shows. Adapters of different ranks and sequences of different lengths draw from the same free list, so memory is not split into fixed adapter slots that sit half empty, as they do in the bottom of Figure 5. This is the same idea as PagedAttention (Lesson 8, PagedAttention), extended to adapter weights.</p>
+<fig src="037-unified-paging.svg" caption="S-LoRA's unified pool holds KV cache pages and adapter pages together">A row of 24 pages, each one hidden-size vector, is shared. KV cache pages for two requests (5 and 4 pages) and adapter pages for a rank-4 adapter X and a rank-2 adapter Y are interleaved, and 9 pages are free for any use. For contrast, fixed adapter slots sized for rank 8 leave half of X's slot and three quarters of Y's slot reserved but unused, and the KV cache cannot borrow that space.</fig>
+<p>S-LoRA served 2,000 adapters at once on a single A100 80 GB, with up to 4× the throughput of a vLLM baseline that merged adapters into separate model copies, and up to 30× that of Hugging Face PEFT [5]. Its custom kernels, MBGMM for prefill and MBGMV for decode, extend Punica's kernels to non-contiguous memory and mixed ranks.</p>
+
+<h3>What adapters cost at decode time</h3>
+<p>Lesson 3's decode lower bound, step time ≥ bytes read ÷ memory bandwidth, extends naturally to adapters. Each decode step must read the weights of every <em>distinct</em> adapter in the batch, in addition to the base weights and the KV cache. Suppose 53 concurrent streams on one H100 (Lesson 19's capacity at our latency targets) all use different rank-16, all-linear adapters:</p>
+<ul>
+<li><strong>Extra bytes per step</strong>: 53 × 80 MiB ≈ 4.4 GB.</li>
+<li><strong>Extra time per step</strong>: 4.4 GB ÷ 3.35 TB/s ≈ 1.3 ms, about 6% of a 21 ms step.</li>
+<li><strong>With rank-64 adapters</strong>: four times as much, about 5.3 ms, or 25% of the step.</li>
+</ul>
+<p>The bound explains two practical rules. Batches that share adapters are cheaper, because each distinct adapter is read once per step however many rows use it. And rank is a serving cost, not just a training choice: a fleet of rank-64 adapters costs four times the adapter bandwidth of rank 16.</p>
+
+<h3>Adapter caching tiers</h3>
+<p>An adapter can live in four places, and the engine moves it toward the GPU on demand, as Figure 6 shows. The latencies below are rough estimates for one 80 MiB adapter under stated assumptions, not measurements; measure your own storage path.</p>
+<fig src="037-cache-tiers.svg" caption="Where adapters live and roughly how long one 80 MiB adapter takes to reach the GPU">Four tiers stacked from fastest to slowest. GPU slots, sized by the maximum adapters per batch: already resident, no delay. CPU memory cache, sized by the CPU adapter limit: about 3.4 ms over PCIe at an assumed 25 GB/s. Local NVMe disk: about 42 ms at an assumed 2 GB/s including parsing. Remote object store or model hub: about 0.4 s or more at an assumed 200 MB/s plus request overhead. Arrows show adapters being promoted up and evicted down in least-recently-used order. Figures are labeled as rough assumptions.</fig>
+<ul>
+<li><strong>GPU slots</strong>: adapters ready for the current batch. In vLLM, <code>--max-loras</code> sets how many distinct adapters one batch may use, and the engine reserves GPU memory for that many adapters at <code>--max-lora-rank</code> [7].</li>
+<li><strong>CPU memory</strong>: an LRU cache of recently used adapters (<code>--max-cpu-loras</code> in vLLM). Promotion is a host-to-device copy. PCIe Gen5 x16 peaks at about 64 GB/s each way; at an assumed effective 25 GB/s, 80 MiB takes about 3.4 ms, short enough to hide inside one request's prefill.</li>
+<li><strong>Local disk</strong>: adapters downloaded earlier. At an assumed 2 GB/s for reading and parsing, about 42 ms, which a cold request feels in its TTFT.</li>
+<li><strong>Remote storage</strong>: an object store or model hub. At an assumed 200 MB/s plus connection setup, about 0.4 s or more, a visible TTFT spike. Pre-download adapters to local disk when they are published instead of on first request.</li>
+</ul>
+<p>When a batch already uses <code>--max-loras</code> distinct adapters, a request for one more waits even if memory is free. vLLM counts these as waiting for a "deferred" reason in <code>vllm:num_requests_waiting_by_reason</code> (Lesson 29, Queue Depth), which is the signal that the slot count is too low for the traffic mix.</p>
+
+<h3>Engine support</h3>
+<p>All three major engines serve unmerged adapters with batched kernels. Their options map onto the same concepts, as Table 2 shows.</p>
+<table>
+<thead><tr><th>Concept</th><th>vLLM [6][7]</th><th>SGLang [8]</th><th>TensorRT-LLM [9]</th></tr></thead>
+<tbody>
+<tr><td>Turn on LoRA</td><td><code>--enable-lora</code></td><td><code>--enable-lora</code> (implied by <code>--lora-paths</code>)</td><td><code>lora_config</code> in the LLM API or serve config</td></tr>
+<tr><td>Adapters at startup</td><td><code>--lora-modules name=path</code></td><td><code>--lora-paths name=path</code></td><td><code>lora_dir</code></td></tr>
+<tr><td>Distinct adapters per batch (GPU slots)</td><td><code>--max-loras</code>, default 1</td><td><code>--max-loras-per-batch</code>, default 8, counting base-only requests</td><td><code>max_loras</code></td></tr>
+<tr><td>Largest rank</td><td><code>--max-lora-rank</code>, default 16</td><td><code>--max-lora-rank</code>, inferred from loaded adapters if unset</td><td><code>max_lora_rank</code></td></tr>
+<tr><td>Adapted modules</td><td><code>--lora-target-modules</code>, all supported if unset</td><td><code>--lora-target-modules</code>, inferred or <code>all</code></td><td><code>lora_target_modules</code></td></tr>
+<tr><td>CPU adapter cache</td><td><code>--max-cpu-loras</code> (≥ <code>--max-loras</code>)</td><td><code>--max-loaded-loras</code> (≥ per-batch limit)</td><td><code>max_cpu_loras</code></td></tr>
+<tr><td>Load at runtime</td><td><code>POST /v1/load_lora_adapter</code> and <code>/v1/unload_lora_adapter</code>, with <code>VLLM_ALLOW_RUNTIME_LORA_UPDATING=True</code>; or resolver plugins</td><td><code>POST /load_lora_adapter</code> and <code>/unload_lora_adapter</code>, optional <code>pinned</code></td><td>Adapter path sent with the request</td></tr>
+<tr><td>Pick an adapter per request</td><td><code>"model": "acme"</code></td><td><code>"model": "base-model:acme"</code></td><td><code>lora_request</code> in <code>extra_body</code></td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Multi-LoRA options in the three major engines (late 2026)</p>
+<p>A few details are worth knowing. vLLM sizes every GPU slot for the largest rank, so <code>--max-lora-rank 64</code> makes each slot four times larger even if most adapters are rank 16, and Lesson 17, VRAM Budgeting, counts this reservation against the KV cache. vLLM's runtime loading endpoint and its resolver plugins, which load an unknown adapter name from a local directory or the Hugging Face Hub on first request, come with an explicit warning from the documentation: use them only in an isolated, fully trusted environment [6]. SGLang can pin hot adapters so they are never evicted from GPU memory, chooses LRU or FIFO eviction with <code>--lora-eviction-policy</code>, overlaps adapter copies with compute with <code>--enable-lora-overlap-loading</code>, and can drain a running adapter when another adapter's requests have waited longer than <code>--lora-drain-wait-threshold</code> seconds [8].</p>
+
+<h2>Multi-Tenant Serving</h2>
+<h3>Routing requests to replicas that hold the adapter</h3>
+<p>With several replicas, the router decides which adapters each replica must hold. Spraying requests for all 500 adapters across all replicas makes every replica load every adapter, and its GPU slots and CPU cache churn constantly. Lesson 25, Request Routing, gives each adapter a <strong>home group</strong> of two or three replicas and balances load within the group. The Kubernetes Gateway API Inference Extension implements this as LoRA affinity: its endpoint picker prefers pods that already have the requested adapter loaded, reading vLLM's <code>vllm:lora_requests_info</code> gauge, whose labels list the running and waiting adapters and the <code>max_lora</code> setting [10][11].</p>
+<p>Home groups also shrink the per-replica working set. With 8 replicas and home groups of 2, each replica is home to 500 × 2 ÷ 8 = 125 adapters instead of 500. Skew helps further: the top customers' adapters stay resident, and the long tail shares the remaining slots.</p>
+
+<h3>Isolation of data and adapters</h3>
+<p>A customer's adapter was trained on that customer's data and can reproduce parts of it, so it is customer data and needs the same protection. Figure 7 shows where the controls sit.</p>
+<fig src="037-tenant-isolation.svg" caption="Where multi-tenant controls sit in front of a multi-LoRA replica">Tenant requests with API keys reach a gateway. The gateway authenticates the key, maps the tenant to its allowed adapter, rewrites the model field, applies per-tenant token buckets and concurrency caps, and records usage per tenant and adapter. The router sends the request to a replica in the adapter's home group. Inside the replica, the engine keeps one base model, adapter slots, and a KV cache whose prefix blocks are keyed by adapter and cache salt. The adapter admin endpoints are reachable only from an internal control plane, not from tenants.</fig>
+<ul>
+<li><strong>Bind tenants to adapters at the gateway.</strong> The engine trusts the <code>model</code> field, so a client that names another customer's adapter would get it. The gateway must map each API key to the adapters that tenant may use and overwrite the field, never pass it through.</li>
+<li><strong>Keep adapter management private.</strong> Runtime loading endpoints accept arbitrary paths. Expose them only to an internal control plane that loads adapters from a vetted registry, and do not enable resolver plugins that download unknown names on request.</li>
+<li><strong>Keep the prefix cache per tenant.</strong> vLLM includes the adapter ID in each block's hash, so different adapters never share cached blocks; requests on the bare base model can use <code>cache_salt</code> to stop one tenant from probing another's prompts through cache-hit timing (Lesson 9, vLLM).</li>
+<li><strong>Keep data out of shared logs.</strong> Prompts and outputs from all tenants pass through the same process; log metadata, not text, unless the tenant agreed.</li>
+</ul>
+<p>Sharing a batch does not mix data between rows: each row's attention reads only its own KV cache, and each row's LoRA term uses only its own adapter. The risks are in the control plane and the caches, not in the matrix multiplies.</p>
+
+<h3>Quotas, fairness, and noisy neighbors</h3>
+<p>On a shared replica, one tenant's traffic changes everyone's latency. Three noisy-neighbor patterns are specific to multi-LoRA serving:</p>
+<ul>
+<li><strong>KV cache hogging</strong>: a tenant sending 30,000-token documents fills the cache and pushes others into the queue or preemption. Per-tenant token buckets and concurrency caps at the gateway bound this (Lesson 26, Rate Limiting).</li>
+<li><strong>Adapter thrash</strong>: a tenant rotating through many rarely used adapters, or a burst of cold adapters, keeps evicting other tenants' warm adapters and fills the GPU slots, so requests for warm adapters wait as "deferred". Cap distinct adapters per tenant, and pin the adapters of tenants with latency guarantees.</li>
+<li><strong>Expensive adapters</strong>: a high-rank adapter in the batch adds its bytes to every decode step for every row. Serve rank-64 adapters on their own pool, or price them accordingly.</li>
+</ul>
+<p>Inside the replica, first-come-first-served lets a flooding tenant delay everyone. The Virtual Token Counter scheduler keeps a running count of the input and output tokens served to each client and always serves the waiting client with the lowest count, which bounds the service gap between backlogged clients [12]. Most production stacks approximate this with weighted fair queues per tenant at the router, as Lesson 26 describes.</p>
+
+<h3>Per-tenant cost attribution</h3>
+<p>Engines report fleet-level metrics, but the bill is per tenant. vLLM's <code>model_name</code> metric label carries the served base model, not the adapter [13], so per-tenant token counts must come from request-level records: the gateway logs each request's tenant, adapter, prompt tokens, cached prompt tokens, and output tokens from the response's <code>usage</code> field, as Lesson 31, Per-Request Token Accounting, describes. To turn tokens into dollars, split the fleet's cost by each tenant's share of weighted tokens. If 8 H100s cost 8 × $3.00 = $24.00 per hour (assuming $3.00 per H100-hour) and a tenant used 2% of the weighted tokens, it is charged $0.48 for that hour. Weight output tokens more heavily than input tokens, rank-64 adapters more than rank-16, and add a fixed fee for tenants whose adapters are pinned in GPU memory, since they occupy capacity even when idle.</p>
+
+<h4>Which layout fits our 500 customer adapters?</h4>
+<p>We compare three layouts for 500 rank-16 adapters at a peak of 33 requests per second.</p>
+<ul>
+<li><strong>One merged deployment per customer</strong>: 500 copies of 16 GB on at least 500 GPUs, costing 500 × $3.00 = $1,500 per hour, while the whole fleet's peak traffic needs about 33 ÷ 5 ≈ 7 H100s at our latency targets. Each GPU would carry on average 16.7 ÷ 500 ≈ 0.03 requests per second, under 1% of the roughly 5 per second it can serve. Rejected, except for a single customer large enough to fill its own GPUs.</li>
+<li><strong>All 500 adapters resident on every GPU</strong>: 500 × 80 MiB ≈ 39 GiB of GPU memory per replica, leaving about 13 GiB of the 52 GiB KV budget (Lesson 3, with <code>--gpu-memory-utilization 0.90</code> set explicitly), or about 106,000 tokens and 42 chat requests, fewer than the 53 streams we need. Rejected: most of those adapters are idle at any moment.</li>
+<li><strong>A small set of GPU slots, a CPU cache, and home-group routing</strong>: chosen. Figure 8 shows the memory budget of one replica.</li>
+</ul>
+<fig src="037-h100-budget-500.svg" caption="Memory plan for one H100 replica serving its share of 500 customer adapters">A horizontal bar for the H100: 15 GiB of weights, about 4.6 GiB of activations and CUDA graphs, 5 GiB for 64 adapter slots at rank 16, about 47 GiB of KV cache, and 8 GiB held back. 47 GiB divided by 128 KiB per token gives about 385,000 tokens, or about 154 chat requests, well above the 53 streams needed. Below, host memory holds a CPU cache of 128 adapters, 10 GiB, covering the replica's 125 home adapters; the other adapters stay on local disk.</fig>
+<p>Each replica's 53 concurrent streams draw from its 125 home adapters. If every adapter were equally popular, a batch of 53 would contain about 125 × (1 − (1 − 1/125)<sup>53</sup>) ≈ 43 distinct adapters; with real skew it contains fewer. So we set <code>--max-loras 64</code>, which reserves 64 × 80 MiB = 5 GiB and leaves about 47 GiB of KV cache, about 385,000 tokens or 154 chat requests, nearly three times the 53 streams we need. <code>--max-cpu-loras 128</code> keeps every home adapter in host memory for 10 GiB per replica, so a cold adapter costs a few milliseconds of PCIe copy rather than a disk read. Decode pays at most about 1.3 ms per step for adapter reads, and we verify on a load test that p95 TPOT stays under 25 ms. Eight replicas cover the 33 requests per second peak with room for the LoRA overhead, and the autoscaler (Lesson 22, Autoscaling) removes replicas at night. The fleet costs about $24 per hour at peak instead of $1,500.</p>
+<p>Two rules keep the plan valid as the platform grows. Keep training at rank 16 unless a customer pays for more, and serve rank-64 adapters on a separate pool, because a single <code>--max-lora-rank 64</code> would make all 64 slots four times larger, 20 GiB. And when a customer's traffic grows large enough to keep its own GPUs busy, merge its adapter and move it to a dedicated deployment.</p>
+<callout kind="tip" title="Interview tip">Size the adapter from the model dimensions before anything else: "rank 16 on all seven projections is 2.6 million parameters per rank, so 42 million parameters, 80 MiB; 500 of them are 39 GiB." It shows you can reason about slots, caches, and bandwidth with real numbers.</callout>
+
+<h2>In Practice</h2>
+<p>The first tab computes adapter sizes from the model dimensions and plans one replica's GPU slots and KV cache, reproducing the numbers above. The second starts vLLM with the slot and cache sizes we chose, loads an adapter at runtime from an internal network, and sends a request for one adapter. The third is the equivalent SGLang launch.</p>
+<codetabs>
+<tab label="Adapter sizing" lang="python">
+from dataclasses import dataclass
+
+@dataclass
+class Model:
+    hidden: int = 4096        # Llama 3.1 8B
+    ffn: int = 14336
+    layers: int = 32
+    q_heads: int = 32
+    kv_heads: int = 8
+    head_dim: int = 128
+
+def proj_shapes(m: Model) -> dict[str, tuple[int, int]]:
+    q, kv = m.q_heads * m.head_dim, m.kv_heads * m.head_dim
+    return {"q_proj": (m.hidden, q), "k_proj": (m.hidden, kv), "v_proj": (m.hidden, kv),
+            "o_proj": (q, m.hidden), "gate_proj": (m.hidden, m.ffn),
+            "up_proj": (m.hidden, m.ffn), "down_proj": (m.ffn, m.hidden)}
+
+def adapter_bytes(m: Model, rank: int, modules: list[str], bytes_per_value: int = 2) -> int:
+    shapes = proj_shapes(m)
+    per_layer = sum(rank * (shapes[name][0] + shapes[name][1]) for name in modules)
+    return per_layer * m.layers * bytes_per_value
+
+MiB, GiB = 2**20, 2**30
+llama = Model()
+all_linear = list(proj_shapes(llama))
+for rank in (8, 16, 64):
+    print(f"rank {rank:>2}: q,v {adapter_bytes(llama, rank, ['q_proj', 'v_proj']) / MiB:6.1f} MiB, "
+          f"all linear {adapter_bytes(llama, rank, all_linear) / MiB:6.1f} MiB")
+
+# One replica: 64 GPU slots at rank 16, KV budget of 52 GiB before adapters (Lesson 3).
+slot = adapter_bytes(llama, 16, all_linear)
+kv_gib = 52 - 64 * slot / GiB
+tokens = int(kv_gib * GiB // (128 * 1024))          # 128 KiB of KV per token
+print(f"64 slots: {64 * slot / GiB:.1f} GiB, KV left {kv_gib:.1f} GiB = {tokens:,} tokens "
+      f"= {tokens // 2500} chat requests")
+print(f"500 adapters in total: {500 * slot / GiB:.1f} GiB")
+</tab>
+<tab label="vLLM" lang="bash">
+# 64 distinct adapters per batch at rank <= 16, 128 more in CPU memory.
+# Runtime loading is enabled, so this port must be reachable only from the
+# internal control plane; tenants go through the gateway.
+VLLM_ALLOW_RUNTIME_LORA_UPDATING=True \
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --gpu-memory-utilization 0.90 \
+  --enable-lora \
+  --max-loras 64 \
+  --max-lora-rank 16 \
+  --max-cpu-loras 128 \
+  --lora-modules acme=/adapters/acme globex=/adapters/globex
+
+# Control plane: load a newly published adapter from local disk.
+curl -X POST http://localhost:8000/v1/load_lora_adapter \
+  -H "Content-Type: application/json" \
+  -d '{"lora_name": "initech", "lora_path": "/adapters/initech"}'
+
+# Gateway: the model field selects the adapter (set by the gateway, not the client).
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "acme", "messages": [{"role": "user", "content": "Where is my order?"}]}'
+</tab>
+<tab label="SGLang" lang="bash">
+python -m sglang.launch_server \
+  --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --enable-lora \
+  --lora-paths acme=/adapters/acme globex=/adapters/globex \
+  --lora-target-modules all \
+  --max-lora-rank 16 \
+  --max-loras-per-batch 64 \
+  --max-loaded-loras 128
+
+# Load and pin a hot adapter so it is never evicted from GPU memory.
+curl -X POST http://localhost:30000/load_lora_adapter \
+  -H "Content-Type: application/json" \
+  -d '{"lora_name": "initech", "lora_path": "/adapters/initech", "pinned": true}'
+
+# OpenAI-compatible request: base-model:adapter-name
+curl http://localhost:30000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "meta-llama/Llama-3.1-8B-Instruct:acme", "messages": [{"role": "user", "content": "Where is my order?"}]}'
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>QLoRA trains adapters against a 4-bit quantized base model [14]; serving such an adapter on a BF16 or FP8 base changes the numbers it was trained with, so evaluate on the serving precision (Lesson 13, Quantization - FP8, INT8 and 4-bit).</li>
+<li>LoRA with tensor parallelism: S-LoRA aligns the adapter's partitioning with the base model's so that one all-reduce covers both [5], and vLLM shards only part of the LoRA computation unless <code>--fully-sharded-loras</code> is set [6].</li>
+<li>Updating an adapter in place: vLLM's load endpoint accepts <code>load_inplace</code> to replace an adapter under the same name [6], but in-flight requests and cached prefixes should not mix versions, so version adapter names instead.</li>
+<li>Open-source multi-LoRA servers such as LoRAX popularized dynamic adapter loading and heterogeneous batching; its repository was archived in October 2026, and similar features are now built into the main engines [15].</li>
+<li>Adapter thrash looks like a cache problem in metrics: watch adapter load counts, "deferred" waiting requests, and TTFT for cold adapters separately from warm ones.</li>
+<li>Other adapter types, such as prefix tuning or (IA)³, change the serving math; LoRA dominates in practice because its batched kernels are mature in every engine.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="037-summary.png" caption="Multi-LoRA and multi-tenant serving summary" optional="1">Mind map summarizing the lesson: LoRA adapter sizes, merged versus unmerged, batched kernels, caching tiers, engine flags, and multi-tenant isolation, fairness, and billing.</fig>
+<ul>
+<li>A LoRA adapter adds <code>rank × (d_in + d_out)</code> parameters per adapted matrix. For Llama 3.1 8B at rank 16 on all linear layers that is 42 million parameters, 80 MiB, 0.52% of the base model.</li>
+<li>Merged adapters cost nothing at inference but need a model copy each; unmerged adapters share one base model and one batch, at a small per-step cost.</li>
+<li>Punica's SGMV kernel batches requests for different adapters in one forward pass; S-LoRA pages adapter weights and KV cache from one pool and served 2,000 adapters on one A100.</li>
+<li>Each decode step reads every distinct adapter in the batch: 53 rank-16 adapters add about 1.3 ms to a 21 ms step on an H100, four times that at rank 64.</li>
+<li>Adapters move between GPU slots (<code>--max-loras</code>), a CPU cache (<code>--max-cpu-loras</code>), local disk, and remote storage; a cold load costs milliseconds from CPU memory and up to seconds from remote storage.</li>
+<li>For 500 customer adapters: 64 GPU slots (5 GiB), a 128-adapter CPU cache, and home-group routing serve the peak on about 8 H100s instead of 500.</li>
+<li>Multi-tenancy needs a gateway that binds tenants to adapters, per-tenant quotas and fair queues, private adapter management, and per-request token records for billing.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Hu et al. LoRA: Low-Rank Adaptation of Large Language Models. <a href="https://arxiv.org/abs/2106.09685" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2106.09685</a>.<br>
+[2] Llama Team, AI @ Meta. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[3] Wu et al. dLoRA: Dynamically Orchestrating Requests and Adapters for LoRA LLM Serving. OSDI 2024. <a href="https://www.usenix.org/conference/osdi24/presentation/wu-bingyang" rel="noopener noreferrer" target="_blank">https://www.usenix.org/conference/osdi24/presentation/wu-bingyang</a>.<br>
+[4] Chen et al. Punica: Multi-Tenant LoRA Serving. <a href="https://arxiv.org/abs/2310.18547" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2310.18547</a>.<br>
+[5] Sheng et al. S-LoRA: Serving Thousands of Concurrent LoRA Adapters. <a href="https://arxiv.org/abs/2311.03285" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2311.03285</a>.<br>
+[6] vLLM documentation: LoRA Adapters. <a href="https://docs.vllm.ai/en/latest/features/lora.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/lora.html</a>.<br>
+[7] vLLM documentation: Engine Arguments. <a href="https://docs.vllm.ai/en/latest/configuration/engine_args.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/engine_args.html</a>.<br>
+[8] SGLang documentation: LoRA Serving. <a href="https://docs.sglang.io/docs/advanced_features/lora" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/lora</a>.<br>
+[9] TensorRT-LLM documentation: LoRA (Low-Rank Adaptation). <a href="https://nvidia.github.io/TensorRT-LLM/features/lora.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/features/lora.html</a>.<br>
+[10] Kubernetes Gateway API Inference Extension. <a href="https://gateway-api-inference-extension.sigs.k8s.io/" rel="noopener noreferrer" target="_blank">https://gateway-api-inference-extension.sigs.k8s.io/</a>.<br>
+[11] Gateway API Inference Extension: Model Server Protocol. <a href="https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/main/docs/proposals/003-model-server-protocol/README.md" rel="noopener noreferrer" target="_blank">https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/main/docs/proposals/003-model-server-protocol/README.md</a>.<br>
+[12] Sheng et al. Fairness in Serving Large Language Models. <a href="https://arxiv.org/abs/2401.00588" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.00588</a>.<br>
+[13] vLLM documentation: Metrics design. <a href="https://docs.vllm.ai/en/latest/design/metrics.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/metrics.html</a>.<br>
+[14] Dettmers et al. QLoRA: Efficient Finetuning of Quantized LLMs. <a href="https://arxiv.org/abs/2305.14314" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2305.14314</a>.<br>
+[15] LoRAX: Multi-LoRA inference server. <a href="https://github.com/predibase/lorax" rel="noopener noreferrer" target="_blank">https://github.com/predibase/lorax</a>.<br>
+[16] vLLM source: LoRA Triton kernels. <a href="https://github.com/vllm-project/vllm/tree/main/vllm/lora/ops/triton_ops" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm/tree/main/vllm/lora/ops/triton_ops</a>.</p>

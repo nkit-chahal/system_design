@@ -1,0 +1,7 @@
+center: VRAM Budgeting
+branch: What fills memory | weights | KV cache | activations and CUDA graphs
+branch: vLLM budget | U × M minus the rest | default 0.92 since v0.20
+branch: Llama 3.1 8B | 426K tokens on H100 | 27K tokens on L4
+branch: Llama 3.1 70B | two H100s in FP8 | four H100s in BF16
+branch: Context limit | max model length reserves nothing | must fit at startup
+branch: Debugging | read the startup log | match error to step

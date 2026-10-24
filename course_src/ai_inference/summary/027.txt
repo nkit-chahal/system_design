@@ -1,0 +1,7 @@
+center: Surviving a 10x Traffic Spike
+branch: The spike | 16.7 to 167 req/s | 30% premium traffic | pass criteria
+branch: Warm capacity | 12 warm replicas | standby placeholder nodes | local weights
+branch: Admission control | per-tenant token buckets | priority bounded waits | 429 with Retry-After
+branch: Autoscaling | offered load trigger | queue depth trigger | slow scale-down
+branch: Routing | prefix-cache score | bounded by load | new replicas warm
+branch: Failure modes | thundering herd | retry storms | KV cache thrash

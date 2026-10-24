@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="330" viewBox="0 0 840 330" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .empty{fill:#fff;stroke:#999;stroke-width:1;stroke-dasharray:3 2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .div{stroke:#6c8ebf;stroke-width:0.8}
+    .zoom{stroke:#999;stroke-width:1;stroke-dasharray:4 3;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="20" y="26" class="b">Llama 3.1 8B on one H100: the KV cache as a pool of 16-token blocks</text>
+  <rect x="40" y="40" width="760" height="34" class="blue"/>
+  <path class="div" d="M59,40 V74 M78,40 V74 M97,40 V74 M116,40 V74 M135,40 V74 M154,40 V74 M173,40 V74 M192,40 V74 M211,40 V74 M230,40 V74 M610,40 V74 M629,40 V74 M648,40 V74 M667,40 V74 M686,40 V74 M705,40 V74 M724,40 V74 M743,40 V74 M762,40 V74 M781,40 V74"/>
+  <rect x="40" y="40" width="19" height="34" class="orange"/>
+  <text x="420" y="62" text-anchor="middle">52 GiB ÷ 2 MiB = 26,624 blocks (425,984 tokens)</text>
+  <path class="zoom" d="M40,74 L20,110 M59,74 L410,110"/>
+  <rect x="20" y="110" width="390" height="132" rx="4" class="group"/>
+  <text x="215" y="130" text-anchor="middle" class="b">One block: 16 tokens in all 32 layers</text>
+  <rect x="36" y="142" width="80" height="40" class="orange"/>
+  <text x="76" y="158" text-anchor="middle" class="sm">layer 1</text>
+  <text x="76" y="174" text-anchor="middle" class="sm">64 KiB</text>
+  <rect x="126" y="142" width="80" height="40" class="orange"/>
+  <text x="166" y="158" text-anchor="middle" class="sm">layer 2</text>
+  <text x="166" y="174" text-anchor="middle" class="sm">64 KiB</text>
+  <rect x="306" y="142" width="80" height="40" class="orange"/>
+  <text x="346" y="158" text-anchor="middle" class="sm">layer 32</text>
+  <text x="346" y="174" text-anchor="middle" class="sm">64 KiB</text>
+  <text x="261" y="167" text-anchor="middle" class="b">…</text>
+  <text x="32" y="206" class="sm">per layer: K = 16 × 8 × 128 × 2 B = 32 KiB, V = 32 KiB</text>
+  <text x="32" y="226" class="sm b">64 KiB × 32 layers = 2 MiB per block</text>
+  <rect x="440" y="110" width="380" height="132" rx="4" class="group"/>
+  <text x="630" y="130" text-anchor="middle" class="b">One chat request: 2,500 tokens = 157 blocks</text>
+  <rect x="456" y="140" width="300" height="24" class="orange"/>
+  <text x="606" y="157" text-anchor="middle" class="sm">156 full blocks (2,496 tokens)</text>
+  <rect x="764" y="140" width="40" height="24" class="empty"/><rect x="764" y="140" width="10" height="24" class="orange"/>
+  <path class="zoom" d="M784,164 L744,176"/>
+  <rect x="456" y="178" width="18" height="16" class="orange"/>
+  <rect x="474" y="178" width="18" height="16" class="orange"/>
+  <rect x="492" y="178" width="18" height="16" class="orange"/>
+  <rect x="510" y="178" width="18" height="16" class="orange"/>
+  <rect x="528" y="178" width="18" height="16" class="empty"/>
+  <rect x="546" y="178" width="18" height="16" class="empty"/>
+  <rect x="564" y="178" width="18" height="16" class="empty"/>
+  <rect x="582" y="178" width="18" height="16" class="empty"/>
+  <rect x="600" y="178" width="18" height="16" class="empty"/>
+  <rect x="618" y="178" width="18" height="16" class="empty"/>
+  <rect x="636" y="178" width="18" height="16" class="empty"/>
+  <rect x="654" y="178" width="18" height="16" class="empty"/>
+  <rect x="672" y="178" width="18" height="16" class="empty"/>
+  <rect x="690" y="178" width="18" height="16" class="empty"/>
+  <rect x="708" y="178" width="18" height="16" class="empty"/>
+  <rect x="726" y="178" width="18" height="16" class="empty"/>
+  <text x="456" y="212" class="sm">last block: 4 of 16 slots used</text>
+  <text x="456" y="228" class="sm">12 empty slots = 1.5 MiB, 0.5% of the request's 314 MiB</text>
+  <rect x="20" y="262" width="390" height="50" rx="6" class="green"/>
+  <text x="215" y="283" text-anchor="middle">Paged: 26,624 ÷ 157 blocks</text>
+  <text x="215" y="302" text-anchor="middle" class="b">≈ 169 concurrent chat requests</text>
+  <rect x="440" y="262" width="380" height="50" rx="6" class="red"/>
+  <text x="630" y="283" text-anchor="middle">Contiguous 32K reservations: 4 GiB each</text>
+  <text x="630" y="302" text-anchor="middle" class="b">13 concurrent requests</text>
+</svg>

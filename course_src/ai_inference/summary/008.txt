@@ -1,0 +1,7 @@
+center: PagedAttention
+branch: The waste | reserved slots | internal fragmentation | external fragmentation
+branch: OS analogy | blocks as pages | block table as page table | sequences as processes
+branch: Block pool on H100 | 2 MiB per block | 26,624 blocks | 169 vs 13 requests
+branch: Attention kernel | walks the block table | online softmax merge | 20% to 26% slower
+branch: Sharing | reference counts | copy-on-write | 253 instead of 628 blocks
+branch: Choices | 16-token blocks | vAttention | SGLang page size 1

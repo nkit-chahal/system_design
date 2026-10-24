@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="360" viewBox="0 0 840 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .free{fill:#fff;stroke:#6c8ebf;stroke-width:1}
+    .note{fill:#f5f5f5;stroke:#999;stroke-width:1}
+    .tie{fill:none;stroke:#999;stroke-width:1;stroke-dasharray:3 3}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Metric notes, top -->
+  <rect x="120" y="14" width="250" height="50" rx="4" class="note"/>
+  <text x="132" y="34" class="sm">vllm:num_requests_waiting</text>
+  <text x="132" y="52" class="sm">sglang:num_queue_reqs</text>
+  <path d="M245,64 L245,104" class="tie"/>
+
+  <rect x="430" y="14" width="250" height="50" rx="4" class="note"/>
+  <text x="442" y="34" class="sm">vllm:num_requests_running</text>
+  <text x="442" y="52" class="sm">sglang:num_running_reqs</text>
+  <path d="M555,64 L555,88" class="tie"/>
+
+  <!-- New requests -->
+  <rect x="16" y="128" width="84" height="50" rx="6" class="white"/>
+  <text x="58" y="149" text-anchor="middle">new</text>
+  <text x="58" y="166" text-anchor="middle">requests</text>
+  <path d="M100,153 L138,153" class="edge"/>
+
+  <!-- Waiting queue -->
+  <rect x="140" y="104" width="210" height="96" rx="6" class="orange"/>
+  <text x="245" y="126" text-anchor="middle" class="b">Waiting queue</text>
+  <rect x="156" y="144" width="16" height="16" rx="2" class="purple"/><rect x="176" y="144" width="16" height="16" rx="2" class="purple"/><rect x="196" y="144" width="16" height="16" rx="2" class="purple"/><rect x="216" y="144" width="16" height="16" rx="2" class="purple"/><rect x="236" y="144" width="16" height="16" rx="2" class="purple"/><rect x="256" y="144" width="16" height="16" rx="2" class="purple"/>
+  <text x="245" y="186" text-anchor="middle" class="sm">not yet prefilled</text>
+
+  <!-- Admit -->
+  <path d="M350,153 L428,153" class="edge"/>
+  <text x="389" y="140" text-anchor="middle" class="sm">admit when</text>
+  <text x="389" y="172" text-anchor="middle" class="sm">blocks free</text>
+
+  <!-- Running batch -->
+  <rect x="430" y="88" width="250" height="132" rx="6" class="orange"/>
+  <text x="555" y="110" text-anchor="middle" class="b">Running batch</text>
+  <g>
+    <rect x="452" y="122" width="16" height="16" class="blue"/><rect x="470" y="122" width="16" height="16" class="blue"/><rect x="488" y="122" width="16" height="16" class="blue"/><rect x="506" y="122" width="16" height="16" class="blue"/><rect x="524" y="122" width="16" height="16" class="blue"/><rect x="542" y="122" width="16" height="16" class="blue"/><rect x="560" y="122" width="16" height="16" class="blue"/><rect x="578" y="122" width="16" height="16" class="blue"/><rect x="596" y="122" width="16" height="16" class="blue"/><rect x="614" y="122" width="16" height="16" class="blue"/><rect x="632" y="122" width="16" height="16" class="blue"/><rect x="650" y="122" width="16" height="16" class="blue"/>
+    <rect x="452" y="140" width="16" height="16" class="blue"/><rect x="470" y="140" width="16" height="16" class="blue"/><rect x="488" y="140" width="16" height="16" class="blue"/><rect x="506" y="140" width="16" height="16" class="blue"/><rect x="524" y="140" width="16" height="16" class="blue"/><rect x="542" y="140" width="16" height="16" class="blue"/><rect x="560" y="140" width="16" height="16" class="blue"/><rect x="578" y="140" width="16" height="16" class="blue"/><rect x="596" y="140" width="16" height="16" class="blue"/><rect x="614" y="140" width="16" height="16" class="blue"/><rect x="632" y="140" width="16" height="16" class="free"/><rect x="650" y="140" width="16" height="16" class="free"/>
+  </g>
+  <text x="555" y="178" text-anchor="middle" class="sm">KV cache usage:</text>
+  <text x="555" y="194" text-anchor="middle" class="sm">vllm:kv_cache_usage_perc</text>
+  <text x="555" y="210" text-anchor="middle" class="sm">sglang:token_usage</text>
+
+  <!-- Finish -->
+  <path d="M680,153 L718,153" class="edge"/>
+  <rect x="720" y="128" width="104" height="50" rx="6" class="white"/>
+  <text x="772" y="158" text-anchor="middle">finished</text>
+  <path d="M772,178 L772,246" class="tie"/>
+  <rect x="660" y="246" width="170" height="50" rx="4" class="note"/>
+  <text x="672" y="266" class="sm">completions:</text>
+  <text x="672" y="284" class="sm">vllm:request_success_total</text>
+
+  <!-- Preemption arrow back -->
+  <path d="M555,220 L555,256 L265,256 L265,202" class="edge"/>
+  <text x="410" y="248" text-anchor="middle" class="sm">preempt when the cache is full</text>
+  <rect x="300" y="268" width="230" height="30" rx="4" class="note"/>
+  <text x="312" y="288" class="sm">vllm:num_preemptions_total</text>
+
+  <!-- Queue time note -->
+  <path d="M190,200 L190,316" class="tie"/>
+  <rect x="16" y="310" width="300" height="30" rx="4" class="note"/>
+  <text x="28" y="330" class="sm">time spent here: vllm:request_queue_time_seconds</text>
+
+  <!-- Legend -->
+  <rect x="560" y="318" width="14" height="14" rx="2" class="purple"/><text x="580" y="330" class="sm">request</text>
+  <rect x="640" y="318" width="14" height="14" class="blue"/><text x="660" y="330" class="sm">KV block</text>
+  <rect x="728" y="318" width="14" height="14" class="note"/><text x="748" y="330" class="sm">metric</text>
+</svg>

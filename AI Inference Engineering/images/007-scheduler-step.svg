@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="370" viewBox="0 0 840 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .chunk{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2;stroke-dasharray:3 2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .lead{fill:none;stroke:#000;stroke-width:1}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Waiting queue -->
+  <text x="30" y="30" class="b">Waiting queue (no KV cache yet)</text>
+  <rect x="20" y="40" width="270" height="164" rx="4" class="group"/>
+  <rect x="36" y="50" width="238" height="22" rx="4" class="purple"/><text x="155" y="66" text-anchor="middle" class="sm">P1: 2,000-token prompt</text>
+  <rect x="36" y="80" width="238" height="22" rx="4" class="purple"/><text x="155" y="96" text-anchor="middle" class="sm">P2: 2,000-token prompt</text>
+  <rect x="36" y="110" width="238" height="22" rx="4" class="purple"/><text x="155" y="126" text-anchor="middle" class="sm">P3: 2,000-token prompt</text>
+  <rect x="36" y="140" width="238" height="22" rx="4" class="purple"/><text x="155" y="156" text-anchor="middle" class="sm">P4: 2,000-token prompt</text>
+  <rect x="36" y="170" width="238" height="22" rx="4" class="purple"/><text x="155" y="186" text-anchor="middle" class="sm">P5: 2,000-token prompt</text>
+
+  <!-- Running queue -->
+  <text x="560" y="30" class="b">Running queue (owns KV blocks)</text>
+  <rect x="550" y="40" width="270" height="164" rx="4" class="group"/>
+  <rect x="566" y="50" width="238" height="22" rx="4" class="orange"/><text x="685" y="66" text-anchor="middle" class="sm">R1: decoding</text>
+  <rect x="566" y="80" width="238" height="22" rx="4" class="orange"/><text x="685" y="96" text-anchor="middle" class="sm">R2: decoding</text>
+  <text x="685" y="128" text-anchor="middle" class="b">⋮</text>
+  <rect x="566" y="140" width="238" height="22" rx="4" class="orange"/><text x="685" y="156" text-anchor="middle" class="sm">R127: decoding</text>
+  <rect x="566" y="170" width="238" height="22" rx="4" class="orange"/><text x="685" y="186" text-anchor="middle" class="sm">R128: decoding</text>
+
+  <!-- Scheduler -->
+  <rect x="330" y="62" width="180" height="112" rx="6" class="white"/>
+  <text x="420" y="86" text-anchor="middle" class="b">Scheduler</text>
+  <text x="420" y="108" text-anchor="middle" class="sm">token budget: 8,192</text>
+  <text x="420" y="126" text-anchor="middle" class="sm">sequence cap</text>
+  <text x="420" y="144" text-anchor="middle" class="sm">free KV blocks</text>
+  <text x="420" y="162" text-anchor="middle" class="sm">1. running  2. waiting</text>
+  <path d="M292,118 L328,118" class="edge"/>
+  <path d="M548,118 L512,118" class="edge"/>
+  <path d="M420,174 L420,236" class="edge"/>
+  <text x="428" y="214" class="sm">one forward pass</text>
+
+  <!-- The step: 8,192 tokens over 760 px -->
+  <rect x="40" y="238" width="11.9" height="40" class="orange"/>
+  <rect x="51.9" y="238" width="185.5" height="40" class="purple"/>
+  <rect x="237.4" y="238" width="185.5" height="40" class="purple"/>
+  <rect x="422.9" y="238" width="185.5" height="40" class="purple"/>
+  <rect x="608.4" y="238" width="185.5" height="40" class="purple"/>
+  <rect x="793.9" y="238" width="6.1" height="40" class="chunk"/>
+  <g text-anchor="middle">
+    <text x="144.6" y="263">P1: 2,000</text><text x="330.2" y="263">P2: 2,000</text><text x="515.7" y="263">P3: 2,000</text><text x="701.2" y="263">P4: 2,000</text>
+  </g>
+  <path class="lead" d="M46,278 V296"/>
+  <text x="40" y="310" class="sm">128 decode tokens, one per running request</text>
+  <path class="lead" d="M797,278 V296"/>
+  <text x="800" y="310" text-anchor="end" class="sm">P5: first 64-token chunk</text>
+  <text x="40" y="340">128 + 4 × 2,000 + 64 = 8,192 tokens. P5's other 1,936 tokens run in the next step.</text>
+  <text x="40" y="360" class="sm">Bar width is proportional to tokens: the 128 decode tokens are a thin sliver of the step's tokens.</text>
+</svg>

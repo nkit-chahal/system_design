@@ -1,0 +1,263 @@
+<h2>Introduction</h2>
+<p>Most of this course has assumed a person on the other end of every request, watching tokens stream in. A large share of real inference has no one waiting at all. Nightly evaluations, labeling a training set, generating synthetic data, re-embedding a document store, and summarizing an archive of support tickets are all <strong>batch</strong> or <strong>offline inference</strong>: a fixed pile of inputs that must be processed by some deadline, measured in hours or days rather than milliseconds.</p>
+<p>Removing the waiting user removes the latency targets. The engine can run bigger batches, the job can run on cheap interruptible GPUs or on GPUs the chat fleet leaves idle at night, and the figures of merit become tokens per GPU-hour, dollars per million tokens, and the time until the whole job is done. Figure 1 contrasts the two shapes of work.</p>
+<fig src="039-online-vs-offline.svg" caption="Online serving and offline batch inference optimize for different things">Top lane: a user sends a chat request through a router to a replica that runs about 53 streams and must meet a p95 TTFT of 500 ms and a TPOT of 25 ms, streaming tokens back. Bottom lane: 50 million documents in object storage are split into shards, read by many workers that run large batches with no latency target, and written back as results with a checkpoint; the job is judged by cost and completion time.</fig>
+<p>In this lesson, we look at which workloads qualify, how to configure an engine for throughput and how much it gains, the offline APIs that run large jobs, how to share GPUs with interactive traffic, and what filling idle capacity really costs. We finish by planning a 50-million-document summarization job.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Batch questions often arrive as "we have a pile of text; how do we run it through an LLM cheaply?" Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: What is the job, and how big is it?<br>
+<strong>Interviewer</strong>: Summarize 50 million archived documents. They average 1,800 tokens, we add the same 200-token instruction to each, and a summary is about 200 tokens.</p>
+<p><strong>Candidate</strong>: Which model, and how will we know the summaries are good enough?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct, the model we already serve. A labeled sample of 500 documents defines the quality bar.</p>
+<p><strong>Candidate</strong>: When do the results need to be ready?<br>
+<strong>Interviewer</strong>: Within four weeks. Spending less matters more than finishing early.</p>
+<p><strong>Candidate</strong>: What GPUs do we have?<br>
+<strong>Interviewer</strong>: Our chat fleet runs on 7 reserved H100s, sized for the 33 requests per second we see at the afternoon peak. At night, traffic drops to about 8 requests per second. We can also rent more H100s, on demand or as spot capacity.</p>
+<p><strong>Candidate</strong>: Can the job slow down chat users?<br>
+<strong>Interviewer</strong>: No. Chat must keep its p95 TTFT under 500 ms and TPOT under 25 ms.</p>
+<p>The question underneath is: <em>how do we push 100 billion tokens through the model by the deadline, at the lowest cost, without hurting the users who are waiting?</em></p>
+
+<h2>Workloads Without a Waiting User</h2>
+<p>Batch workloads share three properties: the inputs are known in advance, another system consumes the results later, and nobody notices whether one request took 50 ms or 50 seconds. Typical examples are <strong>evaluations</strong> before a release (Lesson 40, Reliability and Rollouts), <strong>labeling and classification</strong> with short outputs, <strong>synthetic data</strong> from a teacher model with long outputs (Lesson 14, Distillation), <strong>embedding backfills</strong>, which are pure prefill, and <strong>summarizing archives</strong>, our job, with long inputs and short outputs.</p>
+<p>Latency becomes, at most, a deadline for the whole job. What remains to optimize is the cost of the job's GPU-hours: how many tokens each GPU-hour produces and how much each GPU-hour costs. Table 1 summarizes the shift.</p>
+<table>
+<thead><tr><th>Concern</th><th>Interactive serving</th><th>Batch and offline inference</th></tr></thead>
+<tbody>
+<tr><td>Primary metric</td><td>p95 TTFT and TPOT within the SLO</td><td>Tokens per GPU-hour; cost per million tokens; job completion time</td></tr>
+<tr><td>Batch size</td><td>Capped by the latency targets (about 53 streams per H100)</td><td>Capped by KV cache memory</td></tr>
+<tr><td>Capacity</td><td>Provisioned for the peak, plus headroom</td><td>Whatever is cheapest: idle, spot, or rented for a few hours</td></tr>
+<tr><td>Failures</td><td>A user sees an error</td><td>A shard is retried; only lost progress costs money</td></tr>
+<tr><td>Interface</td><td>HTTP streaming API</td><td>In-process engine, job framework, or file-based batch API</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Interactive serving compared with batch inference</p>
+
+<h2>Configuring an Engine for Throughput</h2>
+<h3>Bigger batches, no latency cap</h3>
+<p>Our chat replicas run about 53 streams per H100, the most that keeps TPOT under 25 ms once prompt chunks are mixed in (Lesson 19, GPU Utilization). A batch job raises the two scheduler limits from Lesson 7, Continuous Batching: the sequence cap (<code>--max-num-seqs</code>) goes high enough that the KV cache decides how many requests run, and the per-step token budget (<code>--max-num-batched-tokens</code>) goes up so that each step carries large prompt chunks. vLLM already does part of this for offline use: on an H100, its <code>LLM</code> class defaults to a 16,384-token budget, twice the 8,192 of <code>vllm serve</code> [1]. Recent versions also offer <code>--performance-mode throughput</code>, which favors aggregate tokens per second at high concurrency [2].</p>
+<p>How much does a bigger batch buy? Lesson 5, Tokens per Second, gives the bound for a decode step: it must read the weights once and the KV cache of every running request.</p>
+<texblock>t_{\text{step}} \geq \frac{W + B \times c \times k}{\text{bandwidth}}, \qquad \text{decode tokens per second} = \frac{B}{t_{\text{step}}}</texblock>
+<p>Here <tex>W</tex> is 16.06 GB of weights, <tex>B</tex> the number of running requests, <tex>c</tex> their average context (about 2,250 tokens for chat-shaped requests), and <tex>k</tex> the KV bytes per token (128 KiB in BF16). Following Lesson 19, we assume real steps reach 65% of the bandwidth bound:</p>
+<ul>
+<li><strong>Interactive, 53 streams</strong>: 16.06 GB + 15.6 GB of KV cache takes at least 9.5 ms, about 14.6 ms at 65%: <strong>3,640 tokens per second</strong>.</li>
+<li><strong>Offline, BF16 cache full</strong>: about 170 requests fit (Lesson 3, KV Cache). 16.06 GB + 50.1 GB takes at least 19.8 ms, 30.4 ms at 65%: <strong>5,590 tokens per second</strong>, 1.5× more.</li>
+<li><strong>Offline, FP8 cache full</strong>: at 64 KiB per token, about 340 requests read the same 50.1 GB in the same 30.4 ms: <strong>11,180 tokens per second</strong>, 3.1× more.</li>
+</ul>
+<fig src="039-batch-settings.svg" caption="Decode throughput and request throughput per H100 under interactive and offline settings (65% of the bandwidth bound)">Three pairs of bars for Llama 3.1 8B on one H100. Interactive with 53 streams: 3,640 decode tokens per second and 5.0 chat requests per second, with a 14.6 ms decode step. Offline with a full BF16 KV cache and 170 requests: 5,590 tokens per second and 6.6 requests per second, with a 30.4 ms step. Offline with an FP8 KV cache and 340 requests: 11,180 tokens per second and 9.3 requests per second, with the same 30.4 ms step.</fig>
+<p>Each stream slows from 14.6 ms to 30.4 ms per step, but nobody is reading along. Two observations temper the result. First, at 53 requests the weights are already well amortized and KV reads dominate, so a bigger BF16 batch gains only 1.5×; the larger jump comes from halving the bytes per cached token. Second, decode is only part of the work. For our chat-shaped requests of 2,000 prompt and 500 output tokens, prompts take 62.5 ms of GPU time at 32,000 tokens per second (Lesson 19), so whole requests per second rise less: from 5.0 to 6.6 (1.3×) in BF16, and to 9.3 (1.9×) with an FP8 cache, as Figure 2 shows.</p>
+
+<h3>When bigger batches stop helping</h3>
+<p>A <strong>decode-heavy</strong> job, such as synthetic data with 1,000-token answers, gains close to the full 1.5× or 3.1×. A <strong>prefill-heavy</strong> job, such as summarization or classification, spends most of its time in prefill, which is compute-bound at any batch size; for it, and for embedding backfills, the levers are fewer prompt tokens and cheaper compute (Lesson 13, Quantization - FP8, INT8 and 4-bit), not the batch cap.</p>
+<p>Our documents need 1,800 new prompt tokens each (the shared 200-token instruction is computed once and reused by prefix caching, Lesson 24) and 200 output tokens, with about the same context as a chat request. Per document:</p>
+<ul>
+<li><strong>Interactive settings</strong>: 56.3 ms of prefill + 200 × 0.27 ms of decode = 111 ms, or 1,541 GPU-hours for 50 million documents.</li>
+<li><strong>Offline, BF16 cache</strong>: 56.3 ms + 200 ÷ 5,590 s = 92.0 ms, or 1,278 GPU-hours (17% less).</li>
+<li><strong>Offline, FP8 cache</strong>: 56.3 ms + 200 ÷ 11,180 s = 74.1 ms, or <strong>1,030 GPU-hours</strong> (33% less), about 13.5 documents per second per H100.</li>
+</ul>
+<p>Prefill is now 76% of the GPU time, so further batch tuning barely matters; the price of each GPU-hour does. Adding prefill and decode times is conservative, since chunked prefill overlaps some prompt compute with memory-bound decode steps, so measure a pilot run before sizing the job.</p>
+<callout kind="tip" title="Interview tip">Before tuning a batch job, split its tokens into prefill and decode. Batch size and KV precision help decode-heavy jobs; prefill-heavy jobs need fewer prompt tokens, cheaper compute, or cheaper GPU-hours.</callout>
+
+<h3>Offline APIs: from one GPU to a fleet</h3>
+<p>The simplest way to run a batch is to skip the HTTP server. vLLM's <code>LLM</code> class runs the engine inside a Python process: <code>llm.generate()</code> takes a list of prompts and <code>llm.chat()</code> a list of conversations, scheduled with the same continuous batching as the server [3]. <code>vllm run-batch</code> processes a JSONL file of requests in the OpenAI batch format, each with a <code>custom_id</code>, and writes responses keyed by the same IDs [4].</p>
+<p>One GPU at 13.5 documents per second would need 43 days for our job. Large jobs need a framework that shards the input across many engine replicas, retries failures, and records progress. <strong>Ray Data</strong> provides this for vLLM: <code>vLLMEngineProcessorConfig</code> describes the engine, <code>build_processor</code> wraps it with preprocessing and postprocessing functions, and the <code>concurrency</code> setting sets the number of engine replicas [5]. Figure 3 shows the pipeline.</p>
+<fig src="039-job-pipeline.svg" caption="A sharded batch pipeline with checkpointed progress">Parquet shards in object storage are read by Ray Data, preprocessed into chat messages, and sent to a pool of vLLM engine replicas, one per H100, each running large batches. Postprocessing keeps the document ID with each summary, and results are written back to object storage as Parquet. A checkpoint records finished document IDs, so when a spot GPU is reclaimed the job restarts and skips completed work.</fig>
+<p>Checkpointing is what makes long jobs cheap to interrupt. Ray Data can record finished rows by an ID column for pipelines that start with a read and end with a write; rerunning the same code resumes from the last successful block [5]. Without a framework, write each shard's output with an atomic rename and skip shards whose output exists, as the first tab of In Practice does.</p>
+
+<h3>Hosted batch APIs</h3>
+<p>Model providers sell the same trade as a product. A <strong>batch API</strong> accepts a file of requests, processes it asynchronously within a <strong>completion window</strong>, and charges less than the synchronous API, because the provider can run the work whenever its fleet has spare capacity. At the time of writing, OpenAI's Batch API offers 50% lower costs with a 24-hour window and up to 50,000 requests per batch [6], and Anthropic's Message Batches API also cuts costs by 50%, with most batches finishing within an hour, a 24-hour expiry, and up to 100,000 requests per batch [7]. Terms change, so check them. A batch API fits when we lack GPUs or cannot host the best model for the task, and it sends the data outside our environment.</p>
+
+<h2>Sharing GPUs with Interactive Traffic</h2>
+<h3>Priority scheduling inside the engine</h3>
+<p>The cheapest GPU-hours are the ones we already pay for. The finest-grained way to reuse them is to send batch requests to the chat replicas at a lower priority. vLLM supports this with <code>--scheduling-policy priority</code>: each request carries an integer <code>priority</code>, in the JSON body or the <code>X-Vllm-Priority</code> header, and lower values are handled first, with arrival time breaking ties [2][8]. Non-zero priorities are rejected unless the server uses the priority policy [8].</p>
+<fig src="039-priority-replica.svg" caption="Mixing chat and batch requests in one replica with priority scheduling">Chat requests with priority 0 and batch requests with priority 10 enter one vLLM replica. The waiting queue is ordered by priority, so a new chat request is admitted before any waiting batch request. When the KV cache runs out of blocks for running requests, the scheduler preempts the running request with the largest priority value, a batch request. A running batch request is not evicted just to admit a waiting chat request, so the batch client caps its own in-flight requests per replica.</fig>
+<p>Figure 4 shows what the policy does and does not do. Waiting chat requests go ahead of waiting batch requests, and when running requests need KV blocks, the scheduler preempts the running request with the largest priority value first. But in the current scheduler, a chat request that arrives when the batch is full waits for room instead of evicting a running batch request [9], so batch work can still add queueing delay. The fix is on the client side: keep only a few batch requests in flight per replica, for example 8 of the 53 slots, and pause when the replica reports waiting requests (Lesson 29, Queue Depth). Batch requests here also run with interactive settings, so this mode suits small trickles of work, not a 100-billion-token job.</p>
+
+<h3>Filling the off-peak valley</h3>
+<p>The larger opportunity is the daily cycle. Our 7 reserved H100s exist for the 33 requests per second of the afternoon peak, but traffic averages about 16.7 requests per second and sits near 8 from evening to early morning. At 5 requests per second per H100, the night load needs 2 GPUs, with 20% headroom. Figure 5 shows the valley this leaves.</p>
+<fig src="039-valley-fill.svg" caption="Lending idle GPUs of a reserved chat fleet to a batch job (illustrative daily cycle)">A 24-hour chart of a fleet of 7 reserved H100s. Chat traffic sits at 8 requests per second overnight, ramps from 07:00, peaks at 33 at 13:00, and falls back to 8 by 20:00, averaging about 16.7. A step line shows the H100s held for chat, 2 at night and 7 during the day. The area between that line and the 7-GPU capacity is lent to the batch job: 5 GPUs from 20:00 to 07:00 plus a few on the evening shoulder, about 63 GPU-hours a day.</fig>
+<p>Here we lend whole GPUs rather than mixing requests, so the batch replicas can use offline settings. In Kubernetes, batch pods run with a lower PriorityClass than chat pods. When the autoscaler needs a GPU back (Lesson 22, Autoscaling), the scheduler preempts a batch pod, which receives its graceful termination period to finish or save work [10]. A scheduled floor that returns the GPUs at about 06:45, before the morning ramp, avoids making chat wait out a cold start (Lesson 23, Cold Starts). The valley holds about 63 GPU-hours a day: 5 GPUs for the 11 hours from 20:00 to 07:00, plus 8 GPU-hours on the evening shoulder.</p>
+<p>This capacity is free only because the GPUs are paid for whatever happens: reserved, committed, or owned. A fleet of on-demand GPUs that scales down at night already saves that money (Lesson 20, Cost per Million Tokens), and its batch work belongs on spot capacity instead.</p>
+
+<h3>Spot and preemptible GPUs</h3>
+<p>Spot capacity is the other cheap source, reclaimed at short notice: AWS gives a two-minute interruption notice [11], and Google Cloud gives Spot VMs a best-effort shutdown period of up to 30 seconds by default [12]. A batch job tolerates this if no interruption loses much work. A shard of 5,000 documents takes about 6 minutes on one H100, so an interruption loses at most 6 GPU-minutes. Research systems migrate running requests between preemptible instances [13], but for offline work, small shards and an idempotent writer are enough. Spot H100s are not always available, so a job that relies on them needs slack in its deadline or an on-demand fallback.</p>
+
+<h3>What filling idle capacity costs</h3>
+<p>Lesson 20 showed that effective cost equals full-load cost divided by the utilization factor <tex>U</tex>. Our 7 H100s cost $504 a day at an assumed $3.00 per H100-hour. Chat needs about 80 GPU-hours of work a day (16.7 ÷ 5 × 24), so <tex>U</tex> is 48% and a million output tokens costs about $0.70, against $0.33 at full load. The valley adds 63 GPU-hours of batch work for no extra spend, raising <tex>U</tex> to (80 + 63) ÷ 168 ≈ 85%. If we credit the batch job with what those hours cost on demand, $189 a day, chat's share falls to $315 and its cost to about $0.44 per million output tokens. Table 2 compares the options, using the FP8-cache plan of 1,030 GPU-hours.</p>
+<table>
+<thead><tr><th>Option</th><th>GPU-hours</th><th>Price assumption</th><th>Job cost</th><th>Duration</th></tr></thead>
+<tbody>
+<tr><td>On-demand H100s, interactive settings</td><td>1,541</td><td>$3.00 per hour</td><td>$4,620</td><td>24 h on 64 GPUs</td></tr>
+<tr><td>On-demand H100s, offline settings</td><td>1,030</td><td>$3.00 per hour</td><td>$3,090 ($0.031 per 1M tokens processed)</td><td>16 h on 64 GPUs</td></tr>
+<tr><td>Spot H100s, 10% rework</td><td>1,133</td><td>$1.50 per hour</td><td>$1,700</td><td>Depends on spot supply</td></tr>
+<tr><td>Night valley of the chat fleet</td><td>1,030</td><td>Already paid</td><td>≈ $0 extra</td><td>About 16 days at 63 GPU-hours a day</td></tr>
+<tr><td>Hosted batch API, 50% off Lesson 20's assumed prices</td><td>None</td><td>$0.10 in, $0.30 out per 1M tokens</td><td>$13,000</td><td>500–1,000 batches, each within 24 h</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Ways to run 50 million summaries (all prices are assumptions)</p>
+<p>The hosted API row counts all 2,000 prompt tokens per document (100 billion) at $0.10 per million and 10 billion output tokens at $0.30 per million. Self-hosting wins here mainly because our input tokens cost about $0.03 per million to process (Lesson 20), far below the assumed API price.</p>
+
+<h4>How should we run a 50-million-document summarization job?</h4>
+<p>We run it <strong>ourselves, in the night valley of the chat fleet</strong>, with spot H100s as a backup. A pilot of 10,000 documents on one GPU first measures real throughput and checks the summaries against the 500 labeled examples, with and without the FP8 KV cache. If FP8 passes, the job needs about 1,030 GPU-hours, which the valley supplies in about 16 nights, inside the four-week deadline, at no extra GPU cost. It runs as a Ray Data pipeline of vLLM replicas in offline settings, over 10,000 shards of 5,000 documents, checkpointed by document ID, in pods with a low PriorityClass that hand the GPUs back at 06:45.</p>
+<p>If the job falls behind, spot H100s finish the remainder; even the whole job would cost about $1,700 there. The hosted batch API is the choice only if the archive may leave our environment and the best summarizer is a model we cannot host; at these assumed prices it costs about four times the on-demand option. We do not trickle this job into chat replicas: at 100 billion tokens it would hold slots chat users need, with interactive settings.</p>
+
+<h2>In Practice</h2>
+<p>The first tab runs the job on one GPU with vLLM's <code>LLM</code> class, shard by shard, skipping shards that are already done. The second runs the same job across many GPUs with Ray Data, with checkpointing by document ID; it needs Ray 2.53 or later [5]. The third is a client that trickles low-priority batch requests into an interactive vLLM server started with <code>--scheduling-policy priority</code>, keeping only a few in flight.</p>
+<codetabs>
+<tab label="vLLM LLM class" lang="python">
+import glob
+import json
+import os
+
+from vllm import LLM, SamplingParams
+
+INSTRUCTION = "Summarize the document in at most 150 words. Keep names, dates and amounts."
+
+llm = LLM(
+    model="meta-llama/Llama-3.1-8B-Instruct",
+    max_model_len=4096,
+    gpu_memory_utilization=0.90,   # set explicitly; recent vLLM defaults to 0.92
+    max_num_seqs=512,              # let KV cache memory, not this cap, limit the batch
+    max_num_batched_tokens=16384,  # large steps: prefill dominates this job
+    enable_prefix_caching=True,    # the shared instruction is computed once
+    kv_cache_dtype="fp8",          # only after the pilot evaluation passes
+)
+params = SamplingParams(temperature=0.0, max_tokens=300)
+
+
+def run_shard(in_path: str, out_path: str) -> None:
+    with open(in_path, encoding="utf-8") as f:
+        docs = [json.loads(line) for line in f]
+    conversations = [
+        [{"role": "system", "content": INSTRUCTION},
+         {"role": "user", "content": d["text"]}]
+        for d in docs
+    ]
+    outputs = llm.chat(conversations, params, use_tqdm=False)  # same order as inputs
+    tmp = out_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        for doc, out in zip(docs, outputs):
+            f.write(json.dumps({"doc_id": doc["doc_id"], "summary": out.outputs[0].text}) + "\n")
+    os.replace(tmp, out_path)  # atomic: a shard is either done or not
+
+
+for in_path in sorted(glob.glob("shards/*.jsonl")):
+    out_path = in_path.replace("shards/", "summaries/")
+    if os.path.exists(out_path):
+        continue  # finished before an interruption
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    run_shard(in_path, out_path)
+</tab>
+<tab label="Ray Data + vLLM" lang="python">
+import ray
+from ray.data.checkpoint import CheckpointConfig
+from ray.data.llm import build_processor, vLLMEngineProcessorConfig
+
+INSTRUCTION = "Summarize the document in at most 150 words. Keep names, dates and amounts."
+
+ctx = ray.data.DataContext.get_current()
+ctx.checkpoint_config = CheckpointConfig(
+    id_column="doc_id",
+    checkpoint_path="s3://archive-job/checkpoint/",
+    delete_checkpoint_on_success=False,
+)
+
+config = vLLMEngineProcessorConfig(
+    model_source="meta-llama/Llama-3.1-8B-Instruct",
+    engine_kwargs={
+        "max_model_len": 4096,
+        "max_num_seqs": 512,
+        "max_num_batched_tokens": 16384,
+        "enable_prefix_caching": True,
+        "kv_cache_dtype": "fp8",
+    },
+    concurrency=64,                # up to 64 engine replicas, one per GPU (autoscales from 1)
+    batch_size=64,                 # rows handed to an engine at a time
+    should_continue_on_error=True, # one bad document does not fail the job
+)
+
+processor = build_processor(
+    config,
+    preprocess=lambda row: dict(
+        doc_id=row["doc_id"],      # keep the ID for checkpointing
+        messages=[{"role": "system", "content": INSTRUCTION},
+                  {"role": "user", "content": row["text"]}],
+        sampling_params=dict(temperature=0.0, max_tokens=300),
+    ),
+    postprocess=lambda row: dict(doc_id=row["doc_id"], summary=row["generated_text"]),
+)
+
+ds = ray.data.read_parquet("s3://archive-job/docs/")
+processor(ds).write_parquet("s3://archive-job/summaries/")
+# Rerun the same script after an interruption: finished doc_ids are skipped.
+</tab>
+<tab label="Low-priority client" lang="python">
+"""Trickle batch work into an interactive vLLM server started with
+   vllm serve meta-llama/Llama-3.1-8B-Instruct --scheduling-policy priority
+Chat traffic uses the default priority 0; batch uses 10 (lower runs first)."""
+import asyncio
+
+from openai import AsyncOpenAI
+
+client = AsyncOpenAI(base_url="http://localhost:8000/v1", api_key="unused")
+IN_FLIGHT = asyncio.Semaphore(8)  # never hold more than 8 of the ~53 slots
+
+
+async def summarize(doc_id: str, text: str) -> tuple[str, str]:
+    async with IN_FLIGHT:
+        resp = await client.chat.completions.create(
+            model="meta-llama/Llama-3.1-8B-Instruct",
+            messages=[{"role": "user", "content": f"Summarize in 150 words:\n\n{text}"}],
+            max_tokens=300,
+            temperature=0.0,
+            extra_body={"priority": 10},
+        )
+        return doc_id, resp.choices[0].message.content
+
+
+async def main(docs: dict[str, str]) -> None:
+    for doc_id, summary in await asyncio.gather(*(summarize(i, t) for i, t in docs.items())):
+        print(doc_id, summary[:60])
+
+
+asyncio.run(main({"doc-1": "First document ...", "doc-2": "Second document ..."}))
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Throughput-oriented systems such as FlexGen offload weights and KV cache to CPU memory and disk to run very large batches on a single GPU, trading latency for throughput [14].</li>
+<li>Evaluation jobs before a release are batch jobs that sit on the critical path of a rollout, so they deserve dedicated capacity at release time (Lesson 40, Reliability and Rollouts).</li>
+<li>Greedy decoding with pinned model and engine versions makes reruns of failed shards reproducible enough to compare.</li>
+<li>Larger teacher models for synthetic data, such as Llama 3.1 70B, are decode-heavy and gain the most from offline settings and FP8 (Lesson 14, Distillation).</li>
+<li>Counting tokens per job and per team turns batch work into a chargeback line, the same way per-request accounting does for chat (Lesson 31, Per-Request Token Accounting).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="039-summary.png" caption="Batch and offline inference summary" optional="1">Mind map summarizing the batch inference lesson: the workloads, throughput settings, offline APIs, sharing GPUs with chat, spot capacity, and cost.</fig>
+<ul>
+<li>Batch workloads have no waiting user, so they optimize tokens per GPU-hour, cost per million tokens, and job completion time instead of TTFT and TPOT.</li>
+<li>Offline settings let KV memory, not a latency cap, limit the batch. For Llama 3.1 8B on an H100, decode rises from about 3,640 tokens per second at 53 streams to 5,590 with a full BF16 cache and 11,180 with an FP8 cache.</li>
+<li>Prefill-heavy jobs gain less: our summaries take 111 ms per document with interactive settings and 74 ms with offline settings and an FP8 cache, 1,030 GPU-hours in all.</li>
+<li>vLLM's <code>LLM</code> class and <code>vllm run-batch</code> run jobs on one machine; Ray Data shards them across many engines and checkpoints progress by ID.</li>
+<li>Priority scheduling lets batch requests share interactive replicas, but a waiting chat request does not evict running batch work, so limit batch requests in flight.</li>
+<li>Lending a reserved fleet's night valley to batch raised utilization from 48% to 85% and cut chat's cost from about $0.70 to $0.44 per million output tokens.</li>
+<li>Spot GPUs suit batch work with small, idempotent shards; hosted batch APIs offer about 50% discounts within a 24-hour window.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] vLLM source: EngineArgs batch defaults by usage context (vllm/engine/arg_utils.py). <a href="https://github.com/vllm-project/vllm/blob/main/vllm/engine/arg_utils.py" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm/blob/main/vllm/engine/arg_utils.py</a>.<br>
+[2] vLLM documentation: vllm serve. <a href="https://docs.vllm.ai/en/latest/cli/serve/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/cli/serve/</a>.<br>
+[3] vLLM documentation: Offline Inference. <a href="https://docs.vllm.ai/en/latest/serving/offline_inference.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/serving/offline_inference.html</a>.<br>
+[4] vLLM documentation: OpenAI Batch example. <a href="https://docs.vllm.ai/en/latest/examples/features/openai_batch/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/examples/features/openai_batch/</a>.<br>
+[5] Ray documentation: Working with LLMs. <a href="https://docs.ray.io/en/latest/data/working-with-llms.html" rel="noopener noreferrer" target="_blank">https://docs.ray.io/en/latest/data/working-with-llms.html</a>.<br>
+[6] OpenAI documentation: Batch API. <a href="https://developers.openai.com/api/docs/guides/batch" rel="noopener noreferrer" target="_blank">https://developers.openai.com/api/docs/guides/batch</a>.<br>
+[7] Anthropic documentation: Batch processing. <a href="https://platform.claude.com/docs/en/build-with-claude/batch-processing" rel="noopener noreferrer" target="_blank">https://platform.claude.com/docs/en/build-with-claude/batch-processing</a>.<br>
+[8] vLLM documentation: OpenAI-Compatible Server. <a href="https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/</a>.<br>
+[9] vLLM source: V1 scheduler (vllm/v1/core/sched/scheduler.py). <a href="https://github.com/vllm-project/vllm/blob/main/vllm/v1/core/sched/scheduler.py" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm/blob/main/vllm/v1/core/sched/scheduler.py</a>.<br>
+[10] Kubernetes documentation: Pod Priority and Preemption. <a href="https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/" rel="noopener noreferrer" target="_blank">https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/</a>.<br>
+[11] Amazon Web Services documentation: Spot Instance interruption notices. <a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-instance-termination-notices.html" rel="noopener noreferrer" target="_blank">https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-instance-termination-notices.html</a>.<br>
+[12] Google Cloud documentation: Spot VMs. <a href="https://docs.cloud.google.com/compute/docs/instances/spot" rel="noopener noreferrer" target="_blank">https://docs.cloud.google.com/compute/docs/instances/spot</a>.<br>
+[13] Miao et al. SpotServe: Serving Generative Large Language Models on Preemptible Instances. <a href="https://arxiv.org/abs/2311.15566" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2311.15566</a>.<br>
+[14] Sheng et al. FlexGen: High-Throughput Generative Inference of Large Language Models with a Single GPU. <a href="https://arxiv.org/abs/2303.06865" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2303.06865</a>.</p>

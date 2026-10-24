@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .line{fill:none;stroke:#ccc;stroke-width:1}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="20" y="24" class="b">Where a 100K-token cache (13.1 GB in BF16) can live, and how long it takes to bring back</text>
+  <text x="20" y="54" class="sm b">tier</text>
+  <text x="200" y="54" class="sm b">capacity</text>
+  <text x="380" y="54" class="sm b">bandwidth to the GPU</text>
+  <text x="600" y="54" class="sm b">time to load (bar: 16 px per s)</text>
+  <path d="M20,62 L820,62" class="line"/>
+
+  <rect x="20" y="72" width="160" height="40" rx="4" class="blue"/><text x="100" y="97" text-anchor="middle">GPU HBM</text>
+  <text x="200" y="89" class="sm">80 GB per GPU</text><text x="200" y="104" class="sm">(≈ 52 GiB for KV)</text>
+  <text x="380" y="97" class="sm">3.35 TB/s</text>
+  <text x="600" y="97" class="sm">already resident: 0 s</text>
+
+  <rect x="20" y="122" width="160" height="40" rx="4" class="blue"/><text x="100" y="147" text-anchor="middle">CPU DRAM</text>
+  <text x="200" y="139" class="sm">2 TB per 8-GPU node</text><text x="200" y="154" class="sm">(≈ 250 GB per GPU)</text>
+  <text x="380" y="139" class="sm">PCIe Gen5 x16: 64 GB/s peak</text><text x="380" y="154" class="sm">assume ≈ 50 GB/s achieved</text>
+  <rect x="600" y="134" width="4" height="16" class="green"/><text x="612" y="147" class="sm">0.26 s</text>
+
+  <rect x="20" y="172" width="160" height="40" rx="4" class="blue"/><text x="100" y="197" text-anchor="middle">Local NVMe</text>
+  <text x="200" y="189" class="sm">8 × 3.84 TB per node</text><text x="200" y="204" class="sm">(≈ 31 TB)</text>
+  <text x="380" y="189" class="sm">RAID 0 array: assume</text><text x="380" y="204" class="sm">≈ 20 GB/s for the node</text>
+  <rect x="600" y="184" width="11" height="16" class="green"/><text x="619" y="197" class="sm">0.66 s</text>
+
+  <rect x="20" y="222" width="160" height="40" rx="4" class="blue"/><text x="100" y="247" text-anchor="middle">Remote KV store</text>
+  <text x="200" y="239" class="sm">pooled DRAM and SSD</text><text x="200" y="254" class="sm">across many nodes</text>
+  <text x="380" y="239" class="sm">RDMA: ≈ 24 GB/s per 400 Gb/s</text><text x="380" y="254" class="sm">NIC (Mooncake measurement)</text>
+  <rect x="600" y="234" width="9" height="16" class="green"/><text x="617" y="247" class="sm">0.55 s</text>
+
+  <path d="M20,272 L820,272" class="line"/>
+  <rect x="20" y="282" width="160" height="40" rx="4" class="red"/><text x="100" y="307" text-anchor="middle">Recompute</text>
+  <text x="200" y="307" class="sm">no storage</text>
+  <text x="380" y="299" class="sm">989 TFLOPS dense BF16</text><text x="380" y="314" class="sm">at 50% MFU</text>
+  <rect x="600" y="294" width="137" height="16" class="red"/><text x="745" y="307" class="sm">8.55 s</text>
+</svg>

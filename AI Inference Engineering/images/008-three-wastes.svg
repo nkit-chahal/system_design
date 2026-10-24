@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="290" viewBox="0 0 840 290" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1}
+    .gap{fill:url(#hatch);stroke:#999;stroke-width:1}
+    .lead{fill:none;stroke:#000;stroke-width:1}
+    .frame{fill:none;stroke:#000;stroke-width:1.5}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="40" y="78" width="14" height="26" class="blue"/>
+  <rect x="54" y="78" width="14" height="26" class="blue"/>
+  <rect x="68" y="78" width="14" height="26" class="blue"/>
+  <rect x="82" y="78" width="14" height="26" class="blue"/>
+  <rect x="96" y="78" width="14" height="26" class="blue"/>
+  <rect x="110" y="78" width="14" height="26" class="blue"/>
+  <rect x="124" y="78" width="14" height="26" class="blue"/>
+  <rect x="138" y="78" width="14" height="26" class="blue"/>
+  <rect x="152" y="78" width="14" height="26" class="blue"/>
+  <rect x="166" y="78" width="14" height="26" class="yellow"/>
+  <rect x="180" y="78" width="14" height="26" class="yellow"/>
+  <rect x="194" y="78" width="14" height="26" class="yellow"/>
+  <rect x="208" y="78" width="14" height="26" class="red"/>
+  <rect x="222" y="78" width="14" height="26" class="red"/>
+  <rect x="236" y="78" width="14" height="26" class="red"/>
+  <rect x="250" y="78" width="14" height="26" class="red"/>
+  <rect x="264" y="78" width="14" height="26" class="red"/>
+  <rect x="278" y="78" width="14" height="26" class="red"/>
+  <rect x="292" y="78" width="14" height="26" class="red"/>
+  <rect x="306" y="78" width="14" height="26" class="red"/>
+  <rect x="320" y="78" width="14" height="26" class="red"/>
+  <rect x="334" y="78" width="14" height="26" class="red"/>
+  <rect x="348" y="78" width="14" height="26" class="red"/>
+  <rect x="362" y="78" width="14" height="26" class="red"/>
+  <rect x="376" y="78" width="14" height="26" class="red"/>
+  <rect x="390" y="78" width="14" height="26" class="red"/>
+  <rect x="404" y="78" width="14" height="26" class="red"/>
+  <rect x="418" y="78" width="14" height="26" class="red"/>
+  <rect x="432" y="78" width="14" height="26" class="red"/>
+  <rect x="446" y="78" width="14" height="26" class="red"/>
+  <rect x="460" y="78" width="14" height="26" class="red"/>
+  <rect x="474" y="78" width="14" height="26" class="red"/>
+  <rect x="488" y="78" width="14" height="26" class="gap"/>
+  <rect x="502" y="78" width="14" height="26" class="gap"/>
+  <rect x="516" y="78" width="14" height="26" class="gap"/>
+  <rect x="530" y="78" width="14" height="26" class="gap"/>
+  <rect x="544" y="78" width="14" height="26" class="gap"/>
+  <rect x="558" y="78" width="14" height="26" class="gap"/>
+  <rect x="572" y="78" width="14" height="26" class="blue"/>
+  <rect x="586" y="78" width="14" height="26" class="blue"/>
+  <rect x="600" y="78" width="14" height="26" class="blue"/>
+  <rect x="614" y="78" width="14" height="26" class="blue"/>
+  <rect x="628" y="78" width="14" height="26" class="blue"/>
+  <rect x="642" y="78" width="14" height="26" class="yellow"/>
+  <rect x="656" y="78" width="14" height="26" class="yellow"/>
+  <rect x="670" y="78" width="14" height="26" class="red"/>
+  <rect x="684" y="78" width="14" height="26" class="red"/>
+  <rect x="698" y="78" width="14" height="26" class="red"/>
+  <rect x="712" y="78" width="14" height="26" class="red"/>
+  <rect x="726" y="78" width="14" height="26" class="red"/>
+  <rect x="740" y="78" width="14" height="26" class="red"/>
+  <rect x="754" y="78" width="14" height="26" class="red"/>
+  <rect x="768" y="78" width="14" height="26" class="red"/>
+  <rect x="782" y="78" width="14" height="26" class="red"/>
+  <rect x="40" y="78" width="448" height="26" class="frame"/>
+  <rect x="572" y="78" width="224" height="26" class="frame"/>
+  <text x="16" y="26" class="b">Contiguous allocation: each request reserves its maximum length up front</text>
+  <text x="264" y="66" text-anchor="middle">Request A: reserved for its maximum of 32 tokens</text>
+  <text x="684" y="66" text-anchor="middle">Request B: maximum 16</text>
+  <text x="103" y="134" text-anchor="middle" class="sm">9 tokens stored</text>
+  <text x="348" y="134" text-anchor="middle" class="sm">20 slots never used: internal fragmentation</text>
+  <text x="607" y="134" text-anchor="middle" class="sm">5 stored</text>
+  <text x="733" y="134" text-anchor="middle" class="sm">9 never used</text>
+  <path class="lead" d="M187,104 V150"/>
+  <text x="187" y="166" text-anchor="middle" class="sm">3 reserved for tokens still to come</text>
+  <path class="lead" d="M656,104 V150"/>
+  <text x="656" y="166" text-anchor="middle" class="sm">2 reserved</text>
+  <path class="lead" d="M530,104 V180"/>
+  <text x="530" y="196" text-anchor="middle" class="sm">6-slot gap: external fragmentation, too small for a new 16-slot request</text>
+  <text x="16" y="228">Only 14 of 54 slots hold tokens (26%). The PagedAttention paper measured 20.4% to 38.2% in such systems.</text>
+  <rect x="16" y="256" width="18" height="12" class="blue"/><text x="40" y="267" class="sm">token stored</text>
+  <rect x="140" y="256" width="18" height="12" class="yellow"/><text x="164" y="267" class="sm">reserved for future tokens</text>
+  <rect x="330" y="256" width="18" height="12" class="red"/><text x="354" y="267" class="sm">never used (internal fragmentation)</text>
+  <rect x="578" y="256" width="18" height="12" class="gap"/><text x="602" y="267" class="sm">gap (external fragmentation)</text>
+</svg>

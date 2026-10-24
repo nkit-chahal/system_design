@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .thick{fill:none;stroke:#000;stroke-width:2.4;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .ref{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="20" y="26" class="b">Prefill and decode H100s for four workloads on Llama 3.1 8B (prefill at 80% busy, decode at 21 ms per step)</text>
+  <text x="20" y="68" class="b">Chat (running example)</text>
+  <text x="20" y="86" class="sm">2,000 in, 500 out, 33 req/s at peak</text>
+  <rect x="300" y="54" width="26" height="26" rx="3" class="orange"/>
+  <text x="313" y="72" text-anchor="middle" class="sm">P</text>
+  <rect x="330" y="54" width="26" height="26" rx="3" class="orange"/>
+  <text x="343" y="72" text-anchor="middle" class="sm">P</text>
+  <rect x="360" y="54" width="26" height="26" rx="3" class="orange"/>
+  <text x="373" y="72" text-anchor="middle" class="sm">P</text>
+  <rect x="408" y="54" width="26" height="26" rx="3" class="blue"/>
+  <text x="421" y="72" text-anchor="middle" class="sm">D</text>
+  <rect x="438" y="54" width="26" height="26" rx="3" class="blue"/>
+  <text x="451" y="72" text-anchor="middle" class="sm">D</text>
+  <rect x="468" y="54" width="26" height="26" rx="3" class="blue"/>
+  <text x="481" y="72" text-anchor="middle" class="sm">D</text>
+  <rect x="498" y="54" width="26" height="26" rx="3" class="blue"/>
+  <text x="511" y="72" text-anchor="middle" class="sm">D</text>
+  <text x="542" y="72" class="b">3 : 4</text>
+  <text x="300" y="100" class="sm">before rounding 2.66 : 3.44 GPUs, ratio 0.77</text>
+  <text x="20" y="140" class="b">Document Q&amp;A</text>
+  <text x="20" y="158" class="sm">8,000 in, 200 out, 10 req/s</text>
+  <rect x="300" y="126" width="26" height="26" rx="3" class="orange"/>
+  <text x="313" y="144" text-anchor="middle" class="sm">P</text>
+  <rect x="330" y="126" width="26" height="26" rx="3" class="orange"/>
+  <text x="343" y="144" text-anchor="middle" class="sm">P</text>
+  <rect x="360" y="126" width="26" height="26" rx="3" class="orange"/>
+  <text x="373" y="144" text-anchor="middle" class="sm">P</text>
+  <rect x="390" y="126" width="26" height="26" rx="3" class="orange"/>
+  <text x="403" y="144" text-anchor="middle" class="sm">P</text>
+  <rect x="438" y="126" width="26" height="26" rx="3" class="blue"/>
+  <text x="451" y="144" text-anchor="middle" class="sm">D</text>
+  <rect x="468" y="126" width="26" height="26" rx="3" class="blue"/>
+  <text x="481" y="144" text-anchor="middle" class="sm">D</text>
+  <text x="512" y="144" class="b">4 : 2</text>
+  <text x="300" y="172" class="sm">before rounding 3.53 : 1.50 GPUs, ratio 2.35</text>
+  <text x="20" y="212" class="b">Long documents</text>
+  <text x="20" y="230" class="sm">32,000 in, 300 out, 2 req/s</text>
+  <rect x="300" y="198" width="26" height="26" rx="3" class="orange"/>
+  <text x="313" y="216" text-anchor="middle" class="sm">P</text>
+  <rect x="330" y="198" width="26" height="26" rx="3" class="orange"/>
+  <text x="343" y="216" text-anchor="middle" class="sm">P</text>
+  <rect x="360" y="198" width="26" height="26" rx="3" class="orange"/>
+  <text x="373" y="216" text-anchor="middle" class="sm">P</text>
+  <rect x="390" y="198" width="26" height="26" rx="3" class="orange"/>
+  <text x="403" y="216" text-anchor="middle" class="sm">P</text>
+  <rect x="438" y="198" width="26" height="26" rx="3" class="blue"/>
+  <text x="451" y="216" text-anchor="middle" class="sm">D</text>
+  <rect x="468" y="198" width="26" height="26" rx="3" class="blue"/>
+  <text x="481" y="216" text-anchor="middle" class="sm">D</text>
+  <text x="512" y="216" class="b">4 : 2</text>
+  <text x="300" y="244" class="sm">before rounding 3.80 : 1.79 GPUs, ratio 2.13</text>
+  <text x="20" y="284" class="b">Reasoning</text>
+  <text x="20" y="302" class="sm">1,000 in, 4,000 out, 10 req/s</text>
+  <rect x="300" y="270" width="26" height="26" rx="3" class="orange"/>
+  <text x="313" y="288" text-anchor="middle" class="sm">P</text>
+  <rect x="348" y="270" width="26" height="26" rx="3" class="blue"/>
+  <text x="361" y="288" text-anchor="middle" class="sm">D</text>
+  <rect x="378" y="270" width="26" height="26" rx="3" class="blue"/>
+  <text x="391" y="288" text-anchor="middle" class="sm">D</text>
+  <rect x="408" y="270" width="26" height="26" rx="3" class="blue"/>
+  <text x="421" y="288" text-anchor="middle" class="sm">D</text>
+  <rect x="438" y="270" width="26" height="26" rx="3" class="blue"/>
+  <text x="451" y="288" text-anchor="middle" class="sm">D</text>
+  <rect x="468" y="270" width="26" height="26" rx="3" class="blue"/>
+  <text x="481" y="288" text-anchor="middle" class="sm">D</text>
+  <rect x="498" y="270" width="26" height="26" rx="3" class="blue"/>
+  <text x="511" y="288" text-anchor="middle" class="sm">D</text>
+  <rect x="528" y="270" width="26" height="26" rx="3" class="blue"/>
+  <text x="541" y="288" text-anchor="middle" class="sm">D</text>
+  <rect x="558" y="270" width="26" height="26" rx="3" class="blue"/>
+  <text x="571" y="288" text-anchor="middle" class="sm">D</text>
+  <rect x="588" y="270" width="26" height="26" rx="3" class="blue"/>
+  <text x="601" y="288" text-anchor="middle" class="sm">D</text>
+  <rect x="618" y="270" width="26" height="26" rx="3" class="blue"/>
+  <text x="631" y="288" text-anchor="middle" class="sm">D</text>
+  <rect x="648" y="270" width="26" height="26" rx="3" class="blue"/>
+  <text x="661" y="288" text-anchor="middle" class="sm">D</text>
+  <rect x="678" y="270" width="26" height="26" rx="3" class="blue"/>
+  <text x="691" y="288" text-anchor="middle" class="sm">D</text>
+  <text x="722" y="288" class="b">1 : 12</text>
+  <text x="300" y="316" class="sm">before rounding 0.40 : 11.13 GPUs, ratio 0.04</text>
+  <rect x="20" y="342" width="18" height="14" rx="3" class="orange"/>
+  <text x="44" y="354" class="sm">prefill GPU (compute-bound)</text>
+  <rect x="250" y="342" width="18" height="14" rx="3" class="blue"/>
+  <text x="274" y="354" class="sm">decode GPU (memory-bound)</text>
+  <text x="20" y="380" class="sm">Model estimate from the In Practice calculator. Long prompts push the ratio up; long outputs push it down.</text>
+</svg>

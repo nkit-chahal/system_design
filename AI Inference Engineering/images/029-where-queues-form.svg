@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="320" viewBox="0 0 840 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .free{fill:#fff;stroke:#6c8ebf;stroke-width:1}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Clients -->
+  <rect x="16" y="118" width="74" height="50" rx="6" class="white"/>
+  <text x="53" y="148" text-anchor="middle">clients</text>
+  <path d="M90,143 L118,143" class="edge"/>
+
+  <!-- Load balancer -->
+  <rect x="120" y="108" width="108" height="70" rx="6" class="gray"/>
+  <text x="174" y="138" text-anchor="middle">Load</text>
+  <text x="174" y="156" text-anchor="middle">balancer</text>
+  <rect x="152" y="186" width="14" height="14" rx="2" class="purple"/><rect x="170" y="186" width="14" height="14" rx="2" class="purple"/>
+  <path d="M228,143 L256,143" class="edge"/>
+
+  <!-- Gateway -->
+  <rect x="258" y="108" width="108" height="70" rx="6" class="gray"/>
+  <text x="312" y="138" text-anchor="middle">API</text>
+  <text x="312" y="156" text-anchor="middle">gateway</text>
+  <rect x="281" y="186" width="14" height="14" rx="2" class="purple"/><rect x="299" y="186" width="14" height="14" rx="2" class="purple"/><rect x="317" y="186" width="14" height="14" rx="2" class="purple"/>
+  <text x="243" y="226" text-anchor="middle" class="sm">short queues; they see requests</text>
+  <text x="243" y="241" text-anchor="middle" class="sm">in flight, not waiting vs. running</text>
+  <path d="M366,143 L402,143" class="edge"/>
+
+  <!-- Engine replica -->
+  <rect x="388" y="40" width="440" height="268" rx="4" class="group"/>
+  <text x="402" y="62" class="b">Engine replica (one H100)</text>
+
+  <rect x="404" y="108" width="84" height="70" rx="6" class="gray"/>
+  <text x="446" y="132" text-anchor="middle">API</text>
+  <text x="446" y="149" text-anchor="middle">server</text>
+  <text x="446" y="166" text-anchor="middle" class="sm">tokenize</text>
+  <path d="M488,143 L510,143" class="edge"/>
+
+  <rect x="512" y="108" width="138" height="70" rx="6" class="orange"/>
+  <text x="581" y="130" text-anchor="middle" class="b">Waiting queue</text>
+  <rect x="522" y="146" width="14" height="14" rx="2" class="purple"/><rect x="539" y="146" width="14" height="14" rx="2" class="purple"/><rect x="556" y="146" width="14" height="14" rx="2" class="purple"/><rect x="573" y="146" width="14" height="14" rx="2" class="purple"/><rect x="590" y="146" width="14" height="14" rx="2" class="purple"/><rect x="607" y="146" width="14" height="14" rx="2" class="purple"/><rect x="624" y="146" width="14" height="14" rx="2" class="purple"/>
+  <text x="566" y="196" text-anchor="middle" class="sm">unbounded by default;</text>
+  <text x="566" y="211" text-anchor="middle" class="sm">most waiting is here</text>
+  <path d="M650,143 L672,143" class="edge"/>
+
+  <rect x="674" y="78" width="140" height="138" rx="6" class="orange"/>
+  <text x="744" y="98" text-anchor="middle" class="b">Running batch</text>
+  <!-- KV block grid: 6 x 5, 22 used -->
+  <g>
+    <rect x="690" y="108" width="16" height="16" class="blue"/><rect x="708" y="108" width="16" height="16" class="blue"/><rect x="726" y="108" width="16" height="16" class="blue"/><rect x="744" y="108" width="16" height="16" class="blue"/><rect x="762" y="108" width="16" height="16" class="blue"/><rect x="780" y="108" width="16" height="16" class="blue"/>
+    <rect x="690" y="126" width="16" height="16" class="blue"/><rect x="708" y="126" width="16" height="16" class="blue"/><rect x="726" y="126" width="16" height="16" class="blue"/><rect x="744" y="126" width="16" height="16" class="blue"/><rect x="762" y="126" width="16" height="16" class="blue"/><rect x="780" y="126" width="16" height="16" class="blue"/>
+    <rect x="690" y="144" width="16" height="16" class="blue"/><rect x="708" y="144" width="16" height="16" class="blue"/><rect x="726" y="144" width="16" height="16" class="blue"/><rect x="744" y="144" width="16" height="16" class="blue"/><rect x="762" y="144" width="16" height="16" class="blue"/><rect x="780" y="144" width="16" height="16" class="blue"/>
+    <rect x="690" y="162" width="16" height="16" class="blue"/><rect x="708" y="162" width="16" height="16" class="blue"/><rect x="726" y="162" width="16" height="16" class="blue"/><rect x="744" y="162" width="16" height="16" class="blue"/><rect x="762" y="162" width="16" height="16" class="free"/><rect x="780" y="162" width="16" height="16" class="free"/>
+  </g>
+  <text x="744" y="196" text-anchor="middle" class="sm">limited by KV blocks</text>
+  <text x="744" y="210" text-anchor="middle" class="sm">and --max-num-seqs</text>
+
+  <!-- Preemption -->
+  <path d="M744,216 L744,262 L640,262 L640,180" class="edge"/>
+  <text x="692" y="282" text-anchor="middle" class="sm">preemption sends a request back</text>
+
+  <!-- Legend -->
+  <rect x="16" y="278" width="14" height="14" rx="2" class="purple"/><text x="36" y="290" class="sm">request</text>
+  <rect x="100" y="278" width="14" height="14" class="blue"/><text x="120" y="290" class="sm">KV block in use</text>
+  <rect x="226" y="278" width="14" height="14" class="free"/><text x="246" y="290" class="sm">free KV block</text>
+</svg>

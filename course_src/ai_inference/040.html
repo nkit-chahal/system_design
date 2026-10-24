@@ -1,0 +1,254 @@
+<h2>Introduction</h2>
+<p>A model that serves well on a good day is half the job. GPUs fail, engines hang, nodes disappear, and every few weeks someone ships new weights, a new engine version, or a changed setting. <strong>Reliability</strong> is the discipline of keeping the service within its objectives through all of that, and <strong>rollouts</strong> are how we change the service without breaking it.</p>
+<p>LLM serving makes both harder than for a typical web service. Each replica holds a GPU that costs dollars per hour, so spare capacity is expensive. A request lives for seconds and streams its answer, so a failure cuts users off mid-sentence. Replicas are packed onto 8-GPU servers, so one hardware fault can remove several of them at once. And a release can be "healthy" by every infrastructure measure while producing worse answers. Figure 1 shows the nested failure domains we must plan for, each with its own defense.</p>
+<fig src="040-failure-domains.svg" caption="Failure domains of a GPU serving fleet, from one GPU to a region, and the defense at each level">Nested dashed boxes: a GPU inside an 8-GPU node, inside an availability zone, inside a region, with a release shown as a domain that cuts across all of them. A GPU fault removes one replica and is handled by health checks and N+1 capacity. A node failure removes every replica on the node and needs spreading across nodes. A zone outage needs replicas in several zones. A regional outage needs a second region or a fallback model or API. A bad release can hit every replica at once and needs canaries and automated rollback.</fig>
+<p>In this lesson, we catalog how GPU inference fails, look at what health checks really prove, drain and retry streaming requests safely, roll out models and engines with canary, blue/green, and shadow traffic, size capacity for failure, and tie it all to SLOs and error budgets. We finish by choosing a reliability design for the running example.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Reliability questions usually start after the first outage. Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: What are we running, and where?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct on vLLM, one replica per H100, on Kubernetes in one cloud region with three availability zones. The GPU nodes are 8-GPU H100 servers.</p>
+<p><strong>Candidate</strong>: How much traffic, and what can one replica carry?<br>
+<strong>Interviewer</strong>: About 16.7 requests per second on average and 33 at the daily peak. Load tests say about 5 requests per second per H100 within our latency targets.</p>
+<p><strong>Candidate</strong>: What are the objectives?<br>
+<strong>Interviewer</strong>: p95 time to first token under 500 ms, p95 time per output token under 25 ms, and 99.9% of requests succeeding over 30 days.</p>
+<p><strong>Candidate</strong>: What went wrong recently?<br>
+<strong>Interviewer</strong>: A GPU node failed during the afternoon peak and took four replicas with it. A week later, a model update changed the chat template, and answers degraded for two hours before anyone noticed.</p>
+<p><strong>Candidate</strong>: How often do we release, and what can we spend?<br>
+<strong>Interviewer</strong>: New weights or engine versions about every two weeks. We can add GPUs, but we want to know what each one buys. We have a hosted API contract we could use as a fallback.</p>
+<p>The question underneath is: <em>how many replicas, placed where, with which checks and release process, keep us within a 99.9% objective through hardware faults and bad releases, and what does that cost?</em></p>
+
+<h2>How GPU Inference Fails</h2>
+<h3>A catalog of failures</h3>
+<p>Failures fall into three groups: the hardware breaks, the software stops making progress, or a change we made is wrong. Table 1 lists the common ones with how they show up and what to do first.</p>
+<table>
+<thead><tr><th>Failure</th><th>What it looks like</th><th>How we detect it</th><th>First response</th></tr></thead>
+<tbody>
+<tr><td>GPU hardware fault (XID 79, fallen off the bus; XID 119/120, GSP errors)</td><td>Engine crashes or every request on the replica fails</td><td>XID codes in DCGM, pod restarts, error rate per replica</td><td>Drain and cordon the node; reset or replace the GPU</td></tr>
+<tr><td>Memory errors (XID 48 double-bit ECC; XID 94/95 contained and uncontained errors; row remap failure)</td><td>Crash, or silently wrong results before the crash</td><td>ECC and row-remap counters, XID codes</td><td>Drain the node; hardware service</td></tr>
+<tr><td>Collective hang in a multi-GPU replica (NCCL, NVLink XID 74)</td><td>Requests stay "running", no tokens come out, process alive</td><td>Tokens per second at zero while requests are running</td><td>Restart the whole replica, then inspect the node</td></tr>
+<tr><td>Out-of-memory crash</td><td>Engine exits with a CUDA out-of-memory error</td><td>Pod restarts with the error in logs</td><td>Roll back the config change that caused it (Lesson 17)</td></tr>
+<tr><td>Stuck or runaway requests</td><td>A few requests generate until the length limit, holding KV cache</td><td>Long-tail output lengths, end-to-end latency outliers</td><td>Cap <code>max_tokens</code>; timeouts and cancellation (Lesson 25)</td></tr>
+<tr><td>Driver and CUDA mismatch</td><td>New image fails at startup on some node pools</td><td>Startup probe failures after an image or driver change</td><td>Roll back; test images against each node pool's driver</td></tr>
+<tr><td>Bad model or config release</td><td>Infrastructure healthy, answers worse, or latency and cost higher</td><td>Canary evaluations and online quality signals</td><td>Automated rollback to the pinned previous release</td></tr>
+<tr><td>Capacity unavailable</td><td>Replacement or scale-up pods stay Pending; cloud reports no capacity</td><td>Pending pods, failed node provisioning</td><td>Shed low-priority load (Lesson 26), fall back to another region, model, or API</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: How GPU inference fails</p>
+
+<h3>Hardware faults are routine at scale</h3>
+<p>GPUs fail far more often than CPUs in ordinary servers. Meta reported that during a 54-day snapshot of Llama 3 pre-training on up to 16K H100s, there were 419 unexpected interruptions, about 78% of them attributed to confirmed or suspected hardware; faulty GPUs (148) and GPU HBM3 memory (72) were the two largest causes [1]. That is roughly one GPU or HBM fault per 4,000 GPU-days. Training is harsher than inference, so treat the number as an order of magnitude, but even a 24-GPU serving fleet should expect a few GPU faults a year, and a large fleet sees them weekly.</p>
+<p>The driver reports faults as XID error codes, which the NVIDIA XID catalog describes: 48 is a double-bit ECC error, 79 means the GPU has fallen off the bus, 74 is an NVLink error, and 94 and 95 are contained and uncontained memory errors [2]. Lesson 30, GPU Metrics, shows how to export and alert on them. The serving lesson is simpler: a fatal XID means the node cannot be trusted, so automation drains it at once, and capacity planning assumes that it will happen at the worst moment.</p>
+
+<h3>Software that stops making progress</h3>
+<p>The most dangerous failures are the quiet ones. In a replica that spans several GPUs with tensor parallelism (Lesson 18), every step ends with collective operations across the GPUs. If one GPU or link stalls, the others wait inside the collective, and the replica stops producing tokens while its process, its port, and often its health endpoint all look fine. Runaway requests are a milder version: a model that never emits an end token keeps generating until the length limit, holding KV cache that other users need. A server whose process is alive is not necessarily a server that is doing work.</p>
+
+<h2>Detecting and Containing Failures</h2>
+<h3>What a health check really proves</h3>
+<p>Kubernetes offers three probes with different consequences [3]. A <strong>startup probe</strong> gives a slow-loading container time before the other probes start (Lesson 23, Cold Starts). A <strong>liveness probe</strong> restarts the container when it fails. A <strong>readiness probe</strong> removes the pod from Service endpoints when it fails, without restarting it. Getting them wrong is a classic outage: a liveness probe that times out under heavy load restarts healthy replicas exactly when they are needed, and their cold starts turn a slowdown into an outage.</p>
+<p>vLLM's <code>/health</code> endpoint calls the engine's <code>check_health()</code>; it returns 200 if that succeeds and 503 if the engine core has died [4]. It does not run the model. A GPU that faults while the process stays up can keep returning 200, and a proposal to add a readiness check that runs a one-token forward pass was closed without being merged [5]. Figure 2 shows what each layer of checking proves.</p>
+<fig src="040-health-ladder.svg" caption="What each kind of check proves about an LLM replica">A ladder of five rungs. The process is running: the container is alive. /health returns 200: the engine core has not died. Readiness passes: the pod receives traffic. A synthetic canary prompt returns the expected answer within a TTFT budget: the GPU computes correct tokens now. Real-traffic SLIs such as error rate, TTFT, tokens per second and output quality: users are being served well. Each rung costs more and proves more.</fig>
+<p>We use each rung for what it can carry. <code>/health</code> drives liveness and readiness because it is cheap and cannot flap under load. A <strong>synthetic canary prompt</strong> runs outside the probes: every 30 seconds, a prober sends each replica directly a fixed prompt with a known answer, such as "What is 17 + 25? Answer with the number only.", with <code>temperature</code> 0 and <code>max_tokens</code> 8, and checks the answer and its TTFT. Two consecutive failures mark the replica for draining through automation, with a limit on how many replicas it may drain at once so that a prober bug cannot empty the fleet. A <strong>progress watchdog</strong> alerts when a replica has running requests but has produced no tokens for two minutes, which catches the collective hang above.</p>
+<callout kind="warn" title="Do not put generation in a liveness probe">A liveness probe that generates tokens competes with real traffic, times out on a busy replica, and restarts it at the worst moment. Keep liveness cheap; prove generation with a separate prober that acts through rate-limited automation.</callout>
+
+<h3>Draining and shutting down</h3>
+<p>Planned removals (scale-down, rollouts, node maintenance) should never cut a stream. When a pod is deleted, Kubernetes marks its endpoints as terminating and not ready, so load balancers stop sending it new requests, runs the <code>preStop</code> hook, then sends SIGTERM, and kills the container when <code>terminationGracePeriodSeconds</code> (30 seconds by default) runs out [6]. Lesson 22, Autoscaling, built the drain hook and the 300-second grace period that our longest generations need. Two additions matter for reliability. First, a replica found unhealthy by the prober should flip its readiness before anything else, so that it stops receiving traffic while its streams finish. Second, unplanned failures allow no drain at all: when a node dies, its streams are simply gone, and only retries can help.</p>
+
+<h3>Retries and idempotency for streamed responses</h3>
+<p>Lesson 25, Request Routing, set the core rule: retry on another replica only before the first token reaches the client, within a retry budget. After the first token, a blind retry would send the user a second, different beginning. Three practices cover the rest:</p>
+<ul>
+<li><strong>Resume rather than restart.</strong> A client that kept the partial answer can send it back as the final assistant message and ask the model to continue. vLLM supports this with <code>continue_final_message</code>, which formats the chat so that the last message is open-ended [7]. The continuation is coherent but not identical to what the failed replica would have written.</li>
+<li><strong>Idempotency keys for side effects.</strong> When a response triggers actions, such as a tool call that sends an email (Lesson 38, Structured Output and Tool Calling), the gateway stores a client-supplied request ID and returns the stored result for duplicates instead of generating again. Batch jobs get the same property from per-request IDs (Lesson 39, Batch and Offline Inference).</li>
+<li><strong>Fail fast and visibly.</strong> A stream that stops should end with an explicit error event, not a silent close, so the client knows to resume or to show an error.</li>
+</ul>
+
+<h2>Rolling Out Models and Engines</h2>
+<h3>A release is a bundle</h3>
+<p>Our second incident, a changed chat template, was a release problem, not a hardware one. An LLM's behavior depends on more than its weights: the tokenizer and chat template, the default sampling settings in <code>generation_config.json</code>, the engine version and its kernels, the engine flags, and the driver underneath. vLLM loads generation defaults from the model by default (<code>--generation-config auto</code>), so a model repository update can silently change the default temperature [8]. Figure 3 shows the bundle we version together.</p>
+<fig src="040-release-bundle.svg" caption="One release pins every part that changes model behavior">A release ID such as chat-2026-10-20 groups six pinned parts: the engine image by digest, the model weights by Hugging Face commit with --revision, the tokenizer and chat template with --tokenizer-revision, generation defaults with --generation-config, engine flags such as --max-model-len and --max-num-seqs, and the node pool's driver version. A rollback restores all six at once.</fig>
+<p>We pin each part: the container image by digest, the weights with <code>--revision</code> set to a commit hash, the tokenizer with <code>--tokenizer-revision</code> [8], and the flags in the same manifest. Better still, we copy the pinned weights into our own storage, which also speeds cold starts (Lesson 23). A release then has one ID, every replica reports it as a label on its metrics, and rolling back means restoring one manifest rather than remembering which of six things changed.</p>
+
+<h3>Canary, blue/green, and shadow traffic</h3>
+<p>Three strategies trade GPU cost against risk, as Figure 4 and Table 2 show.</p>
+<fig src="040-rollout-strategies.svg" caption="Three rollout strategies and the GPUs each one needs">Canary: the router sends 12.5% of traffic to one new replica and 87.5% to seven old replicas, needing one extra GPU at most. Blue/green: a full second fleet of seven new replicas is started, then the router switches all traffic at once, needing twice the GPUs during the switch. Shadow: live requests go to the old fleet and a copy goes to a new replica whose responses are discarded, needing extra GPUs for the copies and carrying no user risk.</fig>
+<ul>
+<li><strong>Canary</strong>: a small share of live traffic goes to the new release while the rest stays on the old one, and the share grows only if the canary's metrics hold. With the Gateway API, an <code>HTTPRoute</code> splits traffic by weight between two backends [9], and controllers such as Argo Rollouts automate the steps, the analysis, and the rollback [10].</li>
+<li><strong>Blue/green</strong>: a complete second fleet runs the new release, and the router switches all traffic at once, with an instant switch back. It is simple and fast to roll back, but needs twice the GPUs during the switch, which is often impossible at peak. Running it at night, when the fleet is 3 replicas instead of 12, costs 3 extra GPUs for an hour.</li>
+<li><strong>Shadow (mirrored) traffic</strong>: the gateway copies live requests to the new release and discards its responses. The Gateway API's <code>RequestMirror</code> filter does this, and the gateway must ignore the mirror's responses [11]. Users see no risk, so shadowing is the safe way to test a new engine version's latency and stability on real prompts. It cannot measure how users react, and mirrored requests must never trigger tool calls with side effects.</li>
+</ul>
+<table>
+<thead><tr><th>Strategy</th><th>Extra GPUs</th><th>User exposure</th><th>Rollback</th><th>Best for</th></tr></thead>
+<tbody>
+<tr><td>Rolling update (<code>maxSurge: 1</code>, <code>maxUnavailable: 0</code>)</td><td>1 at a time</td><td>Grows to 100% with no gate</td><td>Another rollout, minutes per replica</td><td>Low-risk config changes</td></tr>
+<tr><td>Canary</td><td>0 to 1</td><td>One replica's share, then more</td><td>Shift weight back, seconds</td><td>New weights, new prompts, most releases</td></tr>
+<tr><td>Blue/green</td><td>A full fleet during the switch</td><td>All at once</td><td>Switch back, seconds</td><td>Engine or driver upgrades off-peak</td></tr>
+<tr><td>Shadow</td><td>Enough for the mirrored share</td><td>None</td><td>Not needed</td><td>Latency and stability of a new engine on real prompts</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Rollout strategies for a GPU fleet</p>
+<p>One detail is specific to GPUs: the canary must carry a normal load. A replica that receives 1% of traffic runs tiny batches and looks faster than it will at full load (Lesson 19, GPU Utilization). We give the canary one replica's fair share, 1 of 8 replicas or 12.5%, so that its TTFT and TPOT can be compared with the old replicas at equal load.</p>
+
+<h3>Gates on quality, latency, and cost</h3>
+<p>A canary is only as good as the gates that judge it. Figure 5 shows the pipeline we use, with a gate before every increase in exposure.</p>
+<fig src="040-canary-gates.svg" caption="A release pipeline with evaluation gates and automated rollback">A new release passes an offline evaluation gate (task accuracy, safety, format checks), then a shadow stage on mirrored traffic (errors, latency), then a canary at 12.5% for 30 minutes, then 50%, then 100%. Each canary step checks quality signals (refusal rate, output length, thumbs-down rate, judge score on samples) and latency and cost signals (p95 TTFT, p95 TPOT, error rate, tokens per request). Any failed check triggers an automated rollback to the pinned previous release.</fig>
+<ul>
+<li><strong>Offline evaluations first.</strong> Before any user sees the release, it runs the regression suite: task accuracy on a labeled set, safety prompts, and format checks such as valid JSON for tool calls. This is a batch job on the critical path (Lesson 39). The chat-template bug in our incident would have failed here.</li>
+<li><strong>Online quality signals.</strong> Some regressions only show up on real traffic. Cheap proxies compared between canary and baseline catch many of them: refusal rate, mean and p95 output length, the share of answers that hit <code>max_tokens</code>, user thumbs-down rate, and an LLM judge scoring a sample of paired responses.</li>
+<li><strong>Latency and cost.</strong> p95 TTFT and TPOT within the SLO and close to the baseline, error rate, and tokens per request, because a model that answers at twice the length doubles the cost per request (Lesson 31, Per-Request Token Accounting).</li>
+</ul>
+<p>The value of the gate is easy to quantify with the error budget. A 99.9% objective over 30 days of our traffic, about 43.3 million requests, allows about 43,300 failed requests. A bad release that reaches all traffic for 30 minutes at the average rate affects 16.7 × 1,800 ≈ 30,000 requests, 69% of the month's budget. On a 12.5% canary with a 30-minute window, it affects about 3,800 (8.7%); with automated rollback after 10 minutes, about 1,250 (2.9%). Counting only hard failures understates the benefit, since degraded answers do not show up as errors at all.</p>
+
+<h2>Capacity for Failure</h2>
+<h3>N+1 is per failure domain</h3>
+<p>Lesson 21 added one spare replica so that the fleet survives the loss of any one GPU: N+1 redundancy. With one replica per GPU and 8 GPUs per node, the failure we actually saw removes several replicas at once, so the spare must be counted in the unit that fails. At peak we need <tex>N = \lceil 33 \div 5 \rceil = 7</tex> replicas. If the replicas are spread evenly over <tex>k</tex> nodes and any one node may fail, the other <tex>k - 1</tex> nodes must hold all <tex>N</tex>:</p>
+<texblock>\text{replicas per node} = \left\lceil \frac{N}{k-1} \right\rceil, \qquad \text{total replicas} = k \times \left\lceil \frac{N}{k-1} \right\rceil</texblock>
+<fig src="040-node-failure-capacity.svg" caption="Capacity left after losing one 8-GPU node at the 33 requests per second peak">Bars show capacity left after the worst single-node failure for five layouts, against a dashed line at the 33 requests per second peak. Eight replicas on one node: 0 left. Eight replicas as 4 plus 4 on two nodes: 20 requests per second left, short of the peak. Fourteen replicas as 7 plus 7 on two nodes: 35 left. Twelve replicas as 4 plus 4 plus 4 on three nodes in three zones: 40 left. Ten replicas as 2 per node on five nodes: 40 left.</fig>
+<p>Figure 6 applies the formula. Lesson 21's N+1 rule, 7 + 1 = 8 replicas, packed on one node survives a GPU fault but not a node failure, which leaves nothing; split 4 + 4 over two nodes, it leaves 20 requests per second, 61% of the peak, which is what happened in our incident. Two nodes need 7 each (14 replicas), three nodes need 4 each (12), and five nodes need 2 each (10). Spreading over more nodes lowers the total, but only pays if the rest of each node's GPUs do useful work.</p>
+
+<h3>Zones, regions, and the GPU capacity reality</h3>
+<p>The same arithmetic applies one level up. Placing one node in each of three zones turns the three-node layout into one that also survives a zone outage, at no extra cost: losing any zone leaves 8 replicas, 40 requests per second. Kubernetes topology spread constraints keep replicas balanced across zones, and a PodDisruptionBudget keeps voluntary disruptions from taking several at once.</p>
+<p>Regions are different, because GPUs are scarce. A failover plan that assumes the second region can start 7 H100s on demand during an outage is a hope, not a plan: when a region fails, many customers fail over at once and compete for the same GPUs. There are three honest options. <strong>Reserved standby capacity</strong> in a second region costs about 7 × 730 × $3.00 ≈ $15,300 a month at our assumed price. <strong>Active-active serving</strong> splits traffic across two regions, each sized to carry the whole peak, which doubles the fleet. <strong>Degraded fallback</strong> keeps the product up with less: a smaller or quantized model on whatever GPUs remain (Lesson 13, Lesson 14), or a hosted API. At the assumed API price of $0.0007 per request from Lesson 20, a four-hour regional outage at peak costs 33 × 3,600 × 4 ≈ 475,000 requests, or about $330.</p>
+<callout kind="tip" title="Interview tip">When asked about multi-region failover for GPU serving, say that spare GPUs in the other region are not guaranteed during a regional event. Then compare reserved standby, active-active, and a fallback model or API, with a cost for each.</callout>
+
+<h3>Incident response and error budgets</h3>
+<p>Detection and response tie back to the SLOs of Lesson 28, p50, p95 and p99 Latency. With a 99.9% objective, the Google SRE workbook recommends paging when the error budget burns 14.4 times faster than sustainable over both a 1-hour and a 5-minute window, which spends 2% of a 30-day budget in an hour, and opening a ticket at a burn rate of 1 over 3 days [12]. For us, a 14.4× burn is a 1.44% error rate, about 870 failed requests in an hour at average traffic.</p>
+<p>When the page fires, the order of work is fixed: <strong>mitigate first, diagnose later</strong>. If a release is in progress, roll it back; if one replica or node is the outlier, drain it; if the fleet is short of capacity, shed low-priority traffic (Lesson 26, Rate Limiting) or overflow to the fallback. Then find the cause and write a blameless postmortem. The error budget also governs the release cadence: an example policy in the SRE workbook halts all changes other than P0 issues and security fixes once the budget for the preceding four weeks is spent [13]. For a service that changes its model every two weeks, that policy is what keeps reliability and velocity in balance.</p>
+<fig src="040-incident-timeline.svg" caption="Error budget spent by a node failure and by a bad release under different rollouts (illustrative)">Four bars, each the 30-day error budget of about 43,300 failed requests, with the spent share filled. A node failure at peak with spare capacity in place spends up to 212 cut streams, 0.5%. A bad release on a 12.5% canary rolled back after 10 minutes spends about 1,250 requests, 2.9%. The same canary noticed after 30 minutes spends about 3,760, 8.7%. A bad release at 100% for 30 minutes spends about 30,060, 69%. A marker at 2% shows what a 14.4 times burn spends in one hour, the threshold for paging.</fig>
+<p>Figure 7 puts the two incidents from the interview on the same scale. A node failure with the right spare capacity costs at most the streams that were in flight: 4 replicas × 53 streams = 212 requests, 0.5% of the budget. The unguarded release cost far more, which is the usual pattern: once hardware failures are handled by spreading and spares, changes become the main source of lost budget.</p>
+
+<h4>Which reliability design fits our deployment?</h4>
+<p>We choose <strong>three GPU nodes, one per zone, with up to 4 chat replicas each</strong>: 12 H100s for chat at peak, which leave 40 requests per second after losing any node or zone. Off-peak, the autoscaler keeps at least half of current demand in each zone, so the night load of 8 requests per second runs on 3 replicas instead of 2. The other GPUs on each node run batch work at a low PriorityClass (Lesson 39), so a replacement replica can start there in about 3 minutes by preempting batch work (Lesson 22). The extra 4 H100s at peak cost about $12 an hour at our assumed price.</p>
+<p>Around that capacity: <code>/health</code> for liveness and readiness, a synthetic canary prober and a progress watchdog that drain bad replicas automatically, a preStop drain with a 300-second grace period, and retries only before the first token. Releases are pinned bundles that pass offline evaluations, a shadow stage for engine upgrades, and a 12.5% canary gated on quality, latency, and cost with automated rollback. For a regional outage, we fall back to the hosted API, about $330 for a four-hour peak outage instead of $15,300 a month of standby GPUs, after confirming that its quality passes our evaluation set and that the contract allows our data. Lesson 39's 7-GPU fleet, by contrast, would survive no node failure at peak.</p>
+
+<h2>In Practice</h2>
+<p>The first tab is a Gateway API <code>HTTPRoute</code> that sends one replica's share of traffic to a canary release [9]; a rollout controller or a script moves the weights after each gate. The second is the synthetic prober: it sends a fixed prompt to every replica, checks the answer and the time to first token, and prints the replicas that should be drained. The third holds Prometheus alert expressions for a stuck engine, using vLLM's metrics [14], and for the error-budget page, assuming the gateway exports a request counter named <code>http_requests_total</code> with a <code>code</code> label; adjust the names to your gateway.</p>
+<codetabs>
+<tab label="Canary route" lang="yaml">
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: llama-8b-chat
+  namespace: inference
+spec:
+  parentRefs:
+  - name: inference-gateway
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /v1/
+    backendRefs:
+    - name: llama-8b-chat-2026-10-06   # stable release: 7 of 8 replicas
+      port: 8000
+      weight: 875
+    - name: llama-8b-chat-2026-10-20   # canary release: 1 of 8 replicas
+      port: 8000
+      weight: 125
+</tab>
+<tab label="Synthetic prober" lang="python">
+"""Send a known prompt to every replica and report the ones that fail.
+Run every 30 s; drain a replica only after two consecutive failures."""
+import json
+import time
+import urllib.request
+
+PROMPT = "What is 17 + 25? Answer with the number only."
+EXPECTED = "42"
+TTFT_BUDGET_S = 0.5
+
+
+def probe(base_url: str, model: str) -> tuple[bool, str]:
+    body = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": PROMPT}],
+        "max_tokens": 8,
+        "temperature": 0,
+        "stream": True,
+    }).encode()
+    req = urllib.request.Request(f"{base_url}/v1/chat/completions", data=body,
+                                 headers={"Content-Type": "application/json"})
+    start, ttft, text = time.perf_counter(), None, ""
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            for raw in resp:
+                line = raw.decode().strip()
+                if not line.startswith("data: ") or line == "data: [DONE]":
+                    continue
+                delta = json.loads(line[6:])["choices"][0]["delta"].get("content") or ""
+                if delta and ttft is None:
+                    ttft = time.perf_counter() - start
+                text += delta
+    except Exception as exc:  # connection refused, timeout, HTTP 5xx
+        return False, f"error: {exc}"
+    if EXPECTED not in text:
+        return False, f"wrong answer: {text!r}"
+    if ttft is None or ttft > TTFT_BUDGET_S:
+        return False, f"slow first token: {ttft}"
+    return True, f"ok, TTFT {ttft * 1000:.0f} ms"
+
+
+if __name__ == "__main__":
+    replicas = ["http://10.0.1.11:8000", "http://10.0.2.12:8000", "http://10.0.3.13:8000"]
+    for url in replicas:
+        ok, detail = probe(url, "llama-8b-chat")
+        print(("PASS " if ok else "FAIL ") + url, detail)
+</tab>
+<tab label="Alerts (PromQL)" lang="promql">
+# Stuck engine: requests are running but no tokens were produced for 2 minutes.
+# Catches collective hangs that leave /health returning 200.
+(sum by (pod) (vllm:num_requests_running) > 0)
+  and on (pod)
+(sum by (pod) (rate(vllm:generation_tokens_total[2m])) == 0)
+
+# Error-budget page for a 99.9% objective: burn rate above 14.4 over 1 h and 5 min.
+# Assumes the gateway's request counter http_requests_total with a code label.
+(
+  sum(rate(http_requests_total{job="llm-gateway", code=~"5.."}[1h]))
+    / sum(rate(http_requests_total{job="llm-gateway"}[1h]))
+) > (14.4 * 0.001)
+and
+(
+  sum(rate(http_requests_total{job="llm-gateway", code=~"5.."}[5m]))
+    / sum(rate(http_requests_total{job="llm-gateway"}[5m]))
+) > (14.4 * 0.001)
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Larger replicas widen the blast radius: a Llama 3.1 70B replica with tensor parallelism of 4 loses all four GPUs when one fails, so N+1 costs a whole replica (Lesson 21).</li>
+<li>Chaos testing: deliberately killing a replica, a node, or a zone during a load test confirms that the spare capacity and retries work as planned.</li>
+<li>Release-aware metrics: labeling every metric with the release ID makes canary comparisons and post-incident analysis straightforward (Lesson 32's dashboard).</li>
+<li>Silent data corruption: some faulty GPUs produce wrong numbers without any error code, which only output checks such as the synthetic prober can catch.</li>
+<li>Graceful degradation inside the product, such as shorter <code>max_tokens</code> or disabling expensive features during an incident, buys capacity without an outage (Lesson 26).</li>
+<li>Prefix-cache-aware routing changes failure behavior: when a replica dies, its cached prefixes move to other replicas and their prefill load rises for a while (Lesson 24, Lesson 25).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="040-summary.png" caption="Reliability and rollouts summary" optional="1">Mind map summarizing the reliability lesson: failure modes, health checks, draining and retries, rollout strategies, capacity for failure, and error budgets.</fig>
+<ul>
+<li>GPU inference fails through hardware faults (XID and ECC errors), hangs that leave the process alive, runaway requests, driver mismatches, bad releases, and missing capacity. Hardware faults are routine at scale, about one per 4,000 GPU-days in Meta's training fleet.</li>
+<li>vLLM's <code>/health</code> proves the engine core is alive, not that it computes correct tokens. Add a synthetic canary prompt and a progress watchdog, and keep generation out of liveness probes.</li>
+<li>Drain planned removals with readiness, a preStop hook and a long grace period; retry only before the first token, resume with the partial answer, and use idempotency keys for side effects.</li>
+<li>A release pins the image, weights, tokenizer, generation defaults, flags and driver together. Canary at one replica's share, gate on quality, latency and cost, and roll back automatically.</li>
+<li>N+1 must be counted per failure domain: at 7 replicas needed for the 33 requests per second peak, three nodes in three zones with 4 replicas each survive a node or zone loss with 40 requests per second left.</li>
+<li>Spare GPUs in another region are not guaranteed; compare reserved standby (about $15,300 a month) with a fallback API (about $330 for a four-hour peak outage).</li>
+<li>Under a 99.9% objective, a 30-minute bad release at full traffic spends 69% of the monthly budget; a canary with 10-minute automated rollback spends about 3%.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Llama Team, AI @ Meta. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[2] NVIDIA documentation: Xid catalog. <a href="https://docs.nvidia.com/deploy/xid-errors/analyzing-xid-catalog.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/deploy/xid-errors/analyzing-xid-catalog.html</a>.<br>
+[3] Kubernetes documentation: Configure Liveness, Readiness and Startup Probes. <a href="https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/" rel="noopener noreferrer" target="_blank">https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/</a>.<br>
+[4] vLLM API reference: health endpoint (vllm.entrypoints.serve.instrumentator.health). <a href="https://docs.vllm.ai/en/latest/api/vllm/entrypoints/serve/instrumentator/health/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/api/vllm/entrypoints/serve/instrumentator/health/</a>.<br>
+[5] vLLM issue #36960: Add /health/ready endpoint for GPU health verification. <a href="https://github.com/vllm-project/vllm/issues/36960" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm/issues/36960</a>.<br>
+[6] Kubernetes documentation: Pod Lifecycle, termination of Pods. <a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/" rel="noopener noreferrer" target="_blank">https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/</a>.<br>
+[7] vLLM API reference: chat completion protocol. <a href="https://docs.vllm.ai/en/latest/api/vllm/entrypoints/openai/chat_completion/protocol/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/api/vllm/entrypoints/openai/chat_completion/protocol/</a>.<br>
+[8] vLLM documentation: vllm serve. <a href="https://docs.vllm.ai/en/latest/cli/serve/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/cli/serve/</a>.<br>
+[9] Kubernetes Gateway API: HTTP traffic splitting. <a href="https://gateway-api.sigs.k8s.io/guides/traffic-splitting/" rel="noopener noreferrer" target="_blank">https://gateway-api.sigs.k8s.io/guides/traffic-splitting/</a>.<br>
+[10] Argo Rollouts documentation. <a href="https://argo-rollouts.readthedocs.io/en/stable/" rel="noopener noreferrer" target="_blank">https://argo-rollouts.readthedocs.io/en/stable/</a>.<br>
+[11] Kubernetes Gateway API: HTTP request mirroring. <a href="https://gateway-api.sigs.k8s.io/guides/http-request-mirroring/" rel="noopener noreferrer" target="_blank">https://gateway-api.sigs.k8s.io/guides/http-request-mirroring/</a>.<br>
+[12] Google SRE Workbook: Alerting on SLOs. <a href="https://sre.google/workbook/alerting-on-slos/" rel="noopener noreferrer" target="_blank">https://sre.google/workbook/alerting-on-slos/</a>.<br>
+[13] Google SRE Workbook: Example Error Budget Policy. <a href="https://sre.google/workbook/error-budget-policy/" rel="noopener noreferrer" target="_blank">https://sre.google/workbook/error-budget-policy/</a>.<br>
+[14] vLLM documentation: Production Metrics. <a href="https://docs.vllm.ai/en/latest/usage/metrics/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/usage/metrics/</a>.</p>

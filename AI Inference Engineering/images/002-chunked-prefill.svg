@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="345" viewBox="0 0 840 345" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="20" y="26" class="b">GPU steps after an 8,000-token prompt arrives (64 decoding users, idealized estimate)</text>
+  <text x="20" y="75">No chunking</text>
+  <rect x="190.0" y="58" width="370.0" height="24" class="red"/>
+  <rect x="560.0" y="58" width="13.8" height="24" class="orange"/>
+  <rect x="573.8" y="58" width="13.8" height="24" class="orange"/>
+  <rect x="587.6" y="58" width="13.8" height="24" class="orange"/>
+  <rect x="601.4" y="58" width="13.8" height="24" class="orange"/>
+  <rect x="615.3" y="58" width="13.8" height="24" class="orange"/>
+  <path d="M560.0,46 L560.0,90" stroke="#82b366" stroke-width="3"/>
+  <text x="564.0" y="54" class="sm">first token at 296 ms</text>
+  <text x="190.0" y="100" class="sm">longest gap for decoding users: ≈ 296 ms  (1 step carries the prompt)</text>
+  <text x="20" y="145">2,048-token chunks</text>
+  <rect x="190.0" y="128" width="88.7" height="24" class="yellow"/>
+  <rect x="278.7" y="128" width="94.3" height="24" class="yellow"/>
+  <rect x="373.0" y="128" width="99.8" height="24" class="yellow"/>
+  <rect x="472.9" y="128" width="95.6" height="24" class="yellow"/>
+  <rect x="568.4" y="128" width="13.8" height="24" class="orange"/>
+  <rect x="582.2" y="128" width="13.8" height="24" class="orange"/>
+  <rect x="596.1" y="128" width="13.8" height="24" class="orange"/>
+  <rect x="609.9" y="128" width="13.8" height="24" class="orange"/>
+  <rect x="623.7" y="128" width="13.8" height="24" class="orange"/>
+  <path d="M568.4,116 L568.4,160" stroke="#82b366" stroke-width="3"/>
+  <text x="572.4" y="124" class="sm">first token at 303 ms</text>
+  <text x="190.0" y="170" class="sm">longest gap for decoding users: ≈ 80 ms  (4 steps carry the prompt)</text>
+  <text x="20" y="215">512-token chunks</text>
+  <rect x="190.0" y="198" width="23.8" height="24" class="yellow"/>
+  <rect x="213.8" y="198" width="24.1" height="24" class="yellow"/>
+  <rect x="237.9" y="198" width="24.5" height="24" class="yellow"/>
+  <rect x="262.4" y="198" width="24.8" height="24" class="yellow"/>
+  <rect x="287.2" y="198" width="25.2" height="24" class="yellow"/>
+  <rect x="312.3" y="198" width="25.5" height="24" class="yellow"/>
+  <rect x="337.8" y="198" width="25.9" height="24" class="yellow"/>
+  <rect x="363.7" y="198" width="26.2" height="24" class="yellow"/>
+  <rect x="389.9" y="198" width="26.5" height="24" class="yellow"/>
+  <rect x="416.4" y="198" width="26.9" height="24" class="yellow"/>
+  <rect x="443.3" y="198" width="27.2" height="24" class="yellow"/>
+  <rect x="470.6" y="198" width="27.6" height="24" class="yellow"/>
+  <rect x="498.2" y="198" width="27.9" height="24" class="yellow"/>
+  <rect x="526.1" y="198" width="28.3" height="24" class="yellow"/>
+  <rect x="554.4" y="198" width="28.6" height="24" class="yellow"/>
+  <rect x="583.0" y="198" width="19.1" height="24" class="yellow"/>
+  <rect x="602.1" y="198" width="13.8" height="24" class="orange"/>
+  <rect x="616.0" y="198" width="13.8" height="24" class="orange"/>
+  <path d="M602.1,186 L602.1,230" stroke="#82b366" stroke-width="3"/>
+  <text x="606.1" y="194" class="sm">first token at 330 ms</text>
+  <text x="190.0" y="240" class="sm">longest gap for decoding users: ≈ 23 ms  (16 steps carry the prompt)</text>
+  <path d="M190,262 L640.0,262" class="axis"/>
+  <line x1="190.0" y1="262" x2="190.0" y2="267" class="axis"/><text x="190.0" y="282" text-anchor="middle" class="sm">0</text>
+  <line x1="252.5" y1="262" x2="252.5" y2="267" class="axis"/><text x="252.5" y="282" text-anchor="middle" class="sm">50</text>
+  <line x1="315.0" y1="262" x2="315.0" y2="267" class="axis"/><text x="315.0" y="282" text-anchor="middle" class="sm">100</text>
+  <line x1="377.5" y1="262" x2="377.5" y2="267" class="axis"/><text x="377.5" y="282" text-anchor="middle" class="sm">150</text>
+  <line x1="440.0" y1="262" x2="440.0" y2="267" class="axis"/><text x="440.0" y="282" text-anchor="middle" class="sm">200</text>
+  <line x1="502.5" y1="262" x2="502.5" y2="267" class="axis"/><text x="502.5" y="282" text-anchor="middle" class="sm">250</text>
+  <line x1="565.0" y1="262" x2="565.0" y2="267" class="axis"/><text x="565.0" y="282" text-anchor="middle" class="sm">300</text>
+  <line x1="627.5" y1="262" x2="627.5" y2="267" class="axis"/><text x="627.5" y="282" text-anchor="middle" class="sm">350</text>
+  <text x="646.0" y="282" class="sm">ms</text>
+  <rect x="20" y="300" width="18" height="12" class="red"/><text x="44" y="311" class="sm">whole prompt in one step</text>
+  <rect x="210" y="300" width="18" height="12" class="yellow"/><text x="234" y="311" class="sm">step with a prompt chunk + 64 decodes</text>
+  <rect x="480" y="300" width="18" height="12" class="orange"/><text x="504" y="311" class="sm">decode-only step (≈ 11 ms)</text>
+  <text x="20" y="334" class="sm">Idealized: 50% MFU and full HBM bandwidth; a step lasts as long as the slower of its math and its memory reads.</text>
+</svg>

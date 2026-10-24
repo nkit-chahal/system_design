@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="330" viewBox="0 0 860 330" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .budget{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .mark{stroke:#9673a6;stroke-width:1.6;stroke-dasharray:5 3}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="40" y="26" class="b">Share of a 30-day error budget: 99.9% of ≈ 43.3M requests ⇒ ≈ 43,300 failed requests</text>
+  <text x="40" y="56" class="sm">Node failure at peak, spare capacity in place</text>
+  <rect x="40" y="64" width="640" height="24" class="budget"/>
+  <rect x="40" y="64" width="3.1" height="24" class="orange"/>
+  <text x="692" y="75" class="sm b">0.5%</text><text x="692" y="90" class="sm">up to 212 cut streams</text>
+  <text x="40" y="114" class="sm">Bad release, 12.5% canary, rollback after 10 min</text>
+  <rect x="40" y="122" width="640" height="24" class="budget"/>
+  <rect x="40" y="122" width="18.5" height="24" class="orange"/>
+  <text x="692" y="133" class="sm b">2.9%</text><text x="692" y="148" class="sm">≈ 1,250 requests</text>
+  <text x="40" y="172" class="sm">Bad release, 12.5% canary, noticed after 30 min</text>
+  <rect x="40" y="180" width="640" height="24" class="budget"/>
+  <rect x="40" y="180" width="55.6" height="24" class="red"/>
+  <text x="692" y="191" class="sm b">8.7%</text><text x="692" y="206" class="sm">≈ 3,760 requests</text>
+  <text x="40" y="230" class="sm">Bad release at 100% for 30 min</text>
+  <rect x="40" y="238" width="640" height="24" class="budget"/>
+  <rect x="40" y="238" width="444.4" height="24" class="red"/>
+  <text x="692" y="249" class="sm b">69%</text><text x="692" y="264" class="sm">≈ 30,060 requests</text>
+  <line x1="52.8" y1="60" x2="52.8" y2="92" class="mark"/>
+  <line x1="52.8" y1="118" x2="52.8" y2="150" class="mark"/>
+  <line x1="52.8" y1="176" x2="52.8" y2="208" class="mark"/>
+  <line x1="52.8" y1="234" x2="52.8" y2="266" class="mark"/>
+  <line x1="52.8" y1="286" x2="52.8" y2="296" class="mark"/>
+  <text x="58.8" y="300" class="sm">2% of the budget: a 14.4× burn for one hour (≈ 870 failed requests) pages the on-call</text>
+  <text x="40" y="320" class="sm">Illustrative, at the average 16.7 requests/s; counting only hard failures, not degraded answers.</text>
+  </svg>

@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="230" viewBox="0 0 900 230" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:13px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- 7 steps: x = 10 + i*127, width 110 -->
+  <rect x="10" y="30" width="110" height="86" rx="6" class="gray"/>
+  <text x="65" y="56" text-anchor="middle" class="b">1</text>
+  <text x="65" y="76" text-anchor="middle">Clarify</text>
+  <text x="65" y="93" text-anchor="middle">requirements</text>
+  <path d="M120,73 L135,73" class="edge"/>
+
+  <rect x="137" y="30" width="110" height="86" rx="6" class="gray"/>
+  <text x="192" y="56" text-anchor="middle" class="b">2</text>
+  <text x="192" y="76" text-anchor="middle">Model the</text>
+  <text x="192" y="93" text-anchor="middle">workload</text>
+  <path d="M247,73 L262,73" class="edge"/>
+
+  <rect x="264" y="30" width="110" height="86" rx="6" class="orange"/>
+  <text x="319" y="56" text-anchor="middle" class="b">3</text>
+  <text x="319" y="76" text-anchor="middle">Choose model</text>
+  <text x="319" y="93" text-anchor="middle">and precision</text>
+  <path d="M374,73 L389,73" class="edge"/>
+
+  <rect x="391" y="30" width="110" height="86" rx="6" class="orange"/>
+  <text x="446" y="56" text-anchor="middle" class="b">4</text>
+  <text x="446" y="76" text-anchor="middle">Choose engine</text>
+  <text x="446" y="93" text-anchor="middle">and config</text>
+  <path d="M501,73 L516,73" class="edge"/>
+
+  <rect x="518" y="30" width="110" height="86" rx="6" class="orange"/>
+  <text x="573" y="56" text-anchor="middle" class="b">5</text>
+  <text x="573" y="76" text-anchor="middle">Size the</text>
+  <text x="573" y="93" text-anchor="middle">hardware</text>
+  <path d="M628,73 L643,73" class="edge"/>
+
+  <rect x="645" y="30" width="110" height="86" rx="6" class="orange"/>
+  <text x="700" y="56" text-anchor="middle" class="b">6</text>
+  <text x="700" y="76" text-anchor="middle">Design for</text>
+  <text x="700" y="93" text-anchor="middle">production</text>
+  <path d="M755,73 L770,73" class="edge"/>
+
+  <rect x="772" y="30" width="110" height="86" rx="6" class="blue"/>
+  <text x="827" y="56" text-anchor="middle" class="b">7</text>
+  <text x="827" y="76" text-anchor="middle">Observe and</text>
+  <text x="827" y="93" text-anchor="middle">iterate</text>
+
+  <!-- stage labels -->
+  <text x="319" y="136" text-anchor="middle" class="sm">Stage 3</text>
+  <text x="446" y="136" text-anchor="middle" class="sm">Stage 2</text>
+  <text x="573" y="136" text-anchor="middle" class="sm">Stage 4</text>
+  <text x="700" y="136" text-anchor="middle" class="sm">Stage 5</text>
+  <text x="827" y="136" text-anchor="middle" class="sm">Stage 6</text>
+  <text x="128" y="136" text-anchor="middle" class="sm">Stage 1 numbers</text>
+
+  <!-- feedback loop -->
+  <path d="M827,146 L827,190 L192,190 L192,148" class="dash"/>
+  <text x="510" y="210" text-anchor="middle" class="sm">measurements from production update the workload model</text>
+</svg>

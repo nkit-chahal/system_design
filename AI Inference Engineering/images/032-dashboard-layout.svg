@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="472" viewBox="0 0 860 472" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.it{font-style:italic}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .line{fill:none;stroke:#000;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e6e6e6;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:6 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="10" y="14" width="840" height="22" class="purple"/>
+  <text x="20" y="30" class="b">User-facing latency</text>
+  <rect x="10" y="42" width="204" height="50" rx="4" class="white"/>
+  <text x="18" y="58" class="sm">TTFT p50/p95/p99</text>
+  <polyline points="18,84 36,77 54,83 72,76 90,82 108,75 126,81 144,74 162,80 180,73 198,79" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="222" y="42" width="204" height="50" rx="4" class="white"/>
+  <text x="230" y="58" class="sm">TPOT and p99 ITL</text>
+  <polyline points="230,81 248,74 266,80 284,73 302,79 320,72 338,78 356,84 374,77 392,83 410,76" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="434" y="42" width="204" height="50" rx="4" class="white"/>
+  <text x="442" y="58" class="sm">End-to-end p50/p95/p99</text>
+  <polyline points="442,78 460,84 478,77 496,83 514,76 532,82 550,75 568,81 586,74 604,80 622,73" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="646" y="42" width="204" height="50" rx="4" class="white"/>
+  <text x="654" y="58" class="sm">Share of TTFT &lt; 500 ms</text>
+  <polyline points="654,75 672,81 690,74 708,80 726,73 744,79 762,72 780,78 798,84 816,77 834,83" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="10" y="102" width="840" height="22" class="purple"/>
+  <text x="20" y="118" class="b">Load</text>
+  <rect x="10" y="130" width="204" height="50" rx="4" class="white"/>
+  <text x="18" y="146" class="sm">Finished requests by reason</text>
+  <polyline points="18,172 36,165 54,171 72,164 90,170 108,163 126,169 144,162 162,168 180,161 198,167" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="222" y="130" width="204" height="50" rx="4" class="white"/>
+  <text x="230" y="146" class="sm">Prompt and output tokens/s</text>
+  <polyline points="230,169 248,162 266,168 284,161 302,167 320,160 338,166 356,172 374,165 392,171 410,164" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="434" y="130" width="204" height="50" rx="4" class="white"/>
+  <text x="442" y="146" class="sm">Prompt length p50/p95/p99</text>
+  <polyline points="442,166 460,172 478,165 496,171 514,164 532,170 550,163 568,169 586,162 604,168 622,161" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="646" y="130" width="204" height="50" rx="4" class="white"/>
+  <text x="654" y="146" class="sm">Prefix cache hit rate</text>
+  <polyline points="654,163 672,169 690,162 708,168 726,161 744,167 762,160 780,166 798,172 816,165 834,171" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="10" y="190" width="840" height="22" class="blue"/>
+  <text x="20" y="206" class="b">Saturation</text>
+  <rect x="10" y="218" width="204" height="50" rx="4" class="white"/>
+  <text x="18" y="234" class="sm">Waiting and running</text>
+  <polyline points="18,260 36,253 54,259 72,252 90,258 108,251 126,257 144,250 162,256 180,249 198,255" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="222" y="218" width="204" height="50" rx="4" class="white"/>
+  <text x="230" y="234" class="sm">KV cache usage</text>
+  <polyline points="230,257 248,250 266,256 284,249 302,255 320,248 338,254 356,260 374,253 392,259 410,252" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="434" y="218" width="204" height="50" rx="4" class="white"/>
+  <text x="442" y="234" class="sm">Preemptions/s</text>
+  <polyline points="442,254 460,260 478,253 496,259 514,252 532,258 550,251 568,257 586,250 604,256 622,249" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="646" y="218" width="204" height="50" rx="4" class="white"/>
+  <text x="654" y="234" class="sm">Queue time</text>
+  <polyline points="654,251 672,257 690,250 708,256 726,249 744,255 762,248 780,254 798,260 816,253 834,259" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="10" y="278" width="840" height="22" class="orange"/>
+  <text x="20" y="294" class="b">GPU</text>
+  <rect x="10" y="306" width="204" height="50" rx="4" class="white"/>
+  <text x="18" y="322" class="sm">SM, DRAM, tensor activity</text>
+  <polyline points="18,348 36,341 54,347 72,340 90,346 108,339 126,345 144,338 162,344 180,337 198,343" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="222" y="306" width="204" height="50" rx="4" class="white"/>
+  <text x="230" y="322" class="sm">Power and limit</text>
+  <polyline points="230,345 248,338 266,344 284,337 302,343 320,336 338,342 356,348 374,341 392,347 410,340" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="434" y="306" width="204" height="50" rx="4" class="white"/>
+  <text x="442" y="322" class="sm">SM clock</text>
+  <polyline points="442,342 460,348 478,341 496,347 514,340 532,346 550,339 568,345 586,338 604,344 622,337" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="646" y="306" width="204" height="50" rx="4" class="white"/>
+  <text x="654" y="322" class="sm">Throttle counters</text>
+  <polyline points="654,339 672,345 690,338 708,344 726,337 744,343 762,336 780,342 798,348 816,341 834,347" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="10" y="366" width="840" height="22" class="red"/>
+  <text x="20" y="382" class="b">Errors</text>
+  <rect x="10" y="394" width="204" height="50" rx="4" class="white"/>
+  <text x="18" y="410" class="sm">Aborted and failed</text>
+  <polyline points="18,436 36,429 54,435 72,428 90,434 108,427 126,433 144,426 162,432 180,425 198,431" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="222" y="394" width="204" height="50" rx="4" class="white"/>
+  <text x="230" y="410" class="sm">Admission rejections</text>
+  <polyline points="230,433 248,426 266,432 284,425 302,431 320,424 338,430 356,436 374,429 392,435 410,428" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="434" y="394" width="204" height="50" rx="4" class="white"/>
+  <text x="442" y="410" class="sm">Gateway refusals</text>
+  <polyline points="442,430 460,436 478,429 496,435 514,428 532,434 550,427 568,433 586,426 604,432 622,425" fill="none" stroke="#999" stroke-width="1"/>
+  <rect x="646" y="394" width="204" height="50" rx="4" class="white"/>
+  <text x="654" y="410" class="sm">Last XID error</text>
+  <polyline points="654,427 672,433 690,426 708,432 726,425 744,431 762,424 780,430 798,436 816,429 834,435" fill="none" stroke="#999" stroke-width="1"/>
+  <text x="430" y="460" text-anchor="middle" class="sm">Read top to bottom: what users feel, what arrived, what filled up, what the GPUs did, what failed.</text>
+</svg>

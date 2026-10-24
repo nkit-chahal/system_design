@@ -1,0 +1,7 @@
+center: Prefix Caching
+branch: Shared prefixes | system prompts | multi-turn chat | agent loops
+branch: vLLM | chained block hashes | reference counts | LRU free block queue
+branch: SGLang RadixAttention | radix tree | evicts leaves first | longest prefix match
+branch: Savings | 1,488 of 2,000 tokens | 65 ms to 16.6 ms | 1.08 to 0.36 H100s
+branch: Getting hits | static first, dynamic last | route to same replica | CPU tier
+branch: Observing | prefix cache hit metric | 74.4% ceiling | per tenant and replica

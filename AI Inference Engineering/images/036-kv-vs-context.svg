@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="20" y="26" class="b">Llama 3.1 8B on one H100, BF16 KV cache at 128 KiB per token (scale: 10 px per GiB)</text>
+
+  <!-- 10 px per GiB, x0 = 230 -->
+  <text x="220" y="67" text-anchor="end">KV budget on the GPU</text>
+  <rect x="230" y="48" width="520" height="30" fill="url(#hatch)" stroke="#6c8ebf" stroke-width="1.2"/>
+  <text x="490" y="68" text-anchor="middle" class="b">≈ 52 GiB</text>
+
+  <text x="220" y="117" text-anchor="end">model weights</text>
+  <rect x="230" y="98" width="150" height="30" class="orange"/>
+  <text x="390" y="118">15 GiB</text>
+
+  <text x="220" y="167" text-anchor="end">chat, 2,500 tokens</text>
+  <rect x="230" y="148" width="3" height="30" class="blue"/>
+  <text x="243" y="168">0.3 GiB per request → ≈ 170 fit</text>
+
+  <text x="220" y="217" text-anchor="end">document, 32,768 tokens</text>
+  <rect x="230" y="198" width="40" height="30" class="blue"/>
+  <text x="280" y="218">4 GiB per request → 13 fit</text>
+
+  <text x="220" y="267" text-anchor="end">long context, 131,072</text>
+  <rect x="230" y="248" width="160" height="30" class="red"/>
+  <text x="400" y="268">16 GiB per request → 3 fit</text>
+
+  <rect x="20" y="294" width="780" height="26" rx="4" class="gray"/>
+  <text x="410" y="312" text-anchor="middle" class="sm">At 128K tokens, one request's cache is larger than the model's weights, and three requests fill the GPU.</text>
+</svg>

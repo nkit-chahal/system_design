@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="380" viewBox="0 0 860 380" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .mono{font-family:Menlo, Consolas, monospace;font-size:12px}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Normal stream -->
+  <rect x="10" y="10" width="520" height="360" rx="4" class="group"/>
+  <text x="24" y="34" class="b">stream_options = {"include_usage": true}</text>
+  <rect x="24" y="48" width="492" height="30" rx="4" class="gray"/>
+  <text x="34" y="68" class="mono">choices[0].delta.role="assistant"  usage: null</text>
+  <rect x="24" y="84" width="492" height="30" rx="4" class="blue"/>
+  <text x="34" y="104" class="mono">choices[0].delta.content="The"     usage: null</text>
+  <rect x="24" y="120" width="492" height="30" rx="4" class="blue"/>
+  <text x="34" y="140" class="mono">choices[0].delta.content=" KV"     usage: null</text>
+  <text x="270" y="168" text-anchor="middle" class="sm">… 497 more content chunks …</text>
+  <rect x="24" y="178" width="492" height="30" rx="4" class="blue"/>
+  <text x="34" y="198" class="mono">choices[0].finish_reason="stop"    usage: null</text>
+  <rect x="24" y="214" width="492" height="96" rx="4" class="purple"/>
+  <text x="34" y="234" class="mono">choices: []   (empty: do not read choices[0])</text>
+  <text x="34" y="254" class="mono">usage: {prompt_tokens: 2000,</text>
+  <text x="34" y="272" class="mono">        prompt_tokens_details: {cached_tokens: 1500},</text>
+  <text x="34" y="290" class="mono">        completion_tokens: 500, total_tokens: 2500}</text>
+  <rect x="24" y="316" width="492" height="30" rx="4" class="gray"/>
+  <text x="34" y="336" class="mono">data: [DONE]</text>
+  <text x="24" y="362" class="sm">vLLM fills cached_tokens only with --enable-prompt-tokens-details.</text>
+
+  <!-- Interrupted stream -->
+  <rect x="542" y="10" width="308" height="360" rx="4" class="group"/>
+  <text x="556" y="34" class="b">Client disconnects</text>
+  <rect x="556" y="48" width="280" height="30" rx="4" class="gray"/>
+  <text x="566" y="68" class="mono">role chunk</text>
+  <rect x="556" y="84" width="280" height="30" rx="4" class="blue"/>
+  <text x="566" y="104" class="mono">120 content chunks</text>
+  <rect x="556" y="120" width="280" height="30" rx="4" class="red"/>
+  <text x="566" y="140" class="sm">connection closed: no usage chunk</text>
+  <text x="556" y="178" class="sm">The GPU still did 2,000 tokens of prefill</text>
+  <text x="556" y="195" class="sm">and 120 tokens of decode.</text>
+  <rect x="556" y="214" width="280" height="96" rx="4" class="green"/>
+  <text x="566" y="236" class="sm">Gateway records usage_missing = true,</text>
+  <text x="566" y="254" class="sm">then estimates from its own count or</text>
+  <text x="566" y="272" class="sm">takes the numbers from the engine:</text>
+  <text x="566" y="290" class="sm">continuous_usage_stats or engine logs.</text>
+</svg>

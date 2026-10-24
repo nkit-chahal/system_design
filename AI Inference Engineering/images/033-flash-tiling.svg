@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="420" viewBox="0 0 820 420" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="tile" x="0" y="0" width="26" height="30" patternUnits="userSpaceOnUse"><rect x="0" y="0" width="26" height="30" fill="#dae8fc" stroke="#6c8ebf" stroke-width="1"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- HBM inputs -->
+  <text x="20" y="22" class="b">HBM: inputs split into tiles of 128 rows</text>
+  <rect x="20" y="32" width="780" height="80" rx="4" class="group"/>
+  <text x="40" y="54">Q (N × d)</text>
+  <rect x="40" y="64" width="208" height="30" fill="url(#tile)" stroke="#6c8ebf" stroke-width="1.2"/>
+  <rect x="92" y="64" width="26" height="30" class="orange"/>
+  <text x="300" y="54">K</text>
+  <rect x="300" y="64" width="208" height="30" fill="url(#tile)" stroke="#6c8ebf" stroke-width="1.2"/>
+  <rect x="404" y="64" width="26" height="30" class="orange"/>
+  <text x="560" y="54">V</text>
+  <rect x="560" y="64" width="208" height="30" fill="url(#tile)" stroke="#6c8ebf" stroke-width="1.2"/>
+  <rect x="664" y="64" width="26" height="30" class="orange"/>
+
+  <!-- on-chip -->
+    <rect x="20" y="154" width="780" height="180" rx="4" class="group"/>
+  <text x="790" y="326" text-anchor="end" class="sm">one SM: shared memory and registers</text>
+  <rect x="50" y="172" width="170" height="36" rx="6" class="orange"/>
+  <text x="135" y="195" text-anchor="middle">Q tile i (stays)</text>
+  <rect x="400" y="172" width="230" height="36" rx="6" class="orange"/>
+  <text x="515" y="195" text-anchor="middle">K tile j and V tile j</text>
+  <text x="642" y="195" class="sm">← loop over j = 1 … N/128</text>
+  <path d="M105,94 L120,170" class="edge"/>
+  <path d="M417,94 L470,170" class="edge"/>
+  <path d="M677,94 L570,170" class="edge"/>
+
+  <rect x="190" y="230" width="300" height="36" rx="6" class="orange"/>
+  <text x="340" y="253" text-anchor="middle">scores S = Q Kᵀ tile: 128 × 128</text>
+  <path d="M135,208 L135,248 L188,248" class="edge"/>
+  <path d="M470,208 L420,228" class="edge"/>
+
+  <rect x="540" y="230" width="230" height="36" rx="6" class="gray"/>
+  <text x="655" y="253" text-anchor="middle">update running max m, sum l</text>
+  <path d="M490,248 L538,248" class="edge"/>
+
+  <rect x="190" y="284" width="300" height="36" rx="6" class="orange"/>
+  <text x="340" y="307" text-anchor="middle">O tile ← rescale(O) + P V tile</text>
+  <path d="M340,266 L340,282" class="edge"/>
+  <path d="M655,266 L655,302 L492,302" class="edge"/>
+
+  <!-- output -->
+  <rect x="20" y="356" width="260" height="52" rx="4" class="group"/>
+  <text x="30" y="372" class="sm">HBM</text>
+  <rect x="80" y="364" width="190" height="34" rx="4" class="blue"/>
+  <text x="175" y="386" text-anchor="middle">O tile i (written once)</text>
+  <path d="M220,320 L220,362" class="edge"/>
+
+  <rect x="310" y="356" width="490" height="52" rx="4" class="green"/>
+  <text x="555" y="377" text-anchor="middle">S and P never leave the chip. HBM sees Q, K, V and O,</text>
+  <text x="555" y="396" text-anchor="middle" class="sm">plus K and V re-read once per Q tile (often served from the 50 MB L2)</text>
+</svg>

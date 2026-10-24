@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="300" viewBox="0 0 860 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+    <pattern id="redhatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a8a6" stroke-width="3"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dedge{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .grid{stroke:#e3e3e3;stroke-width:1}
+    .guide{stroke:#666;stroke-width:1;stroke-dasharray:5 4;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="110" y="22" text-anchor="middle" class="sm">requests arrive</text>
+  <path d="M110,28 L110,58" class="edge"/>
+  <rect x="20" y="60" width="180" height="110" rx="4" class="group"/>
+  <text x="110" y="80" text-anchor="middle" class="b">Waiting queue</text>
+  <rect x="235" y="60" width="180" height="110" rx="4" class="group"/>
+  <text x="325" y="80" text-anchor="middle" class="b">Running batch</text>
+  <rect x="450" y="60" width="180" height="110" rx="4" class="group"/>
+  <text x="540" y="80" text-anchor="middle" class="b">KV cache blocks</text>
+  <rect x="665" y="60" width="180" height="110" rx="4" class="group"/>
+  <text x="755" y="80" text-anchor="middle" class="b">Streamed tokens</text>
+  <rect x="38" y="96" width="30" height="26" rx="3" class="purple"/>
+  <rect x="76" y="96" width="30" height="26" rx="3" class="purple"/>
+  <rect x="114" y="96" width="30" height="26" rx="3" class="purple"/>
+  <rect x="152" y="96" width="30" height="26" rx="3" class="purple"/>
+  <text x="110" y="152" text-anchor="middle" class="sm">not scheduled yet</text>
+  <rect x="252" y="96" width="26" height="26" rx="3" class="orange"/>
+  <rect x="282" y="96" width="26" height="26" rx="3" class="orange"/>
+  <rect x="312" y="96" width="26" height="26" rx="3" class="orange"/>
+  <rect x="342" y="96" width="26" height="26" rx="3" class="orange"/>
+  <rect x="372" y="96" width="26" height="26" rx="3" class="orange"/>
+  <text x="325" y="152" text-anchor="middle" class="sm">capped by --max-num-seqs</text>
+  <rect x="462" y="92" width="18" height="18" class="blue"/>
+  <rect x="482" y="92" width="18" height="18" class="blue"/>
+  <rect x="502" y="92" width="18" height="18" class="blue"/>
+  <rect x="522" y="92" width="18" height="18" class="blue"/>
+  <rect x="542" y="92" width="18" height="18" class="blue"/>
+  <rect x="562" y="92" width="18" height="18" class="blue"/>
+  <rect x="582" y="92" width="18" height="18" class="blue"/>
+  <rect x="602" y="92" width="18" height="18" class="blue"/>
+  <rect x="462" y="114" width="18" height="18" class="blue"/>
+  <rect x="482" y="114" width="18" height="18" class="blue"/>
+  <rect x="502" y="114" width="18" height="18" class="blue"/>
+  <rect x="522" y="114" width="18" height="18" class="white"/>
+  <rect x="542" y="114" width="18" height="18" class="white"/>
+  <rect x="562" y="114" width="18" height="18" class="white"/>
+  <rect x="582" y="114" width="18" height="18" class="white"/>
+  <rect x="602" y="114" width="18" height="18" class="white"/>
+  <text x="540" y="152" text-anchor="middle" class="sm">blocks in use ÷ all blocks</text>
+  <text x="755" y="106" text-anchor="middle" class="sm">first token: TTFT</text>
+  <text x="755" y="126" text-anchor="middle" class="sm">gaps: inter-token latency</text>
+  <text x="755" y="146" text-anchor="middle" class="sm">last token: end-to-end</text>
+  <path d="M200,115 L233,115" class="edge"/>
+  <path d="M415,115 L448,115" class="edge"/>
+  <path d="M630,115 L663,115" class="edge"/>
+  <line x1="110" y1="170" x2="110" y2="186" class="guide"/>
+  <text x="110" y="202" text-anchor="middle" class="sm">vllm:num_requests_waiting</text>
+  <line x1="325" y1="170" x2="325" y2="186" class="guide"/>
+  <text x="325" y="202" text-anchor="middle" class="sm">vllm:num_requests_running</text>
+  <line x1="540" y1="170" x2="540" y2="186" class="guide"/>
+  <text x="540" y="202" text-anchor="middle" class="sm">vllm:kv_cache_usage_perc</text>
+  <line x1="755" y1="170" x2="755" y2="186" class="guide"/>
+  <text x="755" y="202" text-anchor="middle" class="sm">vllm:time_to_first_token_seconds</text>
+  <rect x="20" y="222" width="180" height="36" rx="6" class="purple"/>
+  <text x="110" y="245" text-anchor="middle">fast overload alarm</text>
+  <rect x="235" y="222" width="180" height="36" rx="6" class="green"/>
+  <text x="325" y="245" text-anchor="middle">primary scaling signal</text>
+  <rect x="450" y="222" width="180" height="36" rx="6" class="blue"/>
+  <text x="540" y="245" text-anchor="middle">add for long contexts</text>
+  <rect x="665" y="222" width="180" height="36" rx="6" class="gray"/>
+  <text x="755" y="245" text-anchor="middle">SLO guardrail, lags</text>
+  <text x="16" y="286" class="sm">In-flight requests = running + waiting. Divide by the replica's SLO capacity (53 at our latency targets) to get a utilization that grows linearly with traffic.</text>
+</svg>

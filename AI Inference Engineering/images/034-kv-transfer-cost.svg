@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="830" height="420" viewBox="0 0 830 420" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .thick{fill:none;stroke:#000;stroke-width:2.4;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .ref{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="20" y="26" class="b">Llama 3.1 8B, BF16 KV cache (128 KiB per token), one H100 prefilling at 52% MFU</text>
+  <line x1="200.0" y1="44" x2="200.0" y2="312" class="grid"/>
+  <line x1="312.0" y1="44" x2="312.0" y2="312" class="grid"/>
+  <line x1="424.0" y1="44" x2="424.0" y2="312" class="grid"/>
+  <line x1="536.0" y1="44" x2="536.0" y2="312" class="grid"/>
+  <line x1="648.0" y1="44" x2="648.0" y2="312" class="grid"/>
+  <line x1="760.0" y1="44" x2="760.0" y2="312" class="grid"/>
+  <text x="20" y="80" class="b">2,000 tokens</text>
+  <text x="20" y="98" class="sm">KV cache 250 MiB</text>
+  <rect x="200" y="50" width="314.3" height="18" class="gray"/>
+  <text x="520.2921570861954" y="64" class="sm">64 ms</text>
+  <rect x="200" y="72" width="192.2" height="18" class="blue"/>
+  <text x="398.1923744870975" y="86" class="sm">5.2 ms</text>
+  <rect x="200" y="94" width="85.5" height="18" class="green"/>
+  <text x="291.50393527904896" y="108" class="sm">0.6 ms</text>
+  <text x="20" y="166" class="b">8,000 tokens</text>
+  <text x="20" y="184" class="sm">KV cache 1,000 MiB</text>
+  <rect x="200" y="136" width="386.4" height="18" class="gray"/>
+  <text x="592.4279001317684" y="150" class="sm">282 ms</text>
+  <rect x="200" y="158" width="260.1" height="18" class="blue"/>
+  <text x="466.088561010199" y="172" class="sm">21 ms</text>
+  <rect x="200" y="180" width="152.5" height="18" class="green"/>
+  <text x="358.5135176339704" y="194" class="sm">2.3 ms</text>
+  <text x="20" y="252" class="b">32,000 tokens</text>
+  <text x="20" y="270" class="sm">KV cache 4,000 MiB</text>
+  <rect x="200" y="222" width="468.4" height="18" class="gray"/>
+  <text x="674.3664818498145" y="236" class="sm">1,520 ms</text>
+  <rect x="200" y="244" width="327.5" height="18" class="blue"/>
+  <text x="533.5192800389307" y="258" class="sm">84 ms</text>
+  <rect x="200" y="266" width="220.5" height="18" class="green"/>
+  <text x="426.47009023804077" y="280" class="sm">9.3 ms</text>
+  <path d="M200,312 L760,312" class="axis"/>
+  <line x1="200.0" y1="312" x2="200.0" y2="317" class="axis"/>
+  <text x="200.0" y="332" text-anchor="middle" class="sm">0.1</text>
+  <line x1="312.0" y1="312" x2="312.0" y2="317" class="axis"/>
+  <text x="312.0" y="332" text-anchor="middle" class="sm">1</text>
+  <line x1="424.0" y1="312" x2="424.0" y2="317" class="axis"/>
+  <text x="424.0" y="332" text-anchor="middle" class="sm">10</text>
+  <line x1="536.0" y1="312" x2="536.0" y2="317" class="axis"/>
+  <text x="536.0" y="332" text-anchor="middle" class="sm">100</text>
+  <line x1="648.0" y1="312" x2="648.0" y2="317" class="axis"/>
+  <text x="648.0" y="332" text-anchor="middle" class="sm">1,000</text>
+  <line x1="760.0" y1="312" x2="760.0" y2="317" class="axis"/>
+  <text x="760.0" y="332" text-anchor="middle" class="sm">10,000</text>
+  <text x="480.0" y="350" text-anchor="middle" class="sm">milliseconds (log scale)</text>
+  <rect x="20" y="370" width="18" height="12" rx="0" class="gray"/>
+  <text x="44" y="381" class="sm">prefill on one H100</text>
+  <rect x="200" y="370" width="18" height="12" rx="0" class="blue"/>
+  <text x="224" y="381" class="sm">KV transfer over a 400 Gb/s adapter (50 GB/s)</text>
+  <rect x="520" y="370" width="18" height="12" rx="0" class="green"/>
+  <text x="544" y="381" class="sm">KV transfer over NVLink (450 GB/s)</text>
+  <text x="20" y="406" class="sm">Idealized: full link bandwidth. The transfer is 6–8% of the prefill over the network; an FP8 KV cache halves every transfer.</text>
+</svg>

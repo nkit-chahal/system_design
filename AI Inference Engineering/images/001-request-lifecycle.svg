@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="370" viewBox="0 0 900 370" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- streamed tokens back to the client -->
+  <path d="M738,115 L738,22 L57,22 L57,123" class="edge"/>
+  <text x="400" y="16" text-anchor="middle" class="sm">tokens stream back to the user one at a time</text>
+
+  <rect x="12" y="125" width="90" height="50" rx="6" class="white"/>
+  <text x="57" y="155" text-anchor="middle">Client</text>
+  <path d="M102,150 L124,150" class="edge"/>
+
+  <rect x="126" y="115" width="120" height="70" rx="6" class="purple"/>
+  <text x="186" y="140" text-anchor="middle" class="b">API gateway</text>
+  <text x="186" y="157" text-anchor="middle" class="sm">auth, rate limits</text>
+  <text x="186" y="174" text-anchor="middle" class="sm">Lesson 26</text>
+  <path d="M246,150 L268,150" class="edge"/>
+
+  <rect x="270" y="115" width="120" height="70" rx="6" class="purple"/>
+  <text x="330" y="140" text-anchor="middle" class="b">Router</text>
+  <text x="330" y="157" text-anchor="middle" class="sm">picks a replica</text>
+  <text x="330" y="174" text-anchor="middle" class="sm">Lesson 25</text>
+  <path d="M390,150 L428,150" class="edge"/>
+
+  <!-- Engine replica -->
+  <rect x="414" y="50" width="474" height="235" rx="4" class="group"/>
+  <text x="430" y="74" class="b">Engine replica on GPUs <tspan class="sm" font-weight="normal">(Lessons 9–11)</tspan></text>
+
+  <rect x="430" y="115" width="110" height="70" rx="6" class="gray"/>
+  <text x="485" y="140" text-anchor="middle" class="b">Scheduler</text>
+  <text x="485" y="157" text-anchor="middle" class="sm">waiting queue</text>
+  <text x="485" y="174" text-anchor="middle" class="sm">Lessons 7, 29</text>
+  <path d="M540,150 L562,150" class="edge"/>
+
+  <rect x="564" y="115" width="100" height="70" rx="6" class="orange"/>
+  <text x="614" y="140" text-anchor="middle" class="b">Prefill</text>
+  <text x="614" y="157" text-anchor="middle" class="sm">whole prompt</text>
+  <text x="614" y="174" text-anchor="middle" class="sm">Lessons 2, 4</text>
+  <path d="M664,150 L686,150" class="edge"/>
+
+  <rect x="688" y="115" width="100" height="70" rx="6" class="orange"/>
+  <text x="738" y="140" text-anchor="middle" class="b">Decode</text>
+  <text x="738" y="157" text-anchor="middle" class="sm">token by token</text>
+  <text x="738" y="174" text-anchor="middle" class="sm">Lessons 2, 5</text>
+  <path d="M788,135 C840,135 840,170 790,170" class="edge"/>
+  <text x="826" y="198" text-anchor="middle" class="sm">repeat until</text>
+  <text x="826" y="212" text-anchor="middle" class="sm">done</text>
+
+  <rect x="564" y="222" width="224" height="48" rx="6" class="blue"/>
+  <text x="676" y="242" text-anchor="middle" class="b">KV cache in GPU memory</text>
+  <text x="676" y="259" text-anchor="middle" class="sm">Lessons 3, 8, 24</text>
+  <path d="M614,185 L614,220" class="edge"/>
+  <path d="M738,187 L738,220" fill="none" stroke="#000" stroke-width="1.2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+
+  <!-- Supporting systems -->
+  <rect x="12" y="308" width="540" height="48" rx="6" class="gray"/>
+  <text x="282" y="328" text-anchor="middle" class="b">Observability</text>
+  <text x="282" y="345" text-anchor="middle" class="sm">latency percentiles, queue depth, GPU metrics, token accounting (Lessons 28–31)</text>
+  <rect x="576" y="308" width="312" height="48" rx="6" class="gray"/>
+  <text x="732" y="328" text-anchor="middle" class="b">Autoscaler</text>
+  <text x="732" y="345" text-anchor="middle" class="sm">adds and removes replicas (Lessons 22, 23)</text>
+  <path d="M732,306 L732,287" class="dash"/>
+</svg>

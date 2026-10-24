@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="310" viewBox="0 0 820 310" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .mark{stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="22" class="b">Llama 3.1 8B Instruct checkpoint sizes (40 px per GB)</text>
+
+  <!-- target lines: half = 8.03 GB at x=431.2, quarter = 4.02 GB at x=270.8 -->
+  <path d="M431.2,36 L431.2,172" class="mark"/>
+  <text x="436" y="48" class="sm">50% target: 8.03 GB</text>
+  <path d="M270.8,36 L270.8,226" class="mark"/>
+  <text x="266" y="48" text-anchor="end" class="sm">a quarter: 4.02 GB</text>
+
+  <text x="16" y="88" class="b">BF16</text>
+  <rect x="110" y="64" width="558.4" height="40" class="orange"/>
+  <text x="389" y="89" text-anchor="middle" class="sm">Linear layers 13.96 GB</text>
+  <rect x="668.4" y="64" width="84" height="40" class="gray"/>
+  <text x="710" y="89" text-anchor="middle" class="sm">2.10</text>
+  <text x="758" y="89" class="sm">16.06</text>
+
+  <text x="16" y="148" class="b">FP8 dynamic</text>
+  <rect x="110" y="124" width="279.2" height="40" class="orange"/>
+  <text x="250" y="149" text-anchor="middle" class="sm">6.98 GB</text>
+  <rect x="389.2" y="124" width="84" height="40" class="gray"/>
+  <text x="410" y="149" text-anchor="middle" class="sm">2.10</text>
+  <text x="480" y="149" class="sm b">9.08 GB (−43%)</text>
+
+  <text x="16" y="208" class="b">W4A16</text>
+  <rect x="110" y="184" width="139.6" height="40" class="orange"/>
+  <text x="180" y="209" text-anchor="middle" class="sm">3.49 GB</text>
+  <rect x="249.6" y="184" width="5.6" height="40" class="purple"/>
+  <rect x="255.2" y="184" width="84" height="40" class="gray"/>
+  <text x="297" y="209" text-anchor="middle" class="sm">2.10</text>
+  <text x="346" y="209" class="sm b">5.74 GB (−64%)</text>
+
+  <!-- Legend -->
+  <rect x="110" y="244" width="18" height="12" class="orange"/><text x="134" y="255" class="sm">quantized Linear layers (6.98B params)</text>
+  <rect x="400" y="244" width="18" height="12" class="gray"/><text x="424" y="255" class="sm">embeddings + LM head, 16-bit (1.05B params)</text>
+  <rect x="110" y="266" width="18" height="12" class="purple"/><text x="134" y="277" class="sm">scales and zero points (≈ 0.14 GB for W4A16; ≈ 3 MB for FP8)</text>
+  <text x="16" y="302" class="sm">Sizes of published checkpoints made with the same recipes as this lab: 16,060,556,376, 9,084,014,480 and 5,735,720,552 bytes.</text>
+</svg>

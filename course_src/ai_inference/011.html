@@ -1,0 +1,221 @@
+<h2>Introduction</h2>
+<p>TensorRT-LLM is NVIDIA's open-source library for running large language models on NVIDIA GPUs, released under the Apache 2.0 license [1]. NVIDIA first released it in October 2023 as a compiler: you converted a checkpoint, built a <strong>TensorRT engine</strong> tuned for one GPU type and one set of limits, and served that engine. Its purpose has always been the same: the highest throughput and lowest latency NVIDIA's own engineers can get from their hardware, with custom kernels for attention, matrix multiplies, and mixture-of-experts layers [1].</p>
+<p>The library has since changed shape. Version 1.0, in September 2025, made a PyTorch-based runtime the default, and the 1.4 release candidates of October 2026 removed the old engine-building path entirely [2][3]. Today TensorRT-LLM (its documentation now writes "TensorRT LLM") loads Hugging Face checkpoints directly, runs them with NVIDIA's kernels inside a PyTorch runtime, and serves them through an OpenAI-compatible server. Figure 1 shows the path of one request.</p>
+<fig src="011-architecture.svg" caption="The path of one request through trtllm-serve and the PyExecutor">A client sends a request to the trtllm-serve process, which runs the OpenAI-compatible HTTP server and the LLM API that tokenizes the prompt. An executor proxy sends the request over IPC to worker processes, one per GPU rank, launched with MPI. In each worker the PyExecutor loop takes requests from a queue, runs the capacity and micro-batch schedulers, prepares KV cache blocks with the KV cache manager, runs the model engine with NVIDIA kernels and CUDA graphs, and samples tokens. Results return to the proxy and stream to the client. Numbered circles 1 to 5 mark the order.</fig>
+<p>In this lesson, we see how TensorRT-LLM's runtime implements in-flight batching and the paged KV cache, what its kernels and quantization formats buy on Hopper and Blackwell GPUs, and how to deploy it with <code>trtllm-serve</code>, Triton Inference Server, or NVIDIA Dynamo. We then compare vLLM, SGLang, and TensorRT-LLM side by side and choose an engine for our running example. Version-specific details are as of late 2026: the latest stable release is v1.2.1 and the documentation tracks the 1.4 release candidates.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>TensorRT-LLM questions usually come with a cost angle. Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: Which model and GPUs?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct in BF16 on H100 80 GB GPUs. Next year we may add B200s.</p>
+<p><strong>Candidate</strong>: What traffic and latency targets?<br>
+<strong>Interviewer</strong>: The same chat traffic as before: about 2,000 prompt tokens and 500 output tokens per request, 1,000 requests per minute on average and about twice that at the daily peak, a p95 time to first token of at most 500 ms, and a p95 time per output token of at most 25 ms.</p>
+<p><strong>Candidate</strong>: What matters most to the business?<br>
+<strong>Interviewer</strong>: Cost per token. At about 5 requests per second per H100 we need four GPUs on average and seven at the peak, and finance asked whether a faster engine could let us run fewer.</p>
+<p><strong>Candidate</strong>: Are we committed to NVIDIA hardware?<br>
+<strong>Interviewer</strong>: For the next two years, yes. We would like to keep the option to test other accelerators later.</p>
+<p><strong>Candidate</strong>: Who will operate the engine?<br>
+<strong>Interviewer</strong>: A platform team of two engineers, using Kubernetes and Prometheus.</p>
+<p>The question underneath is: <em>does the extra speed TensorRT-LLM can deliver on NVIDIA GPUs pay for the extra setup and lock-in, at our scale?</em> To answer it we need to know what the runtime does differently, and then compare all three engines.</p>
+
+<h2>From Compiled Engines to a PyTorch Runtime</h2>
+<p>In the original workflow, a model went through three steps: a per-model script converted the checkpoint, <code>trtllm-build</code> compiled it into an engine, and the runtime served the engine. The build fixed limits such as the maximum batch size, sequence length, and tokens per step, and an engine built for an H100 did not run on an A100. Builds took minutes to hours, and every change of limits, GPU type, or parallelism meant a rebuild. The reward was performance that, for a long time, other engines could not match on NVIDIA hardware.</p>
+<fig src="011-engine-to-pytorch.svg" caption="The old engine-build workflow and the current PyTorch workflow">The upper row shows the removed path: a Hugging Face checkpoint goes through convert_checkpoint.py, then trtllm-build produces an engine fixed to one GPU type and one set of limits, which the runtime serves. The lower row shows the current path: the checkpoint, optionally quantized with NVIDIA Model Optimizer, is loaded directly by the LLM API or trtllm-serve, which runs PyTorch models with NVIDIA kernels and CUDA graphs. Limits become runtime settings.</fig>
+<p>The PyTorch runtime keeps the kernels and drops the compile step, as Figure 2 shows. Models are written as ordinary PyTorch modules that call NVIDIA's custom operators; CUDA graphs are captured for decode batches by default, and <code>torch.compile</code> with piecewise CUDA graphs is an opt-in feature [4]. Batch size and token limits become runtime settings. The migration guide lists what disappeared in the 1.4 release candidates: <code>trtllm-build</code>, the per-model conversion scripts, and the <code>tensorrt</code> backend option [3]. If you find an older tutorial that starts with <code>trtllm-build</code>, it describes the removed path; the stable v1.2 line still ships it, marked as legacy.</p>
+
+<h2>Inside the PyExecutor</h2>
+<h3>Processes and the executor loop</h3>
+<p>The <code>trtllm-serve</code> process runs the HTTP server and the <strong>LLM API</strong>, which tokenizes prompts and detokenizes outputs. For a model on several GPUs, an executor proxy starts one worker process per GPU rank, through MPI by default or through Ray, and talks to them over ZMQ-based IPC. Each worker runs a <strong>PyExecutor</strong>, whose loop matches what we saw in vLLM: fetch new requests, schedule, run the forward pass, sample, and return tokens [5]. Its components have NVIDIA names: a <code>CapacityScheduler</code> decides which requests may hold resources, a <code>MicroBatchScheduler</code> picks the requests for the next forward pass, a <code>KVCacheManager</code> owns the paged cache, and a <code>PyTorchModelEngine</code> runs the model.</p>
+
+<h3>In-flight batching</h3>
+<p><strong>In-flight batching</strong> is NVIDIA's name for continuous batching (Lesson 7, Continuous Batching): requests join and leave the batch at every step, and prompt tokens of new requests run in the same forward pass as decode tokens of running ones. TensorRT-LLM packs all tokens without padding and places context (prefill) tokens before generation tokens in the input [6]. Two limits bound a step: <code>max_batch_size</code>, the number of requests (default 2,048), and <code>max_num_tokens</code>, the number of tokens (default 8,192) [7]. Chunked prefill, called chunked context, is off by default in <code>trtllm-serve</code> (as of late 2026) and is enabled with <code>--enable_chunked_prefill</code>. The latency math from Lesson 9 applies unchanged: an 8,192-token step of an 8B model needs at least 133 ms of compute, and stalls every decoding user for that long, so we lower <code>max_num_tokens</code> to 2,048, which caps the stall near 33 ms, and turn chunking on.</p>
+<p>Like the other engines, the runtime overlaps CPU and GPU work. The <strong>overlap scheduler</strong> launches the forward pass for step <tex>n+1</tex> before the CPU has finished checking stop conditions for step <tex>n</tex>. It is on by default; the documentation notes the cost, one extra decoding step per request, and cites SGLang's zero-overhead scheduler as related work [8].</p>
+
+<h3>The capacity scheduler: reserve or overcommit</h3>
+<p>TensorRT-LLM's default admission policy differs from vLLM and SGLang. With <code>GUARANTEED_NO_EVICT</code>, the capacity scheduler admits a request only if enough KV blocks remain for it to <em>finish</em>: its prompt plus its full <code>max_tokens</code>. A started request is then never paused. The alternative, <code>MAX_UTILIZATION</code>, packs in as many requests as fit now, at the risk of pausing some if the cache fills [9][10]. Figure 3 puts numbers on the difference.</p>
+<fig src="011-capacity-policies.svg" caption="How many chat requests fit under each capacity policy on one H100">Three bars over a pool of 13,824 blocks of 32 tokens. With guaranteed no evict and max_tokens of 500, each request reserves 79 blocks and 174 requests fit. With guaranteed no evict and clients sending max_tokens of 4,096, each request reserves 191 blocks and only 72 fit, though each uses about 79. With max utilization, requests take blocks as they grow, so about 174 fit at these lengths, but requests can be paused if many run long.</fig>
+<p>The arithmetic starts from the cache size, which we compute below: 13,824 blocks of 32 tokens. A chat request of 2,000 prompt tokens with <code>max_tokens</code> 500 reserves <tex>\lceil 2500 / 32 \rceil = 79</tex> blocks, so 174 requests fit. If the application sends <code>max_tokens</code> 4,096 "to be safe," each request reserves <tex>\lceil 6096 / 32 \rceil = 191</tex> blocks and only 72 fit, even though each still uses about 79. The lesson for TensorRT-LLM deployments: set <code>max_tokens</code> realistically in clients, or switch the policy. With 50 users per replica we are well inside either limit.</p>
+
+<h3>The paged KV cache and block reuse</h3>
+<p>The KV cache is paged, in blocks of 32 tokens by default (<code>tokens_per_block</code>). Its size comes from <code>--kv_cache_free_gpu_memory_fraction</code>, default 0.9, which is a share of the memory that is <em>still free after the weights and runtime buffers are allocated</em> [7]. That is a different quantity from vLLM's <code>--gpu-memory-utilization</code>, which is a share of total memory (we set it to 0.90 explicitly; recent vLLM releases default to 0.92). Figure 4 compares the two on our H100.</p>
+<fig src="011-kv-budget-compare.svg" caption="Two ways to size the KV cache on one H100 with Llama 3.1 8B">Two horizontal bars of 79.6 GiB. In the vLLM bar, 0.90 of total memory is the budget: 15 GiB of weights, about 4.6 GiB of activations and CUDA graphs, and about 52 GiB of KV cache, with 8 GiB held back. In the TensorRT-LLM bar, weights and about 4.6 GiB of buffers are allocated first, leaving 60 GiB free; 0.9 of that, 54 GiB, becomes the KV cache, and 6 GiB is left. 54 GiB holds about 442,000 tokens in 13,824 blocks of 32 tokens.</fig>
+<p>Assume the same 15 GiB of weights and about 4.6 GiB of runtime buffers as in Lesson 3, KV Cache. About 79.6 − 15 − 4.6 = 60 GiB is free, and 0.9 of it is 54 GiB. At 128 KiB per token that is 54 × 8,192 = 442,368 tokens, or 13,824 blocks of 4 MiB (32 tokens × 128 KiB). The actual buffer size depends on the model and settings, so read the cache size from the startup log rather than trusting the estimate.</p>
+<p>Prefix reuse is on by default (<code>enable_block_reuse</code>). Blocks of earlier requests stay in a radix search tree, and only leaf blocks are evicted. Eviction is <strong>prioritized LRU</strong>: every block has a priority from 0 to 100, default 35, all blocks of the lowest priority go before any of the next, and ties go to the least recently used. A per-request retention policy can raise the priority of, say, a system prompt so that it survives bursts of one-off traffic. Evicted blocks can be offloaded to host memory (<code>host_cache_size</code>, default 0) and stay reusable there [11]. An FP8 KV cache is a one-line setting (<code>kv_cache_config: {dtype: fp8}</code>), and Blackwell GPUs add an NVFP4 KV cache [12].</p>
+
+<h2>Kernels and Quantization</h2>
+<p>TensorRT-LLM's main asset is its kernels. NVIDIA writes attention, GEMM, and mixture-of-experts kernels for each new GPU generation, using CUTLASS and hand-tuned code; the XQA kernel, for example, speeds up decode attention for multi-query and grouped-query models [1][13]. Lesson 33, GPU Architecture and Attention Kernels, explains what these kernels optimize. Other engines reuse some of this work: vLLM lists TRTLLM-GEN attention and GEMM kernels among its backends [14], so the engines share more kernels than their names suggest.</p>
+<p>Quantization is the other lever, and it depends on the GPU generation (Figure 5). FP8 runs natively on Hopper and Ada Lovelace GPUs in several scaling variants. <strong>NVFP4</strong>, a 4-bit format that stores one FP8 scale for every 16 values, runs natively on Blackwell [12][15]. Pre-quantized checkpoints come from NVIDIA Model Optimizer and load directly.</p>
+<fig src="011-precision-matrix.svg" caption="Quantization formats supported by TensorRT-LLM on each GPU generation (late 2026)">A grid with GPU generations as rows (Ada Lovelace, Hopper, Blackwell B200 and B300) and formats as columns (FP8 weights and activations, FP8 KV cache, NVFP4 or MXFP4 weights, NVFP4 KV cache, INT4 AWQ or GPTQ weights). Ada and Hopper support FP8 weights, FP8 KV cache, and INT4 weights but not NVFP4. Blackwell supports all of them. A note gives Llama 3.1 8B weight sizes: 16.1 GB in BF16, 8.0 GB in FP8, about 4.5 GB in NVFP4.</fig>
+<p>For our model, the weights take 8.03B × 2 bytes ≈ 16.1 GB in BF16, 8.0 GB in FP8, and about 8.03B × 4.5 bits ÷ 8 ≈ 4.5 GB in NVFP4, a 3.5× reduction that matches NVIDIA's own figure [15]. Real checkpoints are somewhat larger because embeddings and a few sensitive layers usually stay in higher precision: the published FP8 checkpoint is about 9.08 GB. On our H100s, FP8 is the format to evaluate first; NVFP4 becomes an option with the B200s. Lesson 13, Quantization - FP8, INT8 and 4-bit, covers accuracy, and Lesson 16 shows how to check it.</p>
+
+<h2>Deploying TensorRT-LLM</h2>
+<h3>trtllm-serve</h3>
+<p><code>trtllm-serve &lt;model&gt;</code> starts an OpenAI-compatible server on port 8000 with <code>/v1/models</code>, <code>/v1/completions</code>, and <code>/v1/chat/completions</code>, plus <code>/health</code> and <code>/metrics</code> [7]. NVIDIA recommends running it in the release container from NGC. A few dedicated flags cover parallelism and limits, and everything else goes in a YAML file passed with <code>--config</code>, whose keys map to the LLM API's arguments. Explicit flags override the file. Table 1 lists the settings that matter most.</p>
+<table>
+<thead><tr><th>Setting</th><th>Default (late 2026)</th><th>What it controls</th></tr></thead>
+<tbody>
+<tr><td><code>--max_batch_size</code></td><td>2,048</td><td>Requests per step</td></tr>
+<tr><td><code>--max_num_tokens</code></td><td>8,192</td><td>Tokens per step; sets the compute floor of a step</td></tr>
+<tr><td><code>--enable_chunked_prefill</code></td><td>Off</td><td>Splits long prompts across steps</td></tr>
+<tr><td><code>--kv_cache_free_gpu_memory_fraction</code></td><td>0.9</td><td>Share of free memory (after weights) for the KV cache</td></tr>
+<tr><td><code>--tp_size</code>, <code>--pp_size</code>, <code>--ep_size</code></td><td>1</td><td>Tensor, pipeline, expert parallelism</td></tr>
+<tr><td><code>kv_cache_config.enable_block_reuse</code></td><td>true</td><td>Prefix reuse across requests</td></tr>
+<tr><td><code>kv_cache_config.dtype</code></td><td><code>auto</code></td><td><code>fp8</code> halves KV memory</td></tr>
+<tr><td><code>scheduler_config.capacity_scheduler_policy</code></td><td><code>GUARANTEED_NO_EVICT</code></td><td>Reserve to completion, or <code>MAX_UTILIZATION</code></td></tr>
+<tr><td><code>guided_decoding_backend</code></td><td>None</td><td><code>xgrammar</code> or <code>llguidance</code> for JSON schemas</td></tr>
+<tr><td><code>return_perf_metrics</code></td><td>false</td><td>Per-request metrics and the Prometheus endpoint</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: trtllm-serve flags (top) and <code>--config</code> YAML keys (bottom) [7][11][16]</p>
+<p>Structured output is off until you name a backend: XGrammar or LLGuidance, set in the YAML file [16]. That differs from vLLM and SGLang, where it works out of the box. Lesson 38, Structured Output and Tool Calling, compares the backends.</p>
+
+<h3>Observing TensorRT-LLM</h3>
+<p>Monitoring takes more setup than in the other two engines. The documented <code>/metrics</code> endpoint, in beta, returns <em>JSON</em> iteration statistics such as GPU memory, KV cache blocks in use, and cache hit rate, but only when <code>enable_iter_perf_stats: true</code> is set. Each statistic is handed out once and then removed from a queue, so a single client must poll it [7]. For Prometheus, setting <code>return_perf_metrics: true</code> mounts a second endpoint at <code>/prometheus/metrics</code> with <code>trtllm_</code>-prefixed series, including <code>trtllm_time_to_first_token_seconds</code>, <code>trtllm_e2e_request_latency_seconds</code>, <code>trtllm_request_queue_time_seconds</code>, <code>trtllm_num_requests_waiting</code>, and <code>trtllm_kv_cache_utilization</code>. This endpoint appears in the source code rather than in the serving guide, and the queue and cache gauges are newer than the latency histograms, so check your version [17].</p>
+
+<h3>Benchmarking</h3>
+<p><code>trtllm-bench</code> measures the runtime without an HTTP server. Its <code>prepare-dataset</code> command writes synthetic requests with chosen input and output lengths, and its <code>throughput</code> and <code>latency</code> commands run them in-process, optionally capped at a concurrency and with streaming to report TTFT and inter-token latency [18]. It is the fastest way to tune <code>max_batch_size</code> and <code>max_num_tokens</code>. To compare engines fairly, though, benchmark the HTTP servers with the same client, for example <code>vllm bench serve</code> or TensorRT-LLM's own <code>benchmark_serving</code> script, as Lesson 12 does.</p>
+
+<h3>Triton Inference Server and NVIDIA Dynamo</h3>
+<p>Two NVIDIA projects sit above the engine, as Figure 6 shows. <strong>Triton Inference Server</strong> is NVIDIA's general model server. Its TensorRT-LLM backend now has an LLM API path that serves Hugging Face models directly, configured by a <code>model.yaml</code> whose keys map to the LLM API's arguments, and the backend's source has moved into the TensorRT-LLM repository [19]. Teams that already run Triton for other models can add LLMs to the same fleet.</p>
+<fig src="011-deployment-options.svg" caption="Three ways to deploy TensorRT-LLM">Three stacks side by side. On the left, clients call trtllm-serve directly, which runs one TensorRT-LLM engine. In the middle, clients call Triton Inference Server, whose TensorRT-LLM backend hosts the engine next to other models. On the right, clients call the NVIDIA Dynamo frontend and its KV-aware router, which sends work to separate prefill and decode worker pools running TensorRT-LLM, vLLM, or SGLang, with a planner that scales the pools and a KV block manager that offloads cache to CPU and storage.</fig>
+<p><strong>NVIDIA Dynamo</strong> is an open-source, Apache 2.0 orchestration layer for data-center-scale serving. It does not replace an engine; it runs TensorRT-LLM, vLLM, or SGLang workers and adds disaggregated prefill and decode pools, routing based on worker load and KV cache overlap, a KV block manager that offloads cache from GPU to CPU, SSD, and remote storage, and a planner that resizes the pools against latency targets [20]. Lesson 34, Disaggregated Prefill and Decode, covers it. For a two-GPU deployment like ours, <code>trtllm-serve</code> behind a Kubernetes service is enough.</p>
+
+<h3>Strengths and weaknesses</h3>
+<p>TensorRT-LLM's strength is peak performance on NVIDIA GPUs, especially new ones. NVIDIA tunes its kernels and FP8 and NVFP4 paths for each generation, often supports popular models on release day, and publishes record results for large models on Blackwell [2]. Its admission policy gives predictable latency, since a started request is never paused, and Dynamo and Triton integrate with it closely.</p>
+<p>The costs are real. It runs only on NVIDIA GPUs, and its official hardware list runs from the A100 (Ampere) through Ada Lovelace and Hopper to Blackwell parts such as the B200 and DGX Spark [21]. More settings live in YAML files, structured output and Prometheus metrics must be switched on, and the runtime has gone through two architectures in three years, so older guides mislead. Model coverage is narrower than vLLM's, and for a small dense model like ours, the gap in throughput between a well-configured TensorRT-LLM and a well-configured vLLM or SGLang may be modest; only a benchmark on your workload can tell.</p>
+
+<h2>Comparing the Three Engines</h2>
+<p>Table 2 sets the three engines of this stage side by side, as of late 2026. Each row condenses Lessons 9, 10, and this lesson.</p>
+<table>
+<thead><tr><th></th><th>vLLM</th><th>SGLang</th><th>TensorRT-LLM</th></tr></thead>
+<tbody>
+<tr><td>Origin and license</td><td>UC Berkeley Sky Computing Lab, 2023; community project; Apache 2.0</td><td>LMSYS research project, 2023; hosted by LMSYS; Apache 2.0</td><td>NVIDIA, 2023; open source; Apache 2.0</td></tr>
+<tr><td>Core scheduling and memory ideas</td><td>One token budget per step; PagedAttention with 16-token blocks; hash-based prefix caching; chunked prefill and async scheduling on by default</td><td>RadixAttention: token-level prefix tree with LRU eviction; cache-aware admission (<code>lpm</code>); overlap scheduler; retraction when full</td><td>In-flight batching; 32-token paged blocks with radix-tree reuse and prioritized LRU; reserve-to-completion admission by default; overlap scheduler</td></tr>
+<tr><td>Hardware support</td><td>NVIDIA, AMD, and Intel GPUs; x86, ARM, and PowerPC CPUs; TPU, Gaudi, Ascend, and others through plugins</td><td>NVIDIA and AMD GPUs, Google TPU, Intel, Ascend NPU, Moore Threads, Apple Silicon</td><td>NVIDIA only: Ampere, Ada Lovelace, Hopper, Blackwell</td></tr>
+<tr><td>Model coverage</td><td>Broadest: 200+ architectures, usually on release day</td><td>Broad, focused on popular and frontier models</td><td>Popular architectures, often on release day for NVIDIA-promoted models</td></tr>
+<tr><td>Structured output</td><td>On by default; XGrammar or LLGuidance chosen automatically</td><td>On by default; XGrammar (Outlines, LLGuidance optional)</td><td>Off until configured; XGrammar or LLGuidance</td></tr>
+<tr><td>Multi-GPU and multi-node</td><td>Tensor, pipeline, data, expert, and context parallelism; Ray or built-in multi-node</td><td>Tensor, pipeline, data, expert parallelism and data-parallel attention; cache-aware Model Gateway</td><td>Tensor, pipeline, expert parallelism; MPI or Ray; Triton and Dynamo above it</td></tr>
+<tr><td>Ease of use</td><td>One command, most optimizations on by default, Prometheus metrics built in</td><td>One command; metrics behind one flag; gateway is a separate service</td><td>NGC container, YAML configuration, metrics and structured output need opt-in</td></tr>
+<tr><td>Best fit</td><td>The default for most teams: broad models and hardware, little tuning</td><td>Prefix-heavy traffic: multi-turn chat, agents, shared documents, multi-call programs</td><td>A fixed model at scale on NVIDIA GPUs, especially FP8 and NVFP4 on Hopper and Blackwell</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: vLLM, SGLang, and TensorRT-LLM compared (late 2026)</p>
+<p>Notice how much the engines have converged. All three batch continuously, page the KV cache, reuse prefixes, chunk long prompts, overlap CPU and GPU work, use XGrammar for structured output, and speak the OpenAI API. They differ in defaults, in which workload they were designed around, and in hardware reach.</p>
+
+<h4>Which engine fits our deployment?</h4>
+<p>Figure 7 turns the comparison into a decision. For our deployment, four to seven H100 replicas of Llama 3.1 8B serving chat with a shared system prompt, we choose <strong>vLLM</strong>. At 50 users per replica we are far from the roughly 170-request memory limit, so latency control matters more than peak throughput, and all three engines give us the same latency tool: a 2,048-token step with chunked prefill. vLLM adds Prometheus metrics with no extra setup, which a two-person team will value, the widest choice of models for the next upgrade, and the option to test non-NVIDIA accelerators later.</p>
+<fig src="011-engine-decision.svg" caption="Choosing an engine">A decision flow. First question: must it run on non-NVIDIA hardware? Yes leads to vLLM or SGLang. No leads to the second question: is most prompt volume shared prefix, such as multi-turn chat, agents, or shared documents? Yes leads to SGLang. No leads to the third question: is the fleet large and fixed, and does a benchmark on our workload show at least 20% more throughput at the same p95 latency? Yes leads to TensorRT-LLM. No leads to vLLM.</fig>
+<p>Two results would change the choice. If the support agent grows until shared prefixes dominate traffic, SGLang's radix cache and cache-aware gateway become worth adopting. And TensorRT-LLM pays off only when its gain buys back whole GPUs. Assume $3.00 per H100-hour. A 20% throughput gain would raise capacity from about 5 to 6 requests per second per H100. The daily peak of 33 requests per second would then need 6 GPUs instead of 7 (33 ÷ 6 = 5.5), and the average of 16.7 would need 3 instead of 4. That saves about one GPU around the clock, 8,760 hours × $3 ≈ $26,000 a year, which must pay for the extra engineering and the lock-in. A fleet ten times larger would save about ten GPUs, roughly $263,000 a year, and easily would. Lesson 12 benchmarks two engines on exactly this workload, and Lesson 20, Cost per Million Tokens, turns throughput into cost.</p>
+
+<h2>In Practice</h2>
+<p>The first tab serves our model with <code>trtllm-serve</code>, using a YAML file for the settings that have no dedicated flag. The second runs <code>trtllm-bench</code> on a synthetic dataset that matches our traffic. The third calls the server with a JSON schema, which works because the YAML file enables XGrammar.</p>
+<codetabs>
+<tab label="Serve" lang="bash">
+# Settings without dedicated flags go in a YAML file (keys map to the LLM API).
+cat > config.yaml <<EOF
+enable_chunked_prefill: true
+kv_cache_config:
+  enable_block_reuse: true
+scheduler_config:
+  capacity_scheduler_policy: GUARANTEED_NO_EVICT
+guided_decoding_backend: xgrammar
+enable_iter_perf_stats: true
+return_perf_metrics: true
+EOF
+
+trtllm-serve meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 --port 8000 \
+  --max_batch_size 256 \
+  --max_num_tokens 2048 \
+  --max_seq_len 8192 \
+  --kv_cache_free_gpu_memory_fraction 0.9 \
+  --config config.yaml
+
+curl -s http://localhost:8000/health
+curl -s http://localhost:8000/metrics               # JSON iteration stats (beta)
+curl -s http://localhost:8000/prometheus/metrics | grep '^trtllm_'
+</tab>
+<tab label="trtllm-bench" lang="bash">
+# 1,000 synthetic requests: 2,000 prompt tokens and 500 output tokens each.
+trtllm-bench --model meta-llama/Llama-3.1-8B-Instruct prepare-dataset \
+  --output /tmp/chat_2000_500.txt \
+  token-norm-dist --input-mean 2000 --output-mean 500 \
+  --input-stdev 0 --output-stdev 0 --num-requests 1000
+
+# In-process throughput at 50 concurrent requests, streaming to record TTFT and ITL.
+trtllm-bench --model meta-llama/Llama-3.1-8B-Instruct throughput \
+  --dataset /tmp/chat_2000_500.txt \
+  --concurrency 50 \
+  --streaming \
+  --config config.yaml
+</tab>
+<tab label="Client" lang="python">
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="tensorrt_llm")
+
+schema = {
+    "type": "object",
+    "properties": {
+        "tool": {"type": "string", "enum": ["refund", "replace", "escalate"]},
+        "amount": {"type": "integer"},
+    },
+    "required": ["tool", "amount"],
+}
+
+reply = client.chat.completions.create(
+    model="meta-llama/Llama-3.1-8B-Instruct",
+    messages=[{"role": "user", "content": "Refund 42 dollars for order 1009."}],
+    response_format={"type": "json_schema", "json_schema": {"name": "action", "schema": schema}},
+    max_tokens=100,  # realistic max_tokens keeps GUARANTEED_NO_EVICT from over-reserving
+)
+print(reply.choices[0].message.content)
+print(reply.usage)
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Why reserve-to-completion admission trades capacity for predictable latency, and how inflated <code>max_tokens</code> values hurt it.</li>
+<li>KV cache retention priorities: keeping a system prompt's blocks at priority 100 while one-off requests use the default 35 [11].</li>
+<li>Wide expert parallelism and disaggregated serving for large mixture-of-experts models on Blackwell (Lesson 35, Mixture-of-Experts Serving, and Lesson 34, Disaggregated Prefill and Decode) [1].</li>
+<li>How NVFP4's two-level scaling (an FP8 scale per 16 values and an FP32 scale per tensor) keeps 4-bit accuracy close to FP8 [15].</li>
+<li>Why <code>trtllm-bench</code> numbers are higher than HTTP benchmark numbers: no tokenization, networking, or streaming overhead.</li>
+<li>The trade-off of vendor lock-in: the best kernels for NVIDIA hardware, at the cost of a harder move to other accelerators.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="011-summary.png" caption="TensorRT-LLM summary" optional="1">Mind map summarizing the TensorRT-LLM lesson: the move to a PyTorch runtime, the PyExecutor, admission policies, KV cache sizing, quantization, deployment options, and the three-engine comparison.</fig>
+<ul>
+<li>TensorRT-LLM is NVIDIA's Apache 2.0 library for LLM inference on NVIDIA GPUs. Since v1.0 it runs a PyTorch runtime by default, and the 1.4 release candidates removed the old <code>trtllm-build</code> engine path.</li>
+<li>Its PyExecutor does in-flight batching with limits of 2,048 requests and 8,192 tokens per step by default; chunked prefill is opt-in, and an overlap scheduler hides CPU work.</li>
+<li>The default <code>GUARANTEED_NO_EVICT</code> policy reserves blocks for prompt plus <code>max_tokens</code>: 174 chat requests fit on one H100 with <code>max_tokens</code> 500, but only 72 with 4,096.</li>
+<li><code>kv_cache_free_gpu_memory_fraction</code> 0.9 is a share of memory left after weights: about 54 GiB, 442,000 tokens, or 13,824 blocks of 32 tokens on our H100. Block reuse uses prioritized LRU.</li>
+<li>FP8 runs on Hopper and Ada; NVFP4 (4.5 bits per value, about 4.5 GB for Llama 3.1 8B) runs on Blackwell.</li>
+<li>Deploy with <code>trtllm-serve</code> and a YAML <code>--config</code>, or under Triton or NVIDIA Dynamo; metrics and structured output must be enabled.</li>
+<li>For our chat deployment of four to seven H100s we choose vLLM; a 20% faster engine would save only about one GPU ($26,000 a year at $3.00 per hour); SGLang wins if shared prefixes dominate, and TensorRT-LLM when a measured gain buys back whole GPUs in a large fleet.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] NVIDIA. TensorRT-LLM GitHub repository. <a href="https://github.com/NVIDIA/TensorRT-LLM" rel="noopener noreferrer" target="_blank">https://github.com/NVIDIA/TensorRT-LLM</a>.<br>
+[2] TensorRT-LLM documentation: Overview. <a href="https://nvidia.github.io/TensorRT-LLM/overview.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/overview.html</a>.<br>
+[3] TensorRT-LLM documentation: Migration Guide: TensorRT Backend Removed. <a href="https://nvidia.github.io/TensorRT-LLM/legacy/tensorrt-backend-removal.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/legacy/tensorrt-backend-removal.html</a>.<br>
+[4] TensorRT-LLM documentation: Torch Compile &amp; Prefill CUDA Graph. <a href="https://nvidia.github.io/TensorRT-LLM/features/torch_compile_and_piecewise_cuda_graph.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/features/torch_compile_and_piecewise_cuda_graph.html</a>.<br>
+[5] TensorRT-LLM documentation: Architecture Overview. <a href="https://nvidia.github.io/TensorRT-LLM/torch/arch_overview.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/torch/arch_overview.html</a>.<br>
+[6] TensorRT-LLM documentation: Paged Attention, IFB, and Request Scheduling. <a href="https://nvidia.github.io/TensorRT-LLM/features/paged-attention-ifb-scheduler.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/features/paged-attention-ifb-scheduler.html</a>.<br>
+[7] TensorRT-LLM documentation: trtllm-serve. <a href="https://nvidia.github.io/TensorRT-LLM/commands/trtllm-serve/trtllm-serve.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/commands/trtllm-serve/trtllm-serve.html</a>.<br>
+[8] TensorRT-LLM documentation: Overlap Scheduler. <a href="https://nvidia.github.io/TensorRT-LLM/features/overlap-scheduler.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/features/overlap-scheduler.html</a>.<br>
+[9] TensorRT-LLM documentation: Scheduler. <a href="https://nvidia.github.io/TensorRT-LLM/torch/scheduler.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/torch/scheduler.html</a>.<br>
+[10] TensorRT-LLM documentation: Useful Runtime Options. <a href="https://nvidia.github.io/TensorRT-LLM/legacy/performance/performance-tuning-guide/useful-runtime-flags.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/legacy/performance/performance-tuning-guide/useful-runtime-flags.html</a>.<br>
+[11] TensorRT-LLM documentation: KV Cache System. <a href="https://nvidia.github.io/TensorRT-LLM/features/kvcache.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/features/kvcache.html</a>.<br>
+[12] TensorRT-LLM documentation: Quantization. <a href="https://nvidia.github.io/TensorRT-LLM/features/quantization.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/features/quantization.html</a>.<br>
+[13] NVIDIA. New XQA-kernel provides 2.4x more Llama-70B throughput within the same latency budget. <a href="https://nvidia.github.io/TensorRT-LLM/blogs/XQA-kernel.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/blogs/XQA-kernel.html</a>.<br>
+[14] vLLM GitHub repository. <a href="https://github.com/vllm-project/vllm" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm</a>.<br>
+[15] NVIDIA Technical Blog. Introducing NVFP4 for Efficient and Accurate Low-Precision Inference. <a href="https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/" rel="noopener noreferrer" target="_blank">https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/</a>.<br>
+[16] TensorRT-LLM documentation: Guided Decoding. <a href="https://nvidia.github.io/TensorRT-LLM/features/guided-decoding.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/features/guided-decoding.html</a>.<br>
+[17] TensorRT-LLM source: metrics collector. <a href="https://github.com/NVIDIA/TensorRT-LLM/blob/main/tensorrt_llm/metrics/collector.py" rel="noopener noreferrer" target="_blank">https://github.com/NVIDIA/TensorRT-LLM/blob/main/tensorrt_llm/metrics/collector.py</a>.<br>
+[18] TensorRT-LLM documentation: TensorRT LLM Benchmarking. <a href="https://nvidia.github.io/TensorRT-LLM/developer-guide/perf-benchmarking.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/developer-guide/perf-benchmarking.html</a>.<br>
+[19] Triton Inference Server: TensorRT-LLM Backend. <a href="https://github.com/triton-inference-server/tensorrtllm_backend" rel="noopener noreferrer" target="_blank">https://github.com/triton-inference-server/tensorrtllm_backend</a>.<br>
+[20] NVIDIA Dynamo GitHub repository. <a href="https://github.com/ai-dynamo/dynamo" rel="noopener noreferrer" target="_blank">https://github.com/ai-dynamo/dynamo</a>.<br>
+[21] TensorRT-LLM documentation: Supported Hardware. <a href="https://nvidia.github.io/TensorRT-LLM/supported-hardware.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/supported-hardware.html</a>.</p>

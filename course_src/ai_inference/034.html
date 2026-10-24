@@ -1,0 +1,274 @@
+<h2>Introduction</h2>
+<p>Every request to an LLM goes through two phases with opposite needs. <strong>Prefill</strong> reads the whole prompt in one pass and is limited by arithmetic. <strong>Decode</strong> produces one token per step and is limited by memory bandwidth (Lesson 2, Prefill vs Decode). A standard serving engine runs both phases on the same GPU, often in the same step, which keeps the GPU busy but makes every user who is streaming tokens wait whenever someone else's prompt is being processed.</p>
+<p><strong>Disaggregated serving</strong> gives each phase its own GPUs. A pool of prefill workers processes prompts, a pool of decode workers generates tokens, a router sends each request through both, and the KV cache that prefill produces travels over a fast link to the decode worker that will finish the answer. Figure 1 shows the design. Decode workers never run a prompt, so a long prompt can no longer stall anyone's stream, and each pool can be tuned and scaled for its own bottleneck.</p>
+<fig src="034-architecture.svg" caption="Disaggregated serving: a router, a prefill pool, a decode pool, and a KV cache transfer between them">A request enters a router, which sends it to one of three prefill workers. The prefill worker computes the prompt's KV cache and the first token. The KV cache, 250 MiB for a 2,000-token prompt of Llama 3.1 8B, moves over NVLink or RDMA to one of four decode workers, which generate the remaining tokens and stream them to the user. A note states that the prefill pool is compute-bound and sized for TTFT, and the decode pool is memory-bound and sized for TPOT.</fig>
+<p>The idea is simple, but the trade-offs are not. Moving the cache costs bandwidth and time, two pools must be kept in the right ratio as traffic changes, and a small deployment can lose more to rounding than it gains. In this lesson, we look at what interference costs and why chunked prefill only partly fixes it, how a disaggregated system handles a request, the research and production systems that implement it, how to compute the KV transfer cost and the prefill-to-decode ratio from a workload, and when disaggregation is worth its complexity.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Disaggregation questions usually come up when a team has latency trouble or is planning a new workload. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: What are we serving today?<br>
+<strong>Interviewer</strong>: Our chat assistant: Llama 3.1 8B Instruct in BF16 on H100s, about 2,000 prompt tokens and 500 output tokens per request, 1,000 requests per minute on average and about 33 requests per second at the daily peak.</p>
+<p><strong>Candidate</strong>: What are the latency targets?<br>
+<strong>Interviewer</strong>: p95 time to first token under 500 ms and p95 time per output token under 25 ms. We meet them today with chunked prefill, but the p99 gap between tokens jumps when long prompts arrive.</p>
+<p><strong>Candidate</strong>: What is changing?<br>
+<strong>Interviewer</strong>: We are launching document question answering on the same model. Retrieval puts about 8,000 tokens in each prompt, the answers are short, about 200 tokens, and we expect 10 requests per second. Same latency targets.</p>
+<p><strong>Candidate</strong>: What hardware do we have, and how are the GPUs connected?<br>
+<strong>Interviewer</strong>: Servers with eight H100 SXM GPUs joined by NVLink, and one 400 Gb/s network adapter per GPU between servers.</p>
+<p><strong>Candidate</strong>: Why is disaggregation on the table?<br>
+<strong>Interviewer</strong>: A vendor told us it is how large providers serve models now. We want to know whether either service should use it, and if so, with how many prefill and decode GPUs.</p>
+<p>The question underneath is: <em>for each workload, does splitting prefill and decode onto separate GPUs buy enough latency and capacity to pay for a KV cache transfer per request and a second pool to run?</em> The document workload is deliberately different from the course's running example, so we keep the two apart throughout.</p>
+
+<h2>Why Prefill and Decode Fight Over a GPU</h2>
+<h3>The interference problem</h3>
+<p>An engine with continuous batching (Lesson 7, Continuous Batching) builds each GPU step from every running request. Decoding requests contribute one token each, and new requests contribute their prompts. A step lasts as long as its slowest part, and every request in it waits for the step to finish before it gets its next token. That coupling is <strong>interference</strong>: one request's prefill becomes every other request's latency.</p>
+<p>Lesson 2 measured the worst case for our model on one H100. With 64 users decoding at about 11 ms per step, an 8,000-token prompt processed in a single step takes about 296 ms at 50% of peak compute, and none of the 64 users receives a token in that time. Figure 2 shows the same moment under three designs.</p>
+<fig src="034-interference-timeline.svg" caption="The same 8,000-token prompt under three designs, as seen by a user who is streaming tokens (idealized estimate)">Three timelines from 0 to about 400 ms. Shared GPU without chunking: decode ticks every 11 ms, then one 296 ms step carries the prompt and the user gets no token, a 296 ms gap. Shared GPU with 2,048-token chunks: four steps of 71 to 80 ms each carry a chunk plus the decodes, so the user's gaps stretch to about 80 ms four times in a row. Disaggregated: the prompt runs on a separate prefill GPU for about 290 ms and its KV cache is transferred, while the decode GPU keeps ticking every 11 ms with no gap.</fig>
+
+<h3>What chunked prefill fixes, and what it does not</h3>
+<p><strong>Chunked prefill</strong> splits a prompt into slices and adds one slice to each step, next to the decodes [1]. It is on by default in vLLM, and it is the right first fix (Lesson 7, Continuous Batching). But it only spreads the interference out. Four limits remain:</p>
+<ul>
+<li><strong>Every chunk still stretches a step.</strong> In Figure 2, a 2,048-token budget turns one 296 ms gap into four gaps of about 80 ms. In our chat service at the daily peak, each GPU receives a 2,000-token prompt about every 200 ms. If the prompt fits in one step's budget, that step grows from about 15 ms to almost 80 ms, so roughly one gap in ten is three times the target. The p95 TPOT, averaged over a whole answer, stays near 21 ms, but the p99 gap between tokens does not. That is exactly the interviewer's symptom.</li>
+<li><strong>Small chunks cost prefill efficiency.</strong> To keep every gap under 25 ms with 8,000-token prompts, the engine would need about 20 slices of 400 tokens, each adding about 14 ms of compute to a step. Every slice re-reads the weights and the cache of the earlier slices, and small matrix multiplies run less efficiently, so the prompt's own TTFT grows.</li>
+<li><strong>One configuration must serve both phases.</strong> The token budget, the batch limit, CUDA graph sizes, and the parallelism layout are set once per engine. Prefill would prefer large budgets and possibly tensor parallelism to cut TTFT; decode would prefer the largest batch the cache holds.</li>
+<li><strong>The phases cannot be scaled apart.</strong> When prompts get longer, the only remedy is more mixed replicas, each of which brings decode capacity that may not be needed.</li>
+</ul>
+<p>Lesson 2's question was whether chunking was enough for chat. Here we ask the next question: what does it take to remove interference completely, and what does that cost?</p>
+
+<h2>The Disaggregated Architecture</h2>
+<h3>Components</h3>
+<p>A disaggregated deployment has four parts, all visible in Figure 1:</p>
+<ul>
+<li><strong>Prefill workers</strong>: engine instances that only process prompts. Each produces a request's KV cache and its first token, then hands the request on.</li>
+<li><strong>Decode workers</strong>: engine instances that only generate tokens. Each receives KV caches from prefill workers and runs large decode batches.</li>
+<li><strong>A router</strong> (also called a proxy or orchestrator): chooses a prefill worker and a decode worker for each request and passes the transfer metadata between them. Lesson 25, Request Routing, explains why the two choices use different signals: the prefill worker is chosen by prefix-cache match, the decode worker by load and free KV memory.</li>
+<li><strong>A KV transfer layer</strong>: moves cache blocks from the prefill GPU's memory to the decode GPU's memory, over NVLink inside a server or RDMA across servers, without copying through the CPU.</li>
+</ul>
+<p>Some systems add a fifth part: a shared store of KV caches in CPU memory or SSD, so that a cache computed once can be reused by later requests. Mooncake builds its whole design around such a pool [2]. Lesson 36, Long-Context Serving, covers those tiers.</p>
+
+<h3>The life of one request</h3>
+<p>Figure 3 follows a single chat request through the system. The exact handshake differs by engine, but the steps are the same.</p>
+<fig src="034-request-flow.svg" caption="One request in a disaggregated deployment">A sequence diagram with four lanes: client, router, prefill worker, and decode worker. 1: the client sends the prompt to the router. 2: the router sends it to the prefill worker with a limit of one output token. 3: the prefill worker runs the 2,000-token prompt in about 64 ms and returns the first token plus transfer metadata (block IDs and an address). 4: the router forwards the request and metadata to a decode worker. 5: the decode worker pulls 250 MiB of KV blocks directly from the prefill GPU, about 5 ms over a 400 Gb/s link, then frees the prefill blocks. 6: the decode worker streams tokens 2 to 500 to the client.</fig>
+<p>NVIDIA Dynamo's documentation describes the same flow: the router picks a prefill worker, the prefill worker returns backend-specific transfer metadata, the router attaches it to the decode request, and the decode worker pulls the cache over NIXL; the transfer is non-blocking, so both GPUs keep serving other requests while it runs [3]. In vLLM, the proxy or client sends the prompt to the prefill instance with <code>max_tokens</code> set to 1, then forwards the returned <code>kv_transfer_params</code> to a decode instance [4]. TensorRT-LLM calls the two roles <em>context</em> and <em>generation</em> servers, with a third "disaggregated" server that dispatches between them [5].</p>
+<p>Two refinements matter for latency. First, the transfer need not wait for the whole prompt: Splitwise starts sending each layer's cache as soon as that layer finishes, overlapping the transfer with the rest of the prefill, and uses a single serialized transfer for small prompts [6]. Second, the decode worker must reserve cache space before the data arrives; SGLang, for example, lets the operator choose whether decode reserves slots early or only once prefill completes [7].</p>
+
+<h3>Why it helps: goodput per pool</h3>
+<p>The case for disaggregation is not raw throughput. vLLM's documentation states plainly that disaggregated prefill does not improve throughput; its benefits are control over tail inter-token latency and the ability to tune TTFT and inter-token latency separately [8]. The gain shows up in <strong>goodput</strong>: the request rate a system sustains while meeting both latency targets (Lesson 5, Tokens per Second). DistServe introduced the design around exactly this metric. By placing the phases on different GPUs and choosing the parallelism of each, it served up to 7.4 times more requests, or met a 12.6 times tighter latency target, than the systems it compared against, with over 90% of requests within their limits [9].</p>
+<p>Separation gives each pool three freedoms:</p>
+<ul>
+<li><strong>Its own configuration.</strong> Prefill workers use large token budgets and, for big models, more tensor parallelism to cut TTFT. Decode workers use large batches and CUDA graphs, and their steps contain no prompt work, so TPOT is flat.</li>
+<li><strong>Its own scale.</strong> Each pool is sized against one target: the prefill pool against TTFT, the decode pool against TPOT. When prompts get longer, only the prefill pool grows. NVIDIA Dynamo's Planner automates this, adjusting the number of prefill and decode workers to meet TTFT and inter-token latency targets [10].</li>
+<li><strong>Its own hardware.</strong> Decode leaves compute idle, so it can run on cheaper or power-capped GPUs. Splitwise evaluated H100 machines for prompts with A100 machines for tokens, and H100 token machines capped at 70% of rated power, and reports 1.4 times the throughput at 20% lower cost, or 2.35 times the throughput at the same cost and power [6].</li>
+</ul>
+
+<h3>Research and production systems</h3>
+<p>The design went from papers to production in about two years. Table 1 summarizes the systems an interviewer is likely to mention.</p>
+<table>
+<thead><tr><th>System</th><th>What it is</th><th>Role in disaggregation</th></tr></thead>
+<tbody>
+<tr><td>DistServe [9]</td><td>Research system (OSDI 2024)</td><td>Separate prefill and decode GPUs, with parallelism and placement chosen per phase to maximize goodput</td></tr>
+<tr><td>Splitwise [6]</td><td>Research system from Microsoft</td><td>Prompt and token machine pools, layer-wise KV transfer, mixed hardware per pool</td></tr>
+<tr><td>Mooncake [2]</td><td>Moonshot AI's serving platform for Kimi</td><td>Separate prefill and decode clusters plus a disaggregated KV cache in CPU memory and SSD; its Transfer Engine is used by vLLM and SGLang [11]</td></tr>
+<tr><td>vLLM [8][12]</td><td>Serving engine</td><td>KV connectors (<code>NixlConnector</code>, <code>MooncakeConnector</code>, <code>LMCacheConnectorV1</code>, and others) set by <code>--kv-transfer-config</code>; documented as experimental</td></tr>
+<tr><td>SGLang [7]</td><td>Serving engine</td><td><code>--disaggregation-mode prefill|decode</code>, Mooncake (default) or NIXL transfer, and a router with <code>--pd-disaggregation</code></td></tr>
+<tr><td>TensorRT-LLM [5]</td><td>Serving engine</td><td>Context and generation servers launched with <code>trtllm-serve</code>, plus an orchestrator; KV moved by a cache transceiver over NIXL</td></tr>
+<tr><td>NVIDIA Dynamo [10][3]</td><td>Open-source orchestration layer (Apache 2.0) over vLLM, SGLang, and TensorRT-LLM</td><td>KV-aware router, SLA-driven Planner that sizes prefill and decode pools, KV block manager for offloading, NIXL transfers</td></tr>
+<tr><td>llm-d [13]</td><td>Kubernetes-native serving stack built on vLLM; a CNCF Sandbox project</td><td>Inference scheduler with prefix-cache-aware routing, prefill/decode disaggregation, wide expert parallelism</td></tr>
+<tr><td>NIXL [14]</td><td>NVIDIA Inference Xfer Library</td><td>Point-to-point transfers between GPU memory, CPU memory, and storage through plugins such as UCX, GPUDirect Storage, libfabric, and Mooncake</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Research and production systems for disaggregated prefill and decode (status as of late 2026; check each project's documentation for changes)</p>
+<p>The largest public example combines disaggregation with mixture-of-experts serving. DeepSeek runs its V3 and R1 models with separate prefill and decode deployments that use different degrees of parallelism: 4 nodes per prefill unit and 18 nodes per decode unit [15]. Lesson 35, Mixture-of-Experts Serving, explains why that pairing is natural.</p>
+<callout kind="info" title="Status check">Engine support moves quickly. vLLM still labels the feature experimental [8], while SGLang, TensorRT-LLM, and Dynamo document it as a standard deployment mode. Read the current documentation of the exact version you deploy, especially for flags and connector names.</callout>
+
+<h2>Sizing a Disaggregated Deployment</h2>
+<h3>The cost of moving the KV cache</h3>
+<p>Every request's cache must cross from the prefill GPU to the decode GPU once. The bytes are the prompt length times the cache size per token (Lesson 3, KV Cache), and the time is those bytes divided by the link bandwidth:</p>
+<texblock>t_{\text{transfer}} = \frac{n_{\text{prompt}} \times \text{KV bytes per token}}{B_{\text{link}}}</texblock>
+<p>For our chat requests, 2,000 tokens × 128 KiB = 250 MiB, or 262 MB. The two links we have are very different:</p>
+<ul>
+<li><strong>NVLink</strong> inside a server: an H100 SXM has 900 GB/s of NVLink bandwidth counting both directions [16], so 450 GB/s each way (Lesson 18, Tensor Parallelism). The transfer takes 262 MB ÷ 450 GB/s ≈ 0.6 ms.</li>
+<li><strong>RDMA over InfiniBand or RoCE</strong> between servers: DGX H100, H200, and B200 systems give each GPU its own ConnectX-7 adapter at up to 400 Gb/s for the compute fabric [17], which is 50 GB/s. The transfer takes 262 MB ÷ 50 GB/s ≈ 5.2 ms. Newer ConnectX-8 adapters run at 800 Gb/s [18], which halves it.</li>
+</ul>
+<p>Table 2 repeats the calculation for longer prompts and compares it with the prefill time itself, estimated at 52% of the H100's peak BF16 compute (the efficiency Lesson 19, GPU Utilization, measured) including the attention term that grows with the square of the prompt.</p>
+<table>
+<thead><tr><th>Prompt tokens</th><th>KV cache (BF16)</th><th>Prefill on one H100</th><th>Transfer on NVLink (450 GB/s)</th><th>Transfer at 400 Gb/s (50 GB/s)</th><th>Transfer as share of prefill (400 Gb/s)</th></tr></thead>
+<tbody>
+<tr><td>2,000</td><td>250 MiB</td><td>≈ 64 ms</td><td>≈ 0.6 ms</td><td>≈ 5.2 ms</td><td>8%</td></tr>
+<tr><td>8,000</td><td>1,000 MiB</td><td>≈ 282 ms</td><td>≈ 2.3 ms</td><td>≈ 21 ms</td><td>7%</td></tr>
+<tr><td>32,000</td><td>4,000 MiB</td><td>≈ 1.52 s</td><td>≈ 9.3 ms</td><td>≈ 84 ms</td><td>6%</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: KV transfer time against prefill time for Llama 3.1 8B (idealized: full link bandwidth, 52% MFU)</p>
+<p>Two conclusions follow. First, the transfer is a small addition to TTFT on either link: a few percent of the prefill, which is itself well inside the 500 ms target for chat prompts. The share even falls as prompts grow, because attention makes prefill grow faster than linearly while the cache grows linearly. Second, bandwidth is not the bottleneck: a prefill GPU produces cache at about 32,000 tokens per second × 128 KiB ≈ 4.2 GB/s, less than a tenth of its own 50 GB/s adapter. Figure 4 shows the comparison.</p>
+<fig src="034-kv-transfer-cost.svg" caption="KV transfer time compared with prefill time for three prompt lengths (idealized estimate)">Grouped horizontal bars on a logarithmic millisecond axis. For 2,000 tokens, prefill takes 64 ms, the transfer 5.2 ms at 400 Gb/s and 0.6 ms on NVLink. For 8,000 tokens, prefill 282 ms, transfer 21 ms and 2.3 ms. For 32,000 tokens, prefill 1,520 ms, transfer 84 ms and 9.3 ms. A note says the cache is 128 KiB per token and that an FP8 cache halves every transfer.</fig>
+<p>The arithmetic changes for bigger models and slower networks. Llama 3.1 70B stores 320 KiB per token, 2.5 times more, and a deployment whose servers share a slower Ethernet network may see a fraction of 50 GB/s in practice. In those cases the transfer can reach tens of milliseconds and must be overlapped with prefill, layer by layer, or kept inside an NVLink domain. Rack-scale systems such as the GB200 NVL72 extend NVLink to 72 GPUs at 1.8 TB/s per GPU [19], which makes the transfer nearly free. An FP8 KV cache (Lesson 3) halves every number in Table 2.</p>
+<p>The transfer itself is handled by libraries, not by the engine. <strong>NIXL</strong>, the NVIDIA Inference Xfer Library, gives engines one interface for moving data between GPU memory, CPU memory, and storage, and picks a transport through plugins such as UCX, GPUDirect Storage, libfabric, and Mooncake [14]. vLLM's <code>NixlConnector</code>, SGLang's NIXL backend, TensorRT-LLM's cache transceiver, and Dynamo all use it [12][7][5][3]. Mooncake's Transfer Engine plays the same role with RDMA, TCP, and NVLink transports and can aggregate several network adapters [11]. One practical wrinkle: if the prefill and decode workers use different tensor-parallel sizes, the cache layout differs on each side, and the connector must split or merge KV heads during the copy. vLLM and SGLang document their support for this case [12][7].</p>
+
+<h3>Sizing the prefill-to-decode ratio</h3>
+<p>With the transfer understood, sizing is two separate capacity problems, one per pool. We reuse Lesson 19's model of one H100: prefill runs at about 32,000 prompt tokens per second (52% MFU), and a decode step reads the weights once plus each sequence's cache, at 65% of peak bandwidth, or about 2.18 TB/s.</p>
+<h4>The prefill pool</h4>
+<p>Prefill work is the prompt rate times the time per prompt. Because requests queue for a prefill GPU, we plan each one at 80% busy, the same headroom Lesson 21 used:</p>
+<texblock>N_{\text{prefill}} = \frac{\lambda \times t_{\text{prefill}}}{0.8}</texblock>
+<p>At the daily peak of 33 requests per second, with 64 ms per 2,000-token prompt: 33 × 0.064 ÷ 0.8 ≈ 2.66, so <strong>3 prefill GPUs</strong>. A prompt then waits briefly, runs for 64 ms, and moves in about 5 ms, far inside the 500 ms TTFT target.</p>
+<h4>The decode pool</h4>
+<p>A decode GPU holds a batch of <tex>B</tex> sequences, and each step reads the 16.06 GB of weights plus every sequence's cache. A chat sequence holds 2,250 tokens on average while it decodes (the prompt plus half the answer), or about 295 MB. We plan the same 21 ms step that the shared GPUs run at today, which leaves room under the 25 ms target:</p>
+<texblock>B = \frac{t_{\text{step}} \times B_{\text{mem}} - W}{\text{KV per sequence}} = \frac{0.021 \times 2.18\ \text{TB/s} - 16.06\ \text{GB}}{295\ \text{MB}} \approx 101</texblock>
+<p>A decode-only GPU therefore carries about 101 streams instead of the 53 that a shared GPU carries at the same step time, because none of its step is spent on prompts. Their cache, about 31 GiB at full length, fits easily in the 52 GiB available. Little's law turns the batch into a request rate: 101 streams ÷ (500 tokens × 21 ms) ≈ 9.6 requests per second per GPU. At the peak, 33 ÷ 9.6 ≈ 3.44, so <strong>4 decode GPUs</strong>.</p>
+<p>The ratio is <tex>N_{\text{prefill}} : N_{\text{decode}}</tex> ≈ 2.66 : 3.44, or about 3 : 4. It depends only on the workload's shape, not on its volume:</p>
+<texblock>\frac{N_{\text{prefill}}}{N_{\text{decode}}} = \frac{t_{\text{prefill}} \times B}{0.8 \times n_{\text{out}} \times t_{\text{step}}}</texblock>
+<p>Long prompts raise the numerator; long answers raise the denominator. Figure 5 applies the same calculator to four workloads on the same model.</p>
+<fig src="034-pd-ratio.svg" caption="Prefill and decode GPUs needed for four workloads on Llama 3.1 8B (model estimate)">Four rows of GPU icons. Chat, 2,000 in and 500 out at 33 requests per second: 3 prefill and 4 decode GPUs, a ratio of about 0.77. Document Q&amp;A, 8,000 in and 200 out at 10 requests per second: 4 prefill and 2 decode, ratio 2.35. Long documents, 32,000 in and 300 out at 2 requests per second: 4 prefill and 2 decode, ratio 2.13. Reasoning, 1,000 in and 4,000 out at 10 requests per second: 1 prefill and 12 decode, ratio 0.04.</fig>
+<p>The spread is wide. A reasoning workload with long hidden outputs needs almost no prefill capacity; a document workload needs more prefill GPUs than decode GPUs. A single fixed ratio is therefore wrong for a fleet whose traffic mix changes, which is why production systems scale the two pools separately.</p>
+
+<h3>Is it cheaper? The chat service in whole GPUs</h3>
+<p>Table 3 compares the disaggregated plan with the shared design at three traffic levels. The shared design carries about 5 requests per second per H100 at our targets (Lesson 19).</p>
+<table>
+<thead><tr><th>Traffic</th><th>Shared GPUs (5 req/s each)</th><th>Prefill GPUs</th><th>Decode GPUs</th><th>Disaggregated total</th></tr></thead>
+<tbody>
+<tr><td>Average, 16.7 req/s</td><td>3.34 → 4</td><td>1.34 → 2</td><td>1.74 → 2</td><td>4</td></tr>
+<tr><td>Daily peak, 33 req/s</td><td>6.60 → 7</td><td>2.66 → 3</td><td>3.44 → 4</td><td>7</td></tr>
+<tr><td>Launch spike, 167 req/s</td><td>33.4 → 34</td><td>13.4 → 14</td><td>17.4 → 18</td><td>32</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: GPUs for the chat service, shared versus disaggregated (model estimate, before spare capacity for failures)</p>
+<p>Before rounding, the disaggregated plan needs about 8% fewer GPUs, because decode GPUs batch twice as many streams when no prompt work shares their steps. After rounding to whole GPUs, the saving disappears at our normal scale and becomes two GPUs only during a tenfold spike. Each pool also needs its own spare for failures, which a small deployment feels more than a large one. Figure 6 shows the comparison.</p>
+<fig src="034-gpu-count.svg" caption="Whole GPUs for the chat service: shared replicas versus separate pools (model estimate)">Three pairs of stacked bars for average, peak and spike traffic. At 16.7 requests per second, 4 shared GPUs versus 2 prefill plus 2 decode. At 33 requests per second, 7 versus 3 plus 4. At 167 requests per second, 34 versus 14 plus 18. A note says the fractional need is about 8% lower when disaggregated, but rounding to whole GPUs absorbs the difference at small scale.</fig>
+<p>The real benefit for chat is not cost but the shape of the latency distribution: a decode-only GPU never takes an 80 ms step, so the p99 gap between tokens falls to the ordinary step time. Whether that is worth a second pool depends on how much the product cares about the tail.</p>
+
+<h3>Costs and failure modes</h3>
+<p>Disaggregation adds parts that can fail or drift. Table 4 lists the common problems.</p>
+<table>
+<thead><tr><th>Problem</th><th>What you see</th><th>Mitigation</th></tr></thead>
+<tbody>
+<tr><td>More moving parts</td><td>A request touches a router, two engines, and a transfer library; any of them can fail it</td><td>End-to-end tracing per request; health checks on both pools; tested failure policies such as vLLM's <code>kv_load_failure_policy</code> and SGLang's heartbeat and timeout settings [12][7]</td></tr>
+<tr><td>Transfer latency</td><td>TTFT includes the transfer and an extra scheduling hop</td><td>Keep pairs inside an NVLink domain; layer-wise transfer; FP8 KV cache</td></tr>
+<tr><td>Pool imbalance</td><td>The prefill queue grows while decode GPUs sit half empty, or the reverse, after the traffic mix shifts</td><td>Scale the pools separately on their own signals (prefill queue time, decode KV usage); an SLA-driven planner [10]</td></tr>
+<tr><td>Memory held during the handoff</td><td>Prefill GPUs keep each cache until decode has pulled it; a slow decode pool backs up into prefill</td><td>Bound the wait with timeouts; admit requests based on free decode memory</td></tr>
+<tr><td>Split prefix cache</td><td>Prefix hits happen only on the prefill worker that holds the prefix</td><td>Cache-aware routing for the prefill choice (Lesson 25); a shared KV store [2]</td></tr>
+<tr><td>Small deployments</td><td>No saving after rounding; each pool needs its own spare</td><td>Stay with shared replicas and chunked prefill until the fleet is large or prompts are long</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 4: Costs and failure modes of disaggregated serving</p>
+<callout kind="tip" title="Interview tip">Do not argue for disaggregation by throughput. Say what it buys (a flat TPOT, independent scaling, per-phase tuning), then show the transfer arithmetic (prompt tokens × KV bytes per token ÷ link bandwidth) and the prefill-to-decode ratio from the workload's prompt and output lengths.</callout>
+
+<h4>Which design fits our deployments?</h4>
+<p>Figure 7 summarizes the decision we apply to both services.</p>
+<fig src="034-decision.svg" caption="Should a deployment disaggregate? The questions applied to our two services">A flowchart of three questions. First: can chunked prefill meet the TPOT targets, including any p99 gap target? If yes, stay shared, tune the chunk budget and watch p99 gaps; the chat service lands here. If no, second: is the fleet big enough to keep two pools busy, several GPUs each? If no, stay shared until the fleet grows. If yes, third: can prefill and decode workers share NVLink or fast RDMA? If no, keep each pair inside one NVLink server first. If yes, disaggregate and size each pool from prompt and output lengths; the document Q&amp;A service lands here, with 4 prefill and 2 decode GPUs in one 8-GPU server.</fig>
+<p><strong>Chat service: stay shared.</strong> Our prompts are short, chunked prefill already meets the p95 targets, and at our scale the disaggregated plan needs the same 7 GPUs at peak (Table 3) while adding a router, a transfer layer, and a second pool to scale. We lower the chunk budget so that a full 2,000-token prompt is spread over two or three steps, and we watch the p99 inter-token latency. This agrees with the choice made in Lesson 2. We revisit it if the fleet grows to dozens of GPUs, where the 8% saving becomes real GPUs, or if the product sets a p99 target on the gap between tokens.</p>
+<p><strong>Document Q&amp;A: disaggregate.</strong> Here the numbers point the other way. Each 8,000-token prompt is about 282 ms of compute, prefill takes about three quarters of the GPU time, and keeping every gap under 25 ms on a shared GPU would require slicing each prompt into about 20 small chunks. Separately, the sizing is clear: 10 × 0.282 ÷ 0.8 ≈ 3.5, so <strong>4 prefill GPUs</strong>, and each decode GPU carries about 28 streams of 8,100 tokens at a 21 ms step, about 6.7 requests per second, so 10 ÷ 6.7 ≈ 1.5 gives <strong>2 decode GPUs</strong>. Six GPUs fit in one eight-GPU server, so every transfer of 1,000 MiB rides NVLink in about 2.3 ms instead of 21 ms over the network, and the remaining two GPUs serve as spares for either pool. TTFT is about 282 ms of prefill plus a few milliseconds of transfer and queueing, inside 500 ms, and TPOT is a steady 21 ms. We confirm both under a load test before launch.</p>
+
+<h2>In Practice</h2>
+<p>The first tab is the sizing calculator behind Figure 5 and Tables 2 and 3: change the constants for your model, GPU, and workload. The second launches a minimal disaggregated pair with vLLM's <code>NixlConnector</code> on one machine with two GPUs, following the vLLM usage guide [12]; the toy proxy is a test script in the vLLM repository, fine for experiments but not for production, where a router such as Dynamo, llm-d, or the SGLang router takes its place. Lesson 2 shows the equivalent SGLang commands.</p>
+<codetabs>
+<tab label="P/D sizing" lang="python">
+import math
+
+# Llama 3.1 8B in BF16 on H100s (course-wide assumptions)
+PARAMS = 8.03e9
+WEIGHT_BYTES = 16.06e9
+KV_PER_TOKEN = 131_072                  # 128 KiB
+LAYERS, D_MODEL = 32, 4096
+PEAK_FLOPS = 989e12
+MFU = 0.52                              # prefill efficiency (Lesson 19)
+EFF_BW = 0.65 * 3.35e12                 # decode bandwidth at 65% MBU (Lesson 19)
+STEP = 0.021                            # planned decode step, under the 25 ms p95 TPOT
+PREFILL_LOAD = 0.8                      # plan prefill GPUs at 80% busy for queueing room
+
+def prefill_seconds(n_in):
+    flops = 2 * PARAMS * n_in + 4 * LAYERS * D_MODEL * n_in**2 / 2   # linear layers + causal attention
+    return flops / (MFU * PEAK_FLOPS)
+
+def decode_batch(n_in, n_out):
+    avg_ctx = n_in + n_out / 2          # average tokens each sequence holds while decoding
+    return (STEP * EFF_BW - WEIGHT_BYTES) / (avg_ctx * KV_PER_TOKEN)
+
+def size(name, rate, n_in, n_out, link_gbps=400):
+    t_pre = prefill_seconds(n_in)
+    prefill_gpus = rate * t_pre / PREFILL_LOAD
+    batch = decode_batch(n_in, n_out)
+    decode_gpus = rate * n_out * STEP / batch          # Little's law on the decode pool
+    kv_bytes = n_in * KV_PER_TOKEN
+    transfer_ms = kv_bytes / (link_gbps / 8 * 1e9) * 1e3
+    print(f"{name}: prefill {t_pre*1e3:.0f} ms, KV {kv_bytes/2**20:,.0f} MiB, "
+          f"transfer {transfer_ms:.1f} ms at {link_gbps} Gb/s")
+    print(f"  prefill GPUs {prefill_gpus:.2f} -> {math.ceil(prefill_gpus)}, "
+          f"decode GPUs {decode_gpus:.2f} (batch {batch:.0f}) -> {math.ceil(decode_gpus)}, "
+          f"P:D = {prefill_gpus/decode_gpus:.2f}")
+
+size("chat at peak", rate=33, n_in=2_000, n_out=500)
+size("RAG", rate=10, n_in=8_000, n_out=200)
+size("reasoning", rate=10, n_in=1_000, n_out=4_000)
+size("long documents", rate=2, n_in=32_000, n_out=300)
+# chat at peak: prefill 64 ms, KV 250 MiB, transfer 5.2 ms at 400 Gb/s
+#   prefill GPUs 2.66 -> 3, decode GPUs 3.44 (batch 101) -> 4, P:D = 0.77
+</tab>
+<tab label="vLLM + NIXL" lang="bash">
+# One prefill instance on GPU 0 and one decode instance on GPU 1, joined by NIXL.
+uv pip install nixl
+
+CUDA_VISIBLE_DEVICES=0 UCX_NET_DEVICES=all VLLM_NIXL_SIDE_CHANNEL_PORT=5600 \
+vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8100 \
+  --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_producer"}' &
+
+CUDA_VISIBLE_DEVICES=1 UCX_NET_DEVICES=all VLLM_NIXL_SIDE_CHANNEL_PORT=5601 \
+vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8200 \
+  --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_consumer"}' &
+
+# Toy proxy from the vLLM repository: sends each prompt to the prefiller,
+# then forwards the request and its kv_transfer_params to the decoder.
+git clone https://github.com/vllm-project/vllm.git
+python vllm/tests/v1/kv_connector/nixl_integration/toy_proxy_server.py \
+  --port 8192 \
+  --prefiller-hosts localhost --prefiller-ports 8100 \
+  --decoder-hosts localhost --decoder-ports 8200
+
+# Send requests to the proxy on port 8192 as to any OpenAI-compatible server.
+# On separate machines, also set VLLM_NIXL_SIDE_CHANNEL_HOST on each instance.
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Heterogeneous pools: since decode barely uses the tensor cores, Splitwise found that token machines can be power-capped by more than 50% with almost no latency impact, or replaced with older GPUs [6].</li>
+<li>TetriInfer, which combines fixed-size prompt chunks with separate prefill and decode instances and schedules decode by predicted output length to avoid hotspots [20].</li>
+<li>Mooncake's KV-cache-centric design: a shared pool of caches in CPU memory and SSD across the cluster, and early rejection of requests it predicts will miss their deadlines under overload [2].</li>
+<li>How disaggregation combines with wide expert parallelism for mixture-of-experts models, where the prefill and decode phases need different all-to-all communication modes (Lesson 35, Mixture-of-Experts Serving).</li>
+<li>Why the router must choose two workers per request, prefill by cache match and decode by free KV memory (Lesson 25, Request Routing).</li>
+<li>Rack-scale NVLink domains such as the GB200 NVL72 [19], which make the KV transfer nearly free and let one rack hold both pools.</li>
+<li>Autoscaling two pools on different signals: prefill on queue time and TTFT, decode on KV cache usage and TPOT (Lesson 22, Autoscaling).</li>
+<li>Failure handling when a prefill worker dies after computing a cache but before decode pulls it: the request must be retried or recomputed (Lesson 40, Reliability and Rollouts).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="034-summary.png" caption="Disaggregated prefill and decode summary" optional="1">Mind map summarizing the lesson: the interference problem, the architecture, KV transfer cost, sizing the prefill-to-decode ratio, systems that implement it, and when to use it.</fig>
+<ul>
+<li>When prefill and decode share a GPU, a long prompt stretches every decoding user's step. Chunked prefill spreads the stall out but cannot remove it: a 2,000-token chunk still turns a 15 ms step into almost 80 ms.</li>
+<li>Disaggregated serving runs prefill and decode on separate GPU pools, with a router and a KV cache transfer between them. It improves goodput and tail latency, not raw throughput.</li>
+<li>Transfer cost is prompt tokens × KV bytes per token ÷ link bandwidth: 2,000 × 128 KiB = 250 MiB, about 0.6 ms over NVLink and 5.2 ms over a 400 Gb/s adapter, a few percent of the prefill.</li>
+<li>Each pool is sized on its own target. For our chat service at peak, 3 prefill and 4 decode GPUs; the ratio follows prompt and output lengths, from 1 prefill GPU per 12 decode GPUs for reasoning to 2 per 1 for document Q&amp;A.</li>
+<li>DistServe and Splitwise established the design; vLLM, SGLang, TensorRT-LLM, NVIDIA Dynamo, llm-d, and Mooncake implement it, mostly with NIXL or Mooncake moving the cache.</li>
+<li>Our chat service stays shared: same GPU count at peak, more moving parts. Document Q&amp;A with 8,000-token prompts disaggregates into 4 prefill and 2 decode GPUs inside one NVLink server.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Agrawal et al. Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve. <a href="https://arxiv.org/abs/2403.02310" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2403.02310</a>.<br>
+[2] Qin et al. Mooncake: A KVCache-centric Disaggregated Architecture for LLM Serving. <a href="https://arxiv.org/abs/2407.00079" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.00079</a>.<br>
+[3] NVIDIA Dynamo documentation (v1.2.1): Disaggregated Serving. <a href="https://docs.nvidia.com/dynamo/v1.2.1/design-docs/disaggregated-serving" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/dynamo/v1.2.1/design-docs/disaggregated-serving</a>.<br>
+[4] vLLM documentation: Expert Parallel Deployment. <a href="https://docs.vllm.ai/en/latest/serving/expert_parallel_deployment.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/serving/expert_parallel_deployment.html</a>.<br>
+[5] TensorRT-LLM documentation: Disaggregated Serving. <a href="https://nvidia.github.io/TensorRT-LLM/features/disagg-serving.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/features/disagg-serving.html</a>.<br>
+[6] Patel et al. Splitwise: Efficient Generative LLM Inference Using Phase Splitting. <a href="https://arxiv.org/abs/2311.18677" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2311.18677</a>.<br>
+[7] SGLang documentation: PD Disaggregation. <a href="https://docs.sglang.io/advanced_features/pd_disaggregation.html" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/advanced_features/pd_disaggregation.html</a>.<br>
+[8] vLLM documentation: Disaggregated Prefilling (experimental). <a href="https://docs.vllm.ai/en/latest/features/disagg_prefill.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/disagg_prefill.html</a>.<br>
+[9] Zhong et al. DistServe: Disaggregating Prefill and Decoding for Goodput-optimized Large Language Model Serving. <a href="https://arxiv.org/abs/2401.09670" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.09670</a>.<br>
+[10] NVIDIA Dynamo. <a href="https://github.com/ai-dynamo/dynamo" rel="noopener noreferrer" target="_blank">https://github.com/ai-dynamo/dynamo</a>.<br>
+[11] Mooncake. <a href="https://github.com/kvcache-ai/Mooncake" rel="noopener noreferrer" target="_blank">https://github.com/kvcache-ai/Mooncake</a>.<br>
+[12] vLLM documentation: NixlConnector Usage Guide. <a href="https://docs.vllm.ai/en/latest/features/nixl_connector_usage/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/nixl_connector_usage/</a>.<br>
+[13] llm-d. <a href="https://github.com/llm-d/llm-d" rel="noopener noreferrer" target="_blank">https://github.com/llm-d/llm-d</a>.<br>
+[14] NIXL: NVIDIA Inference Xfer Library. <a href="https://github.com/ai-dynamo/nixl" rel="noopener noreferrer" target="_blank">https://github.com/ai-dynamo/nixl</a>.<br>
+[15] DeepSeek-AI. DeepSeek-V3/R1 Inference System Overview. <a href="https://github.com/deepseek-ai/open-infra-index/blob/main/202502OpenSourceWeek/day_6_one_more_thing_deepseekV3R1_inference_system_overview.md" rel="noopener noreferrer" target="_blank">https://github.com/deepseek-ai/open-infra-index/blob/main/202502OpenSourceWeek/day_6_one_more_thing_deepseekV3R1_inference_system_overview.md</a>.<br>
+[16] NVIDIA H100 Tensor Core GPU. <a href="https://www.nvidia.com/en-us/data-center/h100/" rel="noopener noreferrer" target="_blank">https://www.nvidia.com/en-us/data-center/h100/</a>.<br>
+[17] NVIDIA DGX BasePOD reference architecture: Core Components. <a href="https://docs.nvidia.com/dgx-basepod/reference-architecture-infrastructure-foundation-enterprise-ai/latest/core-components.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/dgx-basepod/reference-architecture-infrastructure-foundation-enterprise-ai/latest/core-components.html</a>.<br>
+[18] NVIDIA Technical Blog: NVIDIA ConnectX-8 SuperNICs Advance AI Platform Architecture with PCIe Gen6 Connectivity. <a href="https://developer.nvidia.com/blog/nvidia-connectx-8-supernics-advance-ai-platform-architecture-with-pcie-gen6-connectivity" rel="noopener noreferrer" target="_blank">https://developer.nvidia.com/blog/nvidia-connectx-8-supernics-advance-ai-platform-architecture-with-pcie-gen6-connectivity</a>.<br>
+[19] NVIDIA GB200 NVL72. <a href="https://www.nvidia.com/en-us/data-center/gb200-nvl72/" rel="noopener noreferrer" target="_blank">https://www.nvidia.com/en-us/data-center/gb200-nvl72/</a>.<br>
+[20] Hu et al. Inference without Interference: Disaggregate LLM Inference for Mixed Downstream Workloads. <a href="https://arxiv.org/abs/2401.11181" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.11181</a>.</p>

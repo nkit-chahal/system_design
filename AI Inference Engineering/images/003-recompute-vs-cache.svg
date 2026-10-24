@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="830" height="330" viewBox="0 0 830 330" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.mid{text-anchor:middle}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Left panel: no cache -->
+  <text x="20" y="34" class="lg b">Without KV cache</text>
+  <g class="mid">
+    <text x="118" y="72" text-anchor="middle">“The”</text>
+    <text x="180" y="72" text-anchor="middle">“cat”</text>
+    <text x="242" y="72" text-anchor="middle">“sat”</text>
+    <text x="304" y="72" text-anchor="middle">“on”</text>
+    <text x="366" y="72" text-anchor="middle">“the”</text>
+  </g>
+  <text x="20" y="108">Step 1</text>
+  <text x="20" y="142">Step 2</text>
+  <text x="20" y="176">Step 3</text>
+  <text x="20" y="210">Step 4</text>
+  <text x="20" y="244">Step 5</text>
+  <!-- every step recomputes K,V for every token so far -->
+  <rect x="90" y="90" width="56" height="26" rx="4" class="orange"/>
+  <rect x="90" y="124" width="56" height="26" rx="4" class="orange"/><rect x="152" y="124" width="56" height="26" rx="4" class="orange"/>
+  <rect x="90" y="158" width="56" height="26" rx="4" class="orange"/><rect x="152" y="158" width="56" height="26" rx="4" class="orange"/><rect x="214" y="158" width="56" height="26" rx="4" class="orange"/>
+  <rect x="90" y="192" width="56" height="26" rx="4" class="orange"/><rect x="152" y="192" width="56" height="26" rx="4" class="orange"/><rect x="214" y="192" width="56" height="26" rx="4" class="orange"/><rect x="276" y="192" width="56" height="26" rx="4" class="orange"/>
+  <rect x="90" y="226" width="56" height="26" rx="4" class="orange"/><rect x="152" y="226" width="56" height="26" rx="4" class="orange"/><rect x="214" y="226" width="56" height="26" rx="4" class="orange"/><rect x="276" y="226" width="56" height="26" rx="4" class="orange"/><rect x="338" y="226" width="56" height="26" rx="4" class="orange"/>
+  <g class="sm">
+    <text x="118" y="107" text-anchor="middle">K,V</text>
+    <text x="118" y="141" text-anchor="middle">K,V</text><text x="180" y="141" text-anchor="middle">K,V</text>
+    <text x="118" y="175" text-anchor="middle">K,V</text><text x="180" y="175" text-anchor="middle">K,V</text><text x="242" y="175" text-anchor="middle">K,V</text>
+    <text x="118" y="209" text-anchor="middle">K,V</text><text x="180" y="209" text-anchor="middle">K,V</text><text x="242" y="209" text-anchor="middle">K,V</text><text x="304" y="209" text-anchor="middle">K,V</text>
+    <text x="118" y="243" text-anchor="middle">K,V</text><text x="180" y="243" text-anchor="middle">K,V</text><text x="242" y="243" text-anchor="middle">K,V</text><text x="304" y="243" text-anchor="middle">K,V</text><text x="366" y="243" text-anchor="middle">K,V</text>
+  </g>
+  <text x="20" y="280">15 K/V computations for 5 tokens: work grows as n²</text>
+
+  <line x1="420" y1="16" x2="420" y2="290" stroke="#999" stroke-dasharray="5 4"/>
+
+  <!-- Right panel: with cache -->
+  <text x="440" y="34" class="lg b">With KV cache</text>
+  <text x="538" y="72" text-anchor="middle">“The”</text>
+  <text x="600" y="72" text-anchor="middle">“cat”</text>
+  <text x="662" y="72" text-anchor="middle">“sat”</text>
+  <text x="724" y="72" text-anchor="middle">“on”</text>
+  <text x="786" y="72" text-anchor="middle">“the”</text>
+  <text x="440" y="108">Step 1</text>
+  <text x="440" y="142">Step 2</text>
+  <text x="440" y="176">Step 3</text>
+  <text x="440" y="210">Step 4</text>
+  <text x="440" y="244">Step 5</text>
+  <!-- past tokens are read from the cache; only the newest token is computed -->
+  <rect x="510" y="90" width="56" height="26" rx="4" class="orange"/>
+  <rect x="510" y="124" width="56" height="26" rx="4" class="blue"/><rect x="572" y="124" width="56" height="26" rx="4" class="orange"/>
+  <rect x="510" y="158" width="56" height="26" rx="4" class="blue"/><rect x="572" y="158" width="56" height="26" rx="4" class="blue"/><rect x="634" y="158" width="56" height="26" rx="4" class="orange"/>
+  <rect x="510" y="192" width="56" height="26" rx="4" class="blue"/><rect x="572" y="192" width="56" height="26" rx="4" class="blue"/><rect x="634" y="192" width="56" height="26" rx="4" class="blue"/><rect x="696" y="192" width="56" height="26" rx="4" class="orange"/>
+  <rect x="510" y="226" width="56" height="26" rx="4" class="blue"/><rect x="572" y="226" width="56" height="26" rx="4" class="blue"/><rect x="634" y="226" width="56" height="26" rx="4" class="blue"/><rect x="696" y="226" width="56" height="26" rx="4" class="blue"/><rect x="758" y="226" width="56" height="26" rx="4" class="orange"/>
+  <g class="sm">
+    <text x="538" y="107" text-anchor="middle">K,V</text>
+    <text x="538" y="141" text-anchor="middle">read</text><text x="600" y="141" text-anchor="middle">K,V</text>
+    <text x="538" y="175" text-anchor="middle">read</text><text x="600" y="175" text-anchor="middle">read</text><text x="662" y="175" text-anchor="middle">K,V</text>
+    <text x="538" y="209" text-anchor="middle">read</text><text x="600" y="209" text-anchor="middle">read</text><text x="662" y="209" text-anchor="middle">read</text><text x="724" y="209" text-anchor="middle">K,V</text>
+    <text x="538" y="243" text-anchor="middle">read</text><text x="600" y="243" text-anchor="middle">read</text><text x="662" y="243" text-anchor="middle">read</text><text x="724" y="243" text-anchor="middle">read</text><text x="786" y="243" text-anchor="middle">K,V</text>
+  </g>
+  <text x="440" y="280">5 computations + 10 cache reads: work grows as n</text>
+
+  <!-- Legend -->
+  <rect x="20" y="300" width="22" height="16" rx="3" class="orange"/>
+  <text x="50" y="313">compute K and V (matrix multiply)</text>
+  <rect x="440" y="300" width="22" height="16" rx="3" class="blue"/>
+  <text x="470" y="313">read K and V from the cache (memory load)</text>
+</svg>

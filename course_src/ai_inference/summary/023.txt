@@ -1,0 +1,7 @@
+center: Cold Starts
+branch: Phases | GPU node provisioning | image pull | engine initialization
+branch: Download math | size ÷ achieved bandwidth | 16 GB at 250 MB/s | 141 GB needs 1.57 GB/s
+branch: Faster images | pre-pulled image | lazy pulling | image volumes
+branch: Weights and engine | node-local NVMe cache | Run:ai Model Streamer | persistent compile cache
+branch: Warmth ladder | free GPUs on running nodes | sleep mode | CUDA checkpoint and restore
+branch: Scale to zero | about 83% saving | full cold start per session

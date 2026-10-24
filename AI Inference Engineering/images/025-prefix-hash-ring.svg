@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Ring: center (220,170), r=110. Angles measured clockwise from 3 o'clock. -->
+  <circle cx="220" cy="170" r="110" fill="none" stroke="#000" stroke-width="1.2"/>
+
+  <!-- Keys (purple) and their clockwise walk (inner arcs, r=92) to the owning replica -->
+  <!-- S1 at 70deg -> R2 at 110deg -->
+  <path d="M251.5,256.5 A92,92 0 0 1 194.6,258.4" class="edge"/>
+  <!-- S2 at 160deg -> R3 at 200deg -->
+  <path d="M133.5,201.5 A92,92 0 0 1 131.6,144.6" class="edge"/>
+  <!-- chat 42 at 250deg -> R4 at 290deg -->
+  <path d="M188.5,83.5 A92,92 0 0 1 245.4,81.6" class="edge"/>
+  <!-- S3 at 340deg -> R1 at 20deg -->
+  <path d="M306.5,138.5 A92,92 0 0 1 308.4,195.4" class="edge"/>
+
+  <rect x="251.6" y="267.4" width="12" height="12" class="purple"/>
+  <rect x="110.6" y="201.6" width="12" height="12" class="purple"/>
+  <rect x="176.4" y="60.6" width="12" height="12" class="purple"/>
+  <rect x="317.4" y="126.4" width="12" height="12" class="purple"/>
+  <text x="270" y="304" class="sm">hash(sys S1)</text>
+  <text x="96" y="232" text-anchor="end" class="sm">hash(sys S2)</text>
+  <text x="168" y="46" text-anchor="end" class="sm">hash(chat 42)</text>
+  <text x="344" y="126" class="sm">hash(sys S3)</text>
+
+  <!-- Replicas (orange) -->
+  <circle cx="323.4" cy="207.6" r="13" class="orange"/><text x="323.4" y="212" text-anchor="middle" class="sm b">R1</text>
+  <circle cx="182.4" cy="273.4" r="13" class="orange"/><text x="182.4" y="277.8" text-anchor="middle" class="sm b">R2</text>
+  <circle cx="116.6" cy="132.4" r="13" class="orange"/><text x="116.6" y="136.8" text-anchor="middle" class="sm b">R3</text>
+  <circle cx="257.6" cy="66.6" r="13" class="orange"/><text x="257.6" y="71" text-anchor="middle" class="sm b">R4</text>
+
+  <!-- Explanation -->
+  <text x="440" y="60" class="b">Prefix-aware routing with a hash ring</text>
+  <text x="440" y="96">1. Hash the prompt's first block, or the</text>
+  <text x="458" y="116">session ID, to a point on the ring.</text>
+  <text x="440" y="146">2. Walk clockwise to the first replica.</text>
+  <text x="440" y="176">3. Every request with the same prefix lands</text>
+  <text x="458" y="196">on the same replica, so its cache is warm.</text>
+  <text x="440" y="226">4. Adding or removing one of N replicas</text>
+  <text x="458" y="246">moves only about 1/N of the keys.</text>
+
+  <rect x="440" y="282" width="12" height="12" class="purple"/><text x="460" y="293" class="sm">prefix key</text>
+  <circle cx="556" cy="288" r="7" class="orange"/><text x="570" y="293" class="sm">replica</text>
+</svg>

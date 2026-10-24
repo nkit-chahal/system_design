@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="440" viewBox="0 0 840 440" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+    <pattern id="redhatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a8a6" stroke-width="3"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dedge{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .grid{stroke:#e3e3e3;stroke-width:1}
+    .guide{stroke:#666;stroke-width:1;stroke-dasharray:5 4;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <line x1="90" y1="265.0" x2="800" y2="265.0" class="grid"/>
+  <line x1="90" y1="190.0" x2="800" y2="190.0" class="grid"/>
+  <line x1="90" y1="115.0" x2="800" y2="115.0" class="grid"/>
+  <line x1="90" y1="40.0" x2="800" y2="40.0" class="grid"/>
+  <path d="M90,34 L90,340 L806,340" class="axis"/>
+  <line x1="90.0" y1="340" x2="90.0" y2="345" class="tick"/>
+  <text x="90.0" y="359" text-anchor="middle" class="sm">0</text>
+  <line x1="267.5" y1="340" x2="267.5" y2="345" class="tick"/>
+  <text x="267.5" y="359" text-anchor="middle" class="sm">0.5</text>
+  <line x1="445.0" y1="340" x2="445.0" y2="345" class="tick"/>
+  <text x="445.0" y="359" text-anchor="middle" class="sm">1</text>
+  <line x1="622.5" y1="340" x2="622.5" y2="345" class="tick"/>
+  <text x="622.5" y="359" text-anchor="middle" class="sm">1.5</text>
+  <line x1="800.0" y1="340" x2="800.0" y2="345" class="tick"/>
+  <text x="800.0" y="359" text-anchor="middle" class="sm">2</text>
+  <line x1="85" y1="340.0" x2="90" y2="340.0" class="tick"/>
+  <text x="81" y="344.0" text-anchor="end" class="sm">0%</text>
+  <line x1="85" y1="265.0" x2="90" y2="265.0" class="tick"/>
+  <text x="81" y="269.0" text-anchor="end" class="sm">25%</text>
+  <line x1="85" y1="190.0" x2="90" y2="190.0" class="tick"/>
+  <text x="81" y="194.0" text-anchor="end" class="sm">50%</text>
+  <line x1="85" y1="115.0" x2="90" y2="115.0" class="tick"/>
+  <text x="81" y="119.0" text-anchor="end" class="sm">75%</text>
+  <line x1="85" y1="40.0" x2="90" y2="40.0" class="tick"/>
+  <text x="81" y="44.0" text-anchor="end" class="sm">100%</text>
+  <polyline points="90.0,40.0 97.1,43.0 104.2,45.9 111.3,48.7 118.4,51.5 125.5,54.3 132.6,57.0 139.7,59.6 146.8,62.2 153.9,64.8 161.0,67.3 168.1,69.7 175.2,72.1 182.3,74.5 189.4,76.8 196.5,79.1 203.6,81.4 210.7,83.6 217.8,85.8 224.9,87.9 232.0,90.0 239.1,92.1 246.2,94.1 253.3,96.1 260.4,98.1 267.5,100.0 274.6,101.9 281.7,103.8 288.8,105.6 295.9,107.4 303.0,109.2 310.1,111.0 317.2,112.7 324.3,114.4 331.4,116.1 338.5,117.8 345.6,119.4 352.7,121.0 359.8,122.6 366.9,124.2 374.0,125.7 381.1,127.2 388.2,128.7 395.3,130.2 402.4,131.7 409.5,133.1 416.6,134.5 423.7,135.9 430.8,137.3 437.9,138.7 445.0,140.0 452.1,140.0 459.2,140.0 466.3,140.0 473.4,140.0 480.5,140.0 487.6,140.0 494.7,140.0 501.8,140.0 508.9,140.0 516.0,140.0 523.1,140.0 530.2,140.0 537.3,140.0 544.4,140.0 551.5,140.0 558.6,140.0 565.7,140.0 572.8,140.0 579.9,140.0 587.0,140.0 594.1,140.0 601.2,140.0 608.3,140.0 615.4,140.0 622.5,140.0 629.6,140.0 636.7,140.0 643.8,140.0 650.9,140.0 658.0,140.0 665.1,140.0 672.2,140.0 679.3,140.0 686.4,140.0 693.5,140.0 700.6,140.0 707.7,140.0 714.8,140.0 721.9,140.0 729.0,140.0 736.1,140.0 743.2,140.0 750.3,140.0 757.4,140.0 764.5,140.0 771.6,140.0 778.7,140.0 785.8,140.0 792.9,140.0 800.0,140.0" fill="none" stroke="#82b366" stroke-width="2.6"/>
+  <text x="746.8" y="132.0" text-anchor="middle" class="sm">1.5× spike</text>
+  <polyline points="90.0,40.0 97.1,45.9 104.2,51.5 111.3,57.0 118.4,62.2 125.5,67.3 132.6,72.1 139.7,76.8 146.8,81.4 153.9,85.8 161.0,90.0 168.1,94.1 175.2,98.1 182.3,101.9 189.4,105.6 196.5,109.2 203.6,112.7 210.7,116.1 217.8,119.4 224.9,122.6 232.0,125.7 239.1,128.7 246.2,131.7 253.3,134.5 260.4,137.3 267.5,140.0 274.6,142.6 281.7,145.2 288.8,147.7 295.9,150.1 303.0,152.5 310.1,154.8 317.2,157.1 324.3,159.3 331.4,161.4 338.5,163.5 345.6,165.6 352.7,167.6 359.8,169.5 366.9,171.5 374.0,173.3 381.1,175.2 388.2,177.0 395.3,178.7 402.4,180.4 409.5,182.1 416.6,183.8 423.7,185.4 430.8,186.9 437.9,188.5 445.0,190.0 452.1,190.0 459.2,190.0 466.3,190.0 473.4,190.0 480.5,190.0 487.6,190.0 494.7,190.0 501.8,190.0 508.9,190.0 516.0,190.0 523.1,190.0 530.2,190.0 537.3,190.0 544.4,190.0 551.5,190.0 558.6,190.0 565.7,190.0 572.8,190.0 579.9,190.0 587.0,190.0 594.1,190.0 601.2,190.0 608.3,190.0 615.4,190.0 622.5,190.0 629.6,190.0 636.7,190.0 643.8,190.0 650.9,190.0 658.0,190.0 665.1,190.0 672.2,190.0 679.3,190.0 686.4,190.0 693.5,190.0 700.6,190.0 707.7,190.0 714.8,190.0 721.9,190.0 729.0,190.0 736.1,190.0 743.2,190.0 750.3,190.0 757.4,190.0 764.5,190.0 771.6,190.0 778.7,190.0 785.8,190.0 792.9,190.0 800.0,190.0" fill="none" stroke="#d79b00" stroke-width="2.6"/>
+  <text x="746.8" y="182.0" text-anchor="middle" class="sm">2× spike</text>
+  <polyline points="90.0,40.0 97.1,51.5 104.2,62.2 111.3,72.1 118.4,81.4 125.5,90.0 132.6,98.1 139.7,105.6 146.8,112.7 153.9,119.4 161.0,125.7 168.1,131.7 175.2,137.3 182.3,142.6 189.4,147.7 196.5,152.5 203.6,157.1 210.7,161.4 217.8,165.6 224.9,169.5 232.0,173.3 239.1,177.0 246.2,180.4 253.3,183.8 260.4,186.9 267.5,190.0 274.6,192.9 281.7,195.8 288.8,198.5 295.9,201.1 303.0,203.6 310.1,206.1 317.2,208.4 324.3,210.7 331.4,212.9 338.5,215.0 345.6,217.0 352.7,219.0 359.8,221.0 366.9,222.8 374.0,224.6 381.1,226.4 388.2,228.1 395.3,229.7 402.4,231.3 409.5,232.9 416.6,234.4 423.7,235.8 430.8,237.3 437.9,238.6 445.0,240.0 452.1,240.0 459.2,240.0 466.3,240.0 473.4,240.0 480.5,240.0 487.6,240.0 494.7,240.0 501.8,240.0 508.9,240.0 516.0,240.0 523.1,240.0 530.2,240.0 537.3,240.0 544.4,240.0 551.5,240.0 558.6,240.0 565.7,240.0 572.8,240.0 579.9,240.0 587.0,240.0 594.1,240.0 601.2,240.0 608.3,240.0 615.4,240.0 622.5,240.0 629.6,240.0 636.7,240.0 643.8,240.0 650.9,240.0 658.0,240.0 665.1,240.0 672.2,240.0 679.3,240.0 686.4,240.0 693.5,240.0 700.6,240.0 707.7,240.0 714.8,240.0 721.9,240.0 729.0,240.0 736.1,240.0 743.2,240.0 750.3,240.0 757.4,240.0 764.5,240.0 771.6,240.0 778.7,240.0 785.8,240.0 792.9,240.0 800.0,240.0" fill="none" stroke="#b85450" stroke-width="2.6"/>
+  <text x="746.8" y="232.0" text-anchor="middle" class="sm">3× spike</text>
+  <circle cx="196.5" cy="109.2" r="10" fill="#fff" stroke="#000" stroke-width="1.2"/>
+  <text x="196.5" y="114.2" text-anchor="middle" class="sm b">A</text>
+  <circle cx="303.0" cy="152.5" r="10" fill="#fff" stroke="#000" stroke-width="1.2"/>
+  <text x="303.0" y="157.5" text-anchor="middle" class="sm b">B</text>
+  <circle cx="658.0" cy="190.0" r="10" fill="#fff" stroke="#000" stroke-width="1.2"/>
+  <text x="658.0" y="195.0" text-anchor="middle" class="sm b">C</text>
+  <rect x="473.4" y="250.0" width="326.6" height="86" rx="6" class="white"/>
+  <text x="485.4" y="272.0" class="sm b">Traffic doubles in 5 minutes (2× spike):</text>
+  <text x="485.4" y="291.0" class="sm">A  warm pool, 1.5 min lag: target 77%</text>
+  <text x="485.4" y="310.0" class="sm">B  free GPU on a running node, 3 min: 62.5%</text>
+  <text x="485.4" y="329.0" class="sm">C  new GPU node, 8 min: 50%</text>
+  <text x="445.0" y="380" text-anchor="middle" class="sm">scale-up lag ÷ time for traffic to rise</text>
+  <text x="24" y="190.0" text-anchor="middle" class="sm" transform="rotate(-90 24 190.0)">highest safe target utilization</text>
+  <text x="90" y="424">u_max = 1 ÷ (1 + (s − 1) × min(1, T_lag ÷ T_rise)), where s is the spike multiple</text>
+</svg>

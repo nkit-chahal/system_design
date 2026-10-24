@@ -1,0 +1,315 @@
+<h2>Introduction</h2>
+<p>Every request to an LLM service waits somewhere before the model starts working on it. It may sit in a load balancer, in an API gateway, or, most often, in the serving engine's own scheduler queue while the GPU finishes other work. The number of requests waiting at one of these points is its <strong>queue depth</strong>.</p>
+<p>Queue depth matters because waiting time is part of the user's latency. Time to first token is queueing plus prefill (Lesson 4, Time to First Token), and prefill rarely changes much from minute to minute. When TTFT suddenly jumps from 0.3 seconds to 8 seconds, the extra time is almost always spent in a queue. A queue also grows <em>before</em> latency metrics react, because a waiting request has not produced a latency sample yet. That makes queue depth one of the most useful early-warning signals in LLM serving.</p>
+<fig src="029-where-queues-form.svg" caption="Where requests wait in an LLM serving stack">Requests flow from clients through a load balancer, an API gateway, and an engine API server into the engine's waiting queue, then into the running batch on the GPU. The load balancer and gateway hold short queues of in-flight connections. The engine's waiting queue is where most waiting happens. The running batch is limited by KV cache blocks and the maximum number of sequences, and preemption sends requests from the running batch back to the waiting queue.</fig>
+<p>In this lesson, we look at where queues form in a serving stack, use Little's law to turn queue depth into seconds of waiting, explain why latency explodes as a server approaches full utilization, read the queue signals that vLLM and SGLang export, and design autoscaling triggers, load shedding, and alerts around them.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Queue questions in interviews usually start from an incident. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: What are we serving, and on what hardware?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct in BF16 with vLLM, one replica per H100, behind a load balancer, an API gateway, and a router. The autoscaler runs five replicas at average load (Lesson 22, Autoscaling).</p>
+<p><strong>Candidate</strong>: What does the traffic look like?<br>
+<strong>Interviewer</strong>: About 1,000 chat requests per minute on average, from about 8 to 33 requests per second over the day, each with roughly 2,000 prompt tokens and 500 output tokens. Product launches bring spikes of up to ten times the average.</p>
+<p><strong>Candidate</strong>: What latency do we promise?<br>
+<strong>Interviewer</strong>: A p95 time to first token under 500 ms and a p95 time per output token under 25 ms. A typical request sees about 0.3 seconds to the first token. One replica meets both targets up to about 5 requests per second, about 53 concurrent streams at about 21 ms per decode step (Lesson 19, GPU Utilization), and we run vLLM with <code>--max-num-seqs 53</code>, the capacity limit from Lesson 22.</p>
+<p><strong>Candidate</strong>: What do we monitor today?<br>
+<strong>Interviewer</strong>: GPU utilization and p95 latency. Last week TTFT was bad for ten minutes before anyone noticed. GPU utilization read 100% before, during, and after the incident.</p>
+<p><strong>Candidate</strong>: Are we allowed to delay or reject some requests?<br>
+<strong>Interviewer</strong>: Free-tier traffic can be delayed or rejected under load. Paid traffic should not be.</p>
+<p>The question underneath is: <em>which queue signals tell us that TTFT is about to break, what thresholds should we use, and what should the system do automatically when they fire?</em> To answer it, we first need to know where requests actually wait.</p>
+
+<h2>Where Requests Wait</h2>
+<h3>The queues in a serving stack</h3>
+<p>Figure 1 shows the path of a request. Each box can hold requests that are not yet being worked on:</p>
+<ul>
+<li><strong>Load balancer</strong>: holds connections while it picks a backend. With healthy backends this wait is microseconds to milliseconds.</li>
+<li><strong>API gateway</strong>: authenticates, applies rate limits (Lesson 26, Rate Limiting), and may cap in-flight requests per tenant. It sees how many requests are in flight, but not whether they are waiting or running inside the engine.</li>
+<li><strong>Engine API server</strong>: accepts the HTTP request, applies the chat template, tokenizes, and hands the request to the engine core. It accepts almost everything immediately, so its own queue is short.</li>
+<li><strong>Engine waiting queue</strong>: the scheduler's list of requests that have not started prefill. This is where nearly all LLM queueing happens.</li>
+<li><strong>Running batch</strong>: the requests that the scheduler has admitted into the continuous batch (Lesson 7, Continuous Batching). Its size is limited by free KV cache blocks (Lesson 3, KV Cache, and Lesson 8, PagedAttention) and by the engine's maximum number of sequences (<code>--max-num-seqs</code> in vLLM).</li>
+</ul>
+<p>The engine queue is special because by default it is unbounded. vLLM and SGLang accept every request over HTTP and park it in the waiting queue until there is room in the batch. Upstream components therefore see a healthy, fast-responding server that is quietly accumulating a backlog. This is why queue signals must come from the engine itself.</p>
+
+<h3>Two ways to be full</h3>
+<p>An LLM engine can be full in two different senses. It is <strong>slot-full</strong> when the KV cache has no free blocks: the scheduler cannot admit another request, so new arrivals wait. It is <strong>step-full</strong> when every extra request in the batch makes each decode step slower: the running batch is itself a kind of queue, because every running request shares the same GPU steps. More running requests mean more tokens per second in total, but a slower stream for each user (Lesson 5, Tokens per Second). For our replica the step limit binds first: Lesson 19 found about 53 streams decoding at about 21 ms per step at 5 requests per second, and steps passing the 25 ms target at 5.5 requests per second, while the KV cache would not fill until about 170 requests (Lesson 3).</p>
+<p>Slot-fullness shows up as a growing waiting queue and a longer TTFT. Step-fullness shows up as a longer time per output token, and by default it produces no queue at all, because the engine keeps admitting requests until the cache is full. That is why Lesson 22 sets <code>--max-num-seqs</code> to the capacity of 53: the engine then turns step-fullness into slot-fullness, and excess load becomes visible as waiting requests. Table 1 summarizes the queues and what limits each one.</p>
+<table>
+<thead><tr><th>Where</th><th>What waits there</th><th>What limits it</th><th>What you can measure</th></tr></thead>
+<tbody>
+<tr><td>Load balancer</td><td>Connections and requests in flight</td><td>Backend health, connection limits</td><td>Active and pending requests per backend</td></tr>
+<tr><td>API gateway</td><td>Requests in flight per tenant</td><td>Rate limits and concurrency caps (Lesson 26)</td><td>In-flight count, rejections (429)</td></tr>
+<tr><td>Engine waiting queue</td><td>Requests not yet prefilled, including preempted ones</td><td>Nothing by default; optional queue caps</td><td>Waiting requests, queue time</td></tr>
+<tr><td>Engine running batch</td><td>Requests in prefill or decode</td><td>Free KV cache blocks, <code>--max-num-seqs</code></td><td>Running requests, KV cache usage, preemptions</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: The queues in an LLM serving stack</p>
+
+<h2>Little's Law and Queueing Intuition</h2>
+<h3>Little's law</h3>
+<p><strong>Little's law</strong> connects three averages for any stable system: the average number of items inside it, <tex>L</tex>, equals the average arrival rate, <tex>\lambda</tex>, times the average time each item spends inside, <tex>W</tex> [1]:</p>
+<texblock>L = \lambda W</texblock>
+<p>It holds whatever the arrival pattern or service order, as long as we look at long-run averages and the system is not growing without bound. It applies to any boundary we draw: the whole fleet, one replica, or just the waiting queue.</p>
+<p>Apply it to our fleet. The arrival rate is 1,000 requests per minute, or about 16.7 per second. A request spends about 0.3 s reaching its first token and then 499 more tokens at about 21 ms each (Lesson 19), so <tex>W = 0.3 + 0.021 \times 499 \approx 10.8</tex> s. Figure 2 shows the result.</p>
+<fig src="029-littles-law.svg" caption="Little's law applied to our fleet and to one replica">Requests arrive at 16.7 per second, spend 10.8 seconds in the system, and so about 180 requests are in flight across the fleet. Split across five replicas, each replica sees 3.3 requests per second and holds about 36 requests, which is 68 percent of its limit of 53 and about a fifth of the 170 chat requests that its KV cache could hold.</fig>
+<ul>
+<li><strong>Fleet</strong>: <tex>L = 16.7 \times 10.8 \approx 180</tex> requests in flight at any moment.</li>
+<li><strong>Per replica</strong>: about 36 requests, with 3.3 arriving per second.</li>
+<li><strong>Headroom</strong>: each replica runs at about 68% of its limit of 53 in flight, and at about a fifth of the 170 chat requests its KV cache could hold (Lesson 3).</li>
+</ul>
+
+<h4>Reading queue depth as time</h4>
+<p>Apply the same law to the waiting queue alone. If <tex>L_q</tex> requests are waiting and requests leave the queue at rate <tex>\lambda</tex>, each one waits on average <tex>W_q = L_q / \lambda</tex>. This turns a count into seconds, which is what users feel.</p>
+<p>Our TTFT target is 0.5 s and a typical request needs 0.3 s without queueing, so the queue may add at most about 0.2 s. At 3.3 requests per second per replica, <tex>L_q = 0.2 \times 3.3 \approx 0.7</tex>. On a normal minute, <strong>even one waiting request per replica, sustained, uses up the whole latency budget</strong>. The same count means different things at different rates: four waiting requests cost about 1.2 s of wait at 3.3 requests per second, but 0.8 s when the replica is draining 5 requests per second. Thresholds on raw queue depth are therefore fragile. It is better to divide by the current rate and alert on the estimated wait.</p>
+<p>During overload the rate that matters is the rate at which requests <em>leave</em> the queue, not the rate at which they arrive. When the batch is full, a new request can start only when another finishes, so the useful estimate is:</p>
+<texblock>\text{estimated wait} \approx \frac{\text{waiting requests}}{\text{completions per second}}</texblock>
+<p>In steady state completions equal arrivals, so this is Little's law. During a spike it predicts the wait of a request that arrives now, which is exactly the TTFT problem we want to see coming.</p>
+
+<h4>The ceiling of one replica</h4>
+<p>Little's law also turns a concurrency limit into a throughput limit. With <code>--max-num-seqs 53</code> and requests that last about 10.8 s at about 21 ms per step, a full replica completes about <tex>53 / 10.8 \approx 4.9</tex>, or about 5 requests per second, the same capacity Lesson 19 found and Lesson 20, Cost per Million Tokens, prices. Without the cap, the replica would keep admitting requests until its KV cache held about 170, completing more requests per second but with every stream slower than the target.</p>
+<p>On an average minute each replica runs at <tex>\rho = 3.3 / 5 \approx 0.67</tex> of that ceiling. A tenfold spike changes the picture completely: each of the five replicas receives 33.3 requests per second but can start only 5, so its queue grows by about 28 requests every second. After 10 seconds, about 283 requests are waiting, and a newcomer can expect to wait <tex>283 / 5 \approx 57</tex> s for its first token. No autoscaler can react within those 10 seconds, which is why Stage 5 pairs autoscaling with admission control.</p>
+<callout kind="tip" title="Interview tip">Convert every queue number into seconds before judging it. "Ten requests waiting" sounds small; "ten requests waiting at 4 requests per second is 2.5 seconds of added TTFT" shows you understand what the user will feel.</callout>
+
+<h3>Why latency explodes near full utilization</h3>
+<p>Queueing theory explains why a server that looks fine at 70% busy can be unusable at 95%. The simplest model, the <strong>M/M/1 queue</strong>, has one server, random (Poisson) arrivals, and random (exponential) service times with mean <tex>S</tex>. At utilization <tex>\rho</tex>, the average time in the system is:</p>
+<texblock>W = \frac{S}{1 - \rho}</texblock>
+<p>At 50% utilization a request takes twice its service time; at 80%, five times; at 90%, ten times; at 95%, twenty times. The curve is flat for most of its range and then turns almost vertical, as Figure 3 shows.</p>
+<fig src="029-utilization-curve.svg" caption="Average time in system versus utilization in two textbook queueing models (illustrative)">Two curves of time in system, as a multiple of service time, against utilization from 0 to 1. The M/M/1 curve rises from 1 to 2 at 50 percent, 5 at 80 percent, 10 at 90 percent and 20 at 95 percent. The M/M/8 curve, eight parallel servers, stays near 1 until about 80 percent, reaches 1.9 at 90 percent and 3.1 at 95 percent, then also turns vertical. A note says these are queueing models, not measurements of an LLM engine.</fig>
+<p>An LLM engine is not an M/M/1 queue. It runs many requests in parallel, and its service time depends on the batch size. A model with many parallel servers, such as M/M/8 in Figure 3, is closer: it stays flat longer and then turns more sharply. That matches what operators see. An engine at 80% of its slot capacity looks perfectly healthy, while one at 95% is a few seconds of bad luck away from a large backlog.</p>
+<p>Variability makes things worse. Kingman's approximation for a single-server queue says the average wait grows with the squared coefficients of variation of inter-arrival and service times [2]. LLM traffic has both kinds of variability in abundance: bursty arrivals, prompts from 50 to 30,000 tokens, and outputs from one token to thousands. The practical rule is to run well below a replica's measured ceiling; Lesson 22's autoscaler targets 75% of it, 40 of 53 requests in flight.</p>
+
+<h2>Engine-Level Queue Signals</h2>
+<h3>The four signals</h3>
+<p>The engine knows exactly how many requests are waiting, how many are running, and how full its cache is. Both vLLM and SGLang export these as Prometheus metrics on their <code>/metrics</code> endpoint (SGLang needs <code>--enable-metrics</code>) [3][5]. Figure 4 places each signal on the engine's internal state machine.</p>
+<fig src="029-engine-states.svg" caption="The engine's queue signals and where each one is measured">Arriving requests enter the waiting queue, measured by waiting requests and queue time. The scheduler admits them into the running batch when KV cache blocks are free; the running batch is measured by running requests and KV cache usage. When the cache runs out, the scheduler preempts a running request back to the waiting queue, counted by the preemption counter. Finished requests leave and are counted by the request success counter.</fig>
+<ul>
+<li><strong>Waiting requests</strong>: requests the scheduler has not started, including preempted ones that must start again. A nonzero value that persists means the engine is slot-full.</li>
+<li><strong>Running requests</strong>: requests in the current batch. Compare it with the replica's limit (53 for us) to see how close the replica is to full before anyone waits.</li>
+<li><strong>KV cache usage</strong>: the fraction of KV blocks in use, from 0 to 1. It rises with both the number of running requests and their lengths. Our 53 chat requests fill less than a third of the cache, so for us it matters when long documents arrive: 13 requests at 32K tokens fill it completely (Lesson 3).</li>
+<li><strong>Preemptions</strong>: a counter of requests evicted from the batch to make room. The PagedAttention paper describes two ways to preempt, swapping the cache out and recomputing it later [7]; vLLM's current engine recomputes (Lesson 3). Each preemption throws away work, so a rising rate means the engine admits more than its cache can hold, and the preempted users see latency spikes.</li>
+</ul>
+<p>Table 2 gives the metric names in current vLLM and SGLang. Prometheus counters are exposed with a <code>_total</code> suffix, and metric names change between versions, so check your server's <code>/metrics</code> output before building dashboards [3][4].</p>
+<table>
+<thead><tr><th>Signal</th><th>vLLM</th><th>SGLang</th></tr></thead>
+<tbody>
+<tr><td>Waiting requests</td><td><code>vllm:num_requests_waiting</code> (gauge)</td><td><code>sglang:num_queue_reqs</code> (gauge)</td></tr>
+<tr><td>Running requests</td><td><code>vllm:num_requests_running</code> (gauge)</td><td><code>sglang:num_running_reqs</code> (gauge)</td></tr>
+<tr><td>KV cache usage (0 to 1)</td><td><code>vllm:kv_cache_usage_perc</code> (gauge)</td><td><code>sglang:token_usage</code> (gauge)</td></tr>
+<tr><td>Preemptions</td><td><code>vllm:num_preemptions_total</code> (counter)</td><td>Retraction metrics such as <code>sglang:num_retracted_reqs</code> in recent versions</td></tr>
+<tr><td>Queue time per request</td><td><code>vllm:request_queue_time_seconds</code> (histogram)</td><td><code>sglang:queue_time_seconds</code> (histogram, recent versions)</td></tr>
+<tr><td>Completed requests</td><td><code>vllm:request_success_total</code> (counter, by <code>finished_reason</code>)</td><td><code>sglang:num_requests_total</code> (counter, recent versions)</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Queue signals exported by vLLM and SGLang</p>
+<p>Recent vLLM versions also split the waiting count by reason, <code>vllm:num_requests_waiting_by_reason</code>, with <code>reason="capacity"</code> for requests waiting for room in the batch and <code>reason="deferred"</code> for requests held back by temporary constraints such as a LoRA adapter budget or a KV transfer [3].</p>
+
+<h3>Reading the signals together</h3>
+<p>No single signal tells the whole story, but a few combinations cover most incidents:</p>
+<ul>
+<li><strong>Waiting near 0, running below the limit</strong>: healthy, with headroom.</li>
+<li><strong>Waiting growing, running pinned at <code>--max-num-seqs</code>, KV usage moderate</strong>: the replica is at its load-tested capacity. With the limit set as in Lesson 22, this is the intended overload signal: add replicas or shed load.</li>
+<li><strong>Waiting growing, KV usage near 100%, running below the limit</strong>: memory binds first, usually because long prompts arrived and each request holds more cache than the capacity plan assumed.</li>
+<li><strong>Preemptions rising with KV usage above 95%</strong>: the cache is thrashing. Long requests are being evicted and recomputed, wasting GPU time exactly when it is scarce.</li>
+<li><strong>Waiting growing, running low, GPU mostly idle</strong>: the engine is stuck or starved by something other than the GPU, such as a hung worker or a CPU-bound tokenizer. Lesson 30, GPU Metrics, shows how to confirm this.</li>
+</ul>
+
+<h3>Leading versus lagging indicators</h3>
+<p>A <strong>leading indicator</strong> moves before users are hurt; a <strong>lagging indicator</strong> confirms the damage afterwards. Queue signals lead and latency percentiles lag, for three reasons:</p>
+<ul>
+<li><strong>When the sample is recorded</strong>: the queue gauge counts a request the moment it arrives. Its TTFT is recorded only when its first token appears, after the wait is over, and its end-to-end latency only when the response finishes, about 11 seconds later in our example. A request that is still waiting produces no latency sample at all. If the engine hangs completely, latency histograms simply stop receiving samples while the queue climbs.</li>
+<li><strong>How the number is computed</strong>: latency percentiles come from histograms over a window, typically the last five minutes (Lesson 28, p50, p95 and p99 Latency). New slow requests are mixed with older fast ones, which damps the signal.</li>
+<li><strong>What it predicts</strong>: a growing queue tells you how bad the wait will be for the next arrival. A percentile tells you how bad it was for requests that already finished.</li>
+</ul>
+<p>Figure 5 shows a simulated ramp in which traffic to one replica climbs steadily from 3.3 to 6 requests per second over seven minutes, past its capacity of about 5 (53 streams ÷ 10.8 s ≈ 4.9).</p>
+<fig src="029-leading-vs-lagging.svg" caption="Simulated traffic ramp on one replica: in-flight and queue signals move before TTFT (illustrative)">Four aligned panels over eight minutes. Arrival rate rises from 3.3 to 6 requests per second and crosses the replica's capacity of about 4.9 at about 5.2 minutes. In-flight requests rise from 36, cross the autoscaling target of 40 at 2.25 minutes and pass the running cap of 53 at 5.5 minutes. The waiting queue stays at zero until 5.5 minutes, then grows to about 94 requests. The p95 TTFT over a five-minute window stays at 0.3 seconds until 5.75 minutes, then rises to about 14 seconds, always below the TTFT that the queue estimate predicts for a new arrival.</fig>
+<p>The order is the point. In-flight requests cross the autoscaling target at 2.25 minutes, more than three minutes before any request waits. The waiting queue appears at 5.5 minutes. The p95 TTFT crosses the 0.5 s target one 15-second scrape later, at 5.75 minutes, and from then on it trails the queue-based estimate: at 7 minutes the estimate says a new request will wait about 8 s, while the p95 TTFT still reports 5.8 s. This is a smooth, idealized model; in real traffic, randomness makes queues appear before the replica is completely full, which gives the queue signals even more lead. The lesson for alerting is that in-flight counts buy minutes, the waiting queue buys seconds and states the size of the problem, and latency percentiles confirm it afterwards.</p>
+
+<h2>Acting on Queue Depth</h2>
+<h3>Autoscaling on queue signals</h3>
+<p>Lesson 22, Autoscaling, covers the mechanics; here the question is which signal to scale on. GPU utilization is a poor choice because it reads close to 100% whenever any kernel runs, even at low load (Lesson 19, GPU Utilization). The waiting queue alone is also a poor choice: it stays at zero until the replica is already slot-full, and a new replica takes minutes to start (Lesson 23, Cold Starts). KV cache usage is better but stops at 100% and cannot say how far beyond capacity the fleet is.</p>
+<p>The signal that works across the whole range is <strong>in-flight requests per replica</strong>, running plus waiting, which is also Lesson 22's choice. Below saturation, Little's law ties it directly to arrival rate; above saturation, the waiting part keeps growing and shows how far behind the fleet is. With KEDA's default <code>AverageValue</code> metric type, a target of 40 in-flight requests per replica means the autoscaler asks for <tex>\lceil \text{total in flight} / 40 \rceil</tex> replicas [12]. On an average minute, 180 in flight asks for 5 replicas; at the daily peak of 33 requests per second, about 356 in flight asks for 9. A target of 40 is 75% of a replica's limit of 53, which leaves room for growth while new replicas start (Lesson 23, Cold Starts). That headroom is why the peak gets 9 replicas rather than the 7 it needs at full load (33 ÷ 5 = 6.6) or the 8 of Lesson 20's static fleet with 20% headroom.</p>
+
+<h3>Admission control and load shedding</h3>
+<p>Autoscaling cannot absorb a tenfold spike that arrives in seconds, so the system must also decide what to do with requests it cannot serve in time. An unbounded queue is the worst answer: every request is accepted, every request waits close to a minute, and many clients time out and retry, which adds more load. Google's SRE guidance recommends small queues relative to a server's capacity, so that it rejects early instead of building latency it cannot pay back [8].</p>
+<p>Lesson 26, Rate Limiting, covers the policies. The queue signals tell those policies when to act:</p>
+<ul>
+<li><strong>At the router</strong>: Lesson 26 bounds the router's fleet-wide queue at 250 ms of wait, half the TTFT budget, and sheds the lowest priority first, free and batch traffic before paid traffic, with HTTP 503 and a <code>Retry-After</code> header.</li>
+<li><strong>In the engine</strong>: recent vLLM versions add <code>--max-num-queued-reqs</code>, a cap on in-flight requests (waiting plus running) beyond which new requests get HTTP 503, and <code>--max-num-queued-tokens</code>, a cap on prompt tokens in the prefill backlog. The vLLM documentation suggests sizing the token cap as the TTFT target times the prefill throughput [6]. For our replica, a cap of about 58, the 53 running requests plus about one second of queue at 5 requests per second, is a backstop that keeps the worst wait inside the engine near one second.</li>
+<li><strong>By priority</strong>: vLLM's <code>--scheduling-policy priority</code> serves requests with a lower <code>priority</code> value first, which lets paid traffic overtake free traffic inside the engine queue [6]. Lesson 39, Batch and Offline Inference, uses the same mechanism to run batch work beside interactive traffic.</li>
+</ul>
+<p>Figure 6 puts these actions on one ladder, so that each step up is a stronger response to a longer queue.</p>
+<fig src="029-response-ladder.svg" caption="A response ladder keyed to queue signals">A vertical ladder of five rungs. Estimated wait below 0.2 seconds: normal operation, the autoscaler tracks in-flight requests with a target of 40 per replica. Requests waiting in one engine: that replica is at its limit of 53, so the router steers new requests to others. Estimated wait above 0.2 seconds for 2 minutes: warn the team channel and confirm the autoscaler is adding replicas. Router queue wait above 250 milliseconds: shed free-tier and batch traffic first with 503 and Retry-After. Engine cap of about 58 in flight: the engine itself rejects with 503. A side note says paging is reserved for the TTFT SLO burn rate.</fig>
+
+<h3>Designing queue alerts</h3>
+<p>An alert has three parts: a condition, a duration, and an action. Each choice trades speed against noise:</p>
+<ul>
+<li><strong>Threshold on the level</strong>, for example "estimated wait above 0.2 s". It is easy to read but fires on every short burst if used alone.</li>
+<li><strong>Duration</strong>: Prometheus's <code>for</code> clause keeps an alert pending until its condition has held on every evaluation for the given time, and <code>keep_firing_for</code> keeps it firing for a while after the condition clears, which stops flapping [10]. A duration removes bursts but delays every alert by the same amount.</li>
+<li><strong>Threshold on the rate of change</strong>, for example "the queue has grown for five minutes". PromQL's <code>deriv()</code> fits a line to a gauge over a window and returns its slope per second [11]. A rate rule catches a slow climb before the level crosses its threshold, and <code>predict_linear()</code> can ask "will the KV cache reach 100% within ten minutes?".</li>
+</ul>
+<fig src="029-alert-rules.svg" caption="Three alert rules evaluated on the same simulated queue trace (illustrative)">A trace of waiting requests over 30 minutes has two short bursts, at minute 4 and minute 9, and then a slow climb of one request per minute starting at minute 14. A plain threshold of more than 5 waiting fires on both bursts, then twice more as the climb wobbles across 5 at minutes 19 and 20. The same threshold held for 3 minutes ignores the bursts and fires at minute 23. A growth rule, slope above 0.01 requests per second with more than 2 waiting, held for 2 minutes, fires at minute 19.25.</fig>
+<p>Figure 7 compares the three rules on a simulated trace. The plain threshold fires twice for bursts that cleared by themselves, then flaps as the climb wobbles around the threshold. Adding a three-minute duration removes the false alarms but fires last, at minute 23. The growth rule fires at minute 19.25, nearly four minutes earlier, because it reacts to the direction of the queue rather than its size. In practice we combine a level rule with a duration for sudden steps and a growth rule for slow climbs.</p>
+<p>The other choice is <em>who</em> gets alerted. Google's SRE book lists saturation among the four golden signals and notes that many systems degrade before they reach 100% utilization [9]. Saturation signals are causes, though, and paging people on causes produces noise. A common split is to page on user-facing symptoms, here the burn rate of the TTFT objective (Lesson 28, and the SRE workbook's guide to alerting on SLOs [13]), and to send queue alerts to a chat channel or to automation that scales or sheds load. The queue panels then sit next to the TTFT panels on the same dashboard, so the person who is paged sees the cause immediately.</p>
+
+<h4>Which signals and thresholds fit our deployment?</h4>
+<p>For our fleet of H100 replicas, five at average load, we choose:</p>
+<ul>
+<li><strong>Autoscale on in-flight requests per replica</strong> (running plus waiting), target 40, with <code>--max-num-seqs 53</code> so that waiting requests mean "over capacity" (Lesson 22). In-flight counts move minutes before any request waits, and Little's law lets us reason about them.</li>
+<li><strong>Warn when the estimated wait exceeds 0.2 s for 2 minutes</strong>, our whole queueing budget, or when the queue has grown for 3 minutes. These go to the team channel, not a pager.</li>
+<li><strong>Shed free-tier and batch traffic at the router beyond 250 ms of queue wait</strong> (Lesson 26), and cap each engine at about 58 in-flight requests as a backstop, so that a spike produces fast rejections and retries elsewhere instead of minute-long waits.</li>
+<li><strong>Open a capacity ticket when preemptions are sustained with KV usage above 95%</strong>: the traffic mix has shifted toward longer requests than the capacity plan assumed.</li>
+<li><strong>Page only on the TTFT SLO burn rate</strong>, with the queue panels on the same dashboard to explain it.</li>
+</ul>
+<p>We prefer the estimated wait to a raw count because its threshold, 0.2 s, comes straight from the latency budget and stays correct when the traffic rate changes. GPU utilization, which caused last week's missed incident, stays on the dashboard but drives no alert at all.</p>
+
+<h2>In Practice</h2>
+<p>The first tab is a Prometheus rules file: a recording rule for the estimated wait per replica and the alerts chosen above [10][11]. The second tab collects the PromQL behind the queue panels of the dashboard; Lesson 22 shows the KEDA <code>ScaledObject</code> that scales on in-flight requests. The third tab is a small script that polls one vLLM server's <code>/metrics</code> endpoint and prints the queue signals with a Little's-law wait estimate, which is handy during load tests.</p>
+<codetabs>
+<tab label="Prometheus rules" lang="yaml">
+groups:
+- name: llm-queue
+  rules:
+  # Estimated wait for a request arriving now, per replica (Little's law).
+  - record: instance:vllm_queue_wait_seconds:estimate
+    expr: |
+      sum by (instance) (vllm:num_requests_waiting)
+      /
+      clamp_min(sum by (instance) (rate(vllm:request_success_total[1m])), 0.01)
+
+  - alert: LLMQueueWaitHigh
+    expr: instance:vllm_queue_wait_seconds:estimate > 0.2
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.instance }} adds about {{ $value | humanizeDuration }} of queueing to TTFT"
+
+  - alert: LLMQueueGrowing
+    expr: |
+      deriv(vllm:num_requests_waiting[5m]) > 0.01
+      and vllm:num_requests_waiting > 2
+    for: 3m
+    labels:
+      severity: warning
+
+  - alert: LLMKVCacheThrashing
+    expr: |
+      rate(vllm:num_preemptions_total[5m]) > 0.1
+      and avg_over_time(vllm:kv_cache_usage_perc[5m]) > 0.95
+    for: 10m
+    labels:
+      severity: ticket
+
+  - alert: LLMKVCacheFullSoon
+    expr: predict_linear(vllm:kv_cache_usage_perc[10m], 600) > 1
+    for: 5m
+    labels:
+      severity: warning
+</tab>
+<tab label="Dashboard queries" lang="promql">
+# Waiting and running requests per replica
+sum by (instance) (vllm:num_requests_waiting)
+sum by (instance) (vllm:num_requests_running)
+
+# Average in-flight requests per replica, against the target of 40 (Lesson 22)
+(sum(vllm:num_requests_running) + sum(vllm:num_requests_waiting))
+  / count(vllm:num_requests_running)
+
+# Estimated wait for a new arrival (recording rule from the first tab)
+instance:vllm_queue_wait_seconds:estimate
+
+# p95 queue time that finished requests actually saw (lags the estimate)
+histogram_quantile(0.95,
+  sum by (le) (rate(vllm:request_queue_time_seconds_bucket[5m])))
+
+# Cache pressure
+sum by (instance) (rate(vllm:num_preemptions_total[5m]))
+max by (instance) (vllm:kv_cache_usage_perc)
+
+# SGLang equivalents
+sum by (instance) (sglang:num_queue_reqs)
+max by (instance) (sglang:token_usage)
+</tab>
+<tab label="Queue probe" lang="python">
+"""Poll a vLLM server's /metrics and estimate queue wait with Little's law."""
+import time
+import urllib.request
+
+from prometheus_client.parser import text_string_to_metric_families
+
+URL = "http://localhost:8000/metrics"
+INTERVAL_S = 5.0
+
+
+def scrape(url: str = URL) -> dict[str, float]:
+    """Sum every sample by name (adds up engines and label values)."""
+    text = urllib.request.urlopen(url, timeout=5).read().decode("utf-8")
+    totals: dict[str, float] = {}
+    for family in text_string_to_metric_families(text):
+        for sample in family.samples:
+            totals[sample.name] = totals.get(sample.name, 0.0) + sample.value
+    return totals
+
+
+prev, prev_t = scrape(), time.monotonic()
+while True:
+    time.sleep(INTERVAL_S)
+    cur, now = scrape(), time.monotonic()
+    elapsed = now - prev_t
+
+    def per_second(name: str) -> float:
+        return (cur.get(name, 0.0) - prev.get(name, 0.0)) / elapsed
+
+    done = per_second("vllm:request_success_total")
+    preempted = per_second("vllm:num_preemptions_total")
+    waiting = cur.get("vllm:num_requests_waiting", 0.0)
+    running = cur.get("vllm:num_requests_running", 0.0)
+    kv = cur.get("vllm:kv_cache_usage_perc", 0.0)
+    if done > 0:
+        wait_s = waiting / done
+    else:
+        wait_s = float("inf") if waiting else 0.0
+    print(f"waiting={waiting:4.0f} running={running:4.0f} kv={kv:6.1%} "
+          f"done/s={done:5.1f} preempt/s={preempted:4.2f} est_wait={wait_s:6.2f}s")
+    prev, prev_t = cur, now
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Kingman's approximation: at the same utilization, more variable arrivals and service times produce longer waits, which is why traffic with mixed prompt lengths needs more headroom than uniform traffic [2].</li>
+<li>Queue order under overload: first-in-first-out serves requests whose clients may already have given up, while LIFO or CoDel-style policies drop stale work first; deadlines propagated from the client make this safe [8].</li>
+<li>Counting the queue in tokens rather than requests: one 32K-token prompt costs as much prefill as sixteen 2K-token prompts, which is why vLLM also offers a cap on queued prompt tokens [6].</li>
+<li>Load-aware routing: sending each request to the replica with the shortest queue or the most free KV cache keeps queues even across the fleet (Lesson 25, Request Routing).</li>
+<li>Per-tenant queues: fair queuing gives each tenant its own queue, so that one tenant's burst delays mostly itself (Lesson 26, and Lesson 37, Multi-LoRA and Multi-Tenant Serving).</li>
+<li>Disaggregated prefill and decode create separate queues for each phase and for the KV transfer between them; recent SGLang versions export a separate gauge for each of these queues (Lesson 34, Disaggregated Prefill and Decode).</li>
+<li>Coordinated omission in load tests: closed-loop benchmark clients wait for a response before sending the next request, which hides queueing that open-loop production traffic would create (Lesson 12).</li>
+<li>Retry storms: clients that retry on timeout without backoff turn a short overload into a sustained one, so rejections should carry <code>Retry-After</code> and clients should add jitter.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="029-summary.png" caption="Queue depth summary" optional="1">Mind map summarizing the queue depth lesson: where queues form, Little's law, utilization, engine signals, and how to act on them.</fig>
+<ul>
+<li>Most LLM queueing happens in the engine's waiting queue, which is unbounded by default; the running batch is limited by KV cache blocks and the maximum number of sequences.</li>
+<li>Little's law, <tex>L = \lambda W</tex>, turns counts into time: our fleet holds about 180 requests in flight, about 36 per replica, and an estimated wait is waiting requests divided by completions per second.</li>
+<li>With a 0.5 s TTFT target and 0.3 s of unavoidable work, the queue budget is 0.2 s, less than one waiting request per replica at normal load. A replica capped at 53 in flight completes about 5 requests per second.</li>
+<li>Latency rises slowly and then explodes as utilization approaches 1 (5× service time at 80% and 20× at 95% in an M/M/1 model), so run replicas well below their ceiling; our autoscaler targets 40 of 53 in flight.</li>
+<li>vLLM exports waiting and running requests, KV cache usage, and preemptions; SGLang exports the same ideas under different names. Queue and saturation signals lead TTFT, while latency percentiles lag.</li>
+<li>Autoscale on in-flight requests per replica, shed load by priority when queues pass their bounds, cap engine queues as a backstop, and page on the TTFT SLO with queue panels alongside to explain the cause.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Little. A Proof for the Queuing Formula: L = λW. Operations Research, 1961. <a href="https://doi.org/10.1287/opre.9.3.383" rel="noopener noreferrer" target="_blank">https://doi.org/10.1287/opre.9.3.383</a>.<br>
+[2] Kingman. The Single Server Queue in Heavy Traffic. Mathematical Proceedings of the Cambridge Philosophical Society, 1961. <a href="https://doi.org/10.1017/S0305004100036094" rel="noopener noreferrer" target="_blank">https://doi.org/10.1017/S0305004100036094</a>.<br>
+[3] vLLM documentation: Production Metrics. <a href="https://docs.vllm.ai/en/latest/usage/metrics.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/usage/metrics.html</a>.<br>
+[4] vLLM documentation: Metrics design. <a href="https://docs.vllm.ai/en/latest/design/metrics.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/metrics.html</a>.<br>
+[5] SGLang documentation: Production Metrics. <a href="https://docs.sglang.io/references/production_metrics.html" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/references/production_metrics.html</a>.<br>
+[6] vLLM documentation: Engine Arguments. <a href="https://docs.vllm.ai/en/latest/configuration/engine_args.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/engine_args.html</a>.<br>
+[7] Kwon et al. Efficient Memory Management for Large Language Model Serving with PagedAttention. <a href="https://arxiv.org/abs/2309.06180" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.06180</a>.<br>
+[8] Google SRE book: Addressing Cascading Failures. <a href="https://sre.google/sre-book/addressing-cascading-failures/" rel="noopener noreferrer" target="_blank">https://sre.google/sre-book/addressing-cascading-failures/</a>.<br>
+[9] Google SRE book: Monitoring Distributed Systems. <a href="https://sre.google/sre-book/monitoring-distributed-systems/" rel="noopener noreferrer" target="_blank">https://sre.google/sre-book/monitoring-distributed-systems/</a>.<br>
+[10] Prometheus documentation: Alerting rules. <a href="https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/" rel="noopener noreferrer" target="_blank">https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/</a>.<br>
+[11] Prometheus documentation: Query functions. <a href="https://prometheus.io/docs/prometheus/latest/querying/functions/" rel="noopener noreferrer" target="_blank">https://prometheus.io/docs/prometheus/latest/querying/functions/</a>.<br>
+[12] KEDA documentation: ScaledObject specification. <a href="https://keda.sh/docs/latest/reference/scaledobject-spec/" rel="noopener noreferrer" target="_blank">https://keda.sh/docs/latest/reference/scaledobject-spec/</a>.<br>
+[13] Google SRE workbook: Alerting on SLOs. <a href="https://sre.google/workbook/alerting-on-slos/" rel="noopener noreferrer" target="_blank">https://sre.google/workbook/alerting-on-slos/</a>.</p>

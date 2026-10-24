@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .white{fill:#fff;stroke:#666;stroke-width:1.2}
+    .grid{fill:none;stroke:#999;stroke-width:0.6}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Panel A -->
+  <text x="60" y="28" class="b">A: one small kernel, always running</text>
+  <rect x="60" y="44" width="320" height="128" class="white"/>
+  <rect x="60" y="44" width="320" height="32" class="orange"/>
+  <path d="M76,44V172M92,44V172M108,44V172M124,44V172M140,44V172M156,44V172M172,44V172M188,44V172M204,44V172M220,44V172M236,44V172M252,44V172M268,44V172M284,44V172M300,44V172M316,44V172M332,44V172M348,44V172M364,44V172M60,60H380M60,76H380M60,92H380M60,108H380M60,124H380M60,140H380M60,156H380" class="grid"/>
+  <text x="44" y="108" text-anchor="middle" transform="rotate(-90 44 108)">SMs</text>
+  <path d="M60,186 L380,186" class="edge"/>
+  <text x="220" y="204" text-anchor="middle" class="sm">time (one sample period)</text>
+
+  <rect x="60" y="216" width="150" height="46" rx="6" class="red"/>
+  <text x="135" y="235" text-anchor="middle" class="sm">nvidia-smi GPU-Util</text>
+  <text x="135" y="254" text-anchor="middle" class="b">100%</text>
+  <rect x="230" y="216" width="150" height="46" rx="6" class="white"/>
+  <text x="305" y="235" text-anchor="middle" class="sm">SM activity</text>
+  <text x="305" y="254" text-anchor="middle" class="b">25%</text>
+
+  <line x1="410" y1="16" x2="410" y2="270" stroke="#999" stroke-dasharray="5 4"/>
+
+  <!-- Panel B -->
+  <text x="470" y="28" class="b">B: full-GPU kernels with idle gaps</text>
+  <rect x="470" y="44" width="320" height="128" class="white"/>
+  <rect x="470" y="44" width="64" height="128" class="orange"/>
+  <rect x="566" y="44" width="64" height="128" class="orange"/>
+  <rect x="662" y="44" width="64" height="128" class="orange"/>
+  <path d="M486,44V172M502,44V172M518,44V172M534,44V172M550,44V172M566,44V172M582,44V172M598,44V172M614,44V172M630,44V172M646,44V172M662,44V172M678,44V172M694,44V172M710,44V172M726,44V172M742,44V172M758,44V172M774,44V172M470,60H790M470,76H790M470,92H790M470,108H790M470,124H790M470,140H790M470,156H790" class="grid"/>
+  <text x="454" y="108" text-anchor="middle" transform="rotate(-90 454 108)">SMs</text>
+  <path d="M470,186 L790,186" class="edge"/>
+  <text x="630" y="204" text-anchor="middle" class="sm">time (one sample period)</text>
+
+  <rect x="470" y="216" width="150" height="46" rx="6" class="white"/>
+  <text x="545" y="235" text-anchor="middle" class="sm">nvidia-smi GPU-Util</text>
+  <text x="545" y="254" text-anchor="middle" class="b">60%</text>
+  <rect x="640" y="216" width="150" height="46" rx="6" class="green"/>
+  <text x="715" y="235" text-anchor="middle" class="sm">SM activity</text>
+  <text x="715" y="254" text-anchor="middle" class="b">60%</text>
+
+  <text x="60" y="296">GPU-Util ranks A as the busier GPU, yet B keeps 2.4× more of the SMs working (60% vs 25%).</text>
+
+  <!-- Legend -->
+  <rect x="60" y="314" width="18" height="12" class="orange"/><text x="84" y="325" class="sm">SM running a kernel</text>
+  <rect x="230" y="314" width="18" height="12" class="white"/><text x="254" y="325" class="sm">SM idle (each row = 1/8 of the GPU's SMs)</text>
+</svg>

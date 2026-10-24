@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="450" viewBox="0 0 860 450" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a9a6" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .gridl{stroke:#e3e3e3;stroke-width:1}
+    .load{fill:none;stroke:#9673a6;stroke-width:2.4}
+    .static{stroke:#b85450;stroke-width:2;stroke-dasharray:8 4}
+    .auto{fill:none;stroke:#82b366;stroke-width:2.2}
+    .idle{fill:url(#hatch);stroke:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Legend -->
+  <line x1="80" y1="24" x2="104" y2="24" class="load"/><text x="110" y="28" class="sm">traffic (requests/s)</text>
+  <line x1="250" y1="24" x2="274" y2="24" class="static"/><text x="280" y="28" class="sm">static: 8 GPUs for peak + 20%</text>
+  <line x1="480" y1="24" x2="504" y2="24" class="auto"/><text x="510" y="28" class="sm">autoscaled capacity</text>
+  <rect x="650" y="17" width="20" height="14" class="idle" stroke="#b85450" stroke-width="1"/><text x="676" y="28" class="sm">idle, still paid (static)</text>
+
+  <path d="M80,275.0H776M80,210.0H776M80,145.0H776M80,80.0H776" class="gridl"/>
+  <path d="M80.0,80.0 L80.0,287.7 L87.2,287.9 L94.5,287.9 L101.8,288.0 L109.0,288.0 L116.2,288.0 L123.5,288.0 L130.8,288.0 L138.0,288.0 L145.2,288.0 L152.5,288.0 L159.8,288.0 L167.0,288.0 L174.2,288.0 L181.5,287.9 L188.8,287.9 L196.0,287.7 L203.2,287.6 L210.5,287.3 L217.8,286.9 L225.0,286.3 L232.2,285.6 L239.5,284.7 L246.8,283.5 L254.0,282.1 L261.2,280.3 L268.5,278.2 L275.8,275.7 L283.0,272.8 L290.2,269.5 L297.5,265.8 L304.8,261.6 L312.0,256.9 L319.2,251.9 L326.5,246.4 L333.8,240.5 L341.0,234.2 L348.2,227.6 L355.5,220.7 L362.8,213.5 L370.0,206.2 L377.2,198.8 L384.5,191.4 L391.8,183.9 L399.0,176.6 L406.2,169.6 L413.5,162.7 L420.8,156.3 L428.0,150.3 L435.2,144.8 L442.5,139.9 L449.8,135.6 L457.0,132.0 L464.2,129.2 L471.5,127.2 L478.8,125.9 L486.0,125.5 L493.2,125.9 L500.5,127.2 L507.8,129.2 L515.0,132.0 L522.2,135.6 L529.5,139.9 L536.8,144.8 L544.0,150.3 L551.2,156.3 L558.5,162.7 L565.8,169.6 L573.0,176.6 L580.2,183.9 L587.5,191.4 L594.8,198.8 L602.0,206.2 L609.2,213.5 L616.5,220.7 L623.8,227.6 L631.0,234.2 L638.2,240.5 L645.5,246.4 L652.8,251.9 L660.0,256.9 L667.2,261.6 L674.5,265.8 L681.8,269.5 L689.0,272.8 L696.2,275.7 L703.5,278.2 L710.8,280.3 L718.0,282.1 L725.2,283.5 L732.5,284.7 L739.8,285.6 L747.0,286.3 L754.2,286.9 L761.5,287.3 L768.8,287.6 L776.0,287.7 L776.0,80.0 Z" class="idle"/>
+  <line x1="80" y1="231.7" x2="776" y2="231.7" stroke="#9673a6" stroke-width="1" stroke-dasharray="2 3"/>
+  <line x1="80" y1="80.0" x2="776" y2="80.0" class="static"/>
+  <polyline points="80.0,275.0 109.0,275.0 109.0,275.0 138.0,275.0 138.0,275.0 167.0,275.0 167.0,275.0 196.0,275.0 196.0,275.0 225.0,275.0 225.0,242.5 254.0,242.5 254.0,242.5 283.0,242.5 283.0,210.0 312.0,210.0 312.0,210.0 341.0,210.0 341.0,177.5 370.0,177.5 370.0,112.5 399.0,112.5 399.0,80.0 428.0,80.0 428.0,80.0 457.0,80.0 457.0,80.0 486.0,80.0 486.0,80.0 515.0,80.0 515.0,80.0 544.0,80.0 544.0,80.0 573.0,80.0 573.0,112.5 602.0,112.5 602.0,177.5 631.0,177.5 631.0,210.0 660.0,210.0 660.0,210.0 689.0,210.0 689.0,242.5 718.0,242.5 718.0,242.5 747.0,242.5 747.0,275.0 776.0,275.0" class="auto"/>
+  <polyline points="80.0,287.7 87.2,287.9 94.5,287.9 101.8,288.0 109.0,288.0 116.2,288.0 123.5,288.0 130.8,288.0 138.0,288.0 145.2,288.0 152.5,288.0 159.8,288.0 167.0,288.0 174.2,288.0 181.5,287.9 188.8,287.9 196.0,287.7 203.2,287.6 210.5,287.3 217.8,286.9 225.0,286.3 232.2,285.6 239.5,284.7 246.8,283.5 254.0,282.1 261.2,280.3 268.5,278.2 275.8,275.7 283.0,272.8 290.2,269.5 297.5,265.8 304.8,261.6 312.0,256.9 319.2,251.9 326.5,246.4 333.8,240.5 341.0,234.2 348.2,227.6 355.5,220.7 362.8,213.5 370.0,206.2 377.2,198.8 384.5,191.4 391.8,183.9 399.0,176.6 406.2,169.6 413.5,162.7 420.8,156.3 428.0,150.3 435.2,144.8 442.5,139.9 449.8,135.6 457.0,132.0 464.2,129.2 471.5,127.2 478.8,125.9 486.0,125.5 493.2,125.9 500.5,127.2 507.8,129.2 515.0,132.0 522.2,135.6 529.5,139.9 536.8,144.8 544.0,150.3 551.2,156.3 558.5,162.7 565.8,169.6 573.0,176.6 580.2,183.9 587.5,191.4 594.8,198.8 602.0,206.2 609.2,213.5 616.5,220.7 623.8,227.6 631.0,234.2 638.2,240.5 645.5,246.4 652.8,251.9 660.0,256.9 667.2,261.6 674.5,265.8 681.8,269.5 689.0,272.8 696.2,275.7 703.5,278.2 710.8,280.3 718.0,282.1 725.2,283.5 732.5,284.7 739.8,285.6 747.0,286.3 754.2,286.9 761.5,287.3 768.8,287.6 776.0,287.7" class="load"/>
+
+  <path d="M80,76 L80,340 L776,340 L776,76" class="axis"/>
+  <path d="M80.0,340V346M196.0,340V346M312.0,340V346M428.0,340V346M544.0,340V346M660.0,340V346M776.0,340V346" stroke="#000"/>
+  <text x="80.0" y="361" text-anchor="middle" class="sm">00:00</text><text x="196.0" y="361" text-anchor="middle" class="sm">04:00</text><text x="312.0" y="361" text-anchor="middle" class="sm">08:00</text><text x="428.0" y="361" text-anchor="middle" class="sm">12:00</text><text x="544.0" y="361" text-anchor="middle" class="sm">16:00</text><text x="660.0" y="361" text-anchor="middle" class="sm">20:00</text><text x="776.0" y="361" text-anchor="middle" class="sm">24:00</text>
+  <text x="72" y="344.0" text-anchor="end" class="sm">0</text><text x="72" y="279.0" text-anchor="end" class="sm">10</text><text x="72" y="214.0" text-anchor="end" class="sm">20</text><text x="72" y="149.0" text-anchor="end" class="sm">30</text><text x="72" y="84.0" text-anchor="end" class="sm">40</text>
+  <text x="784" y="344.0" class="sm">0</text><text x="784" y="279.0" class="sm">2</text><text x="784" y="214.0" class="sm">4</text><text x="784" y="149.0" class="sm">6</text><text x="784" y="84.0" class="sm">8</text>
+  <text x="428" y="384" text-anchor="middle">time of day</text>
+  <text x="32" y="210" text-anchor="middle" transform="rotate(-90 32 210)">requests per second</text>
+  <text x="826" y="210" text-anchor="middle" transform="rotate(90 826 210)">GPUs (at 5 requests/s each)</text>
+
+  <text x="486.0" y="262" text-anchor="middle" class="sm">peak ≈ 33 req/s at 14:00</text>
+  <text x="138.0" y="308.0" text-anchor="middle" class="sm">trough ≈ 8 req/s</text>
+  <text x="210" y="225.7" text-anchor="middle" class="sm">average 16.7 req/s</text>
+
+  <text x="80" y="414">Static: 8 GPUs all day = 192 GPU-hours ($576 at $3.00/hour), 42% utilized.</text>
+  <text x="80" y="436">Autoscaled: 4.7 GPUs on average = 112 GPU-hours ($336), 71% utilized. Same traffic: 1,000 requests/min.</text>
+</svg>

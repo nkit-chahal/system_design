@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="356" viewBox="0 0 800 356" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .note{font-size:12px;fill:#666}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .axis{stroke:#000;stroke-width:1.2;fill:none}
+    .grid{stroke:#ddd;stroke-width:1}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="20" y="24" class="b">Llama 3.1 70B, one 2,000-token prompt: all-reduce time versus compute time</text>
+
+  <!-- x = 120 + 3.5 * ms ; ticks every 40 ms -->
+  <line x1="260" y1="40" x2="260" y2="272" class="grid"/>
+  <line x1="400" y1="40" x2="400" y2="272" class="grid"/>
+  <line x1="540" y1="40" x2="540" y2="272" class="grid"/>
+  <line x1="680" y1="40" x2="680" y2="272" class="grid"/>
+  <path d="M120,40 V272 H700" class="axis"/>
+  <text x="120" y="290" text-anchor="middle" class="sm">0</text>
+  <text x="260" y="290" text-anchor="middle" class="sm">40</text>
+  <text x="400" y="290" text-anchor="middle" class="sm">80</text>
+  <text x="540" y="290" text-anchor="middle" class="sm">120</text>
+  <text x="680" y="290" text-anchor="middle" class="sm">160 ms</text>
+
+  <!-- TP=2 -->
+  <text x="20" y="80" class="b">TP = 2</text>
+  <rect x="120" y="50" width="499.5" height="18" class="gray"/><text x="626" y="64" class="sm">143 ms</text>
+  <rect x="120" y="72" width="41" height="18" class="green"/><text x="168" y="86" class="sm">11.7 ms</text>
+  <rect x="120" y="94" width="286.7" height="18" class="red"/><text x="413" y="108" class="sm">82 ms</text>
+  <!-- TP=4 -->
+  <text x="20" y="160" class="b">TP = 4</text>
+  <rect x="120" y="130" width="249.6" height="18" class="gray"/><text x="376" y="144" class="sm">71 ms</text>
+  <rect x="120" y="152" width="61.3" height="18" class="green"/><text x="188" y="166" class="sm">17.5 ms</text>
+  <rect x="120" y="174" width="430.2" height="18" class="red"/><text x="557" y="188" class="sm">123 ms</text>
+  <!-- TP=8 -->
+  <text x="20" y="240" class="b">TP = 8</text>
+  <rect x="120" y="210" width="125" height="18" class="gray"/><text x="252" y="224" class="sm">36 ms</text>
+  <rect x="120" y="232" width="71.4" height="18" class="green"/><text x="198" y="246" class="sm">20.4 ms</text>
+  <rect x="120" y="254" width="501.9" height="18" class="red"/><text x="629" y="268" class="sm">143 ms</text>
+
+  <rect x="20" y="304" width="16" height="12" class="gray"/><text x="42" y="315" class="sm">compute at peak BF16 (989 TFLOPS per GPU)</text>
+  <rect x="320" y="304" width="16" height="12" class="green"/><text x="342" y="315" class="sm">all-reduces on NVLink</text>
+  <rect x="500" y="304" width="16" height="12" class="red"/><text x="522" y="315" class="sm">all-reduces on PCIe Gen5</text>
+  <text x="20" y="342" class="note">Bandwidth terms only: 450 GB/s each way on NVLink, 64 GB/s on PCIe. Arithmetic from the text, not measurements.</text>
+</svg>

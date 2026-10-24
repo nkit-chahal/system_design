@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="830" height="390" viewBox="0 0 830 390" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .chosen{fill:#d5e8d4;stroke:#000;stroke-width:2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .axis{stroke:#000;stroke-width:1.2;fill:none}
+    .grid{stroke:#e5e5e5;stroke-width:1;fill:none}
+    .ideal{stroke:#000;stroke-width:1.5;stroke-dasharray:4 3;fill:none}
+    .muted{fill:#555}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="26" class="b">Output throughput on one H100, Llama 3.1 8B (lower-bound model, not measurements)</text>
+  <path class="grid" d="M420,44 V302 M540,44 V302 M660,44 V302 M780,44 V302"/>
+  <text x="290" y="68" text-anchor="end">Static, 64 slots</text>
+  <text x="290" y="84" text-anchor="end" class="sm muted">96 tokens/s per user; about 6 s queue</text>
+  <rect x="300" y="54" width="123.1" height="34" class="red"/>
+  <text x="415.1" y="76" text-anchor="end" class="b">2,565</text>
+  <text x="290" y="118" text-anchor="end">Continuous, 64 slots, budget 2,048</text>
+  <text x="290" y="134" text-anchor="end" class="sm muted">96 tokens/s per user in decode steps</text>
+  <rect x="300" y="104" width="224.5" height="34" class="green"/>
+  <text x="516.5" y="126" text-anchor="end" class="b">4,677</text>
+  <path class="ideal" d="M594.7,98 V144"/>
+  <text x="600.7" y="126" class="sm">ideal 6,140</text>
+  <text x="290" y="168" text-anchor="end">Continuous, 64 slots, budget 512</text>
+  <text x="290" y="184" text-anchor="end" class="sm muted">our choice for the 25 ms TPOT target</text>
+  <rect x="300" y="154" width="283.5" height="34" class="chosen"/>
+  <text x="575.5" y="176" text-anchor="end" class="b">5,906</text>
+  <path class="ideal" d="M594.7,148 V194"/>
+  <text x="600.7" y="176" class="sm">ideal 6,140</text>
+  <text x="290" y="218" text-anchor="end">Continuous, 128 slots, budget 1,024</text>
+  <text x="290" y="234" text-anchor="end" class="sm muted">62 tokens/s per user in decode steps</text>
+  <rect x="300" y="204" width="359.7" height="34" class="green"/>
+  <text x="651.7" y="226" text-anchor="end" class="b">7,494</text>
+  <path class="ideal" d="M682.6,198 V244"/>
+  <text x="688.6" y="226" class="sm">ideal 7,970</text>
+  <text x="290" y="268" text-anchor="end">Continuous, 170 slots, budget 1,024</text>
+  <text x="290" y="284" text-anchor="end" class="sm muted">51 tokens/s per user in decode steps</text>
+  <rect x="300" y="254" width="390.3" height="34" class="green"/>
+  <text x="682.3" y="276" text-anchor="end" class="b">8,132</text>
+  <path class="ideal" d="M712.8,248 V294"/>
+  <text x="718.8" y="276" class="sm">ideal 8,600</text>
+  <path class="axis" d="M300,44 V302 H780"/>
+  <path class="axis" d="M420,302 v5 M540,302 v5 M660,302 v5 M780,302 v5"/>
+  <g class="sm" text-anchor="middle"><text x="300" y="321">0</text><text x="420" y="321">2,500</text><text x="540" y="321">5,000</text><text x="660" y="321">7,500</text><text x="780" y="321">10,000</text></g>
+  <text x="540" y="340" text-anchor="middle" class="sm">output tokens per second</text>
+  <path class="ideal" d="M300,362 H330"/>
+  <text x="338" y="366" class="sm">ideal: prompt tokens spread so that every step stays memory-bound</text>
+</svg>

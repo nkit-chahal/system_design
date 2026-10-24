@@ -1,0 +1,7 @@
+center: Structured Output and Tool Calling
+branch: Constrained decoding | mask illegal tokens each step | model still picks among allowed
+branch: Automata | finite-state machines for regex | pushdown automata for nesting | tokens span grammar boundaries
+branch: Libraries | XGrammar | LLGuidance | Outlines
+branch: Hiding the cost | compile once and cache | overlap masks with GPU | 2.7 ms if serialized
+branch: Quality | describe the format in the prompt | reasoning fields first | evaluate on labeled data
+branch: Tool calling | parse call, run tool, re-prefill | first token after 1.2 s | prefix caching for long contexts

@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="430" viewBox="0 0 880 430" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+    <pattern id="redhatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a8a6" stroke-width="3"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dedge{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .grid{stroke:#e3e3e3;stroke-width:1}
+    .guide{stroke:#666;stroke-width:1;stroke-dasharray:5 4;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <circle cx="30" cy="207" r="10" class="white"/>
+  <text x="30" y="232" text-anchor="middle" class="sm">root</text>
+  <path d="M40,207 L68,115.0" class="edge"/>
+  <path d="M40,207 L68,300.0" class="edge"/>
+  <path d="M270,115.0 L318,50.0" class="edge"/>
+  <path d="M270,115.0 L318,115.0" class="edge"/>
+  <path d="M270,115.0 L318,180.0" class="edge"/>
+  <path d="M270,300.0 L318,265.0" class="edge"/>
+  <path d="M270,300.0 L318,330.0" class="edge"/>
+  <path d="M510,50.0 L558,50.0" class="edge"/>
+  <path d="M700,50.0 L738,50.0" class="edge"/>
+  <path d="M510,265.0 L558,265.0" class="edge"/>
+  <path d="M510,330.0 L558,330.0" class="edge"/>
+  <rect x="70" y="95" width="200" height="40" rx="6" class="orange"/>
+  <text x="170.0" y="111.0" text-anchor="middle" class="sm">tenant A system prompt</text>
+  <text x="170.0" y="128.0" text-anchor="middle" class="sm">1,500 tokens</text>
+  <rect x="248" y="83" width="44" height="16" rx="8" class="white"/>
+  <text x="270" y="95" text-anchor="middle" style="font-size:11px">ref 2</text>
+  <rect x="70" y="280" width="200" height="40" rx="6" class="blue"/>
+  <text x="170.0" y="296.0" text-anchor="middle" class="sm">tenant B prompt, shared start</text>
+  <text x="170.0" y="313.0" text-anchor="middle" class="sm">1,000 tokens</text>
+  <rect x="320" y="30" width="190" height="40" rx="6" class="orange"/>
+  <text x="415.0" y="46.0" text-anchor="middle" class="sm">user 1: reset password…</text>
+  <text x="415.0" y="63.0" text-anchor="middle" class="sm">520 tokens</text>
+  <rect x="488" y="18" width="44" height="16" rx="8" class="white"/>
+  <text x="510" y="30" text-anchor="middle" style="font-size:11px">ref 1</text>
+  <rect x="320" y="95" width="190" height="40" rx="6" class="blue"/>
+  <text x="415.0" y="111.0" text-anchor="middle" class="sm">user 2: refund policy…</text>
+  <text x="415.0" y="128.0" text-anchor="middle" class="sm">480 tokens</text>
+  <rect x="320" y="160" width="190" height="40" rx="6" fill="url(#hatch)" stroke="#999" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="415.0" y="176" text-anchor="middle" class="sm">user 3: shipping times…</text>
+  <text x="415.0" y="192" text-anchor="middle" class="sm">610 tokens</text>
+  <rect x="320" y="245" width="190" height="40" rx="6" class="blue"/>
+  <text x="415.0" y="261.0" text-anchor="middle" class="sm">prompt v1, rest</text>
+  <text x="415.0" y="278.0" text-anchor="middle" class="sm">500 tokens</text>
+  <rect x="320" y="310" width="190" height="40" rx="6" class="orange"/>
+  <text x="415.0" y="326.0" text-anchor="middle" class="sm">prompt v2, rest</text>
+  <text x="415.0" y="343.0" text-anchor="middle" class="sm">520 tokens</text>
+  <rect x="488" y="298" width="44" height="16" rx="8" class="white"/>
+  <text x="510" y="310" text-anchor="middle" style="font-size:11px">ref 1</text>
+  <rect x="560" y="30" width="140" height="40" rx="6" class="orange"/>
+  <text x="630.0" y="46.0" text-anchor="middle" class="sm">answer 1</text>
+  <text x="630.0" y="63.0" text-anchor="middle" class="sm">480 tokens</text>
+  <rect x="560" y="245" width="140" height="40" rx="6" class="blue"/>
+  <text x="630.0" y="261.0" text-anchor="middle" class="sm">user 4</text>
+  <text x="630.0" y="278.0" text-anchor="middle" class="sm">300 tokens</text>
+  <rect x="560" y="310" width="140" height="40" rx="6" class="orange"/>
+  <text x="630.0" y="326.0" text-anchor="middle" class="sm">user 5</text>
+  <text x="630.0" y="343.0" text-anchor="middle" class="sm">450 tokens</text>
+  <rect x="740" y="30" width="124" height="40" rx="6" class="orange"/>
+  <text x="802.0" y="46.0" text-anchor="middle" class="sm">user 1, turn 2</text>
+  <text x="802.0" y="63.0" text-anchor="middle" class="sm">130 tokens</text>
+  <text x="522" y="186" class="sm">least recently used leaf with ref 0:</text>
+  <text x="522" y="202" class="sm">evicted first; its parent survives</text>
+  <text x="16" y="372" class="sm">Edges carry token sequences of any length. When tenant B edited the end of its prompt, the node split into a shared</text>
+  <text x="16" y="390" class="sm">1,000-token start and two endings. Running requests pin their path with reference counts; idle paths stay cached.</text>
+  <rect x="16" y="404" width="16" height="12" class="orange"/><text x="38" y="415" class="sm">used by a running request</text>
+  <rect x="220" y="404" width="16" height="12" class="blue"/><text x="242" y="415" class="sm">cached, idle</text>
+  <rect x="340" y="404" width="16" height="12" fill="url(#hatch)" stroke="#999"/><text x="362" y="415" class="sm">evicted</text>
+</svg>

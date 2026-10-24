@@ -1,0 +1,268 @@
+<h2>Introduction</h2>
+<p>A larger model usually answers better, but every extra parameter is paid for on every token. Llama 3.1 70B needs about 141 GB of weights in BF16, which means a replica of four H100s, while Llama 3.1 8B fits on one. Quantization, covered in Lesson 13, makes each number smaller. <strong>Distillation</strong> makes the model smaller: we train a small <strong>student</strong> model to imitate a large <strong>teacher</strong> model on the work we actually need it to do, and then serve the student.</p>
+<p>The student learns from more than the correct answers. A teacher's output is a full probability distribution over the vocabulary at every step, and that distribution carries information a single label does not: which alternatives were nearly right, how confident the teacher was, and how it phrases and structures an answer. Learning from that signal lets a small model recover much of the larger model's behavior on a task, with a fraction of the serving cost. Figure 1 shows the setup.</p>
+<fig src="014-teacher-student.svg" caption="Distillation trains a small student to imitate a large teacher, then serves the student">A Llama 3.1 70B teacher on four H100s reads production prompts and produces answers and token probabilities. These become training targets for a Llama 3.1 8B student. After training, the student serves the same traffic on one H100, at about a quarter of the cost per token in the best-case estimate of this lesson.</fig>
+<p>In this lesson, we look at how knowledge distillation works (soft targets, temperature, and the KL divergence loss), compare logit-level, sequence-level, and on-policy distillation, walk through well-known examples, build a data pipeline and cost it, decide when to distill rather than quantize or simply prompt a larger model, see how distillation combines with quantization and speculative decoding, and set up an evaluation that catches the regressions distillation tends to cause.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Distillation questions usually start from a model that works but costs too much. Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: What is the model doing, and what does it run on today?<br>
+<strong>Interviewer</strong>: A customer-support assistant built on Llama 3.1 70B Instruct, in BF16 on four H100s per replica. Answers are good, but the bill is large.</p>
+<p><strong>Candidate</strong>: What does the traffic look like?<br>
+<strong>Interviewer</strong>: Chat requests with about 2,000 prompt tokens and 500 output tokens, 1,000 requests per minute on average, or about 720 million output tokens a day. The task has been stable for a year.</p>
+<p><strong>Candidate</strong>: What data do we have?<br>
+<strong>Interviewer</strong>: About a million logged conversations with personal data removed, and a held-out set of 2,000 tickets with answers graded by support staff.</p>
+<p><strong>Candidate</strong>: What is the quality bar for a cheaper model?<br>
+<strong>Interviewer</strong>: Within about two points of the 70B on the graded set, and no regressions in safety behavior, such as refusing to share account details.</p>
+<p><strong>Candidate</strong>: What compute and time do we have, and are we allowed to train on the 70B's outputs?<br>
+<strong>Interviewer</strong>: Eight H100s for a few weeks. Legal has confirmed that the Llama 3.1 license allows using its outputs to improve other models.</p>
+<p>The question underneath is: <em>can an 8B student, trained to imitate the 70B on our traffic, meet the quality bar, and is the saving worth the cost of building and evaluating it?</em> To answer it, we start with how a student learns from a teacher.</p>
+
+<h2>How Knowledge Distillation Works</h2>
+<h3>Soft targets and temperature</h3>
+<p>Ordinary training uses <strong>hard labels</strong>: the target for each position is the one correct next token, and every other token gets probability zero. Hinton, Vinyals, and Dean proposed training a small model on the <strong>soft targets</strong> produced by a large one instead, building on earlier work that compressed an ensemble of models into a single model [1]. A soft target is the teacher's whole distribution over the vocabulary.</p>
+<p>A confident teacher puts nearly all of its probability on one token, which hides the rest of what it knows. To expose it, distillation softens both distributions with a <strong>temperature</strong> <tex>T</tex> applied to the logits <tex>z_i</tex>:</p>
+<texblock>p_i = \frac{\exp(z_i / T)}{\sum_j \exp(z_j / T)}</texblock>
+<p>At <tex>T = 1</tex> this is the ordinary softmax; a higher <tex>T</tex> flattens the distribution. Figure 2 shows a teacher's next-token distribution after "The Eiffel Tower is in" at two temperatures, restricted to five candidate tokens for clarity.</p>
+<fig src="014-temperature.svg" caption="A hard label versus the teacher's soft targets at temperature 1 and 4">Three bar charts over the tokens Paris, France, the, central and Lyon. The hard label puts probability 1 on Paris. The teacher at temperature 1 gives Paris 0.898, France 0.074, the 0.016, central 0.010 and Lyon 0.002. At temperature 4 the same logits give 0.408, 0.218, 0.150, 0.132 and 0.091, revealing that France is the teacher's second choice and Lyon an unlikely one.</fig>
+<p>With teacher logits of 8.0, 5.5, 4.0, 3.5, and 2.0, the softmax at <tex>T = 1</tex> gives "Paris" 0.898 and leaves only 0.002 for "Lyon". At <tex>T = 4</tex>, the probabilities become 0.408, 0.218, 0.150, 0.132, and 0.091. The ranking is unchanged, but the student can now see that the teacher considered "France" a reasonable continuation and "Lyon" a poor one. A hard label teaches one fact per position; a soft target teaches the teacher's judgment about every alternative.</p>
+
+<h3>The distillation loss</h3>
+<p>The student is trained to make its softened distribution <tex>q^{(T)}</tex> match the teacher's softened distribution <tex>p^{(T)}</tex>. The standard measure of the mismatch is the <strong>Kullback-Leibler (KL) divergence</strong>:</p>
+<texblock>\text{KL}\left(p \,\|\, q\right) = \sum_i p_i \log \frac{p_i}{q_i}</texblock>
+<p>It is zero when the two distributions are identical and grows as the student puts low probability where the teacher puts high probability. The classic loss mixes this soft term with the ordinary cross-entropy against the hard label <tex>y</tex>:</p>
+<texblock>\mathcal{L} = \alpha \, T^2 \, \text{KL}\left(p^{(T)} \,\|\, q^{(T)}\right) + (1 - \alpha)\, \text{CE}\left(y, q^{(1)}\right)</texblock>
+<p>The factor <tex>T^2</tex> is there because the gradients of the soft term shrink as <tex>1 / T^2</tex>; multiplying by <tex>T^2</tex> keeps the two terms on a comparable scale when you change the temperature [1]. The weight <tex>\alpha</tex> balances imitation of the teacher against fitting the data. Figure 3 shows the computation for one position.</p>
+<fig src="014-kd-loss.svg" caption="Computing the knowledge distillation loss for one token position">The same input goes through the frozen teacher and the trainable student. Teacher logits divided by T go through a softmax; student logits divided by T go through a log-softmax. The KL divergence between them is multiplied by T squared and alpha. Separately, the student's ordinary softmax is compared with the hard label using cross-entropy, weighted by one minus alpha. The two terms are added, and gradients flow only into the student.</fig>
+<p>The direction of the KL divergence matters for generative models. <strong>Forward KL</strong>, <tex>\text{KL}(p \,\|\, q)</tex> with the teacher first, penalizes the student for missing any token the teacher likes, so a small student spreads its probability over everything the teacher might say. <strong>Reverse KL</strong>, <tex>\text{KL}(q \,\|\, p)</tex>, penalizes the student for putting probability where the teacher does not, so the student concentrates on the teacher's main modes. MiniLLM argued that reverse KL suits generative language models better because it keeps the student from overestimating the teacher's low-probability regions [2]. Many recent recipes use reverse KL or a blend of the two.</p>
+
+<h2>Three Ways to Distill an LLM</h2>
+<p>The loss above assumes we have the teacher's distribution at every position of some text. For LLMs there are three common ways to arrange that, shown in Figure 4. They differ in what the teacher provides and in whose text the student learns from.</p>
+<fig src="014-three-flavors.svg" caption="Logit-level, sequence-level, and on-policy distillation">Three panels. Logit-level: a fixed text goes through both models, and the student matches the teacher's full distribution at every position. Sequence-level: the teacher generates answers once, and the student is fine-tuned on them with ordinary cross-entropy. On-policy: the student generates its own answers, the teacher scores every token the student wrote, and the student is trained to lower the per-token reverse KL.</fig>
+
+<h3>Logit-level distillation</h3>
+<p>In <strong>logit-level</strong> (or token-level) distillation, both models read the same text and the student matches the teacher's distribution at every position, exactly as in the loss above. It gives the richest signal, but it has two practical constraints. The teacher and student must share a tokenizer, so that position <tex>i</tex> means the same token for both. And full distributions are huge: Llama 3's vocabulary has 128,256 tokens, so one position's distribution in BF16 is about 250 KiB, and storing it for 100 million training tokens would take about 26 TB. Teams therefore run the teacher alongside the student during training, or store only the top 20 or so probabilities per position (about 12 GB for the same 100 million tokens).</p>
+<p>Logit distillation is how several open small models were built. Meta created Llama 3.2 1B and 3B by pruning Llama 3.1 8B and then pre-training with logits from Llama 3.1 8B and 70B as token-level targets [3]. Google trained Gemma 2 2B and 9B with knowledge distillation instead of plain next-token prediction [4]. NVIDIA's Minitron work prunes a model and recovers its accuracy by distillation, and compressed Llama 3.1 8B into a 4B model this way [5].</p>
+
+<h3>Sequence-level distillation</h3>
+<p>In <strong>sequence-level</strong> distillation, the teacher generates complete answers once, and the student is fine-tuned on those answers with ordinary cross-entropy, exactly like supervised fine-tuning on human-written data [6]. Kim and Rush introduced it for translation, where their best student ran ten times faster than its teacher with little loss in quality. It needs only the teacher's text, not its logits, so it works across tokenizers and model families, and the data can be filtered before training.</p>
+<p>The best-known recent example is DeepSeek-R1. Its authors fine-tuned six dense models from 1.5B to 70B parameters, based on Qwen2.5 and Llama 3, on 800,000 samples curated with DeepSeek-R1, using only supervised fine-tuning and no reinforcement learning [7]. The distilled models reason far better than their bases: DeepSeek-R1-Distill-Qwen-7B scores 55.5% pass@1 on AIME 2024, against 9.3% for GPT-4o in the same table. The authors also found that distilling R1 into Qwen2.5-32B beat running large-scale reinforcement learning on that model directly, 72.6% against 47.0% on AIME 2024.</p>
+
+<h3>On-policy distillation</h3>
+<p>Both methods above train the student on text it did not write. At inference time, though, the student reads its own earlier tokens, and once it makes a mistake it is in a situation the training data never showed it. <strong>On-policy distillation</strong> fixes this mismatch: the student generates its own answers, the teacher computes its distribution at every position of the student's text, and the student is trained to reduce the per-token divergence, typically reverse KL [8][2]. The student learns how the teacher would continue from the student's own mistakes.</p>
+<p>The approach has moved from research to production recipes. Qwen3's smaller models were trained by distilling from Qwen3-32B or Qwen3-235B-A22B, first off-policy on teacher outputs and then on-policy by aligning the student's logits with the teacher's [9]. On Qwen3-8B, the on-policy stage reached 74.4% on AIME 2024 using about 1,800 GPU hours, while reinforcement learning from the same starting point reached 67.6% using 17,920. A later write-up from Thinking Machines reproduced the result and found on-policy distillation far cheaper than both reinforcement learning and further off-policy fine-tuning [10]. The cost is engineering complexity: generation from the student and scoring by the teacher must run inside the training loop.</p>
+<table>
+<thead><tr><th></th><th>Logit-level</th><th>Sequence-level</th><th>On-policy</th></tr></thead>
+<tbody>
+<tr><td>Teacher provides</td><td>Distribution at every position</td><td>Finished answers</td><td>Distribution at every position of the student's text</td></tr>
+<tr><td>Student trains on</td><td>Fixed text</td><td>Teacher's text</td><td>Its own samples</td></tr>
+<tr><td>Same tokenizer needed</td><td>Yes</td><td>No</td><td>Yes</td></tr>
+<tr><td>Teacher compute</td><td>One forward pass per training token</td><td>Generation once, up front</td><td>One forward pass per sampled token, every step</td></tr>
+<tr><td>Can filter data first</td><td>Partly</td><td>Yes</td><td>No</td></tr>
+<tr><td>Examples</td><td>Llama 3.2 1B/3B, Gemma 2, Minitron, DistilBERT</td><td>DeepSeek-R1 distills, Kim and Rush</td><td>GKD, MiniLLM, Qwen3 small models</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Three ways to distill an LLM</p>
+<p>Distillation is older than LLMs. DistilBERT used a triple loss of language modeling, distillation, and cosine distance during pre-training to make BERT 40% smaller and 60% faster while keeping 97% of its language understanding [11].</p>
+
+<h2>Building the Pipeline</h2>
+<h3>Data first</h3>
+<p>For a task-specific student, the training prompts matter more than the loss. Figure 5 shows the pipeline we would build for the support assistant.</p>
+<fig src="014-pipeline.svg" caption="A sequence-level distillation pipeline for the support assistant">Production logs are sampled, deduplicated and scrubbed into a prompt set, with a held-out split set aside for evaluation. The 70B teacher generates answers with vLLM. A filter drops truncated, incorrect or unsafe answers. The 8B student is fine-tuned on the filtered pairs. An evaluation gate compares student and teacher on the held-out set, and only a passing student goes to a canary deployment.</fig>
+<ol>
+<li><strong>Sample prompts from real traffic.</strong> Stratify by product area, language, and length so that rare but important cases (refunds, account security) are covered, and deduplicate near-identical tickets.</li>
+<li><strong>Hold out the evaluation set first.</strong> Remove anything similar to the 2,000 graded tickets before generating training data, or the evaluation will flatter the student.</li>
+<li><strong>Generate with the teacher.</strong> Run the 70B offline with vLLM at large batch sizes; generation is a batch job, so throughput matters, not latency (Lesson 39, Batch and Offline Inference). Sampling several answers per prompt and keeping the best is a cheap way to raise data quality.</li>
+<li><strong>Filter.</strong> Drop truncated answers, answers that fail automatic checks (wrong order number format, invalid JSON), and anything a safety classifier flags. The student copies the teacher's mistakes along with its strengths.</li>
+<li><strong>Train, then evaluate against the teacher and the graded references,</strong> as described below.</li>
+</ol>
+
+<h3>What it costs</h3>
+<p>Suppose we distill on 200,000 prompts of 2,000 tokens, each with a 500-token teacher answer. At an assumed 40% of the H100's 989 BF16 TFLOPS during prefill and training, and the bandwidth-bound decode rate we derive in the next section:</p>
+<ul>
+<li><strong>Teacher prefill</strong>: 400 million prompt tokens × 2 × 70.6 billion parameters ≈ <tex>5.6 \times 10^{19}</tex> FLOPs, or about 40 H100-hours.</li>
+<li><strong>Teacher decode</strong>: 100 million output tokens at about 8,300 tokens per second per four-GPU replica, or about 13 H100-hours.</li>
+<li><strong>Student fine-tuning</strong>: training costs about 6 FLOPs per parameter per token, so 500 million tokens per epoch × 6 × 8.03 billion ≈ <tex>2.4 \times 10^{19}</tex> FLOPs, about 17 H100-hours per epoch, or 34 for two epochs.</li>
+</ul>
+<p>The total is about 87 H100-hours, roughly $260 at an assumed $3.00 per H100-hour, or under half a day on our eight GPUs. Logit-level distillation would add a teacher forward pass for every training token, about 50 more H100-hours per epoch. Task-specific distillation is cheap in compute; the real costs are engineering time, evaluation, and the risk of shipping a regression. General-purpose distillation during pre-training is another matter: Meta reports 370,000 H100-hours to train Llama 3.2 1B, 460,000 for 3B, and 86,000 more just to generate the teacher logits [3].</p>
+
+<h3>Worked example: serving the 8B instead of the 70B</h3>
+<p>Now the saving. Decode is memory-bound, so a step's time is at least the bytes it reads divided by bandwidth. Using the Lesson 3 budget (about 71.6 GiB usable per H100 with <code>--gpu-memory-utilization 0.90</code> set explicitly, minus about 4.6 GiB per GPU of runtime overhead) and our chat requests of 2,500 tokens:</p>
+<ul>
+<li><strong>Llama 3.1 8B on one H100</strong>: 15 GiB of weights leave about 52 GiB of KV cache, about 170 concurrent chats. A full step reads about 16 GB of weights and 56 GB of cache, about 21.5 ms at 3.35 TB/s, so 170 streams produce about 7,900 tokens per second.</li>
+<li><strong>Llama 3.1 70B on four H100s</strong>: the 131.4 GiB of weights are split four ways, leaving about 137 GiB of cache in total, about 179 chats at 320 KiB per token. Each GPU reads its 35.3 GB of weights and about 36.7 GB of cache per step, again about 21.5 ms, so the replica produces about 8,300 tokens per second, or about 2,080 per GPU.</li>
+</ul>
+<p>At an assumed $3.00 per H100-hour, the 8B costs <tex>3.00 / (7{,}900 \times 3{,}600 / 10^6) \approx \$0.11</tex> per million output tokens and the 70B about $0.40, a ratio of about 3.8. At 720 million output tokens a day, about 21.6 billion a month, that is roughly $2,300 against $8,600 a month at these best-case rates. Table 2 adds the FP8 options from Lesson 13, and Figure 6 plots the same numbers.</p>
+<table>
+<thead><tr><th>Model and precision</th><th>H100s per replica</th><th>Concurrent chats</th><th>Output tokens/s per GPU</th><th>$ per million output tokens</th></tr></thead>
+<tbody>
+<tr><td>Llama 3.1 70B, BF16</td><td>4</td><td>≈ 179</td><td>≈ 2,080</td><td>≈ 0.40</td></tr>
+<tr><td>Llama 3.1 70B, FP8</td><td>4</td><td>≈ 262</td><td>≈ 3,050</td><td>≈ 0.27</td></tr>
+<tr><td>Llama 3.1 8B, BF16</td><td>1</td><td>≈ 170</td><td>≈ 7,900</td><td>≈ 0.11</td></tr>
+<tr><td>Llama 3.1 8B, FP8</td><td>1</td><td>≈ 192</td><td>≈ 8,900</td><td>≈ 0.09</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Decode-bound best case with a full KV cache, ignoring prefill and tensor-parallel communication, at an assumed $3.00 per H100-hour</p>
+<fig src="014-serving-cost.svg" caption="Best-case serving cost per million output tokens">Horizontal bars of dollars per million output tokens at an assumed 3 dollars per H100-hour: Llama 3.1 70B BF16 on four H100s 0.40, 70B FP8 on four H100s 0.27, 8B BF16 on one H100 0.11, and 8B FP8 on one H100 0.09. The distilled 8B is about 3.8 times cheaper than the 70B in BF16.</fig>
+<p>Two caveats keep this honest. These are bounds: real engines reach a fraction of peak bandwidth, prefill adds work, and the 70B also pays for all-reduce traffic between its four GPUs (Lesson 18, Tensor Parallelism), which makes the true ratio somewhat larger. Lesson 20, Cost per Million Tokens, does the full calculation. For reference, Lesson 19's model puts the 8B at about 5 requests per second per H100 under the course's latency targets, about 2,500 output tokens per second, roughly a third of the ceiling above. We expect the 70B to fall short of its ceiling by a similar factor, so the ratio, not the absolute price, is the number to carry forward. And every configuration in the table runs at the same 21.5 ms per step when its cache is full, so users see about 46 tokens per second per stream either way; at light load, however, the 8B's step drops to about 4.8 ms against about 10.5 ms for the 70B, so the student also streams faster.</p>
+
+<h2>When to Distill</h2>
+<h3>Distill, quantize, or prompt a bigger model</h3>
+<p>Distillation competes with two simpler options: keep prompting the large model, perhaps with better prompts, or quantize it. Table 3 compares them.</p>
+<table>
+<thead><tr><th></th><th>Prompt a bigger model</th><th>Quantize it (Lesson 13)</th><th>Distill into a smaller model</th></tr></thead>
+<tbody>
+<tr><td>Upfront effort</td><td>None to days</td><td>Hours to days</td><td>Weeks: data, training, evaluation</td></tr>
+<tr><td>Serving cost vs 70B BF16</td><td>1× (or more)</td><td>About 0.7× with FP8</td><td>About 0.25× for an 8B</td></tr>
+<tr><td>Quality risk</td><td>Lowest</td><td>Low for FP8, higher at 4 bits</td><td>Medium: good on the trained task, weaker off it</td></tr>
+<tr><td>Flexibility</td><td>Change the prompt any time</td><td>Same as the original model</td><td>Re-distill when the task changes</td></tr>
+<tr><td>Fits best when</td><td>Low or changing traffic, quality is critical</td><td>Almost always worth trying first</td><td>High, stable traffic on a well-defined task</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Prompting, quantizing, and distilling compared</p>
+<p>The options also stack. A distilled student can itself be quantized, and the cheapest model that passes the evaluation wins. Distillation pays off when the saving per token, multiplied by the volume, clearly exceeds the one-time cost of building and maintaining the student. At low volume, the engineering time will never be repaid; on a task that changes every month, the student will always be one version behind the prompt.</p>
+
+<h4>Which approach fits our deployment?</h4>
+<p>Our support assistant is the textbook case for distillation: a narrow, stable task, 720 million output tokens a day, a million logged conversations, and a teacher whose license allows it. We would proceed in three steps. First, quantize the 70B to FP8 immediately; it cuts cost by about a third with little risk and buys time. Second, run <strong>sequence-level distillation</strong> from the 70B into Llama 3.1 8B Instruct on 200,000 filtered prompts. It is the simplest method to operate, it uses tools we already have (vLLM for generation and standard fine-tuning), and it costs under a few hundred dollars of compute per attempt. Third, if the evaluation shows gaps, such as the student drifting in long multi-turn conversations, add an <strong>on-policy distillation</strong> stage, which targets exactly those student mistakes. The finished student is then quantized to FP8 and served at roughly a quarter of the 70B's cost per token. We keep the FP8 70B in the fleet for the cases the router (Lesson 25, Request Routing) sends to it.</p>
+
+<h2>Combining Distillation with Other Techniques</h2>
+<p>Distillation, quantization, and speculative decoding attack different costs, so they compose. Figure 7 shows how they fit together.</p>
+<fig src="014-stacking.svg" caption="Distillation stacks with quantization and speculative decoding">The 70B teacher is distilled into an 8B student, which is quantized to FP8 and served for most traffic. The 70B itself is quantized to FP8 and kept for hard requests. A small distilled model that shares the tokenizer, such as Llama 3.2 1B, drafts tokens for the larger model in speculative decoding, and distilling the draft on the target's outputs raises its acceptance rate.</fig>
+<ul>
+<li><strong>Distill, then quantize.</strong> Quantize the student after distillation, and evaluate the final quantized student, not the BF16 one. Distillation can also repair quantization damage: using the full-precision model as a teacher for its own quantized copy is a common way to recover accuracy.</li>
+<li><strong>A distilled model makes a good draft model.</strong> Speculative decoding (Lesson 15, Speculative Decoding) uses a small draft model to propose tokens that the large model verifies. Its speedup depends on how often the target accepts the draft's tokens, which depends on how closely the two distributions agree, and that is exactly what distillation optimizes. DistillSpec distilled draft models on the target's outputs, with on-policy data, and reported 10–45% speedups over speculative decoding with an undistilled draft [12]. Llama 3.2 1B, itself trained on Llama 3.1 logits and sharing the same 128,256-token vocabulary, is a natural draft model for Llama 3.1 8B and 70B.</li>
+<li><strong>Route between them.</strong> With a cheap student and an expensive teacher both available, a router can send easy requests to the student and hard ones to the teacher.</li>
+</ul>
+
+<h2>Evaluation and Regression Risk</h2>
+<p>A student matches its teacher best on the kind of prompts it was trained on and degrades elsewhere. Distillation transfers behavior, not capacity: an 8B model simply has room for fewer facts than a 70B, so long-tail knowledge, rare languages, and very long contexts are where regressions hide. The student also inherits the teacher's errors, and it can lose behaviors the training data did not exercise, such as refusals on unusual requests. The evaluation must look for exactly these failures.</p>
+<ol>
+<li><strong>Graded held-out set.</strong> Score the student, the teacher, and the current production model on the 2,000 graded tickets, against the human references, not against the teacher's answers. Matching the teacher is a means; being right is the goal.</li>
+<li><strong>Slices.</strong> Report results by product area, language, conversation length, and prompt length. An average within two points can hide a ten-point drop on refunds.</li>
+<li><strong>General benchmarks.</strong> Run a few broad public benchmarks to detect lost general ability, which matters if users stray off-topic.</li>
+<li><strong>Safety and refusals.</strong> Re-run the safety suite: account-data requests, prompt injection, policy questions.</li>
+<li><strong>Side by side with the teacher.</strong> Human or LLM-judge preference between the student's and the teacher's answers on the same prompts gives a direct read on what was lost.</li>
+<li><strong>Canary, then A/B.</strong> Send a small share of live traffic to the student and compare business metrics such as resolution and escalation rates before rolling out further. Lesson 40, Reliability and Rollouts, covers canary, shadow, and blue-green rollouts.</li>
+</ol>
+<callout kind="warn" title="Regression risk">Distillation optimizes agreement with the teacher on the training distribution. Every slice of traffic that the training prompts did not cover is untested until your evaluation covers it, so build the slices before you build the student.</callout>
+
+<h2>In Practice</h2>
+<p>The first tab implements the classic distillation loss in PyTorch and checks it on random logits. The second tab generates sequence-level training data from the 70B teacher with vLLM, dropping truncated answers. The third fine-tunes the 8B student on that data with TRL's <code>SFTTrainer</code>, or runs on-policy distillation with TRL's <code>DistillationTrainer</code>, which implements the generalized KD of Agarwal et al. [13]; on-policy mode needs a teacher that shares the student's vocabulary.</p>
+<codetabs>
+<tab label="KD loss" lang="python">
+import torch
+import torch.nn.functional as F
+
+def kd_loss(student_logits, teacher_logits, labels, T=2.0, alpha=0.5):
+    """Hinton-style loss: alpha * T^2 * KL(teacher_T || student_T) + (1 - alpha) * CE."""
+    vocab = student_logits.size(-1)
+    s = student_logits.reshape(-1, vocab)
+    t = teacher_logits.reshape(-1, vocab).detach()   # the teacher is frozen
+    soft = F.kl_div(F.log_softmax(s / T, dim=-1), F.log_softmax(t / T, dim=-1),
+                    log_target=True, reduction="batchmean") * T * T
+    hard = F.cross_entropy(s, labels.reshape(-1), ignore_index=-100)
+    return alpha * soft + (1 - alpha) * hard
+
+# Smoke test: 2 sequences x 8 positions over a 1,000-token vocabulary.
+torch.manual_seed(0)
+student = torch.randn(2, 8, 1000, requires_grad=True)
+teacher = torch.randn(2, 8, 1000)
+labels = teacher.argmax(dim=-1)
+loss = kd_loss(student, teacher, labels)
+loss.backward()
+print(f"loss {loss.item():.3f}, grad norm {student.grad.norm().item():.3f}")
+</tab>
+<tab label="Teacher data (vLLM)" lang="python">
+import json
+from vllm import LLM, SamplingParams
+
+# prompts.jsonl: one {"prompt": "..."} per line, sampled and scrubbed from logs,
+# with anything similar to the held-out evaluation set already removed.
+with open("prompts.jsonl") as f:
+    prompts = [json.loads(line)["prompt"] for line in f]
+
+teacher = LLM("meta-llama/Llama-3.1-70B-Instruct", tensor_parallel_size=4,
+              max_model_len=8192)
+params = SamplingParams(temperature=0.7, top_p=0.95, max_tokens=1024)
+outputs = teacher.chat([[{"role": "user", "content": p}] for p in prompts], params)
+
+kept = 0
+with open("distill_sft.jsonl", "w") as f:
+    for prompt, out in zip(prompts, outputs):
+        answer = out.outputs[0]
+        if answer.finish_reason != "stop":      # drop truncated answers
+            continue
+        f.write(json.dumps({
+            "prompt": [{"role": "user", "content": prompt}],
+            "completion": [{"role": "assistant", "content": answer.text}],
+        }) + "\n")
+        kept += 1
+print(f"kept {kept} of {len(prompts)} teacher answers")
+</tab>
+<tab label="Train student (TRL)" lang="python">
+from datasets import load_dataset
+from trl import DistillationConfig, DistillationTrainer, SFTConfig, SFTTrainer
+
+MODE = "sequence"   # "sequence": fine-tune on teacher answers; "on_policy": GKD-style
+STUDENT = "meta-llama/Llama-3.1-8B-Instruct"
+TEACHER = "meta-llama/Llama-3.1-70B-Instruct"   # same 128,256-token vocabulary
+
+if MODE == "sequence":
+    # Prompt-completion data: the loss is computed on the completion only.
+    data = load_dataset("json", data_files="distill_sft.jsonl", split="train")
+    args = SFTConfig(output_dir="student-8b-seq", num_train_epochs=2, learning_rate=1e-5,
+                     per_device_train_batch_size=2, gradient_accumulation_steps=16,
+                     max_length=4096, bf16=True)
+    trainer = SFTTrainer(model=STUDENT, train_dataset=data, args=args)
+else:
+    # The student samples answers; the teacher scores every token (beta=1.0: reverse KL).
+    data = load_dataset("json", data_files="distill_sft.jsonl", split="train")
+    data = data.remove_columns(["completion"])
+    args = DistillationConfig(output_dir="student-8b-onpolicy", beta=1.0, temperature=1.0,
+                              max_completion_length=512, learning_rate=1e-6,
+                              per_device_train_batch_size=2, use_vllm=True)
+    trainer = DistillationTrainer(model=STUDENT, teacher_model=TEACHER,
+                                  train_dataset=data, args=args)
+trainer.train()
+trainer.save_model()
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Pruning plus distillation, as in Minitron: removing layers or width from a trained model and distilling to recover accuracy, which needed up to 40 times fewer training tokens than training the smaller models from scratch [14].</li>
+<li>Cross-tokenizer distillation, which must align token boundaries between models, and why sequence-level distillation sidesteps the problem.</li>
+<li>Licensing and terms of service: some model licenses and API terms forbid using outputs to train competing models, so check before you generate data.</li>
+<li>Distilling reasoning traces: long chains of thought make the training data many times larger, and the student inherits the teacher's verbosity, which raises its output tokens per request.</li>
+<li>Self-distillation, where a model is trained on its own best outputs, for example from rejection sampling, as a cheap form of data improvement.</li>
+<li>Calibration: MiniLLM reports better calibration than its fine-tuning and distillation baselines [2], which matters if downstream logic thresholds on log probabilities.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="014-summary.png" caption="Distillation summary" optional="1">Mind map summarizing the distillation lesson: soft targets and temperature, the three ways to distill, examples, pipeline and cost, when to distill, and evaluation.</fig>
+<ul>
+<li>Distillation trains a small student to imitate a large teacher. Soft targets, softened by a temperature <tex>T</tex>, carry the teacher's judgment about every alternative token; the classic loss is <tex>\alpha T^2 \text{KL} + (1 - \alpha)\text{CE}</tex>.</li>
+<li>Logit-level distillation matches full distributions and needs a shared tokenizer; sequence-level distillation fine-tunes on teacher outputs; on-policy distillation lets the teacher score the student's own samples.</li>
+<li>Examples: Llama 3.2 1B and 3B used Llama 3.1 8B and 70B logits; DeepSeek-R1 was distilled into six Qwen2.5 and Llama models with 800,000 samples; Qwen3's small models used on-policy distillation at about a tenth of the GPU hours of reinforcement learning.</li>
+<li>Task-specific distillation is cheap in compute: about 87 H100-hours for 200,000 prompts in our example.</li>
+<li>In the decode-bound best case, an 8B costs about $0.11 per million output tokens against $0.40 for a 70B on four H100s, about 3.8 times less.</li>
+<li>Quantize first, distill when traffic is high and the task is stable, and keep prompting a bigger model when traffic is low or the task keeps changing. A distilled model also makes a good draft model for speculative decoding.</li>
+<li>Students regress off their training distribution: evaluate against human references by slice, re-run safety checks, and canary before rollout.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Hinton et al. Distilling the Knowledge in a Neural Network. <a href="https://arxiv.org/abs/1503.02531" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1503.02531</a>.<br>
+[2] Gu et al. MiniLLM: On-Policy Distillation of Large Language Models. <a href="https://arxiv.org/abs/2306.08543" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2306.08543</a>.<br>
+[3] Meta. Llama 3.2 model card. <a href="https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/MODEL_CARD.md" rel="noopener noreferrer" target="_blank">https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/MODEL_CARD.md</a>.<br>
+[4] Gemma Team. Gemma 2: Improving Open Language Models at a Practical Size. <a href="https://arxiv.org/abs/2408.00118" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2408.00118</a>.<br>
+[5] Sreenivas et al. LLM Pruning and Distillation in Practice: The Minitron Approach. <a href="https://arxiv.org/abs/2408.11796" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2408.11796</a>.<br>
+[6] Kim and Rush. Sequence-Level Knowledge Distillation. <a href="https://arxiv.org/abs/1606.07947" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1606.07947</a>.<br>
+[7] DeepSeek-AI. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning. <a href="https://arxiv.org/abs/2501.12948" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2501.12948</a>.<br>
+[8] Agarwal et al. On-Policy Distillation of Language Models: Learning from Self-Generated Mistakes. <a href="https://arxiv.org/abs/2306.13649" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2306.13649</a>.<br>
+[9] Qwen Team. Qwen3 Technical Report. <a href="https://arxiv.org/abs/2505.09388" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2505.09388</a>.<br>
+[10] Lu et al. On-Policy Distillation. Thinking Machines Lab. <a href="https://thinkingmachines.ai/blog/on-policy-distillation/" rel="noopener noreferrer" target="_blank">https://thinkingmachines.ai/blog/on-policy-distillation/</a>.<br>
+[11] Sanh et al. DistilBERT, a distilled version of BERT: smaller, faster, cheaper and lighter. <a href="https://arxiv.org/abs/1910.01108" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1910.01108</a>.<br>
+[12] Zhou et al. DistillSpec: Improving Speculative Decoding via Knowledge Distillation. <a href="https://arxiv.org/abs/2310.08461" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2310.08461</a>.<br>
+[13] Hugging Face TRL documentation: Distillation Trainer. <a href="https://huggingface.co/docs/trl/main/en/distillation_trainer" rel="noopener noreferrer" target="_blank">https://huggingface.co/docs/trl/main/en/distillation_trainer</a>.<br>
+[14] Muralidharan et al. Compact Language Models via Pruning and Knowledge Distillation. <a href="https://arxiv.org/abs/2407.14679" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.14679</a>.</p>

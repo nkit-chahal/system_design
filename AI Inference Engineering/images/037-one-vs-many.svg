@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#ccc" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .idle{fill:url(#hatch);stroke:#999;stroke-width:1}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Left: one deployment per variant -->
+  <text x="16" y="28" class="lg b">One merged deployment per variant</text>
+  <g>
+    <rect x="20" y="78" width="112" height="180" rx="4" class="white"/>
+    <text x="76" y="97" text-anchor="middle" class="sm b">GPU 1</text>
+    <rect x="30" y="106" width="92" height="48" rx="4" class="orange"/>
+    <text x="76" y="126" text-anchor="middle" class="sm">weights +</text>
+    <text x="76" y="143" text-anchor="middle" class="sm">adapter A</text>
+    <rect x="30" y="162" width="92" height="86" class="idle"/>
+    <text x="76" y="210" text-anchor="middle" class="sm">mostly idle</text>
+
+    <rect x="144" y="78" width="112" height="180" rx="4" class="white"/>
+    <text x="200" y="97" text-anchor="middle" class="sm b">GPU 2</text>
+    <rect x="154" y="106" width="92" height="48" rx="4" class="orange"/>
+    <text x="200" y="126" text-anchor="middle" class="sm">weights +</text>
+    <text x="200" y="143" text-anchor="middle" class="sm">adapter B</text>
+    <rect x="154" y="162" width="92" height="86" class="idle"/>
+    <text x="200" y="210" text-anchor="middle" class="sm">mostly idle</text>
+
+    <rect x="268" y="78" width="112" height="180" rx="4" class="white"/>
+    <text x="324" y="97" text-anchor="middle" class="sm b">GPU 3</text>
+    <rect x="278" y="106" width="92" height="48" rx="4" class="orange"/>
+    <text x="324" y="126" text-anchor="middle" class="sm">weights +</text>
+    <text x="324" y="143" text-anchor="middle" class="sm">adapter C</text>
+    <rect x="278" y="162" width="92" height="86" class="idle"/>
+    <text x="324" y="210" text-anchor="middle" class="sm">mostly idle</text>
+  </g>
+  <rect x="20" y="44" width="112" height="24" rx="4" class="purple"/><text x="76" y="61" text-anchor="middle" class="sm">customer A</text>
+  <rect x="144" y="44" width="112" height="24" rx="4" class="purple"/><text x="200" y="61" text-anchor="middle" class="sm">customer B</text>
+  <rect x="268" y="44" width="112" height="24" rx="4" class="purple"/><text x="324" y="61" text-anchor="middle" class="sm">customer C</text>
+  <text x="16" y="290">500 variants: 500 copies of 15 GiB on 500 GPUs,</text>
+  <text x="16" y="310">each busy under 1% of the time</text>
+
+  <line x1="404" y1="16" x2="404" y2="316" stroke="#999" stroke-dasharray="5 4"/>
+
+  <!-- Right: one base model, many adapters -->
+  <text x="424" y="28" class="lg b">One base model, many adapters</text>
+  <rect x="424" y="44" width="380" height="24" rx="4" class="purple"/>
+  <text x="614" y="61" text-anchor="middle" class="sm">requests from customers A, C, E, B, A, ...</text>
+  <path d="M614,68 L614,76" class="edge"/>
+  <rect x="424" y="78" width="380" height="180" rx="4" class="group"/>
+  <text x="436" y="97" class="sm b">One GPU</text>
+  <rect x="436" y="106" width="170" height="60" rx="4" class="orange"/>
+  <text x="521" y="131" text-anchor="middle" class="b">Base model</text>
+  <text x="521" y="151" text-anchor="middle" class="sm">15 GiB, one shared copy</text>
+  <text x="622" y="102" class="sm">adapters, 80 MiB each</text>
+  <g class="sm">
+    <rect x="622" y="110" width="30" height="24" rx="3" class="blue"/><text x="637" y="127" text-anchor="middle">A</text>
+    <rect x="658" y="110" width="30" height="24" rx="3" class="blue"/><text x="673" y="127" text-anchor="middle">B</text>
+    <rect x="694" y="110" width="30" height="24" rx="3" class="blue"/><text x="709" y="127" text-anchor="middle">C</text>
+    <rect x="730" y="110" width="30" height="24" rx="3" class="blue"/><text x="745" y="127" text-anchor="middle">D</text>
+    <rect x="766" y="110" width="30" height="24" rx="3" class="blue"/><text x="781" y="127" text-anchor="middle">E</text>
+    <rect x="622" y="140" width="30" height="24" rx="3" class="blue"/><text x="637" y="157" text-anchor="middle">F</text>
+    <rect x="658" y="140" width="30" height="24" rx="3" class="blue"/><text x="673" y="157" text-anchor="middle">G</text>
+    <rect x="694" y="140" width="30" height="24" rx="3" class="blue"/><text x="709" y="157" text-anchor="middle">H</text>
+    <text x="745" y="157" text-anchor="middle">...</text>
+  </g>
+  <rect x="436" y="176" width="360" height="30" rx="4" class="blue"/>
+  <text x="616" y="196" text-anchor="middle" class="sm">KV cache for every running request</text>
+  <rect x="436" y="216" width="360" height="30" rx="4" class="purple"/>
+  <text x="616" y="236" text-anchor="middle" class="sm">one mixed batch: A, C, E, B, A in one forward pass</text>
+  <text x="424" y="290">500 variants: one base model per GPU, adapters</text>
+  <text x="424" y="310">cached on demand; about 8 H100s carry the peak</text>
+</svg>

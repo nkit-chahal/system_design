@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .level{fill:none;stroke:#6c8ebf;stroke-width:2.5}
+    .mark{stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .bad{fill:#b85450}.good{fill:#3f7f3a}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Event markers -->
+  <line x1="220" y1="30" x2="220" y2="256" class="mark"/>
+  <line x1="680" y1="30" x2="680" y2="256" class="mark"/>
+  <text x="220" y="22" text-anchor="middle" class="sm b">admit</text>
+  <text x="680" y="22" text-anchor="middle" class="sm b">complete</text>
+
+  <!-- Request lane -->
+  <text x="16" y="62" class="b">request</text>
+  <rect x="220" y="42" width="40" height="30" class="orange"/>
+  <text x="240" y="62" text-anchor="middle" class="sm">prefill</text>
+  <rect x="260" y="42" width="420" height="30" class="blue"/>
+  <text x="470" y="62" text-anchor="middle" class="sm">streams 500 tokens (about 10.5 s); max_tokens was 4,096</text>
+
+  <!-- Input bucket lane: 12.2 px per 1,000 tokens -->
+  <text x="16" y="116" class="b">input bucket</text>
+  <path d="M120,108 L220,108 L220,132.4 L780,132.4" class="level"/>
+  <text x="232" y="126" class="sm bad">−2,000: prompt length is known</text>
+
+  <!-- Output bucket lane -->
+  <text x="16" y="190" class="b">output bucket</text>
+  <path d="M120,180 L220,180 L220,230 L680,230 L680,186.1 L780,186.1" class="level"/>
+  <text x="232" y="218" class="sm bad">−4,096: reserve max_tokens</text>
+  <text x="560" y="176" class="sm good">+3,596 refund</text>
+  <text x="560" y="192" class="sm good">(4,096 − 500)</text>
+
+  <text x="16" y="286">Net charge: 2,000 input tokens and 500 output tokens. Refill is not shown.</text>
+  <text x="16" y="308">If the gateway dies before "complete", the reservation must expire on its own, or 3,596 tokens leak.</text>
+</svg>

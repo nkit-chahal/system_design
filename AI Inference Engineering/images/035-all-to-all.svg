@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="356" viewBox="0 0 880 356" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .thick{fill:none;stroke:#000;stroke-width:2.4;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .ref{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="24" class="b">One MoE layer under expert parallelism on four GPUs (toy layer: 8 experts, top-2)</text>
+  <text x="105" y="48" text-anchor="middle" class="sm b">after attention</text>
+  <text x="425" y="48" text-anchor="middle" class="sm b">experts run on received tokens</text>
+  <text x="755" y="48" text-anchor="middle" class="sm b">back on the home GPU</text>
+  <rect x="20" y="60" width="170" height="46" rx="6" class="white"/>
+  <text x="105" y="80" text-anchor="middle" class="sm">GPU 0: 32 tokens</text>
+  <text x="105" y="96" text-anchor="middle" class="sm">hidden states</text>
+  <path d="M190,83 L224,83" class="edge"/>
+  <rect x="330" y="60" width="190" height="46" rx="6" class="orange"/>
+  <text x="425" y="80" text-anchor="middle" class="sm">GPU 0: experts E1, E2</text>
+  <text x="425" y="96" text-anchor="middle" class="sm">received 56 token copies</text>
+  <path d="M296,83 L328,83" class="edge"/>
+  <path d="M520,83 L554,83" class="edge"/>
+  <path d="M626,83 L668,83" class="edge"/>
+  <rect x="670" y="60" width="170" height="46" rx="6" class="green"/>
+  <text x="755" y="80" text-anchor="middle" class="sm">gate-weighted sum</text>
+  <text x="755" y="96" text-anchor="middle" class="sm">→ next layer</text>
+  <rect x="20" y="122" width="170" height="46" rx="6" class="white"/>
+  <text x="105" y="142" text-anchor="middle" class="sm">GPU 1: 32 tokens</text>
+  <text x="105" y="158" text-anchor="middle" class="sm">hidden states</text>
+  <path d="M190,145 L224,145" class="edge"/>
+  <rect x="330" y="122" width="190" height="46" rx="6" class="orange"/>
+  <text x="425" y="142" text-anchor="middle" class="sm">GPU 1: experts E3, E4</text>
+  <text x="425" y="158" text-anchor="middle" class="sm">received 62 token copies</text>
+  <path d="M296,145 L328,145" class="edge"/>
+  <path d="M520,145 L554,145" class="edge"/>
+  <path d="M626,145 L668,145" class="edge"/>
+  <rect x="670" y="122" width="170" height="46" rx="6" class="green"/>
+  <text x="755" y="142" text-anchor="middle" class="sm">gate-weighted sum</text>
+  <text x="755" y="158" text-anchor="middle" class="sm">→ next layer</text>
+  <rect x="20" y="184" width="170" height="46" rx="6" class="white"/>
+  <text x="105" y="204" text-anchor="middle" class="sm">GPU 2: 32 tokens</text>
+  <text x="105" y="220" text-anchor="middle" class="sm">hidden states</text>
+  <path d="M190,207 L224,207" class="edge"/>
+  <rect x="330" y="184" width="190" height="46" rx="6" class="red"/>
+  <text x="425" y="204" text-anchor="middle" class="sm">GPU 2: experts E5, E6</text>
+  <text x="425" y="220" text-anchor="middle" class="sm">received 92 token copies</text>
+  <path d="M296,207 L328,207" class="edge"/>
+  <path d="M520,207 L554,207" class="edge"/>
+  <path d="M626,207 L668,207" class="edge"/>
+  <rect x="670" y="184" width="170" height="46" rx="6" class="green"/>
+  <text x="755" y="204" text-anchor="middle" class="sm">gate-weighted sum</text>
+  <text x="755" y="220" text-anchor="middle" class="sm">→ next layer</text>
+  <rect x="20" y="246" width="170" height="46" rx="6" class="white"/>
+  <text x="105" y="266" text-anchor="middle" class="sm">GPU 3: 32 tokens</text>
+  <text x="105" y="282" text-anchor="middle" class="sm">hidden states</text>
+  <path d="M190,269 L224,269" class="edge"/>
+  <rect x="330" y="246" width="190" height="46" rx="6" class="orange"/>
+  <text x="425" y="266" text-anchor="middle" class="sm">GPU 3: experts E7, E8</text>
+  <text x="425" y="282" text-anchor="middle" class="sm">received 46 token copies</text>
+  <path d="M296,269 L328,269" class="edge"/>
+  <path d="M520,269 L554,269" class="edge"/>
+  <path d="M626,269 L668,269" class="edge"/>
+  <rect x="670" y="246" width="170" height="46" rx="6" class="green"/>
+  <text x="755" y="266" text-anchor="middle" class="sm">gate-weighted sum</text>
+  <text x="755" y="282" text-anchor="middle" class="sm">→ next layer</text>
+  <rect x="226" y="56" width="70" height="240" rx="6" class="purple"/>
+  <text x="261" y="166" text-anchor="middle" class="sm b">dispatch</text>
+  <text x="261" y="182" text-anchor="middle" class="sm">all-to-all</text>
+  <rect x="556" y="56" width="70" height="240" rx="6" class="purple"/>
+  <text x="591" y="166" text-anchor="middle" class="sm b">combine</text>
+  <text x="591" y="182" text-anchor="middle" class="sm">all-to-all</text>
+  <text x="16" y="322" class="sm">Each of the 128 tokens goes to 2 of 8 experts: 256 copies, 64 per GPU on average. GPU 2 holds a popular expert, receives 92, and every GPU waits for it.</text>
+  <text x="16" y="342" class="sm">DeepSeek-V3 per token per layer: dispatch 8 × 7 KiB in FP8 = 56 KiB, combine 8 × 14 KiB in BF16 = 112 KiB; about 9.5 MiB over 58 layers.</text>
+</svg>

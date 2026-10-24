@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .fill{fill:#d79b00;opacity:0.55}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="26" class="b">One H100 80 GB split into four MIG instances (widths show sevenths of the compute)</text>
+
+  <!-- 7 slices of 100px starting at x=60 -->
+  <rect x="50" y="40" width="720" height="150" rx="4" class="group"/>
+
+  <!-- 3g.40gb -->
+  <rect x="60" y="56" width="300" height="70" class="white"/>
+  <rect x="60" y="56" width="270" height="70" class="fill"/>
+  <text x="210" y="86" text-anchor="middle" class="b">3g.40gb</text>
+  <text x="210" y="106" text-anchor="middle">activity 0.90</text>
+  <!-- 2g.20gb -->
+  <rect x="360" y="56" width="200" height="70" class="white"/>
+  <rect x="360" y="56" width="100" height="70" class="fill"/>
+  <text x="460" y="86" text-anchor="middle" class="b">2g.20gb</text>
+  <text x="460" y="106" text-anchor="middle">activity 0.50</text>
+  <!-- 1g.10gb -->
+  <rect x="560" y="56" width="100" height="70" class="white"/>
+  <rect x="560" y="56" width="20" height="70" class="fill"/>
+  <text x="610" y="86" text-anchor="middle" class="b">1g.10gb</text>
+  <text x="610" y="106" text-anchor="middle">0.20</text>
+  <!-- 1g.10gb idle -->
+  <rect x="660" y="56" width="100" height="70" class="white"/>
+  <text x="710" y="86" text-anchor="middle" class="b">1g.10gb</text>
+  <text x="710" y="106" text-anchor="middle">0 (idle)</text>
+
+  <text x="60" y="148" class="sm">Each value is DCGM_FI_PROF_GR_ENGINE_ACTIVE for that instance, relative to its own SMs,</text>
+  <text x="60" y="166" class="sm">with labels GPU_I_PROFILE and GPU_I_ID. Shading shows the active share of each instance.</text>
+
+  <!-- Bottom boxes -->
+  <rect x="50" y="210" width="300" height="56" rx="6" class="red"/>
+  <text x="200" y="234" text-anchor="middle">DCGM_FI_DEV_GPU_UTIL</text>
+  <text x="200" y="254" text-anchor="middle" class="b">not available under MIG</text>
+
+  <rect x="370" y="210" width="400" height="56" rx="6" class="gray"/>
+  <text x="570" y="234" text-anchor="middle">Whole GPU ≈ (3 × 0.90 + 2 × 0.50 + 1 × 0.20 + 1 × 0) ÷ 7</text>
+  <text x="570" y="254" text-anchor="middle" class="b">≈ 0.56</text>
+
+  <text x="50" y="300" class="sm">Weights are each instance's sevenths of the compute. The busiest instance is near its limit</text>
+  <text x="50" y="318" class="sm">although the whole-GPU value looks comfortable. Activity values are illustrative.</text>
+</svg>

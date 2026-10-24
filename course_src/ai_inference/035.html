@@ -1,0 +1,266 @@
+<h2>Introduction</h2>
+<p>Many of the strongest open models are no longer dense. DeepSeek-V3, Qwen3-235B-A22B, Mixtral, and OpenAI's gpt-oss replace each transformer's feed-forward block with a set of smaller feed-forward networks called <strong>experts</strong>, and a small <strong>router</strong> picks a few of them for every token. A model can then hold hundreds of billions of parameters while each token uses only a few tens of billions. This is a <strong>mixture-of-experts</strong> (MoE) model [1][2].</p>
+<p>For training, the attraction is quality per FLOP. For serving, MoE creates a split that dense models do not have: <strong>memory follows the total parameters, but per-token compute follows the active parameters</strong>. DeepSeek-V3 must keep 671 GB of FP8 weights in GPU memory, yet a token's forward pass costs about as much arithmetic as a 37B dense model [3]. How many of those 671 GB each decode step actually reads depends on the batch, and how the experts are spread across GPUs decides how much data travels between them. Figure 1 shows one MoE layer.</p>
+<fig src="035-moe-layer.svg" caption="One mixture-of-experts layer: a router sends each token to its top-k experts">A token's hidden state enters a router, which scores all routed experts and keeps the top k, here 8 of 256 as in DeepSeek-V3. The token is processed by those 8 experts and by one shared expert that every token uses. The expert outputs are multiplied by their gate weights and summed into the layer output. The other 248 experts do no work for this token but still sit in GPU memory.</fig>
+<p>In this lesson, we look at how routing works, compare total and active parameters for well-known models, work out what an MoE model costs to prefill and decode, compare tensor and expert parallelism, examine the all-to-all communication and load imbalance that expert parallelism brings, study the large deployments that combine wide expert parallelism with disaggregated prefill and decode, and choose a layout for DeepSeek-V3.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>MoE questions usually start when a team wants a frontier-class open model and discovers that it does not fit the hardware it has. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: Which model, and at what precision?<br>
+<strong>Interviewer</strong>: DeepSeek-V3, using its released FP8 weights. This is a separate service from our Llama 3.1 8B chat assistant.</p>
+<p><strong>Candidate</strong>: What do requests look like?<br>
+<strong>Interviewer</strong>: The same shape as our chat traffic: about 2,000 prompt tokens and 500 output tokens. At peak we expect about 800 requests generating at the same time.</p>
+<p><strong>Candidate</strong>: What latency do users need?<br>
+<strong>Interviewer</strong>: It is an internal assistant for long answers, so p95 time to first token under 1 second and p95 time per output token under 50 ms, which is 20 tokens per second.</p>
+<p><strong>Candidate</strong>: What hardware can we use?<br>
+<strong>Interviewer</strong>: We own servers with eight H100 80 GB GPUs, connected by NVLink inside each server and by a 400 Gb/s adapter per GPU between servers. We can also rent servers with eight H200 GPUs.</p>
+<p><strong>Candidate</strong>: Which engines are allowed?<br>
+<strong>Interviewer</strong>: vLLM or SGLang.</p>
+<p>The question underneath is: <em>how much memory and bandwidth does this model really need, how should its experts be spread across GPUs, and which hardware serves 800 streams at 20 tokens per second?</em> This lesson uses this MoE scenario, not the course's running example, wherever DeepSeek-V3 appears.</p>
+
+<h2>How Mixture-of-Experts Models Work</h2>
+<h3>Routing tokens to experts</h3>
+<p>In a dense transformer, every token passes through the same feed-forward network (FFN) in every layer. An MoE layer keeps the attention block as it is and replaces the FFN with <tex>E</tex> expert FFNs plus a router. The router is a single linear layer that scores every expert for the token's hidden state <tex>x</tex>, keeps the <tex>k</tex> highest scores, and turns them into gate weights. The layer's output is the gated sum of the chosen experts [1][2]:</p>
+<texblock>y = \sum_{i \in \text{TopK}(r(x),\,k)} g_i(x)\, \text{FFN}_i(x) \;+\; \text{FFN}_{\text{shared}}(x)</texblock>
+<p>The choice is made per token and per layer, so two tokens of the same sentence can use different experts, and one token can use different experts in each layer. Switch Transformer routed each token to a single expert [4]; Mixtral uses 2 of 8 [5]; DeepSeek-V3 and Qwen3 use 8 of 128 or 256.</p>
+<p>Two refinements are common. <strong>Fine-grained experts</strong> split each large expert into several smaller ones, so a token combines more specialists. <strong>Shared experts</strong> are always active for every token and capture common knowledge, so the routed experts can specialize. Both come from DeepSeekMoE [6], and DeepSeek-V3 uses 256 small routed experts plus one shared expert per MoE layer [3]. Not every model keeps shared experts: the Qwen3 report states that its MoE design excludes them [7].</p>
+<p>Training must keep the router from sending most tokens to a few favorite experts. Earlier models added an auxiliary loss that penalizes imbalance [2][4]. DeepSeek-V3 instead adds a per-expert bias to the scores used for selection and adjusts it after each step, lowering it for overloaded experts and raising it for idle ones [3]. Training-time balance helps serving, but it is measured over training batches, not over a production traffic mix, so serving systems still need their own balancing, as we see later.</p>
+
+<h3>Total versus active parameters</h3>
+<p>Table 1 lists well-known MoE models. The <strong>total</strong> parameters must all be in memory; the <strong>active</strong> parameters are those one token uses, which set the FLOPs per token.</p>
+<table>
+<thead><tr><th>Model</th><th>Total params</th><th>Active per token</th><th>Experts per MoE layer</th><th>Routed per token</th><th>Shared experts</th><th>Released weights</th></tr></thead>
+<tbody>
+<tr><td>Mixtral 8x7B [5][8]</td><td>46.7B</td><td>12.9B</td><td>8</td><td>2</td><td>None</td><td>BF16, ≈ 93 GB</td></tr>
+<tr><td>gpt-oss-20b [9][10]</td><td>21B</td><td>3.6B</td><td>32</td><td>4</td><td>None</td><td>MXFP4 experts; runs in 16 GB</td></tr>
+<tr><td>gpt-oss-120b [9][10]</td><td>117B</td><td>5.1B</td><td>128</td><td>4</td><td>None</td><td>MXFP4 experts; fits one 80 GB GPU</td></tr>
+<tr><td>Qwen3-235B-A22B [7][11]</td><td>235B</td><td>22B</td><td>128</td><td>8</td><td>None</td><td>BF16, ≈ 470 GB</td></tr>
+<tr><td>DeepSeek-V3 [3][12]</td><td>671B</td><td>37B</td><td>256</td><td>8</td><td>1</td><td>FP8, ≈ 671 GB</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Total and active parameters of well-known MoE models. DeepSeek-V3's checkpoint also includes a 14B-parameter multi-token prediction module, 685B parameters in all [12].</p>
+<p>The ratio of total to active parameters ranges from about 3.6 for Mixtral to about 23 for gpt-oss-120b. Figure 2 shows the gap. The larger the ratio, the more the model behaves like a big model in memory and like a small one in arithmetic.</p>
+<fig src="035-total-vs-active.svg" caption="Total versus active parameters for five MoE models">Paired horizontal bars on a linear scale from 0 to 700 billion parameters. Mixtral 8x7B: 46.7B total, 12.9B active. gpt-oss-20b: 21B total, 3.6B active. gpt-oss-120b: 117B total, 5.1B active. Qwen3-235B-A22B: 235B total, 22B active. DeepSeek-V3: 671B total, 37B active. A note gives the ratios, from 3.6 to 23.</fig>
+
+<h2>Memory Follows Total, Compute Follows Active</h2>
+<h3>Memory: every expert must be resident</h3>
+<p>Any token may pick any expert, so every expert must sit in GPU memory, or the step stalls while weights are fetched. The weight budget is the total parameter count times the bytes per parameter (Lesson 17, VRAM Budgeting). For DeepSeek-V3, the config gives the split [12]: each expert is three 7,168 × 2,048 matrices, about 44 million parameters, and 256 of them in each of 58 MoE layers come to about 654 billion parameters. The attention blocks, the shared experts, the 3 dense layers at the bottom, and the embeddings make up the remaining 17 billion. In FP8 that is about 671 GB, or 625 GiB, before any KV cache.</p>
+<p>The cache itself is small for this model. Its multi-head latent attention stores one 576-value latent per token per layer, about 68.6 KiB per token in BF16 (Lesson 3, KV Cache), roughly half of Llama 3.1 8B's 128 KiB. A 2,500-token conversation needs about 168 MiB. For MoE models, the weights are the memory problem.</p>
+
+<h3>Prefill: compute follows the active parameters</h3>
+<p>A forward pass costs about 2 FLOPs per active parameter per token (Lesson 2, Prefill vs Decode). For DeepSeek-V3, that is 2 × 37B ≈ 75 GFLOPs per token, so a 2,000-token prompt needs about 150 TFLOPs plus attention, the same as a 37B dense model and about 18 times less than a dense 671B model would need. At 50% of one H100's 1,979 dense FP8 TFLOPS, that is about 150 ms of compute, and less when the prompt's work is spread over several GPUs. A prompt's tokens route to almost every expert, so prefill reads all the weights, but with thousands of tokens per step it stays compute-bound. Prefill is where MoE delivers its promise directly.</p>
+
+<h3>Decode: the batch decides how many experts are read</h3>
+<p>Decode is memory-bound (Lesson 2), so its cost is the bytes each step reads. Here the batch matters in a way it does not for dense models. A single token reads the non-expert weights plus 8 experts in each MoE layer, about 37 GB in all. A batch of tokens reads every expert that <em>any</em> of them picks. If routing were uniform and independent, the expected fraction of experts touched by a batch of <tex>B</tex> tokens would be:</p>
+<texblock>f(B) = 1 - \left(1 - \frac{k}{E}\right)^{B}</texblock>
+<p>For DeepSeek-V3, <tex>k/E</tex> = 8/256 = 1/32. One token touches 3.1% of the experts, 16 tokens about 40%, 64 tokens about 87%, and 128 tokens about 98%. Figure 3 plots the curve for three expert layouts. Real routing is skewed, so hot experts are hit sooner and rare ones later, but the shape holds.</p>
+<fig src="035-experts-touched.svg" caption="Expected fraction of experts read per decode step as the batch grows (uniform routing)">Three rising curves against batch size from 1 to 256 on a logarithmic axis. Mixtral, 2 of 8 experts: 25% at batch 1, 90% at batch 8, 99% at batch 16. Qwen3-235B-A22B, 8 of 128: 6% at batch 1, 64% at batch 16, 98% at batch 64. DeepSeek-V3 and gpt-oss-120b, which both use one in 32 experts per token: 3% at batch 1, 40% at batch 16, 87% at batch 64, 98% at batch 128.</fig>
+<p>Table 2 turns the fractions into bytes for DeepSeek-V3 in FP8, counting the whole model across however many GPUs hold it.</p>
+<table>
+<thead><tr><th>Decode batch</th><th>Experts read</th><th>Weight bytes per step</th><th>Per token, DeepSeek-V3</th><th>Per token, dense 37B</th><th>Per token, dense 671B</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>3.1%</td><td>37 GB</td><td>37 GB</td><td>37 GB</td><td>671 GB</td></tr>
+<tr><td>8</td><td>22%</td><td>164 GB</td><td>20.5 GB</td><td>4.6 GB</td><td>84 GB</td></tr>
+<tr><td>32</td><td>64%</td><td>434 GB</td><td>13.6 GB</td><td>1.2 GB</td><td>21 GB</td></tr>
+<tr><td>64</td><td>87%</td><td>585 GB</td><td>9.1 GB</td><td>0.58 GB</td><td>10.5 GB</td></tr>
+<tr><td>256</td><td>≈ 100%</td><td>671 GB</td><td>2.6 GB</td><td>0.14 GB</td><td>2.6 GB</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Weight bytes read per decode step for DeepSeek-V3 in FP8 (uniform routing, KV cache excluded), compared with dense models of its active and total size</p>
+<p>The table shows the decode economics of MoE. At batch 1, DeepSeek-V3 reads as little as a 37B dense model, so a single stream can be fast. But batching amortizes poorly: each new token in the batch pulls in new experts. By batch 64, the model reads 87% of its weights every step and pays 9.1 GB per token, about 16 times what a dense 37B model would pay and almost as much as a dense 671B model. Figure 4 plots the three curves. The MoE's small active size pays off in decode only when the batch is either tiny or very large.</p>
+<fig src="035-bytes-per-token.svg" caption="Weight bytes read per generated token as the decode batch grows (FP8, uniform routing)">A log-log chart of gigabytes per token against batch size from 1 to 1,024. The dense 671B line falls from 671 GB at batch 1 to about 0.66 GB at batch 1,024. The dense 37B line falls from 37 GB to about 0.04 GB. The DeepSeek-V3 line starts on the dense 37B line at 37 GB, flattens between batch 8 and 64 as more experts are pulled in, joins the dense 671B line near batch 256 at 2.6 GB, and then follows it down.</fig>
+<p>How large is "very large"? An expert's matrix multiply becomes compute-bound when it sees enough tokens per weight byte. With FP8 weights, each token adds 2 FLOPs per byte, and the H100's ridge point is 1,979 TFLOPS ÷ 3.35 TB/s ≈ 590 FLOPs per byte, so an expert needs about 295 tokens per step (Lesson 2 derives the same 295 for BF16). Each token visits 8 of 256 experts, so an expert sees <tex>B/32</tex> tokens on average, and the batch must reach about 32 × 295 ≈ 9,500 tokens per step. At chat lengths that is over 23 million cached tokens across the deployment, far more than one server can hold. This one number explains why the largest MoE deployments spread experts over dozens of GPUs.</p>
+<callout kind="tip" title="Interview tip">Say both halves: "Memory follows total parameters, compute follows active parameters, and decode bandwidth follows the experts the batch touches, which approaches all of them by batch 64 for DeepSeek-V3." Then show the formula 1 − (1 − k/E)<sup>B</sup>.</callout>
+
+<h2>Spreading Experts Across GPUs</h2>
+<p>A 671 GB model needs at least eight large GPUs, so the next question is how to split it. Lesson 18, Tensor Parallelism, introduced the options; MoE adds one of its own. Figure 5 compares the two main layouts on four GPUs.</p>
+<fig src="035-tp-vs-ep.svg" caption="Tensor parallelism slices every expert; expert parallelism gives each GPU whole experts">Left panel, tensor parallel: each of four GPUs holds a quarter of every expert and a quarter of the attention heads, and all four work on every token, joined by an all-reduce after each block. Right panel, expert parallel with data-parallel attention: each GPU runs attention for its own requests and holds 2 of the 8 whole experts; tokens are sent all-to-all to the GPUs that hold their chosen experts and sent back.</fig>
+
+<h3>Tensor parallelism within experts</h3>
+<p>The simplest layout treats each expert like a dense FFN and splits its matrices across the GPUs of a tensor-parallel group, exactly as Lesson 18 splits Llama's MLP. Every GPU holds a slice of every expert and works on every token, so load is perfectly even and communication is the familiar two all-reduces per layer. In vLLM this is the default for MoE layers when expert parallelism is not enabled [13].</p>
+<p>Two problems appear at scale. The expert matrices are small: DeepSeek-V3's 2,048-wide experts become 256-wide slices at TP = 8, and such thin multiplies run inefficiently. And attention suffers for models with latent attention. MLA caches one latent vector per token with no head dimension to split, so under tensor parallelism every GPU stores and reads the same latent for every request. Eight GPUs then hold one GPU's worth of distinct cache.</p>
+
+<h3>Expert parallelism</h3>
+<p><strong>Expert parallelism</strong> (EP) places whole experts on different GPUs: with 256 experts on 8 GPUs, each GPU holds 32 complete experts of every MoE layer [2]. Attention is usually run <strong>data-parallel</strong> alongside it: each GPU keeps a full copy of the attention weights and serves its own subset of requests, so each request's cache lives on exactly one GPU and nothing is duplicated. The LMSYS team describes this "DP attention" as removing KV cache duplication for DeepSeek models [14]. In vLLM, <code>--enable-expert-parallel</code> forms an EP group of size TP × DP, and with <code>--tensor-parallel-size 1 --data-parallel-size 8</code> attention is replicated across the eight data-parallel ranks [13]. In SGLang, <code>--ep</code> sets the expert-parallel size and <code>--attn-dp-size</code> the number of data-parallel attention groups [15][16].</p>
+<p>Each MoE layer then needs two collective exchanges, shown in Figure 6. In <strong>dispatch</strong>, every GPU sends each of its tokens' hidden states to the GPUs that hold the chosen experts. Those GPUs run their experts on whatever tokens arrived. In <strong>combine</strong>, the results travel back to each token's home GPU, where they are weighted and summed. Both are <strong>all-to-all</strong> operations: every GPU sends a different amount to every other GPU.</p>
+<fig src="035-all-to-all.svg" caption="Dispatch and combine: the two all-to-all exchanges in every MoE layer under expert parallelism">Four GPUs, each with its own tokens after attention. In the dispatch step, arrows send each token's hidden state to the GPUs that hold its chosen experts; GPU 2 receives the most tokens because it holds a popular expert. Each GPU runs its experts on the tokens it received. In the combine step, the outputs flow back to the tokens' home GPUs, which add them with their gate weights and continue to the next layer's attention. A note gives the volume for DeepSeek-V3: 56 KiB per token for an FP8 dispatch and 112 KiB for a BF16 combine, per layer.</fig>
+
+<h4>What the all-to-all costs</h4>
+<p>Each token is sent to 8 experts in each of 58 MoE layers. DeepSeek-V3 quantizes the hidden state to FP8 before dispatch and keeps the combine in BF16 [3], so one token costs 8 × 7,168 bytes = 56 KiB to dispatch and 8 × 14,336 bytes = 112 KiB to combine, 168 KiB per layer, or about 9.5 MiB per token per forward pass. This is an upper bound: some chosen experts are on the token's own GPU, and DeepSeek's kernels send a token across the network at most once per destination node.</p>
+<p>For a decode step with 128 tokens per GPU, that is about 1.28 GB per GPU per step. Over NVLink at 450 GB/s each way, it takes about 2.8 ms. Over a 400 Gb/s adapter at 50 GB/s, it takes about 25.5 ms, which by itself would exceed a 25 ms TPOT target. Large deployments use four techniques to live with it:</p>
+<ul>
+<li><strong>Keep the exchange on NVLink when possible.</strong> An EP group inside one 8-GPU server, or inside a rack-scale NVLink domain, never touches the network.</li>
+<li><strong>Limit how far a token travels.</strong> DeepSeek-V3 routes each token to experts on at most 4 nodes, and sends it over InfiniBand once per node before forwarding it over NVLink to the GPUs there [3].</li>
+<li><strong>Use specialized kernels.</strong> DeepEP, DeepSeek's open-source communication library, provides all-to-all kernels for MoE dispatch and combine, including FP8 dispatch [17]. vLLM exposes it through <code>--all2all-backend</code> with <code>deepep_high_throughput</code> for prefill and <code>deepep_low_latency</code> for decode [13]; SGLang uses <code>--moe-a2a-backend deepep</code> with <code>--deepep-mode auto</code>, which switches between a high-throughput mode for prefill and a low-latency, CUDA-graph-compatible mode for decode [15].</li>
+<li><strong>Overlap communication with computation.</strong> Splitting each batch into two micro-batches lets one compute while the other communicates. DeepSeek does this in both phases [18], and SGLang enables it with <code>--enable-two-batch-overlap</code> [15].</li>
+</ul>
+
+<h3>Load imbalance across experts</h3>
+<p>Under expert parallelism, a step finishes only when the busiest GPU finishes. If routing sends 1.6 times the average number of tokens to one GPU's experts, every GPU waits for it, and the effective expert throughput drops by that factor. Popularity depends on the content: a coding workload favors different experts than a chat workload, and the mix changes during the day.</p>
+<p>Training-era systems bounded the problem with a <strong>capacity factor</strong>: each expert accepts at most the average number of tokens times a factor such as 1.25, and tokens beyond that are dropped and pass through the residual connection unchanged [4]. Dropping tokens changes the model's output, so serving engines generally process every routed token and absorb imbalance as time instead. The serving fix is to change where experts live:</p>
+<ul>
+<li><strong>Redundant experts.</strong> Duplicate the hottest experts on extra GPUs and split their tokens between the copies. DeepSeek-V3's prefill deployment adds 32 redundant experts, chosen from online statistics and adjusted periodically, for example every 10 minutes [3].</li>
+<li><strong>An expert-parallel load balancer.</strong> DeepSeek's open-source <strong>EPLB</strong> takes estimated expert loads, such as a moving average of recent counts, and computes which experts to replicate and where to place every copy. Its hierarchical policy, used when the number of nodes divides the number of expert groups, packs groups onto nodes and suits prefill with a smaller EP size; its global policy suits decode with a larger EP size [19].</li>
+<li><strong>Engine support.</strong> vLLM enables EPLB with <code>--enable-eplb</code> and tunes it through <code>--eplb-config</code>, with keys such as <code>window_size</code>, <code>step_interval</code>, and <code>num_redundant_experts</code>; its documentation estimates about 2.4 GB of memory per redundant expert per EP rank for DeepSeek-V3, so redundancy competes with the KV cache [13]. SGLang offers <code>--enable-eplb</code>, <code>--ep-num-redundant-experts</code>, and <code>--eplb-rebalance-num-iterations</code> [16].</li>
+</ul>
+<fig src="035-load-balance.svg" caption="Tokens received per GPU in one MoE layer, before and after replicating hot experts (illustrative)">Two bar charts of tokens received by each of eight GPUs. Before rebalancing, GPU 3 receives 1.6 times the average because it holds two popular experts, and every GPU waits for it. After EPLB places a copy of each hot expert on the least-loaded GPUs, the bars are within about 10% of the average and the step is set by a much lower maximum.</fig>
+<p>The 2.4 GB figure matches the arithmetic: one expert in each of 58 layers is 58 × 44 million ≈ 2.55 billion FP8 parameters, about 2.4 GiB. On a memory-tight layout, a few redundant experts per GPU can cost as much cache as hundreds of concurrent requests.</p>
+
+<h2>Wide Expert Parallelism in Production</h2>
+<p>The 9,500-token batch from the previous section points to the design DeepSeek published for serving V3 and R1: spread the experts so wide that each GPU holds only a few, which leaves room on every GPU for a large share of the batch's cache, and run prefill and decode separately because they want different widths and different communication modes [18]:</p>
+<ul>
+<li><strong>Prefill</strong>: each unit spans 4 nodes, with routed experts at EP32 and attention and shared experts data-parallel over the same 32 GPUs. With 32 redundant experts, each GPU holds 9 routed experts and the shared expert.</li>
+<li><strong>Decode</strong>: each unit spans 18 nodes, with EP144 and 144-way data-parallel attention. Each GPU holds 2 routed experts and the shared expert.</li>
+<li><strong>Overlap and balance</strong>: two micro-batches overlap communication with computation, and separate balancers even out attention work and tokens in prefill, cache usage and requests in decode, and expert load across GPUs.</li>
+</ul>
+<p>Over a reported 24-hour window, each H800 node delivered about 73.7k input tokens per second during prefill (including cache hits) and about 14.8k output tokens per second during decode, with an average output speed of 20 to 22 tokens per second per user [18]. The SGLang team reproduced the approach on 12 nodes of 8 H100s, with prefill-decode disaggregation and large-scale EP, and reported 52.3k input and 22.3k output tokens per second per node for 2,000-token inputs, up to 5 times the output throughput of vanilla tensor parallelism on the same hardware [14]. They also explain why the two techniques travel together: without disaggregation, DeepEP's prefill-oriented and decode-oriented dispatch modes cannot both be used within one communication group under DP attention.</p>
+<table>
+<thead><tr><th>Design</th><th>Experts per GPU</th><th>Communication</th><th>Good for</th></tr></thead>
+<tbody>
+<tr><td>TP inside one server</td><td>A slice of all 256</td><td>All-reduce on NVLink</td><td>Small batches, lowest latency per stream, simple setup</td></tr>
+<tr><td>DP attention + EP inside one server</td><td>32</td><td>All-to-all on NVLink</td><td>Large batches on one server; no duplicated cache</td></tr>
+<tr><td>Wide EP across servers, P/D split</td><td>2 to 9</td><td>All-to-all over RDMA, overlapped</td><td>Very large fleets; batches of thousands of tokens per step</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Three ways to place DeepSeek-V3's experts</p>
+<p>Wide EP has costs of its own. A decode unit of 144 GPUs fails as a unit unless the engine can tolerate losing a rank; SGLang has added elastic EP for partial failure tolerance [20]. It also only pays when traffic is large enough to keep the whole unit busy, and Lesson 34, Disaggregated Prefill and Decode, covers the extra machinery of separate pools.</p>
+
+<h2>A Memory Budget for DeepSeek-V3</h2>
+<h3>Which GPUs, and how many?</h3>
+<p>Now we can size the interviewer's deployment. We assume vLLM's memory limit is set explicitly to <code>--gpu-memory-utilization 0.90</code>, about 5 GiB per GPU for activations and CUDA graphs, and, conservatively, 141 × 10⁹ bytes ≈ 131 GiB for an H200, whose HBM3e runs at 4.8 TB/s [21]. The H100 exposes about 79.6 GiB. Figure 7 shows the per-GPU budget for four layouts.</p>
+<fig src="035-layouts.svg" caption="Per-GPU memory for DeepSeek-V3 in FP8 under four layouts">Four stacked bars against a scale of GPU memory. 8 × H100 with TP = 8: 78.1 GiB of weights against 71.6 GiB usable, so it does not fit. 8 × H200 with TP = 8: 78.1 GiB of weights, 35 GiB of cache per GPU, but the latent cache is copied on all eight GPUs, so the server holds about 0.54 million distinct tokens. 8 × H200 with DP attention and EP = 8: 92 GiB of weights, 21 GiB of cache per GPU, each GPU holding its own requests, about 2.6 million tokens in total. 16 × H100 across two servers with DP attention and EP = 16: 54 GiB of weights, 13 GiB of cache per GPU, about 3.1 million tokens.</fig>
+<ul>
+<li><strong>8 × H100, TP = 8</strong>: 625 GiB ÷ 8 = 78.1 GiB of weights per GPU, but only 0.90 × 79.6 ≈ 71.6 GiB is usable. Even at 100% it would leave 1.5 GiB per GPU, no room for a cache. It does not fit. vLLM's documentation likewise suggests a multi-node setup for H100s [13].</li>
+<li><strong>8 × H100, DP attention + EP = 8</strong>: replicating the 17 GB of attention and other non-expert weights on each GPU raises the load to 92 GiB per GPU. It fits even less.</li>
+<li><strong>8 × H200, TP = 8</strong>: 78.1 GiB of weights leaves about 35 GiB of cache per GPU. Because every GPU holds the same latents, the server stores about 35 GiB ÷ 68.6 KiB ≈ 535,000 distinct tokens, or about 214 conversations of 2,500 tokens.</li>
+<li><strong>8 × H200, DP attention + EP = 8</strong>: 92 GiB of weights leaves only about 21 GiB of cache per GPU, but each GPU's cache belongs to its own requests. The server stores about 2.6 million tokens, about 1,040 conversations, nearly five times as many.</li>
+<li><strong>16 × H100 in two servers, DP attention + EP = 16</strong>: 54 GiB of weights per GPU and about 13 GiB of cache, 3.1 million tokens in all. It uses hardware the team owns, but half of every all-to-all crosses the 400 Gb/s network.</li>
+</ul>
+
+<h3>How many streams within 50 ms?</h3>
+<p>Memory sets an upper bound on concurrency; the TPOT target sets the real one. We plan a 40 ms step to leave room under the 50 ms target, assume decode reaches 65% of peak bandwidth (as in Lesson 19), and model each GPU's step as its weight bytes (scaled by <tex>f(B)</tex> for the experts) plus its requests' cache, plus the all-to-all time. Table 4 gives the result.</p>
+<table>
+<thead><tr><th>Layout</th><th>Cache capacity</th><th>Streams within a 40 ms step</th><th>Output tokens/s (model)</th><th>Per GPU</th></tr></thead>
+<tbody>
+<tr><td>8 × H100, any layout</td><td colspan="4">Does not fit</td></tr>
+<tr><td>8 × H200, TP = 8</td><td>≈ 0.54M tokens</td><td>≈ 214 (cache-limited)</td><td>≈ 5,700</td><td>≈ 710</td></tr>
+<tr><td>8 × H200, DP attention + EP = 8</td><td>≈ 2.6M tokens</td><td>≈ 950</td><td>≈ 23,800</td><td>≈ 3,000</td></tr>
+<tr><td>16 × H100, DP attention + EP = 16</td><td>≈ 3.1M tokens</td><td>≈ 830 (≈ 10 ms of each step is all-to-all, in a conservative model)</td><td>≈ 20,700</td><td>≈ 1,300</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 4: DeepSeek-V3 decode capacity at a 40 ms planned step for 2,000-token prompts and 500-token answers (model estimate: 65% of peak bandwidth, uniform routing, no multi-token prediction)</p>
+<p>At about 950 streams, every expert is touched every step, and each sees about 950 × 8 ÷ 256 ≈ 30 tokens, a tenth of the 295 needed to be compute-bound. The H200 server is still reading weights most of the time, which is why the wide deployments in the previous section go further. A tighter target changes the picture: even a full 25 ms step allows only about 40 to 55 streams on either H200 layout, because nearly all of the step goes to reading experts. MoE models are cheapest per token at relaxed latency targets and large batches.</p>
+
+<h4>How should we serve this MoE model?</h4>
+<p>We choose <strong>one 8 × H200 server per replica, with data-parallel attention and EP = 8</strong>. It is the only single-server layout that fits with a useful cache, its all-to-all stays on NVLink (about 2.3 ms per step in our model), and at about 950 streams it covers the 800-stream peak with about 15% to spare. Because one replica is one server, we run two for redundancy (Lesson 40, Reliability and Rollouts). We start without redundant experts, since each costs 2.4 GiB per GPU of an already small cache, and turn on EPLB only if the logged balancedness shows a persistent hot GPU. The 16 × H100 option is the fallback if H200s are unavailable: it fits and reaches a similar stream count in our model, but its step depends on the network all-to-all, so we would add DeepEP's low-latency kernels and two-batch overlap and verify the p95 TPOT under load before committing. Prefill-decode disaggregation and wider EP become worth their complexity only if traffic grows to several servers' worth.</p>
+
+<h2>In Practice</h2>
+<p>The first tab reproduces this lesson's arithmetic for DeepSeek-V3: experts touched and bytes per step against batch size, the compute-bound batch, the all-to-all volume, and the weights per GPU for two layouts. The second launches DeepSeek-V3 on one 8 × H200 server with vLLM using data-parallel attention, expert parallelism, and EPLB, following the vLLM expert-parallel guide [13]. The third is the SGLang equivalent with DeepEP [15][16]. Flags change between releases, so check <code>--help</code> for your version.</p>
+<codetabs>
+<tab label="MoE calculator" lang="python">
+# DeepSeek-V3 in FP8 (1 byte per parameter), from its config.json
+HIDDEN, MOE_LAYERS, EXPERTS, TOP_K = 7168, 58, 256, 8
+EXPERT_PARAMS = 3 * HIDDEN * 2048          # gate, up and down projections of one expert
+ROUTED = EXPERT_PARAMS * EXPERTS * MOE_LAYERS
+NON_EXPERT = 17.0e9                        # attention, shared experts, dense layers, embeddings
+KV_PER_TOKEN = 70_272                      # MLA latent: 576 values x 61 layers x 2 bytes
+
+def experts_touched(batch, experts=EXPERTS, top_k=TOP_K):
+    """Expected fraction of experts that at least one token in the batch selects."""
+    return 1 - (1 - top_k / experts) ** batch
+
+print(f"routed experts: {ROUTED / 1e9:.0f} GB, total: {(ROUTED + NON_EXPERT) / 1e9:.0f} GB")
+for batch in (1, 8, 32, 64, 256):
+    f = experts_touched(batch)
+    step_bytes = NON_EXPERT + f * ROUTED
+    print(f"batch {batch:>3}: {f:5.1%} of experts read, {step_bytes / 1e9:5.0f} GB per step, "
+          f"{step_bytes / batch / 1e9:5.2f} GB per token")
+
+# Tokens per expert needed to make an FP8 expert GEMM compute-bound on an H100
+ridge = 1979e12 / 3.35e12                  # FLOPs per byte at the roofline ridge
+tokens_per_expert = ridge / 2              # 2 FLOPs per weight byte per token
+print(f"compute-bound at about {tokens_per_expert:.0f} tokens per expert, "
+      f"a batch of about {tokens_per_expert * EXPERTS / TOP_K:,.0f} tokens per step")
+
+# All-to-all bytes per token: FP8 dispatch and BF16 combine to 8 experts in 58 layers
+a2a = TOP_K * HIDDEN * (1 + 2) * MOE_LAYERS
+print(f"all-to-all: {a2a / 2**20:.1f} MiB per token; 128 tokens per GPU per step: "
+      f"{128 * a2a / 450e9 * 1e3:.1f} ms on NVLink, {128 * a2a / 50e9 * 1e3:.1f} ms at 400 Gb/s")
+
+# Memory per GPU on 8 GPUs: tensor parallel versus DP attention + expert parallel
+for name, per_gpu in (("TP=8", (ROUTED + NON_EXPERT) / 8), ("DP-attention + EP=8", NON_EXPERT + ROUTED / 8)):
+    print(f"{name}: {per_gpu / 2**30:.1f} GiB of weights per GPU")
+# batch  64: 86.9% of experts read,   585 GB per step,  9.14 GB per token
+# TP=8: 78.1 GiB of weights per GPU; DP-attention + EP=8: 92.0 GiB of weights per GPU
+</tab>
+<tab label="vLLM" lang="bash">
+# One 8 x H200 server: data-parallel attention (TP=1, DP=8) and EP=8 for the experts.
+vllm serve deepseek-ai/DeepSeek-V3-0324 \
+  --tensor-parallel-size 1 \
+  --data-parallel-size 8 \
+  --enable-expert-parallel \
+  --gpu-memory-utilization 0.90 \
+  --enable-eplb \
+  --eplb-config '{"window_size":1000,"step_interval":3000,"num_redundant_experts":0,"log_balancedness":true}'
+
+# Watch the logged balancedness (average-to-max tokens per expert). If one GPU stays hot,
+# restart with num_redundant_experts set to 8 (one extra expert per GPU, about 2.4 GB each).
+# Across nodes, add --all2all-backend deepep_low_latency (decode) or
+# deepep_high_throughput (prefill) and the multi-node --data-parallel-* flags.
+</tab>
+<tab label="SGLang" lang="bash">
+# One 8 x H200 server: EP=8 with DeepEP all-to-all and data-parallel attention.
+python -m sglang.launch_server --model-path deepseek-ai/DeepSeek-V3-0324 \
+  --tp 8 --ep 8 --attn-dp-size 8 \
+  --moe-a2a-backend deepep --deepep-mode auto \
+  --enable-eplb --eplb-rebalance-num-iterations 1000 \
+  --enable-two-batch-overlap
+
+# Add --ep-num-redundant-experts N to replicate hot experts; each costs KV cache memory.
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Low-bit expert weights: gpt-oss ships its MoE weights in MXFP4, which is why the 117B-parameter model fits on one 80 GB GPU [9] (Lesson 13, Quantization - FP8, INT8 and 4-bit).</li>
+<li>Speculative decoding for MoE models: DeepSeek-V3's multi-token prediction module can serve as a draft, raising the tokens produced per expert read [3][14] (Lesson 15, Speculative Decoding).</li>
+<li>Why MFU for an MoE model should count active, not total, parameters, while bandwidth utilization depends on how many experts each batch touches (Lesson 19, GPU Utilization).</li>
+<li>Rack-scale NVLink systems such as the GB200 NVL72, which keep a 72-GPU expert-parallel group off the network entirely (Lesson 34, Disaggregated Prefill and Decode).</li>
+<li>Fault tolerance for wide EP: losing one GPU removes some experts, so the engine must reroute or reload them; SGLang's elastic EP addresses partial failures [20].</li>
+<li>Pricing: because decode reads most experts at moderate batch, the cost per token of an MoE model depends strongly on batch size and latency target, more than for a dense model (Lesson 20, Cost per Million Tokens).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="035-summary.png" caption="Mixture-of-experts serving summary" optional="1">Mind map summarizing the lesson: routing and experts, total versus active parameters, prefill and decode cost, tensor versus expert parallelism, all-to-all and load balancing, wide EP deployments, and the memory budget for DeepSeek-V3.</fig>
+<ul>
+<li>An MoE layer routes each token to its top-k experts, plus any shared experts. DeepSeek-V3 picks 8 of 256 routed experts and has 671B parameters, of which 37B are active per token.</li>
+<li>Memory follows total parameters: all 671 GB of FP8 weights must be resident. Prefill compute follows active parameters: about 75 GFLOPs per token.</li>
+<li>Decode reads every expert the batch touches, 1 − (1 − k/E)<sup>B</sup> of them: 3% at batch 1, 87% at batch 64. At batch 64, DeepSeek-V3 reads 9.1 GB per token, close to a dense 671B model.</li>
+<li>Expert parallelism places whole experts on GPUs and uses data-parallel attention, avoiding duplicated MLA cache; each MoE layer needs a dispatch and a combine all-to-all, about 9.5 MiB per token for DeepSeek-V3.</li>
+<li>Load imbalance makes every GPU wait for the busiest one; redundant hot experts placed by EPLB fix it at about 2.4 GB per extra expert per GPU.</li>
+<li>DeepSeek-V3 does not fit on 8 H100s. One 8 × H200 server with DP attention and EP = 8 holds about 2.6M tokens of cache and about 950 streams at a 40 ms step; wide EP with disaggregated prefill and decode serves the largest fleets.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Shazeer et al. Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer. <a href="https://arxiv.org/abs/1701.06538" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1701.06538</a>.<br>
+[2] Lepikhin et al. GShard: Scaling Giant Models with Conditional Computation and Automatic Sharding. <a href="https://arxiv.org/abs/2006.16668" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2006.16668</a>.<br>
+[3] DeepSeek-AI. DeepSeek-V3 Technical Report. <a href="https://arxiv.org/abs/2412.19437" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2412.19437</a>.<br>
+[4] Fedus et al. Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity. <a href="https://arxiv.org/abs/2101.03961" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2101.03961</a>.<br>
+[5] Mistral AI. Mixtral of experts. <a href="https://mistral.ai/news/mixtral-of-experts" rel="noopener noreferrer" target="_blank">https://mistral.ai/news/mixtral-of-experts</a>.<br>
+[6] Dai et al. DeepSeekMoE: Towards Ultimate Expert Specialization in Mixture-of-Experts Language Models. <a href="https://arxiv.org/abs/2401.06066" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.06066</a>.<br>
+[7] Qwen Team. Qwen3 Technical Report. <a href="https://arxiv.org/abs/2505.09388" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2505.09388</a>.<br>
+[8] Jiang et al. Mixtral of Experts. <a href="https://arxiv.org/abs/2401.04088" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.04088</a>.<br>
+[9] OpenAI. gpt-oss-120b &amp; gpt-oss-20b Model Card. <a href="https://arxiv.org/abs/2508.10925" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2508.10925</a>.<br>
+[10] gpt-oss-120b model card. <a href="https://huggingface.co/openai/gpt-oss-120b" rel="noopener noreferrer" target="_blank">https://huggingface.co/openai/gpt-oss-120b</a>.<br>
+[11] Qwen3-235B-A22B model card. <a href="https://huggingface.co/Qwen/Qwen3-235B-A22B" rel="noopener noreferrer" target="_blank">https://huggingface.co/Qwen/Qwen3-235B-A22B</a>.<br>
+[12] DeepSeek-V3 model card. <a href="https://huggingface.co/deepseek-ai/DeepSeek-V3" rel="noopener noreferrer" target="_blank">https://huggingface.co/deepseek-ai/DeepSeek-V3</a>.<br>
+[13] vLLM documentation: Expert Parallel Deployment. <a href="https://docs.vllm.ai/en/latest/serving/expert_parallel_deployment.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/serving/expert_parallel_deployment.html</a>.<br>
+[14] SGLang Team. Deploying DeepSeek with PD Disaggregation and Large-Scale Expert Parallelism on 96 H100 GPUs. <a href="https://lmsys.org/blog/2025-05-05-large-scale-ep/" rel="noopener noreferrer" target="_blank">https://lmsys.org/blog/2025-05-05-large-scale-ep/</a>.<br>
+[15] SGLang documentation: Expert Parallelism. <a href="https://docs.sglang.io/advanced_features/expert_parallelism.html" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/advanced_features/expert_parallelism.html</a>.<br>
+[16] SGLang documentation: Server Arguments. <a href="https://docs.sglang.io/advanced_features/server_arguments.html" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/advanced_features/server_arguments.html</a>.<br>
+[17] DeepEP. <a href="https://github.com/deepseek-ai/DeepEP" rel="noopener noreferrer" target="_blank">https://github.com/deepseek-ai/DeepEP</a>.<br>
+[18] DeepSeek-AI. DeepSeek-V3/R1 Inference System Overview. <a href="https://github.com/deepseek-ai/open-infra-index/blob/main/202502OpenSourceWeek/day_6_one_more_thing_deepseekV3R1_inference_system_overview.md" rel="noopener noreferrer" target="_blank">https://github.com/deepseek-ai/open-infra-index/blob/main/202502OpenSourceWeek/day_6_one_more_thing_deepseekV3R1_inference_system_overview.md</a>.<br>
+[19] EPLB: Expert Parallelism Load Balancer. <a href="https://github.com/deepseek-ai/EPLB" rel="noopener noreferrer" target="_blank">https://github.com/deepseek-ai/EPLB</a>.<br>
+[20] LMSYS. Elastic EP in SGLang: Achieving Partial Failure Tolerance for DeepSeek MoE Deployments. <a href="https://www.lmsys.org/blog/2026-03-25-eep-partial-failure-tolerance" rel="noopener noreferrer" target="_blank">https://www.lmsys.org/blog/2026-03-25-eep-partial-failure-tolerance</a>.<br>
+[21] NVIDIA H200 Tensor Core GPU. <a href="https://www.nvidia.com/en-us/data-center/h200/" rel="noopener noreferrer" target="_blank">https://www.nvidia.com/en-us/data-center/h200/</a>.</p>

@@ -1,0 +1,282 @@
+<h2>Introduction</h2>
+<p>Every token an LLM produces is paid for in GPU time. A self-hosted model has no price list: we rent or buy GPUs by the hour, and the cost of a token is whatever fraction of a GPU-hour it consumes. Turning "$3 per GPU-hour" into "$X per million tokens" is the arithmetic that decides whether a product is profitable, which model and hardware to choose, and whether to run our own GPUs at all.</p>
+<p>The arithmetic itself is one line. The hard part is choosing the right numbers to put into it: which throughput, which tokens, and how many of the GPU-hours we pay for actually serve traffic. Figure 1 shows the basic conversion for our running example.</p>
+<fig src="020-cost-pipeline.svg" caption="From a GPU's hourly price to cost per token, per request, and per million tokens">A flow from an assumed GPU price of $3.00 per H100-hour, divided by 3,600 seconds, to $0.000833 per GPU-second. Dividing by 2,500 output tokens per second gives $0.33 per million output tokens; by 12,500 input plus output tokens per second, $0.067 per million tokens; by 5 requests per second, $0.17 per thousand requests.</fig>
+<p>In this lesson, we derive the cost formula, split the cost between input and output tokens, account for idle GPUs with a utilization factor, compute cost per request and per user, compare self-hosting with a per-token API at assumed prices, and rank the levers that bring the cost down.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Cost questions usually come from finance or product, and the first job is to pin down every number that feeds the formula. Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: Which model and hardware are we costing?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct in BF16 on H100 SXM GPUs, served with vLLM, one model copy per GPU.</p>
+<p><strong>Candidate</strong>: What do we pay for a GPU?<br>
+<strong>Interviewer</strong>: We rent on-demand cloud capacity. For this exercise, assume $3.00 per H100-hour.</p>
+<p><strong>Candidate</strong>: What does the traffic look like over a day?<br>
+<strong>Interviewer</strong>: Chat requests of about 2,000 prompt tokens and 500 output tokens. Traffic averages 1,000 requests per minute, about 16.7 per second, on a daily cycle from about 8 per second at night to about 33 at the afternoon peak.</p>
+<p><strong>Candidate</strong>: How much can one GPU serve within our latency targets?<br>
+<strong>Interviewer</strong>: Our load test says 5 requests per second per H100 while p95 TTFT stays under 500 ms and p95 time per output token under 25 ms.</p>
+<p><strong>Candidate</strong>: What decision does this feed?<br>
+<strong>Interviewer</strong>: Finance wants a cost per million tokens and a comparison with a hosted API for a model of similar quality. Assume it charges $0.20 per million input tokens and $0.60 per million output tokens.</p>
+<p>The question underneath is: <em>what does one token really cost us, which tokens cost the most, and at what volume does running our own GPUs beat paying per token?</em> All prices here are assumptions for the exercise; the method is what carries over.</p>
+
+<h2>The Basic Formula</h2>
+<h3>From GPU-hours to tokens</h3>
+<p>A GPU costs the same per hour whether it is busy or idle. If it produces a steady number of tokens per second, the cost of one token is the cost of one GPU-second divided by the tokens produced in that second. Scaling to a million tokens gives the <strong>cost per million tokens</strong>:</p>
+<texblock>\$\text{ per 1M tokens} = \frac{\text{GPU }\$\text{ per hour}}{\text{tokens per second} \;\times\; \text{3,600}} \times \text{1,000,000}</texblock>
+<p>For a fleet, use the total hourly price of all GPUs and the total tokens per second they produce. For a model that spans several GPUs, the GPU price is the price of the whole group.</p>
+
+<h3>Worked example: one H100 at full load</h3>
+<p>At 5 requests per second, one H100 processes 5 × 2,000 = 10,000 input tokens and generates 5 × 500 = 2,500 output tokens every second.</p>
+<ul>
+<li><strong>Cost per GPU-second</strong>: $3.00 ÷ 3,600 ≈ $0.000833.</li>
+<li><strong>Per million output tokens</strong>: $3.00 ÷ (2,500 × 3,600) × 1,000,000 ≈ <strong>$0.33</strong>.</li>
+<li><strong>Per million tokens, input and output together</strong>: $3.00 ÷ (12,500 × 3,600) × 1,000,000 ≈ <strong>$0.067</strong>.</li>
+<li><strong>Per request</strong>: $0.000833 ÷ 5 ≈ $0.000167, or <strong>$0.17 per 1,000 requests</strong>.</li>
+</ul>
+<p>The first two numbers differ by 5×, and neither is wrong. "Per million output tokens" loads the whole GPU cost onto generated tokens; the blended figure spreads it over every token processed. Always say which one you mean, and never compare one against an API's price for the other.</p>
+
+<h3>Which tokens per second?</h3>
+<p>The formula is only as good as the throughput we plug in, and the same GPU can produce very different numbers. Using the example measurements from Lesson 19, GPU Utilization:</p>
+<ul>
+<li><strong>A single stream</strong> at 140 output tokens per second gives $3.00 ÷ (140 × 3,600) × 10⁶ ≈ <strong>$5.95</strong> per million output tokens.</li>
+<li><strong>Pure decode at batch 64</strong>, 4,000 tokens per second, gives ≈ <strong>$0.21</strong> per million output tokens, but it ignores prompt processing.</li>
+<li><strong>The load test at our latency targets</strong>, 2,500 output tokens per second with prompts included, gives <strong>$0.33</strong>.</li>
+</ul>
+<p>The honest number is the last one: throughput measured on the real request mix, at the batch size the latency targets allow. A vendor benchmark at maximum batch with short prompts will quote a far lower cost than you can achieve. Lesson 21, Lab - GPUs for 1,000 Requests per Minute Under a 2s SLA, shows how to measure it.</p>
+
+<h2>Input Tokens versus Output Tokens</h2>
+<h3>Why they cost different amounts</h3>
+<p>Input and output tokens use the GPU in very different ways (Lesson 2, Prefill vs Decode). <strong>Prefill</strong> processes all prompt tokens of a request in parallel, so the weights are read once for thousands of tokens and the work is compute-bound. <strong>Decode</strong> produces one token per request per step, and each step must read every weight and every cached key and value, so the work is memory-bound. A GPU therefore turns out input tokens many times faster than output tokens.</p>
+<p>Per-token APIs reflect this by usually pricing output tokens higher than input tokens, often several times higher. Our assumed API charges 3× more for output. To compare fairly, we need our own split.</p>
+
+<h3>Splitting cost by GPU time</h3>
+<p>The fairest split charges each phase for the GPU time it uses. Lesson 19's example prefill benchmark puts our H100 at 32,000 prompt tokens per second (52% MFU), an assumption until you measure your own. At 5 requests per second, the 10,000 input tokens arriving each second need 10,000 ÷ 32,000 ≈ 0.31 seconds of GPU time, and decode uses the remaining 0.69 seconds to produce 2,500 output tokens. Figure 2 turns these shares into prices.</p>
+<fig src="020-prefill-decode-split.svg" caption="Splitting one GPU-second between input and output tokens">A bar for one second of H100 time: 0.31 seconds of prefill for 10,000 input tokens and 0.69 seconds of decode for 2,500 output tokens. Prefill's share of a $3.00 hour is $0.94 over 36 million input tokens, or $0.026 per million. Decode's share is $2.06 over 9 million output tokens, or $0.23 per million. An output token uses about 275 microseconds of GPU time and an input token about 31.</fig>
+<ul>
+<li><strong>Input</strong>: 31% of $3.00 is about $0.94 per hour, spread over 36 million input tokens: <strong>$0.026 per million</strong>.</li>
+<li><strong>Output</strong>: 69% is about $2.06 per hour over 9 million output tokens: <strong>$0.23 per million</strong>.</li>
+<li><strong>Ratio</strong>: an output token costs about 9× an input token (275 µs versus 31 µs of GPU time).</li>
+</ul>
+<p>For one request, the 2,000 input tokens cost about $0.000052 and the 500 output tokens about $0.000115. Output tokens are 20% of the tokens but about 69% of the cost. The ratio depends on the workload: longer prompts shift cost toward input, and longer contexts make every decode step read more KV cache, which makes output tokens dearer still (Lesson 3, KV Cache).</p>
+<callout kind="tip" title="Interview tip">If asked "what does a token cost?", answer with two numbers: "about $0.03 per million input tokens and $0.23 per million output tokens at full load, because decode is memory-bound and prefill is not." It shows you know where the money goes.</callout>
+
+<h3>Cached input tokens</h3>
+<p>With <strong>prefix caching</strong>, a request whose prompt starts with text the server has already processed, such as a long system prompt, reuses the stored KV cache instead of recomputing it (Lesson 24, Prefix Caching) [1]. Cached input tokens cost almost no GPU time. Hosted APIs pass part of this saving on: Anthropic, for example, bills cache reads at 0.1× the base input price for most models [2].</p>
+<p>For our deployment, suppose 1,500 of each request's 2,000 prompt tokens are a shared system prompt. Prefill per request drops from 62.5 ms to about 15.6 ms of GPU time, while decode stays at about 137.5 ms. Total GPU time per request falls from 200 ms to about 153 ms, roughly 23% less, so one GPU can carry about 30% more requests before decode becomes the limit again.</p>
+
+<h2>Average Load versus Peak: The Utilization Factor</h2>
+<h3>Paying for idle GPUs</h3>
+<p>The worked example assumed the GPU is fully loaded every second of the day. Real traffic rises and falls, but we must provision for the peak, plus headroom, or latency explodes when traffic is highest. Every GPU-hour that is provisioned but not serving is still paid for. We capture this with the <strong>utilization factor</strong> <tex>U</tex>, the average load served divided by the capacity provisioned:</p>
+<texblock>\text{effective cost per token} = \frac{\text{cost per token at full load}}{U}</texblock>
+<p>Note that <tex>U</tex> is a fleet-level ratio of request rates, not the GPU-Util or MFU of Lesson 19. A GPU at the efficient operating point all day has <tex>U = 1</tex>; a fleet that is half idle on average has <tex>U = 0.5</tex> and pays double per token.</p>
+
+<h3>Worked example: a daily traffic cycle</h3>
+<p>Our traffic averages 16.7 requests per second but swings from about 8 at 2 a.m. to about 33 at 2 p.m., with a narrow afternoon peak: 1.44 million requests and 720 million output tokens a day. Figure 3 compares two ways to provision for it.</p>
+<fig src="020-diurnal-provisioning.svg" caption="Provisioning for a daily traffic cycle: static peak capacity versus autoscaling">A 24-hour chart. Traffic follows a smooth curve from about 8 requests per second at 2 a.m. to about 33 at 2 p.m., averaging 16.7. A dashed line shows 8 GPUs, or 40 requests per second of capacity, all day; the hatched area between it and the traffic is idle capacity that is still paid for. A green step line shows autoscaled capacity, between 2 and 8 GPUs, following the curve with 20% headroom. Static uses 192 GPU-hours a day at 42% utilization; autoscaled uses 112 at 71%.</fig>
+<ul>
+<li><strong>Static peak provisioning</strong>: 33 requests per second plus 20% headroom is 39.6, which needs 8 GPUs at 5 requests per second each. That is 192 GPU-hours, or $576 per day, and <tex>U</tex> = 16.7 ÷ 40 ≈ 42%. Cost: $576 ÷ 1.44 million = <strong>$0.40 per 1,000 requests</strong>, or $0.80 per million output tokens, 2.4× the full-load figure.</li>
+<li><strong>Autoscaling</strong> (Lesson 22, Autoscaling) with the same 20% headroom, adjusted every hour and never below 2 GPUs, averages 4.7 GPUs: 112 GPU-hours, or $336 per day, and <tex>U</tex> ≈ 71%. Cost: <strong>$0.23 per 1,000 requests</strong>, or $0.47 per million output tokens.</li>
+</ul>
+<p>Autoscaling cut the bill by about 40% without touching a single kernel; the narrower the peak, the more it saves. In practice the gain is smaller: new replicas take minutes to start (Lesson 23, Cold Starts), so the autoscaler must act early and keep more headroom. The other way to raise <tex>U</tex> is to fill the quiet hours with work that can wait, such as offline evaluation or batch summarization, at nearly zero marginal cost (Lesson 39, Batch and Offline Inference).</p>
+
+<h3>Cost per request and per user</h3>
+<p>Product teams think in requests and users, not tokens. With the numbers above:</p>
+<ul>
+<li><strong>Per request</strong>: $0.00017 at full load, $0.00023 autoscaled, $0.00040 with static provisioning.</li>
+<li><strong>Per user</strong>: a user who sends 20 chat requests a day makes about 600 a month, so they cost about $0.14 a month autoscaled, or $0.24 with static provisioning.</li>
+<li><strong>Heavy users</strong>: a request with a 32,768-token document costs far more than its share of tokens suggests, because its KV cache displaces about 13 chat requests from the GPU (Lesson 3, KV Cache). Per-request accounting (Lesson 31, Per-Request Token Accounting) makes these users visible.</li>
+</ul>
+
+<h2>Self-Hosting versus a Per-Token API</h2>
+<h3>Break-even utilization</h3>
+<p>At the assumed API prices, one of our requests costs 2,000 × $0.20 + 500 × $0.60 per million tokens = $0.0004 + $0.0003 = <strong>$0.0007</strong>, or $0.70 per 1,000 requests. Self-hosting costs $0.167 per 1,000 requests at full load and $0.167 ÷ <tex>U</tex> in general. The two are equal when:</p>
+<texblock>U^{*} = \frac{\text{self-hosted cost at full load}}{\text{API cost}} = \frac{0.167}{0.70} \approx 24\%</texblock>
+<fig src="020-utilization-curve.svg" caption="GPU cost per 1,000 requests as average utilization changes">A curve of self-hosted GPU cost per 1,000 requests, $0.167 divided by utilization, falls from about $1.19 at 14% utilization to $0.17 at 100%. A dashed horizontal line marks the API at $0.70 per 1,000 requests. They cross at about 24% utilization; below it the API is cheaper. Points mark static provisioning at 42% ($0.40), autoscaling at 71% ($0.23), and full load ($0.17).</fig>
+<p>Figure 4 shows the result. If our fleet averages less than about 24% utilization, the API is cheaper even before we count anyone's salary. Above it, self-hosting wins on GPU cost, by about 1.75× at 42% and 3× at 71%.</p>
+
+<h3>Break-even volume</h3>
+<p>GPU cost is not the whole story. Self-hosting has fixed costs that an API does not: engineers to run the serving stack, an on-call rotation, and a minimum footprint, since we want at least two GPUs for redundancy even at 3 a.m. Assume $10,000 per month of engineering and operations time and a floor of 2 GPUs (2 × 730 hours × $3.00 ≈ $4,380 per month), with our autoscaled 71% utilization above the floor ($0.000233 per request):</p>
+<texblock>\text{self-hosted} = \$\text{10,000} + \max(\$\text{4,380},\; \$\text{0.000233} \times R), \qquad \text{API} = \$\text{0.0007} \times R</texblock>
+<p>Here <tex>R</tex> is requests per month. Setting them equal gives <tex>R</tex> = $10,000 ÷ ($0.0007 − $0.000233) ≈ 21 million requests per month, about 8 requests per second on average, or 700,000 a day. With static provisioning ($0.0004 per request), break-even rises to about 33 million.</p>
+<fig src="020-break-even.svg" caption="Monthly cost of self-hosting versus a per-token API (assumed prices)">Monthly cost against requests per month from 0 to 60 million. The API line rises from zero to $42,000. Two self-hosted lines start at a $14,400 floor for two GPUs plus operations. The autoscaled line, at 71% utilization, crosses the API at about 21 million requests and $15,000; the static line, at 42%, crosses at about 33 million and $23,000. A vertical marker at our 43.8 million requests shows the API at about $30,700, static self-hosting at about $27,500, and autoscaled self-hosting at about $20,200.</fig>
+<p>Figure 5 shows why fixed costs and utilization both matter. Counting GPUs alone, self-hosting would win above about 6 million requests per month; the operations budget pushes break-even to 21 million with autoscaling and 33 million without. Our traffic, 1,000 requests per minute, is about 43.8 million requests per month. At that volume the API would cost about $30,700 per month; self-hosting costs about $27,500 with static provisioning or $20,200 with autoscaling, including the $10,000 of operations.</p>
+<table>
+<thead><tr><th>Factor</th><th>Self-hosting</th><th>Per-token API</th></tr></thead>
+<tbody>
+<tr><td>Cost at low volume</td><td>High: GPU floor and fixed team cost</td><td>Low: pay only for tokens used</td></tr>
+<tr><td>Cost at high volume</td><td>Low, and falls further with utilization and optimization</td><td>Grows linearly with tokens</td></tr>
+<tr><td>Traffic spikes</td><td>Must provision or autoscale; capacity is finite</td><td>Provider absorbs them, within rate limits</td></tr>
+<tr><td>Latency and tuning</td><td>Full control of batch size, quantization, caching</td><td>Provider's choices; little control</td></tr>
+<tr><td>Data and compliance</td><td>Data stays in our environment</td><td>Data leaves it; depends on contract</td></tr>
+<tr><td>Model choice</td><td>Any open model, fine-tuned weights, adapters</td><td>The provider's catalogue</td></tr>
+<tr><td>Price risk</td><td>GPU price and utilization risk is ours</td><td>Provider can change prices</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Self-hosting compared with a per-token API</p>
+
+<h4>Which option fits our deployment?</h4>
+<p>At about 44 million requests per month, roughly twice the autoscaled break-even volume, <strong>self-hosting with autoscaling</strong> is the better fit: about $20,200 per month against about $30,700 for the API at the assumed prices, a saving of about a third. Autoscaling is not optional here. With static peak provisioning the saving shrinks to about $3,100 a month, too thin to justify running our own stack. The autoscaled margin survives moderate errors: operations would have to cost about twice our assumption, over $20,000 a month, to erase it. We keep the API as an overflow path: when a launch spike of up to 10× the average outruns the autoscaler, sending the excess to the API is cheaper than holding idle GPUs for rare peaks (Lesson 27, Lab - Surviving a 10x Traffic Spike).</p>
+<p>The decision would flip for a smaller product. Below about 8 requests per second on average, or if the fleet could not hold utilization above about 24%, the API is cheaper and frees the team to work on the product. The decision also assumes the API model matches our quality on the evaluation set; if it does not, the comparison is moot.</p>
+
+<h2>Levers That Lower Cost per Token</h2>
+<p>Adding utilization to the basic formula shows that every lever works through one of three terms: the GPU's hourly price, the tokens per second it produces, or the fraction of paid hours that serve traffic. Figure 6 maps the common levers to their terms.</p>
+<fig src="020-levers-map.svg" caption="Every cost lever acts on price, throughput, or utilization">The equation dollars per million tokens equals GPU dollars per hour divided by tokens per second times utilization times 3,600, times one million, with arrows to three boxes. Lower GPU dollars per hour: reserved or committed capacity, spot capacity, right-sizing the GPU type. Raise tokens per second: bigger batches up to the SLO, FP8 weights and KV cache, a smaller or distilled model, prefix caching, speculative decoding. Raise utilization: autoscaling, batch jobs in quiet hours, sharing GPUs across small models.</fig>
+<h4>Throughput levers</h4>
+<p><strong>Bigger batches</strong> are the largest lever, because a decode step costs nearly the same for 1 request as for 64. Going from a single stream to batch 64 cut the decode cost from $5.95 to $0.21 per million output tokens in Lesson 19's example, and PagedAttention's authors reported 2–4× throughput at the same latency over earlier systems, largely by fitting bigger batches [3]. The limit is the latency target. <strong>Quantization</strong> (Lesson 13, Quantization - FP8, INT8 and 4-bit) roughly halves the bytes per decode step with FP8 weights and KV cache, which can approach 2× decode throughput and doubles KV capacity, subject to a quality check. A <strong>smaller or distilled model</strong> (Lesson 14, Distillation) is the biggest single step if quality allows: Llama 3.1 70B has about 8.8× the parameters of the 8B model, and so roughly 8.8× the weight bytes and FLOPs per token. <strong>Speculative decoding</strong> (Lesson 15, Speculative Decoding) reported 2–3× faster generation in the original paper [4], mostly at small batch, where compute is idle.</p>
+<h4>Price levers</h4>
+<p><strong>Reserved or committed capacity</strong> lowers the hourly price in exchange for paying whether we use it or not, so it suits the always-on base of the fleet. <strong>Spot capacity</strong> is cheaper still; AWS advertises up to 90% off on-demand prices [5], but it can be reclaimed with a two-minute warning [6], so it suits batch work and stateless replicas behind a router that tolerates losing them (Lesson 40, Reliability and Rollouts). <strong>Right-sizing the GPU</strong> matches hardware to the bottleneck: decode cost follows memory bandwidth per dollar, and prefill cost follows FLOPS per dollar. An L4 has 300 GB/s against the H100's 3.35 TB/s, so even at its best it needs an hourly price below about 9% of an H100's to match it on decode, and its 24 GB leaves far less room for KV cache. An H200's 4.8 TB/s and 141 GB pay off when its price is less than about 1.4× an H100's.</p>
+<h4>Utilization levers</h4>
+<p>Autoscaling raised <tex>U</tex> from 42% to 71% in our example, a 1.7× saving, and filling quiet hours raises it further. Serving several small or fine-tuned models on shared GPUs helps when each alone would leave its GPU mostly idle (Lesson 37, Multi-LoRA and Multi-Tenant Serving).</p>
+<table>
+<thead><tr><th>Lever</th><th>Term</th><th>Rough effect in our example</th><th>Cost or risk</th></tr></thead>
+<tbody>
+<tr><td>Bigger batches, up to the SLO</td><td>Throughput</td><td>Batch 1 → 64: $5.95 → $0.21 per 1M output tokens</td><td>Higher TPOT for every user</td></tr>
+<tr><td>FP8 weights and KV cache</td><td>Throughput</td><td>Up to about 2× decode, usually less</td><td>Must verify quality</td></tr>
+<tr><td>Smaller or distilled model</td><td>Throughput</td><td>70B → 8B: about 8.8× fewer bytes and FLOPs per token</td><td>Quality; needs evaluation</td></tr>
+<tr><td>Prefix caching</td><td>Throughput (input)</td><td>1,500 of 2,000 tokens cached: about 23% less GPU time per request</td><td>Needs shared prefixes; uses cache memory</td></tr>
+<tr><td>Speculative decoding</td><td>Throughput (output)</td><td>2–3× in the original paper, mostly at small batch</td><td>Draft model; less gain at high load</td></tr>
+<tr><td>Autoscaling, batch work in quiet hours</td><td>Utilization</td><td>U from 42% to 71%: cost ÷ 1.7</td><td>Cold starts; headroom</td></tr>
+<tr><td>Reserved or spot capacity</td><td>Price</td><td>Depends on contract; spot up to 90% off on AWS</td><td>Commitment, or interruptions</td></tr>
+<tr><td>Right-sized GPU type</td><td>Price and throughput</td><td>Compare bandwidth per dollar for decode</td><td>Memory limits batch size</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Cost levers and their rough effect for Llama 3.1 8B on H100s</p>
+<p>The levers multiply. Prefix caching, FP8, and autoscaling together could plausibly cut our cost per request by half or more, but each estimate here is rough and the effects overlap, so measure after every change rather than multiplying the table's best cases.</p>
+
+<h2>In Practice</h2>
+<p>A cost model is a short list of inputs, each with a source you can defend. Table 3 shows ours.</p>
+<table>
+<thead><tr><th>Input or output</th><th>Our value</th><th>Source</th></tr></thead>
+<tbody>
+<tr><td>GPU price</td><td>$3.00 per H100-hour</td><td>Assumption; use your contract or price list</td></tr>
+<tr><td>Throughput at the latency targets</td><td>5 requests/s per GPU</td><td>Load test on the real request mix</td></tr>
+<tr><td>Request shape</td><td>2,000 input + 500 output tokens</td><td>Traffic logs (Lesson 31)</td></tr>
+<tr><td>Traffic</td><td>1,000 requests/min average; 8–33 requests/s daily cycle</td><td>Traffic logs</td></tr>
+<tr><td>Prefill speed</td><td>32,000 prompt tokens/s</td><td>Example prefill benchmark, 52% MFU (Lesson 19); assumption</td></tr>
+<tr><td>Utilization</td><td>42% static (8 GPUs), 71% autoscaled (4.7 on average)</td><td>Average load ÷ provisioned capacity</td></tr>
+<tr><td>Fixed costs</td><td>$10,000/month + 2-GPU floor</td><td>Assumption: team time and redundancy</td></tr>
+<tr><td>Cost per 1,000 requests</td><td>$0.17 full, $0.23 autoscaled, $0.40 static</td><td>Computed</td></tr>
+<tr><td>Cost per 1M tokens at full load</td><td>$0.026 input, $0.23 output</td><td>Computed by splitting GPU time</td></tr>
+<tr><td>Break-even against the API</td><td>24% utilization; 21M requests/month autoscaled, 33M static</td><td>Computed at assumed API prices</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Cost model for the running example</p>
+<p>The first tab implements this model in Python; change the inputs to cost your own deployment. The second tab computes the live cost per million output tokens from production metrics, using vLLM's token counters [7] and the GPU series exported by the DCGM exporter [8], so the model can be checked against reality every day.</p>
+<codetabs>
+<tab label="Cost calculator" lang="python">
+"""Cost per token for a self-hosted LLM, compared with a per-token API.
+Every input is an assumption or a measurement: replace them with your own."""
+import math
+from dataclasses import dataclass
+
+HOURS_PER_MONTH = 730
+
+
+@dataclass
+class Deployment:
+    gpu_price_per_hour: float = 3.00       # assumed H100 price
+    requests_per_s_per_gpu: float = 5.0    # load test at the latency targets
+    prompt_tokens: int = 2_000
+    output_tokens: int = 500
+    prefill_tokens_per_s: float = 32_000   # Lesson 19's example (52% MFU); measure yours
+    utilization: float = 1.0               # average load / provisioned capacity
+
+    def per_request(self) -> float:
+        """GPU dollars per request, including paid idle time."""
+        return self.gpu_price_per_hour / 3600 / self.requests_per_s_per_gpu / self.utilization
+
+    def per_million(self, tokens_per_request: int) -> float:
+        return self.per_request() / tokens_per_request * 1e6
+
+    def split(self) -> tuple[float, float]:
+        """Dollars per 1M input and per 1M output tokens, splitting GPU time by phase."""
+        prefill_share = self.requests_per_s_per_gpu * self.prompt_tokens / self.prefill_tokens_per_s
+        cost = self.per_request()
+        return (cost * prefill_share / self.prompt_tokens * 1e6,
+                cost * (1 - prefill_share) / self.output_tokens * 1e6)
+
+
+def api_per_request(d: Deployment, in_price: float = 0.20, out_price: float = 0.60) -> float:
+    """Assumed API prices in dollars per 1M input and output tokens."""
+    return (d.prompt_tokens * in_price + d.output_tokens * out_price) / 1e6
+
+
+def break_even_requests(d: Deployment, fixed: float = 10_000, min_gpus: int = 2) -> float:
+    """Monthly requests at which self-hosting (fixed + GPUs) costs the same as the API."""
+    api, gpu = api_per_request(d), d.per_request()
+    if api <= gpu:
+        return math.inf
+    floor = min_gpus * HOURS_PER_MONTH * d.gpu_price_per_hour
+    r = fixed / (api - gpu)
+    return r if r * gpu >= floor else (fixed + floor) / api
+
+
+full = Deployment()
+print(f"full load: ${full.per_million(full.output_tokens):.2f}/1M output, "
+      f"${full.per_million(full.prompt_tokens + full.output_tokens):.3f}/1M blended, "
+      f"${full.per_request() * 1000:.2f} per 1,000 requests")     # $0.33, $0.067, $0.17
+inp, out = full.split()
+print(f"split: ${inp:.3f}/1M input, ${out:.2f}/1M output")         # $0.026, $0.23
+
+print(f"API: ${api_per_request(full) * 1000:.2f} per 1,000 requests; "
+      f"break-even utilization {full.per_request() / api_per_request(full):.0%}")  # $0.70, 24%
+
+avg_rps = 1000 / 60                                    # 1,000 requests per minute
+for name, avg_gpus in (("static", 8), ("autoscaled", 112 / 24)):
+    d = Deployment(utilization=avg_rps / (avg_gpus * full.requests_per_s_per_gpu))
+    r = break_even_requests(d)
+    print(f"{name}: U {d.utilization:.0%}, ${d.per_request() * 1000:.2f} per 1,000 requests, "
+          f"${d.per_request() * 600:.2f} per user-month, break-even {r / 1e6:.1f}M "
+          f"requests/month ({r / (HOURS_PER_MONTH * 3600):.1f} requests/s)")
+# static:     U 42%, $0.40, $0.24, break-even 33.3M (12.7 requests/s)
+# autoscaled: U 71%, $0.23, $0.14, break-even 21.4M (8.2 requests/s)
+</tab>
+<tab label="Live cost (PromQL)" lang="promql">
+# Output tokens per second across the fleet, averaged over the last hour
+sum(rate(vllm:generation_tokens_total[1h]))
+
+# Input (prompt) tokens per second
+sum(rate(vllm:prompt_tokens_total[1h]))
+
+# Average number of GPUs over the last day (one DCGM series per GPU)
+avg_over_time(count(DCGM_FI_DEV_GPU_UTIL)[1d:5m])
+
+# Cost per 1M output tokens over the last day at an assumed $3.00 per GPU-hour.
+# This includes idle GPUs, so it already reflects the fleet's utilization factor.
+(avg_over_time(count(DCGM_FI_DEV_GPU_UTIL)[1d:5m]) * 3.00 / 3600)
+  / sum(rate(vllm:generation_tokens_total[1d])) * 1e6
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Splitting prefill and decode onto different machines, each tuned for its own bottleneck: Splitwise reports 1.4× throughput at 20% lower cost [9] (Lesson 34, Disaggregated Prefill and Decode).</li>
+<li>Goodput, the request rate served within both TTFT and TPOT targets, as the right denominator for cost, because throughput that breaks the SLO has no value [10].</li>
+<li>Long-context pricing: KV cache, not token count, limits concurrency, so a 32K-token request occupies the room of about 13 chat requests (Lesson 36, Long-Context Serving).</li>
+<li>Reasoning models that generate thousands of output tokens per request shift almost all cost to decode, which raises the value of FP8, speculative decoding and larger batches.</li>
+<li>Owning GPUs instead of renting them turns the hourly price into depreciation, power, cooling and data-center space, and makes utilization even more important because the cost is sunk.</li>
+<li>Mixture-of-experts models need memory for every expert but compute only for the active ones, so their cost per token depends strongly on batch size (Lesson 35, Mixture-of-Experts Serving).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="020-summary.png" caption="Cost per million tokens summary" optional="1">Mind map summarizing the cost lesson: the basic formula, input versus output cost, the utilization factor, cost per request and user, self-hosting versus an API, and the cost levers.</fig>
+<ul>
+<li>$ per 1M tokens = GPU $ per hour ÷ (tokens per second × 3,600) × 1,000,000. At an assumed $3.00 per H100-hour and 5 requests per second, that is $0.33 per million output tokens, or $0.17 per 1,000 requests.</li>
+<li>Use throughput measured on the real request mix at the latency targets; a single stream or a maximum-batch benchmark gives costs that are 18× too high or misleadingly low.</li>
+<li>Splitting GPU time by phase, an output token costs about 9× an input token: $0.23 versus $0.026 per million. Cached input tokens cost almost nothing.</li>
+<li>Paid idle time divides into every token: effective cost = full-load cost ÷ utilization. For 1,000 requests per minute, static peak provisioning (8 GPUs) gave 42% utilization; autoscaling gave 71% and cut cost by about 40%.</li>
+<li>At assumed API prices of $0.20 and $0.60 per million input and output tokens, self-hosting wins above about 24% utilization on GPU cost. With $10,000 of monthly operations it needs about 21 million requests per month with autoscaling (33 million without); our 44 million qualifies.</li>
+<li>Levers act on price (reserved, spot, right-sized GPUs), throughput (batching, quantization, smaller models, prefix caching, speculative decoding), or utilization (autoscaling, filling quiet hours).</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] vLLM documentation: Automatic Prefix Caching. <a href="https://docs.vllm.ai/en/latest/design/prefix_caching.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/prefix_caching.html</a>.<br>
+[2] Anthropic documentation: Prompt caching. <a href="https://platform.claude.com/docs/en/build-with-claude/prompt-caching" rel="noopener noreferrer" target="_blank">https://platform.claude.com/docs/en/build-with-claude/prompt-caching</a>.<br>
+[3] Kwon et al. Efficient Memory Management for Large Language Model Serving with PagedAttention. <a href="https://arxiv.org/abs/2309.06180" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.06180</a>.<br>
+[4] Leviathan et al. Fast Inference from Transformers via Speculative Decoding. <a href="https://arxiv.org/abs/2211.17192" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.17192</a>.<br>
+[5] Amazon Web Services. Amazon EC2 Spot Instances. <a href="https://aws.amazon.com/ec2/spot/" rel="noopener noreferrer" target="_blank">https://aws.amazon.com/ec2/spot/</a>.<br>
+[6] Amazon Web Services documentation: Spot Instance interruption notices. <a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-instance-termination-notices.html" rel="noopener noreferrer" target="_blank">https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-instance-termination-notices.html</a>.<br>
+[7] vLLM documentation: Production Metrics. <a href="https://docs.vllm.ai/en/latest/usage/metrics.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/usage/metrics.html</a>.<br>
+[8] NVIDIA. DCGM Exporter. <a href="https://github.com/NVIDIA/dcgm-exporter" rel="noopener noreferrer" target="_blank">https://github.com/NVIDIA/dcgm-exporter</a>.<br>
+[9] Patel et al. Splitwise: Efficient generative LLM inference using phase splitting. <a href="https://arxiv.org/abs/2311.18677" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2311.18677</a>.<br>
+[10] Zhong et al. DistServe: Disaggregating Prefill and Decoding for Goodput-optimized Large Language Model Serving. <a href="https://arxiv.org/abs/2401.09670" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.09670</a>.</p>

@@ -1,0 +1,7 @@
+center: Reliability and Rollouts
+branch: Failure modes | XID and ECC errors | collective hangs | bad releases
+branch: Health checks | health proves engine alive | synthetic canary prompt | progress watchdog
+branch: Streams | drain before shutdown | retry before first token | idempotency keys
+branch: Rollouts | pinned release bundle | canary at 12.5% | automated rollback
+branch: Capacity for failure | N+1 per failure domain | 3 zones, 4 replicas each | fallback API
+branch: Error budgets | 99.9% is 43,300 requests | page at 14.4x burn | halt releases when spent

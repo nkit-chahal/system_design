@@ -1,0 +1,7 @@
+center: Dashboard for Latency Spikes
+branch: Monitoring stack | Prometheus scrapes every 5 s | dcgm-exporter profiling fields | provisioned Grafana
+branch: Metrics | TTFT is queue plus prefill | KV cache usage | DCGM_FI_PROF_SM_ACTIVE
+branch: Histograms | sum by le first | exact share within target
+branch: Dashboard rows | latency, load, saturation | GPU and errors
+branch: Leading alerts | queue still growing | KV cache filling | prefix hit rate drop
+branch: Decision tree | traffic surge | prefix-cache miss | throttled GPU

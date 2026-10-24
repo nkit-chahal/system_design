@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .axis{stroke:#000;stroke-width:1.2}
+    .grid{stroke:#ccc;stroke-width:1;stroke-dasharray:4 4}
+    .bad{fill:#b85450}.good{fill:#3f7f3a}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <!-- x = 80 + 11.667 t (s); y = 260 - 6.667 w (s) -->
+
+  <rect x="196.7" y="60" width="350" height="200" fill="#f8cecc" opacity="0.45"/>
+  <text x="371.7" y="50" text-anchor="middle" class="sm b">spike: arrivals 80 req/s, twice the capacity of 40</text>
+
+  <line x1="80" y1="56" x2="80" y2="260" class="axis"/>
+  <line x1="80" y1="260" x2="785" y2="260" class="axis"/>
+  <line x1="80" y1="193.3" x2="780" y2="193.3" class="grid"/>
+  <line x1="80" y1="126.7" x2="780" y2="126.7" class="grid"/>
+  <line x1="80" y1="60" x2="780" y2="60" class="grid"/>
+  <g class="sm" text-anchor="end">
+    <text x="72" y="264">0</text><text x="72" y="197">10 s</text><text x="72" y="131">20 s</text><text x="72" y="64">30 s</text>
+  </g>
+  <g class="sm" text-anchor="middle">
+    <text x="80" y="278">0</text><text x="196.7" y="278">10</text><text x="313.3" y="278">20</text><text x="430" y="278">30</text>
+    <text x="546.7" y="278">40</text><text x="663.3" y="278">50</text><text x="780" y="278">60 s</text>
+  </g>
+  <text x="24" y="160" class="sm" transform="rotate(-90 24 160)" text-anchor="middle">queue wait for a new arrival</text>
+
+  <!-- Unbounded queue: 30 s at t = 40, drains at 7 req/s to 1,060 queued (26.5 s) at t = 60 -->
+  <path d="M80,260 L196.7,260 L546.7,60 L780,83.3" fill="none" stroke="#b85450" stroke-width="2.5"/>
+  <text x="92" y="84" class="sm b bad">unbounded queue</text>
+  <text x="92" y="100" class="sm">1,200 requests waiting at 40 s;</text>
+  <text x="92" y="116" class="sm">a new arrival waits 30 s</text>
+
+  <!-- Bounded queue with shedding -->
+  <path d="M80,259 L196.7,259 L196.7,257.3 L546.7,257.3 L546.7,259 L780,259" fill="none" stroke="#3f7f3a" stroke-width="3"/>
+  <line x1="560" y1="240" x2="542" y2="255" stroke="#999" stroke-width="1"/>
+  <text x="566" y="212" class="sm b good">bounded queue + shedding</text>
+  <text x="566" y="228" class="sm">wait stays ≤ 0.25 s; the excess</text>
+  <text x="566" y="244" class="sm">40 req/s get 503 + Retry-After</text>
+
+  <text x="16" y="310" class="sm">Derived from the text: capacity 40 req/s, baseline 33 req/s, spike to 80 req/s from 10 s to 40 s, queue capped at 10.</text>
+</svg>

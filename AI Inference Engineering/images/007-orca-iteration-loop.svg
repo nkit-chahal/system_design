@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="850" height="350" viewBox="0 0 850 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- ===== Left: iteration-level scheduling loop ===== -->
+  <text x="16" y="28" class="b">Iteration-level scheduling</text>
+  <rect x="100" y="56" width="150" height="44" rx="6" class="purple"/>
+  <text x="175" y="83" text-anchor="middle">Request pool</text>
+  <rect x="100" y="156" width="150" height="44" rx="6" class="purple"/>
+  <text x="175" y="183" text-anchor="middle">Scheduler</text>
+  <rect x="100" y="256" width="150" height="44" rx="6" class="orange"/>
+  <text x="175" y="283" text-anchor="middle">Execution engine</text>
+
+  <!-- new requests in, finished out -->
+  <path d="M16,72 L98,72" class="edge"/>
+  <text x="16" y="64" class="sm">new requests</text>
+  <path d="M252,72 L330,72" class="edge"/>
+  <text x="258" y="64" class="sm">finished</text>
+
+  <!-- pool <-> scheduler -->
+  <path d="M150,100 L150,154" class="edge"/>
+  <text x="142" y="132" text-anchor="end" class="sm">pick requests</text>
+  <path d="M200,156 L200,102" class="edge"/>
+  <text x="208" y="124" class="sm">append tokens,</text>
+  <text x="208" y="139" class="sm">drop finished</text>
+
+  <!-- scheduler <-> engine -->
+  <path d="M150,200 L150,254" class="edge"/>
+  <text x="142" y="224" text-anchor="end" class="sm">run one</text>
+  <text x="142" y="239" text-anchor="end" class="sm">iteration</text>
+  <path d="M200,256 L200,202" class="edge"/>
+  <text x="208" y="224" class="sm">one token</text>
+  <text x="208" y="239" class="sm">per request</text>
+
+  <text x="16" y="330" class="sm">Control returns to the scheduler after every forward pass.</text>
+
+  <line x1="352" y1="14" x2="352" y2="336" stroke="#999" stroke-dasharray="5 4"/>
+
+  <!-- ===== Right: selective batching ===== -->
+  <text x="372" y="28" class="b">Selective batching inside one iteration</text>
+  <rect x="380" y="46" width="200" height="34" rx="4" class="orange"/>
+  <text x="480" y="68" text-anchor="middle">R1: 2,000 prompt tokens</text>
+  <rect x="600" y="46" width="100" height="34" rx="4" class="orange"/>
+  <text x="650" y="68" text-anchor="middle">R2: 1 token</text>
+  <rect x="715" y="46" width="100" height="34" rx="4" class="orange"/>
+  <text x="765" y="68" text-anchor="middle">R3: 1 token</text>
+  <path d="M480,80 L480,104" class="edge"/><path d="M650,80 L650,104" class="edge"/><path d="M765,80 L765,104" class="edge"/>
+
+  <rect x="380" y="106" width="435" height="34" rx="4" class="gray"/>
+  <text x="597" y="128" text-anchor="middle">Flatten: one tensor of 2,002 × H rows, no padding</text>
+  <path d="M597,140 L597,162" class="edge"/>
+
+  <rect x="380" y="164" width="435" height="34" rx="4" class="orange"/>
+  <text x="597" y="186" text-anchor="middle">Linear layers, MLP, LayerNorm: one batch of 2,002 rows</text>
+  <path d="M480,198 L480,222" class="edge"/><path d="M650,198 L650,222" class="edge"/><path d="M765,198 L765,222" class="edge"/>
+  <text x="472" y="215" text-anchor="end" class="sm">split</text>
+
+  <rect x="380" y="224" width="200" height="34" rx="4" class="blue"/>
+  <text x="480" y="246" text-anchor="middle">Attention for R1</text>
+  <rect x="600" y="224" width="100" height="34" rx="4" class="blue"/>
+  <text x="650" y="246" text-anchor="middle">R2</text>
+  <rect x="715" y="224" width="100" height="34" rx="4" class="blue"/>
+  <text x="765" y="246" text-anchor="middle">R3</text>
+  <path d="M480,258 L480,282" class="edge"/><path d="M650,258 L650,282" class="edge"/><path d="M765,258 L765,282" class="edge"/>
+  <text x="472" y="275" text-anchor="end" class="sm">merge</text>
+
+  <rect x="380" y="284" width="435" height="34" rx="4" class="gray"/>
+  <text x="597" y="306" text-anchor="middle">2,002 × H rows go on to the next layer</text>
+  <text x="372" y="338" class="sm">Attention runs per request; every other operation is batched by token.</text>
+</svg>

@@ -1,0 +1,7 @@
+center: SGLang
+branch: RadixAttention | radix tree of prefixes | token-level matches | prompts and answers cached
+branch: Eviction | locked nodes stay | LRU on unlocked leaves | hierarchical cache
+branch: Scheduling | overlap scheduler | lpm admission policy | retract requests
+branch: Cache-aware routing | SGLang Model Gateway | 19.5 GiB to 4.9 GiB
+branch: Structured output | XGrammar default | token mask per step | frontend fork
+branch: Deploy and observe | port 30000 | enable metrics | bench serving

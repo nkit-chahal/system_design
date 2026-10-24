@@ -1,0 +1,236 @@
+<h2>Introduction</h2>
+<p>Most prompts that reach an LLM server are not new. A chat assistant sends the same long system prompt with every message, an agent resends its whole history at every step, and a document question-answering app sends the same document with each question. Prefill recomputes the keys and values of all those repeated tokens every time, although the result is identical.</p>
+<p><strong>Prefix caching</strong> keeps the KV cache of prompts after their requests finish and reuses it when a later request starts with the same tokens. Lesson 3, KV Cache, introduced the idea; this lesson explains how engines implement it, what it saves, and why a fleet often gets far less benefit than it should. Figure 1 shows the core effect on our running example.</p>
+<fig src="024-shared-prefix.svg" caption="Two requests that share a 1,500-token system prompt, without and with prefix caching">Without prefix caching, two requests with the same 1,500-token system prompt each compute all 2,000 prompt tokens in about 65 ms. With prefix caching, the second request reads 1,488 tokens (93 blocks) from the cache and computes only 512, in about 17 ms.</fig>
+<p>In this lesson, we look at where shared prefixes come from, how vLLM and SGLang find and evict cached prefixes, how much prefill time and GPU compute a given hit rate saves, how to design prompts and conversations that hit, and how to measure the hit rate in production.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Prefix caching questions usually start from a latency or cost complaint about long prompts. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: What do the prompts look like?<br>
+<strong>Interviewer</strong>: Each request has a 1,500-token system prompt with instructions, tool definitions, and few-shot examples, then about 500 tokens of user message and recent history. Answers are about 500 tokens.</p>
+<p><strong>Candidate</strong>: Is the system prompt the same for everyone?<br>
+<strong>Interviewer</strong>: We serve 12 enterprise customers, and each has its own system prompt, identical for all of that customer's users. The first line of every system prompt currently contains the current time and the user's name.</p>
+<p><strong>Candidate</strong>: How is it deployed?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B on vLLM, five H100 replicas behind a round-robin load balancer, about 1,000 requests per minute on average. The autoscaler keeps each replica at about 75% of its capacity (Lesson 22, Autoscaling).</p>
+<p><strong>Candidate</strong>: What are the targets?<br>
+<strong>Interviewer</strong>: p95 time to first token of at most 500 ms. We would also like to spend less GPU time on prefill.</p>
+<p><strong>Candidate</strong>: Are there isolation requirements between customers?<br>
+<strong>Interviewer</strong>: Yes. No customer may learn anything about another customer's prompts.</p>
+<p>The question underneath is: <em>how much prefill can we skip, what stops us from skipping it today, and how do we know it is working?</em></p>
+
+<h2>Where Shared Prefixes Come From</h2>
+<p>Reuse is exact because of causal attention: the keys and values of a token depend only on that token and the tokens before it (Lesson 3). Two requests that begin with the same token sequence therefore have identical KV cache for that sequence, and the first request's cache can serve the second. Only a shared <em>prefix</em> counts; identical text in the middle of two prompts, after different beginnings, has different keys and values. Figure 2 shows the common sources.</p>
+<fig src="024-prefix-sources.svg" caption="Where shared prefixes come from">Five workloads with the reusable start of each prompt in blue and the new tokens in orange: a chat request whose system prompt is shared by every user, a few-shot prompt shared by every input, a document shared by everyone asking about it, turn 3 of a chat that repeats turns 1 and 2, and step 6 of an agent loop that repeats steps 1 to 5.</fig>
+<ul>
+<li><strong>System prompts and tool definitions</strong>: identical for every user of an application or tenant, and often 1,000 tokens or more.</li>
+<li><strong>Few-shot examples</strong>: the same instructions and examples before every input in a classification or extraction job.</li>
+<li><strong>Documents</strong>: a manual, contract, or report that many questions refer to.</li>
+<li><strong>Multi-turn chat</strong>: each turn's prompt is the previous turn's prompt plus the answer and a new message.</li>
+<li><strong>Agent loops</strong>: each step resends the system prompt, the tools, and every earlier call and result, so the new part of the prompt is often only a few percent of it.</li>
+</ul>
+
+<h2>How vLLM Caches Prefixes</h2>
+<h3>Hashing full blocks</h3>
+<p>vLLM stores the KV cache in fixed-size blocks, 16 tokens by default (Lesson 8, PagedAttention). Its <strong>automatic prefix caching</strong> gives every full block a hash computed from three things: the hash of the previous block, the tokens in this block, and extra keys such as a LoRA adapter ID, multimodal input hashes, and a cache salt [1]. Because each hash includes its parent's, a block's hash identifies the entire prefix up to and including that block. A table maps hashes to physical blocks. Only full blocks are cached [1]. Figure 3 walks through request B from Figure 1.</p>
+<fig src="024-block-hash-chain.svg" caption="vLLM's chained block hashes and the lookup for a new request">Request B's 2,000-token prompt is split into 125 blocks of 16 tokens. Blocks B0 to B92 hold only system prompt tokens, and their chained hashes h0 to h92 are found in the cache; B93 mixes the last 12 system tokens with the first 4 user tokens, so its hash misses and the lookup stops. Prefill starts at token 1,488 and computes 512 tokens.</fig>
+<p>When a request arrives, the scheduler hashes its prompt block by block and looks the hashes up in order, stopping at the first miss. The 1,500-token system prompt fills 93 full blocks (1,488 tokens); block 93 holds the last 12 system tokens and the first 4 user tokens, so it differs between users. Every request of the same tenant therefore reuses exactly 1,488 tokens, and engines with finer granularity can reuse a few more.</p>
+
+<h3>Sharing, reference counts, and eviction</h3>
+<p>A hit does not copy anything. The new request's block table simply points at the cached physical blocks, and each block's <strong>reference count</strong> records how many running requests use it [1]. Concurrent requests of one tenant share the system prompt's 93 blocks: at 53 running requests per replica (Lesson 22, Autoscaling), that is 186 MiB instead of 53 × 186 MiB ≈ 9.6 GiB of KV cache.</p>
+<p>When a request finishes, its blocks are not erased. Blocks whose reference count drops to zero keep their hash and join a <strong>free block queue</strong>, ordered from least to most recently used. Allocating a block for new tokens takes the head of the queue and drops its old hash, which is the eviction. A hit on a block that is waiting in the queue removes it from the queue and puts it back in use [1]. A finished request's blocks join the tail in reverse order, so the end of a prefix is evicted before its beginning, which keeps the most shareable part cached longest. Figure 4 shows the three events.</p>
+<fig src="024-lru-free-queue.svg" caption="vLLM's free block queue: least recently used blocks are evicted first">A doubly linked queue of free blocks runs from the head, the least recently used, to the tail, the most recent. A new allocation pops the head and drops its hash; a cache hit on h41 removes that block from the queue and puts it back in use; a finished request's blocks join the tail, last block first, so h7, which extends the prefix of h6, is evicted before h6.</fig>
+<p>Prefix caching is on by default in current vLLM releases and can be turned off with <code>--disable-prefix-caching</code> [2]. Two more details matter in practice. The default hash, <code>sha256</code>, can be switched to the faster <code>xxhash</code>, which the vLLM documentation warns increases collision risk in multi-tenant setups [1][2]. And the <code>cache_salt</code> field of a request is injected into the first block's hash, so only requests with the same salt can share blocks [1]. Without salts, a tenant could time its own requests and infer from a fast first token that another tenant recently sent a given prefix, so each of our 12 customers gets its own long, secret salt (Lesson 37, Multi-LoRA and Multi-Tenant Serving).</p>
+
+<h2>How SGLang's RadixAttention Works</h2>
+<p>SGLang's <strong>RadixAttention</strong> keeps the cache of prompts and generated tokens in a <strong>radix tree</strong>, a compressed prefix tree whose edges carry token sequences of any length, mapping token sequences to their KV cache [3]. The KV tensors live in a paged layout whose page size is one token by default, so matches are token-exact rather than block-aligned [3][4]. Figure 5 shows a tree for two tenants.</p>
+<fig src="024-radix-tree.svg" caption="A RadixAttention tree for two tenants">From the root, one branch holds tenant A's 1,500-token system prompt with three user branches, one continuing with an answer and a second turn; a least recently used leaf with no running requests is shown as evicted. Another branch holds tenant B's shared 1,000-token prompt start, split into two endings after the prompt was edited.</fig>
+<ul>
+<li><strong>Matching and insertion</strong>: a new request walks the tree along its tokens. Where it diverges in the middle of an edge, the node splits, so the shared part becomes its own node, as with tenant B's edited prompt.</li>
+<li><strong>Reference counts</strong>: each node counts the running requests that use it, and only nodes with a count of zero can be evicted [3].</li>
+<li><strong>Eviction</strong>: least recently used leaves go first, so shared ancestors survive until they become leaves themselves [3]. Current versions also offer other policies through <code>--radix-eviction-policy</code> [4].</li>
+<li><strong>One memory pool</strong>: cached tokens and running requests share the same pool, with no fixed cache size; when running requests need room, cached tokens are evicted [3].</li>
+<li><strong>Cache-aware scheduling</strong>: the paper orders waiting requests by matched prefix length, longest first, which it shows is equivalent to a depth-first walk of the tree and maximizes reuse in a batch [3]. In current SGLang this is <code>--schedule-policy lpm</code>; the default is first come, first served [4], because reordering can starve requests with short matches.</li>
+</ul>
+<table>
+<thead><tr><th></th><th>vLLM automatic prefix caching</th><th>SGLang RadixAttention</th></tr></thead>
+<tbody>
+<tr><td>Index</td><td>Hash table of chained block hashes</td><td>Radix tree over token sequences</td></tr>
+<tr><td>Match granularity</td><td>Full blocks, 16 tokens by default</td><td>Pages, 1 token by default</td></tr>
+<tr><td>Eviction</td><td>LRU queue of free blocks; a prefix's end goes first</td><td>LRU over leaves by default; other policies available</td></tr>
+<tr><td>Scheduling</td><td>First come, first served by default</td><td>First come, first served by default; longest prefix match optional</td></tr>
+<tr><td>Turn off with</td><td><code>--disable-prefix-caching</code></td><td><code>--disable-radix-cache</code></td></tr>
+<tr><td>Tenant isolation</td><td>Per-request <code>cache_salt</code></td><td>Separate deployments or engine-specific options; check your version</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Prefix caching in vLLM and SGLang</p>
+<p>For a workload of shared system prompts, both designs reach nearly the same hit rate. The radix tree shines when prefixes branch deeply and unpredictably, as in agent programs that fork many calls from a common context, which is what SGLang was built for [3].</p>
+
+<h2>What Prefix Caching Saves</h2>
+<h3>Prefill compute and time to first token</h3>
+<p>Prefill costs about 2 FLOPs per parameter per token. For our 2,000-token prompt on Llama 3.1 8B:</p>
+<texblock>2 \times 8.03 \times 10^{9} \times 2{,}000 \approx 32\ \text{TFLOP} \;\Rightarrow\; \approx 65\ \text{ms at half of 989 TFLOPS}</texblock>
+<p>With the 1,488-token prefix cached, only 512 tokens are computed: about 8.2 TFLOP, or 16.6 ms. If a fraction <tex>h</tex> of requests find their prefix cached, the expected work per request is</p>
+<texblock>\text{tokens computed} = 2{,}000 - 1{,}488\,h</texblock>
+<p>and the <strong>token hit rate</strong>, the share of prompt tokens served from the cache, is <tex>1{,}488\,h \div 2{,}000 = 0.744\,h</tex>. At <tex>h = 90\%</tex>, each request computes about 661 tokens in about 21.5 ms, and the token hit rate is 67%. Figure 6 plots the relationship. These figures ignore attention's own FLOPs, which add only a few percent at 2,000 tokens.</p>
+<fig src="024-hit-rate-savings.svg" caption="Prompt tokens computed per request versus the share of requests that hit">A straight line falls from 2,000 tokens (about 65 ms) when no request hits to a floor of 512 tokens (about 16.6 ms) when every request hits; at 90% it is 661 tokens, about 21.5 ms. Fleet prefill at 1,000 requests per minute drops from about 1.08 H100s of compute to about 0.36.</fig>
+<p>The fleet-wide effect is larger than the per-request one suggests. At 1,000 requests per minute, prefill without caching processes 33,333 prompt tokens per second, about 535 TFLOP/s, which is 1.08 H100s of compute at 50% efficiency, or about a fifth of each of our five replicas. At <tex>h = 90\%</tex> it falls to about 177 TFLOP/s, or 0.36 of an H100. The freed compute also shortens the decode steps that share a batch with prefill chunks, so time per output token improves a little too.</p>
+<callout kind="tip" title="Interview tip">Separate the two hit rates: the share of requests that hit and the share of prompt tokens served from cache. Our prompt shape caps the token hit rate at 74.4% no matter how well caching works, because the last 512 tokens of every prompt are new.</callout>
+
+<h3>Memory, and what caching does not save</h3>
+<p>Sharing also saves memory, as computed above, which leaves more room for other tenants' prefixes and for conversation histories. Prefix caching does not speed up decode: each new token still attends over the whole prompt, cached or not, so the vLLM documentation notes that it reduces only the time to process the query, not the time to generate new tokens [5]. A workload of short prompts and long answers gains little. Attention kernels that read a shared prefix once for a whole batch, such as Hydragen's [6], target that remaining cost (Lesson 33, GPU Architecture and Attention Kernels).</p>
+
+<h2>Designing for Cache Hits</h2>
+<h3>Static first, dynamic last</h3>
+<p>The interviewer's prompts put the current time and the user's name on the first line. That one line makes block 0 different for every request, and because every later hash includes its parent, nothing after it can match: the hit rate is zero. Figure 7 shows the fix: put everything static first and everything that varies last.</p>
+<fig src="024-prompt-layout.svg" caption="The same prompt with dynamic content first and last">With a 20-token line containing the time and user name at the start, block 0 differs for every request and no tokens are cached. With the instructions, tool definitions, and few-shot examples first and the time and name moved into the user turn, the 1,500-token system prompt is identical for every user of a tenant and 1,488 tokens are cached.</fig>
+<ul>
+<li>Order prompt sections from most stable to least stable: instructions, tool definitions, few-shot examples, then per-user and per-request content.</li>
+<li>Make serialization deterministic. Tools listed in a different order, or JSON keys in a different order, produce different tokens.</li>
+<li>Watch the chat template. Llama 3.1's template writes a "Today Date:" line into the system header from a <code>date_string</code> variable; filled with today's date, it costs one miss per tenant per day, which is harmless, but a template or application that adds a timestamp to the second defeats the cache entirely.</li>
+<li>Version long prompts deliberately. Every edit invalidates the cache from the first changed token onward, so batch edits rather than tweaking a line a day.</li>
+</ul>
+
+<h3>Multi-turn chat and agent loops</h3>
+<p>Each chat turn resends the conversation so far. vLLM caches blocks of generated tokens as well as prompt tokens, so the answer to turn 1 is already cached when turn 2 arrives. Figure 8 shows the effect: turn 2 computes only the new message, about 120 tokens of 2,620.</p>
+<fig src="024-multi-turn.svg" caption="Prefix reuse across the turns of one conversation">Turn 1 computes 512 of 2,000 prompt tokens. Turn 2 reuses the system prompt, the first user message, and the first answer, computing about 120 of 2,620 tokens; turn 3 reuses everything before its new message, computing about 120 of 3,240. Two conditions are noted: the next turn must reach the replica that holds the history, and the history must not have been evicted while the user was typing.</fig>
+<p>The template must reproduce earlier turns exactly. Templates that rewrite history, for example by dropping a reasoning model's hidden reasoning from earlier answers, change the tokens and end the match at the first changed token. Agent loops behave like long multi-turn chats and benefit even more, provided tool results earlier in the context are never reordered or rewritten.</p>
+<p>Two conditions decide whether these hits happen in a fleet. The first is <strong>routing</strong>. With round-robin across five replicas, the next turn reaches the replica that holds the history only 20% of the time. System prompts are cached on every replica anyway, but conversation history is not. Session affinity or prefix-aware routing, which sends a request to the replica most likely to hold its prefix, fixes this; Lesson 25, Request Routing, covers it.</p>
+<p>The second is <strong>retention</strong>. Each of our five replicas receives about 200 requests per minute, and each request allocates about 1,012 new tokens of blocks (its 512 uncached prompt tokens and 500 output tokens), about 202K tokens per minute. Of the roughly 426K tokens of KV cache from Lesson 3, about 53K are held by running requests and the 12 tenants' system prompts, leaving about 373K tokens of evictable cache. At that churn, a finished conversation's blocks survive about 373 ÷ 202 ≈ 1.8 minutes before being evicted. A user who takes longer than that to reply loses the history's cache even on the right replica.</p>
+
+<h2>Beyond GPU Memory: Multi-Tier Caches</h2>
+<p>Retention can be extended by keeping evicted blocks in cheaper memory and copying them back on a hit. vLLM offers KV offloading with <code>--kv-offloading-size</code> (the buffer in GiB) and a <code>native</code> or <code>lmcache</code> backend [2], and LMCache stores KV caches in CPU memory, local disk, or remote storage and shares them across engine instances [7]. SGLang's hierarchical cache adds a host memory pool, sized with <code>--hicache-ratio</code> or <code>--hicache-size</code>, and optional storage backends [4]. A 200 GiB CPU tier holds about 1.6 million more tokens, which in our example stretches retention from about 1.8 minutes to about 10. Table 2 shows when loading beats recomputing.</p>
+<table>
+<thead><tr><th>Where the prefix is</th><th>Bandwidth</th><th>1,488-token prefix (186 MiB)</th><th>32K-token document (4 GiB)</th></tr></thead>
+<tbody>
+<tr><td>GPU memory</td><td>HBM, 3.35 TB/s</td><td>Already in place</td><td>Already in place</td></tr>
+<tr><td>CPU memory</td><td>PCIe Gen5, ≈ 64 GB/s each way at peak</td><td>≈ 3 ms</td><td>≈ 67 ms</td></tr>
+<tr><td>Local NVMe</td><td>Assume 5 GB/s</td><td>≈ 39 ms</td><td>≈ 0.86 s</td></tr>
+<tr><td>Not cached: recompute</td><td>50% of 989 TFLOPS</td><td>≈ 48 ms</td><td>≈ 1.1 s for the linear layers alone</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Restoring a cached prefix versus recomputing it for Llama 3.1 8B</p>
+<p>CPU memory wins comfortably at any length. A local SSD barely beats recomputation for a short prefix but wins for long documents, where recomputation also pays attention's quadratic cost. Lesson 36, Long-Context Serving, covers these tiers in depth; Mooncake shows the idea taken to a whole cluster built around a shared KV cache [8].</p>
+
+<h3>Prompt caching in hosted APIs</h3>
+<p>Hosted model APIs expose the same mechanism as a pricing feature. Cached input tokens are billed at a discount, because the provider skips their prefill, and some providers charge extra to write a prefix into the cache, require a minimum prefix length, or keep entries for only minutes. Some cache automatically; others ask the caller to mark where the cacheable prefix ends. The design rules are the ones above: static content first, deterministic serialization, and requests close enough in time that the entry is still alive. Usage fields in the response report how many input tokens were cached.</p>
+
+<h2>Observing the Hit Rate</h2>
+<p>vLLM exports two counters, <code>vllm:prefix_cache_queries</code> and <code>vllm:prefix_cache_hits</code>, both counted in tokens; Prometheus exposes them with a <code>_total</code> suffix [9]. Their ratio over a window is the token hit rate. Older releases exported a precomputed <code>vllm:gpu_prefix_cache_hit_rate</code> gauge instead. Hits from an offload tier appear in <code>vllm:prompt_tokens_cached_by_source</code>, broken down by tier [9]. With <code>--enable-prompt-tokens-details</code>, each response's <code>usage.prompt_tokens_details.cached_tokens</code> reports the cached tokens of that request [2], which feeds per-request accounting (Lesson 31, Per-Request Token Accounting). With <code>--kv-cache-metrics</code>, vLLM samples block residency histograms such as <code>vllm:kv_block_idle_before_evict_seconds</code>, which measures the retention computed above directly [9].</p>
+<p>SGLang exports a <code>sglang:cache_hit_rate</code> gauge [10], counters of cached and prompt tokens, and with <code>--enable-cache-report</code> it returns cached tokens in each response's usage [4].</p>
+<p>Always compare the measured rate with the ceiling the prompt shape allows, 74.4% for our single-turn requests, and slice it by replica and by tenant. A replica far below the others usually has a routing problem; a tenant far below the others usually has a dynamic line at the top of its prompt.</p>
+
+<h4>Which setup fits our deployment?</h4>
+<p>We keep vLLM, whose automatic prefix caching is already on, and fix the prompts first: the time and user name move into the user turn, tools are serialized in a fixed order, and system prompt edits are batched. That alone takes the hit rate from zero toward the 74.4% ceiling for first turns and cuts average prefill from about 65 ms to about 21.5 ms at a 90% request hit rate. Each tenant gets its own secret <code>cache_salt</code>, and we keep the default <code>sha256</code> hash. To make conversation history hit, we route each conversation back to the replica that served it (Lesson 25) and add a 200 GiB CPU tier per replica, which stretches retention from about 1.8 minutes to about 10. We track the token hit rate per tenant and per replica against the ceiling. SGLang would serve this workload equally well; we would reach for it if the product became an agent platform with deeply branching programs.</p>
+
+<h2>In Practice</h2>
+<p>The first tab starts vLLM with prefix caching, per-request cache reporting, and a CPU tier, and SGLang with its equivalents. The second sends two requests that share a tenant's system prompt and prints each one's TTFT and cached tokens. The third holds PromQL queries for the hit rate and for cache retention.</p>
+<codetabs>
+<tab label="Engines" lang="bash">
+# vLLM: prefix caching is on by default in current releases; the flags make it explicit,
+# report cached tokens per request, and add a 200 GiB CPU tier for evicted blocks.
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --served-model-name llama-8b-chat \
+  --enable-prefix-caching \
+  --enable-prompt-tokens-details \
+  --kv-offloading-size 200 \
+  --kv-offloading-backend native
+
+# SGLang: RadixAttention is on unless --disable-radix-cache is passed.
+python -m sglang.launch_server --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --schedule-policy lpm \
+  --enable-metrics --enable-cache-report \
+  --enable-hierarchical-cache --hicache-ratio 2
+</tab>
+<tab label="Cache hit check" lang="python">
+import os
+import time
+
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="EMPTY")
+SYSTEM = open("system_prompt_tenant_a.txt").read()   # ~1,500 tokens, nothing dynamic
+SALT = os.environ["TENANT_A_CACHE_SALT"]             # long random secret per tenant
+
+
+def ask(question: str) -> None:
+    start = time.perf_counter()
+    stream = client.chat.completions.create(
+        model="llama-8b-chat",
+        messages=[{"role": "system", "content": SYSTEM},
+                  {"role": "user", "content": question}],
+        max_tokens=64,
+        stream=True,
+        stream_options={"include_usage": True},
+        extra_body={"cache_salt": SALT},
+    )
+    ttft, cached, prompt = None, 0, 0
+    for chunk in stream:
+        if ttft is None and chunk.choices and chunk.choices[0].delta.content:
+            ttft = time.perf_counter() - start
+        if chunk.usage:
+            prompt = chunk.usage.prompt_tokens
+            details = chunk.usage.prompt_tokens_details
+            cached = details.cached_tokens if details else 0
+    print(f"TTFT {1000 * (ttft or 0):6.1f} ms, cached {cached} of {prompt} prompt tokens")
+
+
+ask("How do I reset my password?")   # fills the cache with the system prompt
+ask("What is your refund policy?")   # same prefix: expect about 1,488 cached tokens
+</tab>
+<tab label="PromQL" lang="promql">
+# vLLM: share of prompt tokens served from the prefix cache, last 5 minutes
+sum(rate(vllm:prefix_cache_hits_total[5m]))
+  / sum(rate(vllm:prefix_cache_queries_total[5m]))
+
+# vLLM: the same per replica; one low replica usually means a routing problem
+sum by (instance) (rate(vllm:prefix_cache_hits_total[5m]))
+  / sum by (instance) (rate(vllm:prefix_cache_queries_total[5m]))
+
+# vLLM with --kv-cache-metrics: median idle time of a block before eviction
+histogram_quantile(0.5, sum by (le) (rate(vllm:kv_block_idle_before_evict_seconds_bucket[10m])))
+
+# SGLang: cached tokens over prompt tokens
+sum(rate(sglang:cached_tokens_total[5m])) / sum(rate(sglang:prompt_tokens_total[5m]))
+</tab>
+</codetabs>
+<p>Run the client twice against a fresh server: the first call should report 0 cached tokens and the second about 1,488, with a visibly shorter TTFT. If the second call also reports 0, look for a dynamic line near the top of the prompt or a missing salt match.</p>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Reusing cached chunks that are not prefixes, such as retrieved documents placed in a different order, by blending their caches and recomputing a few tokens, as in CacheBlend [11].</li>
+<li>Prompt Cache's modular approach, which precomputes attention states for reusable prompt modules defined in a schema [12].</li>
+<li>Multi-turn serving that keeps conversation caches in a host memory and SSD hierarchy, as in CachedAttention [13].</li>
+<li>Prefix-aware scheduling across a cluster, which balances cache locality against load, as in Preble [14] (Lesson 25, Request Routing).</li>
+<li>Transferring prefix caches between prefill and decode workers in disaggregated serving (Lesson 34, Disaggregated Prefill and Decode).</li>
+<li>Why LoRA adapters cannot share cached blocks with the base model or with each other: the adapter ID is part of the block hash, because the adapter changes the keys and values.</li>
+<li>Small numerical differences between cached and recomputed KV caches, which can make outputs differ slightly between a hit and a miss even with greedy decoding.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="024-summary.png" caption="Prefix caching summary" optional="1">Mind map summarizing the prefix caching lesson: sources of shared prefixes, how vLLM and SGLang cache them, the savings math, prompt design, fleet effects, and metrics.</fig>
+<ul>
+<li>Requests that start with the same tokens have identical KV cache for those tokens; system prompts, few-shot examples, documents, chat history, and agent loops all create such prefixes.</li>
+<li>vLLM hashes full 16-token blocks with their parent's hash, shares blocks through reference counts, and evicts free blocks least recently used first; SGLang keeps a radix tree with token-level matching and evicts leaves first.</li>
+<li>With a 1,500-token system prompt, 1,488 of 2,000 prompt tokens are reusable: prefill drops from about 65 ms to 16.6 ms on a hit, and to about 21.5 ms on average at a 90% request hit rate.</li>
+<li>Fleet prefill at 1,000 requests per minute falls from about 1.08 H100s of compute to 0.36; decode time is unchanged.</li>
+<li>Put static content first and dynamic content last; one timestamp at the top of the prompt makes the hit rate zero.</li>
+<li>Chat history hits only if the next turn reaches the same replica and the blocks survive about 1.8 minutes of churn; routing and a CPU tier fix both.</li>
+<li>Measure the token hit rate with <code>vllm:prefix_cache_hits</code> over <code>vllm:prefix_cache_queries</code>, per tenant and per replica, against the ceiling the prompt shape allows.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] vLLM documentation: Automatic Prefix Caching (design). <a href="https://docs.vllm.ai/en/latest/design/prefix_caching/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/prefix_caching/</a>.<br>
+[2] vLLM documentation: vllm serve. <a href="https://docs.vllm.ai/en/latest/cli/serve/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/cli/serve/</a>.<br>
+[3] Zheng et al. SGLang: Efficient Execution of Structured Language Model Programs. <a href="https://arxiv.org/abs/2312.07104" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2312.07104</a>.<br>
+[4] SGLang documentation: Server Arguments. <a href="https://docs.sglang.io/advanced_features/server_arguments.html" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/advanced_features/server_arguments.html</a>.<br>
+[5] vLLM documentation: Automatic Prefix Caching. <a href="https://docs.vllm.ai/en/latest/features/automatic_prefix_caching/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/features/automatic_prefix_caching/</a>.<br>
+[6] Juravsky et al. Hydragen: High-Throughput LLM Inference with Shared Prefixes. <a href="https://arxiv.org/abs/2402.05099" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2402.05099</a>.<br>
+[7] Liu et al. LMCache: An Efficient KV Cache Layer for Enterprise-Scale LLM Inference. <a href="https://arxiv.org/abs/2510.09665" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2510.09665</a>.<br>
+[8] Qin et al. Mooncake: A KVCache-centric Disaggregated Architecture for LLM Serving. <a href="https://arxiv.org/abs/2407.00079" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.00079</a>.<br>
+[9] vLLM documentation: Production Metrics. <a href="https://docs.vllm.ai/en/latest/usage/metrics/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/usage/metrics/</a>.<br>
+[10] SGLang documentation: Production Metrics. <a href="https://docs.sglang.io/references/production_metrics.html" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/references/production_metrics.html</a>.<br>
+[11] Yao et al. CacheBlend: Fast Large Language Model Serving for RAG with Cached Knowledge Fusion. <a href="https://arxiv.org/abs/2405.16444" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2405.16444</a>.<br>
+[12] Gim et al. Prompt Cache: Modular Attention Reuse for Low-Latency Inference. <a href="https://arxiv.org/abs/2311.04934" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2311.04934</a>.<br>
+[13] Gao et al. Cost-Efficient Large Language Model Serving for Multi-turn Conversations with CachedAttention. <a href="https://arxiv.org/abs/2403.19708" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2403.19708</a>.<br>
+[14] Srivatsa et al. Preble: Efficient Distributed Prompt Scheduling for LLM Serving. <a href="https://arxiv.org/abs/2407.00023" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.00023</a>.</p>

@@ -1,0 +1,322 @@
+<h2>Introduction</h2>
+<p>Traffic to an LLM product is never flat. It is low at night, climbs when the business day starts, and jumps when a feature launches or a customer runs a batch job. A fleet sized for the daily peak wastes GPUs for most of the day; a fleet sized for the average falls over every afternoon. <strong>Autoscaling</strong> adds and removes model replicas automatically so that capacity follows demand.</p>
+<p>Ordinary web services autoscale on CPU utilization. LLM servers break that recipe three ways. The usual utilization metrics barely move with load, a new replica takes minutes rather than seconds to start, and removing a replica can cut off answers that are still streaming. Figure 1 shows the control loop we need to get right.</p>
+<fig src="022-control-loop.svg" caption="The autoscaling control loop for a fleet of vLLM replicas">Requests flow through a load balancer to N vLLM replicas; Prometheus scrapes their metrics, an autoscaler (HPA or KEDA) sets N, and a node autoscaler adds a GPU node when a new pod cannot find a free GPU.</fig>
+<p>In this lesson, we look at why utilization-based scaling fails for LLM servers, which metrics track load instead, how to wire them into Kubernetes, how much spare capacity the startup delay forces us to keep, and how to scale down without hurting users.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Autoscaling questions usually begin once a team has a working deployment and a cloud bill. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: What are we serving, and on what?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct on vLLM. Each replica is one pod with one H100, running on Kubernetes in a public cloud.</p>
+<p><strong>Candidate</strong>: What does traffic look like over a day?<br>
+<strong>Interviewer</strong>: About 8 requests per second overnight (480 a minute). It jumps to about 1,600 a minute within ten minutes when the business day starts at 9:00 and peaks near 33 per second (2,000 a minute) in the afternoon, for an average of 1,000 a minute. Surges can double traffic within five minutes, and a product launch can bring a 10× spike. Requests are chat turns of about 2,000 prompt tokens and 500 output tokens.</p>
+<p><strong>Candidate</strong>: What are the latency targets?<br>
+<strong>Interviewer</strong>: p95 time to first token of at most 500 ms, and p95 time per output token of at most 25 ms, so text streams faster than people read.</p>
+<p><strong>Candidate</strong>: How much load can one replica take while meeting them?<br>
+<strong>Interviewer</strong>: About 5 requests per second, which is about 53 concurrent streams at roughly 21 ms per decode step (Lesson 19, GPU Utilization). Beyond that, latency climbs quickly.</p>
+<p><strong>Candidate</strong>: How long does a new replica take to start serving?<br>
+<strong>Interviewer</strong>: About 8 minutes if it needs a new GPU node, and about 3 minutes if a running node has a free GPU.</p>
+<p><strong>Candidate</strong>: Today the HPA scales on CPU utilization, I assume?<br>
+<strong>Interviewer</strong>: Yes, and it never scales. During spikes, users wait several seconds for the first token while CPU sits at 15%.</p>
+<p>The question underneath is: <em>which signal tells us how many replicas we need right now, and how much spare capacity must we hold, given that new capacity takes minutes to arrive?</em></p>
+
+<h2>Why Utilization Metrics Fail for LLM Servers</h2>
+<p>Classic autoscaling assumes that a resource's utilization rises in proportion to load and reaches 100% near the point where the service saturates. For an LLM server, none of the three obvious resources behaves that way. Figure 2 sketches what each one reports as offered load rises on a single replica.</p>
+<fig src="022-signals-vs-load.svg" caption="Utilization metrics versus user-visible latency on one replica (illustrative)">Left: as load on one replica rises, GPU utilization jumps to about 98% at once, GPU memory stays at about 90%, CPU creeps from 3% to 22%, and only in-flight requests divided by 53 rises in proportion. Right: p95 TTFT crosses the 500 ms SLO at 300 requests per minute (53 in flight) and climbs steeply toward the point where the KV cache is full.</fig>
+
+<h3>CPU utilization measures the wrong machine</h3>
+<p>The work happens on the GPU. The CPU runs the HTTP server, tokenization, and the scheduler loop, which cost roughly the same whether the batch holds 5 or 50 requests, so CPU sits at 15% while users wait seconds for a first token.</p>
+
+<h3>GPU utilization saturates at low load</h3>
+<p>The number most dashboards call GPU utilization is defined by <code>nvidia-smi</code> as the percent of time over the past sample period during which one or more kernels was executing on the GPU [1]. A serving engine runs a decode step, then another, for as long as any request is in flight. One request keeps a kernel running almost all the time, so the metric reads close to 100% at 5 concurrent requests and at 150. It tells us the GPU is busy, not how much more work it can take. Lesson 19, GPU Utilization, and Lesson 30, GPU Metrics, cover finer measures such as SM activity, but none of them maps cleanly to remaining serving capacity.</p>
+
+<h3>GPU memory is reserved up front</h3>
+<p>Recent vLLM versions claim 92% of GPU memory at startup by default (<code>--gpu-memory-utilization 0.92</code>; we set 0.90 explicitly to match Lesson 3, KV Cache) and hand everything beyond the weights to the KV cache. Memory in use is therefore a constant, not a load signal.</p>
+<callout kind="warn" title="Common mistake">Scaling on GPU utilization usually produces the opposite of the intended behavior: the fleet scales to its maximum as soon as each replica has a single request, then never scales down, because a replica that is serving anything reads near 100%.</callout>
+
+<h2>Signals That Track Load</h2>
+<p>The signals that work come from the serving engine itself, which knows how many requests it holds and how much memory they use. Figure 3 shows where each one sits on the path of a request through a vLLM replica, and the Prometheus metric that exposes it [2].</p>
+<fig src="022-signal-sources.svg" caption="Where each scaling signal comes from inside a vLLM replica">A request passes a waiting queue, a running batch capped by --max-num-seqs, KV cache blocks, and streamed tokens, each labeled with its vLLM metric. The roles are: waiting requests as a fast overload alarm, running requests as the primary signal, KV cache usage for long contexts, and TTFT as a lagging SLO guardrail.</fig>
+
+<h4>In-flight requests versus capacity</h4>
+<p>The number of requests a replica holds, running plus waiting, follows directly from traffic. <strong>Little's law</strong> says the average number of requests in a system equals their arrival rate times the time each one spends inside:</p>
+<texblock>L = \lambda \times W</texblock>
+<p>A chat request in our scenario takes about 10.6 s: about 0.1 s to the first token, then 500 tokens at about 21 ms each. At 1,000 requests per minute, <tex>L = 16.7 \times 10.6 \approx 177</tex> requests are in flight across the fleet. Dividing by the capacity of 53 per replica gives a utilization that rises linearly with traffic, which is exactly what a proportional autoscaler needs. If we target 40 in-flight requests per replica (75% of capacity), 1,000 requests per minute needs <tex>\lceil 177 \div 40 \rceil = 5</tex> replicas, the afternoon peak of 33 requests per second needs <tex>\lceil 350 \div 40 \rceil = 9</tex>, and 8 per second at night needs 3.</p>
+<p>vLLM exposes the two halves as the gauges <code>vllm:num_requests_running</code> and <code>vllm:num_requests_waiting</code>, labeled with <code>model_name</code> [2]. We scale on their sum, because once the batch is full, extra load shows up only in the queue.</p>
+
+<h4>Queue depth (waiting requests)</h4>
+<p>A request waits when the scheduler cannot start it yet, either because the running batch has reached <code>--max-num-seqs</code> or because the KV cache has no free blocks for its prompt. Recent vLLM versions default to a large batch limit (1,024 sequences on an H100 at the time of writing), so for our chat traffic the KV cache is the real limit: requests start waiting only when about 170 are running (Lesson 3, with <code>--gpu-memory-utilization</code> set to 0.90), long after latency has broken at 53. By default, a non-zero queue is a late signal.</p>
+<p>We fix that by setting <code>--max-num-seqs 53</code>, the capacity at our latency targets. The replica then never runs more than it can serve well, and any excess becomes visible as waiting requests. A queue that stays above zero means this replica is over capacity right now, which makes it the fastest overload alarm we have. It also lets the router steer new requests to less loaded replicas (Lesson 25, Request Routing). Lesson 29, Queue Depth, treats this metric in depth.</p>
+
+<h4>KV cache usage</h4>
+<p><code>vllm:kv_cache_usage_perc</code> reports the fraction of KV cache blocks held by running requests, from 0 to 1 (older releases named it <code>vllm:gpu_cache_usage_perc</code>). Cached blocks that no running request holds count as free. This signal counts tokens rather than requests, which matters when prompt lengths vary. At 40 chat requests per replica, the cache is only about 21% full (40 × about 2,250 tokens ≈ 90K of the ≈ 426K tokens Lesson 3 found with <code>--gpu-memory-utilization 0.90</code>). But 13 requests at 32K tokens fill it completely, and once it is full the engine starts preempting requests and recomputing them (Lesson 3). For a mixed workload with long documents, KV cache usage is a useful second trigger with a threshold around 0.7.</p>
+
+<h4>Latency SLO burn</h4>
+<p>It is tempting to scale on what we actually care about, p95 TTFT, computed from the <code>vllm:time_to_first_token_seconds</code> histogram, or on the SLO <strong>burn rate</strong>, which is how fast, relative to the SLO, the service consumes its error budget [3]. Latency makes a poor primary scaling signal for three reasons. It lags, because a percentile over a window reacts only after many slow requests. It is nonlinear: in Figure 2 it is flat until 53 in flight and then climbs steeply, so it says "too slow" without saying how many replicas to add. And it rises for reasons more replicas cannot fix, such as a burst of very long prompts or a bad deployment. Use it to alert, and to check that the capacity of 53 per replica is still right, not to drive the replica count.</p>
+<table>
+<thead><tr><th>Signal</th><th>vLLM metric</th><th>Grows with load?</th><th>Timing</th><th>Best use</th></tr></thead>
+<tbody>
+<tr><td>CPU utilization</td><td>(container CPU)</td><td>Barely</td><td>n/a</td><td>None for LLM serving</td></tr>
+<tr><td>GPU utilization</td><td>(nvidia-smi, DCGM)</td><td>No, saturates near 1 request</td><td>n/a</td><td>Debugging only</td></tr>
+<tr><td>In-flight requests</td><td><code>num_requests_running</code> + <code>num_requests_waiting</code></td><td>Yes, linearly (Little's law)</td><td>Immediate</td><td>Primary scaling signal</td></tr>
+<tr><td>Waiting requests</td><td><code>num_requests_waiting</code></td><td>Only past capacity</td><td>Immediate, if <code>--max-num-seqs</code> is set to capacity</td><td>Overload alarm, routing</td></tr>
+<tr><td>KV cache usage</td><td><code>kv_cache_usage_perc</code></td><td>Yes, in tokens</td><td>Immediate</td><td>Second trigger for long contexts</td></tr>
+<tr><td>p95 TTFT, burn rate</td><td><code>time_to_first_token_seconds</code></td><td>Nonlinear</td><td>Lags by the window</td><td>Alerts, validating capacity</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Candidate autoscaling signals for an LLM server</p>
+
+<h2>Wiring the Signals into Kubernetes</h2>
+<p>Kubernetes offers three common ways to scale on engine metrics. Figure 4 shows how the metrics flow in each.</p>
+<fig src="022-k8s-options.svg" caption="Three ways to scale vLLM replicas on engine metrics in Kubernetes">Three panels: the HPA reading Prometheus data through the Prometheus Adapter; KEDA turning a ScaledObject with Prometheus and cron triggers into an HPA; and Knative scaling Revision pods on in-flight requests counted by a queue-proxy, with an activator that holds requests at zero.</fig>
+
+<h3>HPA with custom or external metrics</h3>
+<p>The HorizontalPodAutoscaler is a control loop that runs every 15 seconds by default. It computes</p>
+<texblock>\text{desiredReplicas} = \left\lceil \text{currentReplicas} \times \frac{\text{currentMetricValue}}{\text{desiredMetricValue}} \right\rceil</texblock>
+<p>and ignores changes within a 10% tolerance [4]. Out of the box, it reads CPU and memory from the metrics server. For anything else, it queries the <code>custom.metrics.k8s.io</code> or <code>external.metrics.k8s.io</code> APIs, which an adapter must serve. The usual choice for Prometheus data is the Prometheus Adapter, whose rules map a PromQL series to a pods or external metric [5]. The adapter's rule syntax is awkward, and every new metric needs a rule.</p>
+
+<h3>KEDA ScaledObject</h3>
+<p>KEDA wraps the same mechanism in a friendlier resource. A <code>ScaledObject</code> names the Deployment, the replica bounds, and one or more triggers; KEDA creates and feeds an HPA for it [6]. Its Prometheus trigger takes a <code>serverAddress</code>, a PromQL <code>query</code> that returns a single value, and a <code>threshold</code> [7]. With the default <code>AverageValue</code> metric type, the HPA divides the query result by the threshold, so a query that sums in-flight requests across the fleet with a threshold of 40 yields "one replica per 40 in-flight requests". KEDA also scales between zero and one replica itself, and its cron trigger raises the replica count during a time window [8]. The defaults to know: <code>minReplicaCount</code> is 0, <code>pollingInterval</code> is 30 seconds, and <code>cooldownPeriod</code> (300 seconds) applies only to scaling down to zero [6].</p>
+
+<h3>Knative concurrency-based scaling</h3>
+<p>Knative's autoscaler counts in-flight HTTP requests per pod through a queue-proxy sidecar. A streaming chat request counts for as long as its response is open, so concurrency matches "requests in flight" naturally. The target is a soft limit set with <code>autoscaling.knative.dev/target</code> (100 by default), applied at 70% utilization, and <code>containerConcurrency</code> is an optional hard limit [9]. The autoscaler averages over a 60-second stable window and switches to a 6-second panic window when demand reaches twice what the current pods can handle [10]. Its strength is scale to zero: at zero pods, the activator holds incoming requests and asks for capacity [11][12]. But its windows assume pods that start in seconds; with an 8-minute cold start, a 6-second panic decision still delivers capacity 8 minutes later (Lesson 23, Cold Starts).</p>
+<table>
+<thead><tr><th></th><th>HPA + Prometheus Adapter</th><th>KEDA</th><th>Knative (KPA)</th></tr></thead>
+<tbody>
+<tr><td>Signal</td><td>Any PromQL, via adapter rules</td><td>Any PromQL query per trigger</td><td>In-flight requests per pod</td></tr>
+<tr><td>Scale to zero</td><td>Beta in recent Kubernetes, external or object metrics only [4]</td><td>Yes</td><td>Yes, with request buffering</td></tr>
+<tr><td>Schedules</td><td>No</td><td>Cron trigger</td><td>No</td></tr>
+<tr><td>Extra components</td><td>Adapter</td><td>KEDA operator</td><td>Knative Serving</td></tr>
+<tr><td>Fits</td><td>Teams already running the adapter</td><td>Most GPU fleets</td><td>Many rarely used models</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Kubernetes autoscaling options for LLM servers</p>
+
+<h2>Scale-Up Lag and Headroom</h2>
+<h3>The timeline of a scale-up</h3>
+<p>Even with a perfect signal, new capacity arrives late. The delay has two parts. <strong>Detection</strong> covers the Prometheus scrape interval, the autoscaler's polling, and the HPA loop: typically 30 to 60 seconds. <strong>Startup</strong> covers everything a new replica must do before it serves: get a GPU node, pull a multi-gigabyte image, download and load 16 GB of weights, and initialize the engine. Lesson 23, Cold Starts, breaks this down; in our scenario it takes about 8 minutes from a new node.</p>
+<p>Figure 5 shows what happens when traffic doubles over 5 minutes while the fleet runs at a 75% target: 5 replicas holding 177 requests, with room for 265. The autoscaler reacts within half a minute, but demand overtakes capacity 2.5 minutes into the spike, and the first new replica arrives 8 minutes after it was requested. For almost 8 minutes, requests pile up in queues and TTFT climbs far past the SLO.</p>
+<fig src="022-scale-up-timeline.svg" caption="Demand and capacity when traffic doubles in 5 minutes with an 8-minute cold start (illustrative)">Demand rises from 177 to 354 requests in flight between minutes 2 and 7, while capacity stays at 265 (5 replicas × 53) until new replicas arrive from minute 11.2. Demand exceeds capacity for about 7.8 minutes.</fig>
+
+<h3>How much headroom do we need?</h3>
+<p>Spare capacity has to carry the growth that happens while new replicas start. Suppose traffic rises by a factor <tex>s</tex> over <tex>T_{\text{rise}}</tex> minutes, and new capacity arrives <tex>T_{\text{lag}}</tex> minutes after the rise begins. During the lag, load grows by <tex>(s-1) \times \min(1, T_{\text{lag}} / T_{\text{rise}})</tex> of its starting value, and the replicas already running must hold it. The highest target utilization that survives is</p>
+<texblock>u_{\max} = \frac{1}{1 + (s-1)\,\min\left(1, \dfrac{T_{\text{lag}}}{T_{\text{rise}}}\right)}</texblock>
+<p>Figure 6 plots this for spikes of 1.5×, 2×, and 3×. For the interviewer's 2× surge (<tex>s = 2</tex>, <tex>T_{\text{rise}} = 5</tex> minutes), the answer depends on the lag:</p>
+<ul>
+<li><strong>New GPU node, 8 minutes</strong>: the lag exceeds the rise, so <tex>u_{\max} = 1/2 = 50\%</tex>. The target is about 26 in-flight requests per replica (26.5), and 1,000 requests per minute needs <tex>\lceil 177 \div 26.5 \rceil = 7</tex> replicas.</li>
+<li><strong>Free GPU on a running node, 3 minutes</strong>: <tex>u_{\max} = 1/(1 + 0.6) = 62.5\%</tex>, a target of about 33, and 6 replicas.</li>
+<li><strong>Warm pool, 1.5 minutes</strong>: <tex>u_{\max} = 1/(1 + 0.3) \approx 77\%</tex>, a target of about 41, and 5 replicas.</li>
+</ul>
+<fig src="022-headroom-curve.svg" caption="Highest safe target utilization versus the ratio of scale-up lag to rise time">Curves for 1.5×, 2× and 3× spikes fall from 100% as lag grows relative to rise time and flatten at 67%, 50% and 33%. On the 2× curve, a warm pool (1.5 min) allows 77%, a free GPU on a running node (3 min) 62.5%, and a new GPU node (8 min) 50%.</fig>
+<p>The difference between 7 and 5 replicas, two H100s around the clock, is the price of a slow cold start, which is why the next lesson matters for cost as well as latency. The formula is slightly conservative, since replicas can briefly run above 53 at degraded latency, and slightly optimistic, since it assumes the rise is detected at once.</p>
+<callout kind="tip" title="Interview tip">State the headroom rule as a sentence: "Spare capacity must cover the traffic growth that happens during one cold start." Then plug in numbers. Interviewers want to see that you connect startup time to the size of the fleet.</callout>
+
+<h4>Minimum replicas</h4>
+<p>The same reasoning sets the floor. At night, 8 requests per second means about 85 requests in flight. If a 2× surge arrives and no new replica can start in time, the existing replicas must hold 170, which takes <tex>\lceil 170 \div 53 \rceil = 4</tex> replicas. Four replicas also leave room to lose one to a node failure at normal night load (3 × 53 = 159 ≥ 85). So the minimum is 4, even though the night's average load fits on 2.</p>
+
+<h2>Scaling Down Safely</h2>
+<h3>Stabilization windows and rate limits</h3>
+<p>Removing a replica is cheap to do and expensive to undo: if traffic returns, the replacement costs another cold start. The HPA's defaults already scale down more cautiously than up. Scale-down uses a 300-second stabilization window, meaning it acts on the highest recommendation of the last five minutes, while scale-up has no window and may add 4 pods or 100% of current pods every 15 seconds, whichever is larger [4]. For GPU replicas we go further: a 10-minute scale-down window and at most one replica removed every 2 minutes, so a brief lull does not trigger a wave of removals followed by a wave of cold starts. On scale-up, we cap additions at 4 pods per minute so that a metrics glitch cannot request 20 GPU nodes at once.</p>
+
+<h3>Draining in-flight streams</h3>
+<p>When the autoscaler removes a pod, Kubernetes marks it Terminating, removes it from the Service's EndpointSlices so it receives no new requests, runs its <code>preStop</code> hook, then sends SIGTERM. If the pod is still running when <code>terminationGracePeriodSeconds</code> expires (30 seconds by default), it is killed [13]. A chat answer that has been streaming for 10 seconds would be cut off mid-sentence. Figure 7 shows the sequence we want instead.</p>
+<fig src="022-drain-sequence.svg" caption="Draining a vLLM pod before it shuts down">After the replica count is lowered, the pod is marked Terminating and removed from EndpointSlices, a preStop hook waits for in-flight streams to finish, and only then does SIGTERM stop vLLM, all within a 300-second grace period that ends in KILL.</fig>
+<p>The hook waits a few seconds for endpoint removal to reach the load balancer, then polls the engine's metrics until no requests are running or waiting. The grace period must exceed the longest generation we allow: with <code>max_tokens</code> of 4,096 at 25 ms per token, that is about 100 seconds, so 300 seconds leaves margin. Recent vLLM versions also have a <code>--shutdown-timeout</code> option (0 aborts, a positive value waits) [14]; check how your version treats in-flight requests before relying on it alone. The same drain applies whenever a pod goes away, during deploys and node maintenance too; Lesson 40, Reliability and Rollouts, covers those cases.</p>
+<p>Two smaller controls help. The <code>controller.kubernetes.io/pod-deletion-cost</code> annotation suggests which pods a ReplicaSet should remove first, such as the least busy; it is best effort [15]. And a PodDisruptionBudget stops node consolidation from evicting serving pods faster than the fleet can absorb.</p>
+
+<h2>Predictive and Scheduled Scaling</h2>
+<p>Reactive scaling always lags by one cold start. When the shape of traffic is known in advance, we can start replicas before the traffic arrives. Our 9:00 ramp from 480 to 1,600 requests per minute takes ten minutes, faster than the 8-minute startup can follow. Figure 8 compares reactive scaling alone with a scheduled floor.</p>
+<fig src="022-scheduled-scaling.svg" caption="Reactive scaling versus a scheduled floor for the 9:00 ramp (illustrative)">Demand rises from 85 to 283 requests in flight between 8:55 and 9:05. Reactive capacity, starting from the minimum of 4 replicas, reaches 8 only by 9:13, leaving demand above capacity from about 9:01 to 9:09, while a scheduled floor of 8 replicas from 8:30 stays above demand throughout.</fig>
+<p>KEDA's cron trigger sets a replica count for a time window, and because the HPA takes the largest recommendation across triggers, it acts as a dynamic minimum: metric triggers can still scale above it [8]. A floor of 8 replicas from 8:30 on weekdays covers the morning ramp, at the cost of 4 extra replicas from 8:30 until the reactive fleet would have caught up: about 2.7 GPU-hours, or $8 a day at $3.00 per H100-hour, far cheaper than 8 minutes of broken latency for everyone who logs in at 9:00.</p>
+<p><strong>Predictive scaling</strong> generalizes the idea: forecast arrivals from history (for example, the same hour last week, adjusted by this week's trend) and set the floor one cold start ahead of the forecast. A forecast job can publish that floor as a metric for KEDA to read. Known events such as a product launch should simply be pre-scaled the day before. Sudden 10× spikes are beyond what any autoscaler can absorb in time; Lesson 26, Rate Limiting, and Lesson 27, the 10× spike lab, combine autoscaling with load shedding.</p>
+
+<h4>Which signal and policy fits our deployment?</h4>
+<p>We scale on <strong>in-flight requests per replica</strong> (running plus waiting) with KEDA, because it grows linearly with traffic, reacts immediately, and maps directly to the capacity of 53 at our latency targets. We set <code>--max-num-seqs 53</code> so that overload shows up as waiting requests, and add a second trigger on KV cache usage at 0.7 for the occasional burst of long documents. The target is 40 per replica (75%), which the headroom formula allows only if new replicas start in about 1.5 minutes. Today they take 3 to 8, so we pair this policy with Lesson 23's fixes: images and weights cached on the nodes and a couple of free GPUs kept in the cluster. Until those land, a target of 26 to 33 is the honest setting. On top, a minimum of 4 replicas, a weekday floor of 8 from 8:30, a 10-minute scale-down window that removes one replica at a time, and a preStop drain with a 300-second grace period. Latency SLO burn drives alerts, not scaling. Knative-style scale to zero stays reserved for internal models that can tolerate a cold start.</p>
+
+<h2>In Practice</h2>
+<p>The first tab is the KEDA <code>ScaledObject</code> for the policy above: in-flight requests as the primary trigger, KV cache usage as a second, and a cron floor for the morning ramp. The second tab shows the parts of the vLLM Deployment that make scaling safe: the batch cap, a startup probe that tolerates slow loading, and a <code>preStop</code> hook that drains in-flight requests. The third computes the headroom numbers from this lesson for your own traffic and startup times.</p>
+<codetabs>
+<tab label="KEDA ScaledObject" lang="yaml">
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: llama-8b-chat
+  namespace: inference
+spec:
+  scaleTargetRef:
+    name: llama-8b-chat            # the vLLM Deployment
+  minReplicaCount: 4               # holds a 2x night surge with no new replicas
+  maxReplicaCount: 24              # cost ceiling; 10x events need rate limiting
+  pollingInterval: 15              # seconds between trigger checks
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+          - type: Pods
+            value: 4               # at most 4 new GPU replicas per minute
+            periodSeconds: 60
+        scaleDown:
+          stabilizationWindowSeconds: 600
+          policies:
+          - type: Pods
+            value: 1               # remove one replica every 2 minutes
+            periodSeconds: 120
+  triggers:
+  # 1. In-flight requests (running + waiting), one replica per 40.
+  - type: prometheus
+    metricType: AverageValue
+    metadata:
+      serverAddress: http://prometheus.monitoring.svc:9090
+      query: >-
+        sum(vllm:num_requests_running{model_name="llama-8b-chat"})
+        + sum(vllm:num_requests_waiting{model_name="llama-8b-chat"})
+      threshold: "40"
+  # 2. KV cache usage: matters only when long prompts fill memory first.
+  - type: prometheus
+    metricType: Value
+    metadata:
+      serverAddress: http://prometheus.monitoring.svc:9090
+      query: avg(vllm:kv_cache_usage_perc{model_name="llama-8b-chat"})
+      threshold: "0.7"
+  # 3. Weekday floor, ready before the 9:00 ramp.
+  - type: cron
+    metadata:
+      timezone: America/New_York
+      start: 30 8 * * 1-5
+      end: 0 20 * * 1-5
+      desiredReplicas: "8"
+</tab>
+<tab label="Deployment (drain)" lang="yaml">
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-8b-chat
+  namespace: inference
+spec:                                  # no replicas field: the autoscaler owns it
+  selector:
+    matchLabels:
+      app: llama-8b-chat
+  template:
+    metadata:
+      labels:
+        app: llama-8b-chat
+    spec:
+      terminationGracePeriodSeconds: 300 # longer than the longest generation
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:latest   # pin an exact version in production
+        args:
+        - --model=meta-llama/Llama-3.1-8B-Instruct
+        - --served-model-name=llama-8b-chat
+        - --max-num-seqs=53              # capacity at the latency targets
+        - --gpu-memory-utilization=0.90  # explicit, as in Lesson 3 (default 0.92)
+        ports:
+        - containerPort: 8000
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        startupProbe:                    # up to 15 minutes to load and warm up
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 10
+          failureThreshold: 90
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 5
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - python3
+              - -c
+              - |
+                import re, time, urllib.request
+                time.sleep(10)  # let endpoint removal reach the load balancer
+                deadline = time.time() + 270
+                while time.time() < deadline:
+                    text = urllib.request.urlopen("http://localhost:8000/metrics").read().decode()
+                    busy = sum(float(v) for v in re.findall(
+                        r"^vllm:num_requests_(?:running|waiting)\{[^}]*\} (\S+)$", text, re.M))
+                    if busy == 0:
+                        break
+                    time.sleep(2)
+</tab>
+<tab label="Headroom calculator" lang="python">
+import math
+
+CAPACITY = 53          # concurrent streams one H100 replica serves within the latency targets
+SECONDS_PER_REQ = 10.6 # ~0.1 s to first token + 500 tokens x ~21 ms
+
+
+def max_target_utilization(spike: float, lag_min: float, rise_min: float) -> float:
+    """Highest steady utilization whose spare capacity covers growth during one cold start."""
+    growth = (spike - 1) * min(1.0, lag_min / rise_min)
+    return 1 / (1 + growth)
+
+
+def replicas_needed(req_per_min: float, target: float) -> int:
+    in_flight = req_per_min / 60 * SECONDS_PER_REQ  # Little's law: L = lambda x W
+    return math.ceil(in_flight / (CAPACITY * target))
+
+
+for name, lag in [("new GPU node", 8.0), ("free GPU on a running node", 3.0), ("warm pool", 1.5)]:
+    u = max_target_utilization(spike=2.0, lag_min=lag, rise_min=5.0)
+    print(f"{name:27s} lag {lag:3.1f} min: target {u:5.1%} ({CAPACITY * u:4.1f} per replica), "
+          f"{replicas_needed(1_000, u)} replicas at 1,000 req/min")
+
+# Minimum replicas: a 2x spike at night must fit on the replicas already running.
+night_in_flight = 480 / 60 * SECONDS_PER_REQ
+print(f"night: {night_in_flight:.0f} in flight -> min replicas {math.ceil(2 * night_in_flight / CAPACITY)}")
+</tab>
+</codetabs>
+<p>The calculator prints targets of 50.0%, 62.5%, and 76.9% (7, 6, and 5 replicas at 1,000 requests per minute) and a minimum of 4 replicas, matching the numbers above. Before applying the ScaledObject, remove <code>replicas</code> from the Deployment manifest so that a later <code>kubectl apply</code> does not fight the autoscaler [4].</p>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>LLM-specific autoscalers, such as those in the AIBrix stack, that scale on engine metrics and integrate with prefix-aware routing [16].</li>
+<li>Live migration of running requests between replicas, as in Llumnix, which lets the scheduler rebalance load and empty a replica before removing it instead of waiting for streams to finish [17].</li>
+<li>Faster scale-up by loading weights over the GPU network from running replicas and serving layer by layer before the new replica is fully loaded, as in BlitzScale [18].</li>
+<li>Scaling on token throughput (prompt plus generated tokens per second) instead of requests, which matters when request sizes vary widely.</li>
+<li>Scaling prefill and decode pools separately in disaggregated serving, since they saturate on different resources (Lesson 34, Disaggregated Prefill and Decode).</li>
+<li>Filling the night's spare capacity with low-priority batch work instead of scaling all the way down (Lesson 39, Batch and Offline Inference).</li>
+<li>Using spot or preemptible GPUs for burst capacity, and what happens to in-flight requests when the cloud reclaims them.</li>
+<li>Fleets with many models, where autoscaling turns into bin packing GPUs across models and scale to zero for the long tail (Lesson 23, Cold Starts, and Lesson 37, Multi-LoRA and Multi-Tenant Serving).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="022-summary.png" caption="Autoscaling summary" optional="1">Mind map summarizing the autoscaling lesson: misleading signals, better signals, Kubernetes options, headroom math, safe scale-down, and scheduled scaling.</fig>
+<ul>
+<li>CPU utilization, GPU utilization, and GPU memory do not track LLM load: the first barely moves, the second reads near 100% with one request, and the third is reserved at startup.</li>
+<li>In-flight requests per replica (running plus waiting) grow linearly with traffic by Little's law and make the best primary signal; 1,000 requests per minute at 10.6 s each is about 177 in flight.</li>
+<li>Set <code>--max-num-seqs</code> to the SLO capacity so waiting requests become an overload alarm; add KV cache usage as a trigger when long prompts are common; use latency burn for alerts.</li>
+<li>KEDA's Prometheus and cron triggers fit most GPU fleets; the HPA with a Prometheus Adapter works too; Knative's concurrency scaling suits scale to zero for rarely used models.</li>
+<li>Headroom must cover traffic growth during one cold start: for a 2× spike over 5 minutes, the safe target is 50% with an 8-minute start and about 77% with a 1.5-minute start, 7 versus 5 replicas.</li>
+<li>Scale down slowly (10-minute window, one replica at a time) and drain streams with a preStop hook and a grace period longer than the longest generation.</li>
+<li>Schedule a floor ahead of known ramps and pre-scale for launches; reactive scaling is always one cold start late.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] NVIDIA. nvidia-smi documentation. <a href="https://docs.nvidia.com/deploy/nvidia-smi/index.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/deploy/nvidia-smi/index.html</a>.<br>
+[2] vLLM documentation: Production Metrics. <a href="https://docs.vllm.ai/en/latest/usage/metrics/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/usage/metrics/</a>.<br>
+[3] Google SRE Workbook: Alerting on SLOs. <a href="https://sre.google/workbook/alerting-on-slos/" rel="noopener noreferrer" target="_blank">https://sre.google/workbook/alerting-on-slos/</a>.<br>
+[4] Kubernetes documentation: Horizontal Pod Autoscaling. <a href="https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/" rel="noopener noreferrer" target="_blank">https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/</a>.<br>
+[5] Prometheus Adapter for Kubernetes Metrics APIs. <a href="https://github.com/kubernetes-sigs/prometheus-adapter" rel="noopener noreferrer" target="_blank">https://github.com/kubernetes-sigs/prometheus-adapter</a>.<br>
+[6] KEDA documentation: ScaledObject specification. <a href="https://keda.sh/docs/latest/reference/scaledobject-spec/" rel="noopener noreferrer" target="_blank">https://keda.sh/docs/latest/reference/scaledobject-spec/</a>.<br>
+[7] KEDA documentation: Prometheus scaler. <a href="https://keda.sh/docs/latest/scalers/prometheus/" rel="noopener noreferrer" target="_blank">https://keda.sh/docs/latest/scalers/prometheus/</a>.<br>
+[8] KEDA documentation: Cron scaler. <a href="https://keda.sh/docs/latest/scalers/cron/" rel="noopener noreferrer" target="_blank">https://keda.sh/docs/latest/scalers/cron/</a>.<br>
+[9] Knative documentation: Configuring concurrency. <a href="https://knative.dev/docs/serving/autoscaling/concurrency/" rel="noopener noreferrer" target="_blank">https://knative.dev/docs/serving/autoscaling/concurrency/</a>.<br>
+[10] Knative documentation: Additional autoscaling configuration for the Knative Pod Autoscaler. <a href="https://knative.dev/docs/serving/autoscaling/kpa-specific/" rel="noopener noreferrer" target="_blank">https://knative.dev/docs/serving/autoscaling/kpa-specific/</a>.<br>
+[11] Knative documentation: Configuring scale to zero. <a href="https://knative.dev/docs/serving/autoscaling/scale-to-zero/" rel="noopener noreferrer" target="_blank">https://knative.dev/docs/serving/autoscaling/scale-to-zero/</a>.<br>
+[12] Knative documentation: Request flow. <a href="https://knative.dev/docs/serving/request-flow/" rel="noopener noreferrer" target="_blank">https://knative.dev/docs/serving/request-flow/</a>.<br>
+[13] Kubernetes documentation: Pod Lifecycle. <a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/" rel="noopener noreferrer" target="_blank">https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/</a>.<br>
+[14] vLLM documentation: vllm serve. <a href="https://docs.vllm.ai/en/latest/cli/serve/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/cli/serve/</a>.<br>
+[15] Kubernetes documentation: ReplicaSet, pod deletion cost. <a href="https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/" rel="noopener noreferrer" target="_blank">https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/</a>.<br>
+[16] The AIBrix Team. AIBrix: Towards Scalable, Cost-Effective Large Language Model Inference Infrastructure. <a href="https://arxiv.org/abs/2504.03648" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2504.03648</a>.<br>
+[17] Sun et al. Llumnix: Dynamic Scheduling for Large Language Model Serving. <a href="https://arxiv.org/abs/2406.03243" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2406.03243</a>.<br>
+[18] Zhang et al. BlitzScale: Fast and Live Large Model Autoscaling with O(1) Host Caching. <a href="https://arxiv.org/abs/2412.17246" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2412.17246</a>.</p>

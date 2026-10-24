@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="250" viewBox="0 0 820 250" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="26" class="b">TTFT budget for one 2,000-token chat request (illustrative)</text>
+  <text x="16" y="74" class="b">Idle server</text>
+  <rect x="150.0" y="52" width="17.0" height="34" class="gray"/>
+  <rect x="167.0" y="52" width="2.5" height="34" class="gray"/>
+  <rect x="169.6" y="52" width="56.9" height="34" class="orange"/>
+  <rect x="226.5" y="52" width="1.5" height="34" class="gray"/>
+  <rect x="227.3" y="52" width="17.0" height="34" class="gray"/>
+  <text x="252.3" y="74" class="b">111 ms</text>
+  <text x="16" y="142" class="b">Busy server</text>
+  <rect x="150.0" y="120" width="17.0" height="34" class="gray"/>
+  <rect x="167.0" y="120" width="2.5" height="34" class="gray"/>
+  <rect x="169.6" y="120" width="497.2" height="34" class="purple"/>
+  <text x="418.2" y="142" text-anchor="middle">queue: waiting behind 9 earlier prompts, 585 ms</text>
+  <rect x="666.8" y="120" width="56.9" height="34" class="orange"/>
+  <rect x="723.8" y="120" width="1.5" height="34" class="gray"/>
+  <rect x="724.6" y="120" width="17.0" height="34" class="gray"/>
+  <text x="749.6" y="142" class="b">696 ms</text>
+  <text x="198.0" y="104" text-anchor="middle" class="sm">prefill 67 ms</text>
+  <text x="695.3" y="172" text-anchor="middle" class="sm">prefill 67 ms</text>
+  <path d="M150,196 L745.0,196" class="axis"/>
+  <line x1="150.0" y1="196" x2="150.0" y2="201" class="axis"/><text x="150.0" y="215" text-anchor="middle" class="sm">0</text>
+  <line x1="235.0" y1="196" x2="235.0" y2="201" class="axis"/><text x="235.0" y="215" text-anchor="middle" class="sm">100</text>
+  <line x1="320.0" y1="196" x2="320.0" y2="201" class="axis"/><text x="320.0" y="215" text-anchor="middle" class="sm">200</text>
+  <line x1="405.0" y1="196" x2="405.0" y2="201" class="axis"/><text x="405.0" y="215" text-anchor="middle" class="sm">300</text>
+  <line x1="490.0" y1="196" x2="490.0" y2="201" class="axis"/><text x="490.0" y="215" text-anchor="middle" class="sm">400</text>
+  <line x1="575.0" y1="196" x2="575.0" y2="201" class="axis"/><text x="575.0" y="215" text-anchor="middle" class="sm">500</text>
+  <line x1="660.0" y1="196" x2="660.0" y2="201" class="axis"/><text x="660.0" y="215" text-anchor="middle" class="sm">600</text>
+  <line x1="745.0" y1="196" x2="745.0" y2="201" class="axis"/><text x="745.0" y="215" text-anchor="middle" class="sm">700</text>
+  <text x="759.0" y="215" class="sm">ms</text>
+  <rect x="16" y="228" width="16" height="12" class="gray"/><text x="38" y="239" class="sm">network, prepare, stream out</text>
+  <rect x="250" y="228" width="16" height="12" class="purple"/><text x="272" y="239" class="sm">queue</text>
+  <rect x="330" y="228" width="16" height="12" class="orange"/><text x="352" y="239" class="sm">prefill (≈ 65 ms at 50% MFU, plus attention)</text>
+</svg>

@@ -1,0 +1,7 @@
+center: Queue Depth
+branch: Where requests wait | gateway and load balancer | engine waiting queue | running batch
+branch: Little's law | L = λ × W | 180 requests in flight | wait = waiting ÷ completions
+branch: Utilization | flat, then vertical | 5× at 80% | target 40 of 53
+branch: Engine signals | waiting and running requests | KV cache usage | preemptions
+branch: Leading vs lagging | queue moves first | percentiles confirm later
+branch: Acting on it | autoscale on in-flight | shed by priority | page on SLO burn

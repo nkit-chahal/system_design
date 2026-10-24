@@ -1,0 +1,7 @@
+center: p50, p95 and p99 Latency
+branch: Percentiles | averages hide the tail | p50, p95 and p99
+branch: LLM latencies | TTFT | time per output token | worst gap per request
+branch: Tails at scale | 1 − 0.99^N | 20-turn chat: 18.2%
+branch: Measuring correctly | never average percentiles | sum by (le) | open-loop load test
+branch: SLOs | error budget | burn rate
+branch: p99 drivers | queueing near saturation | prefill interference | cold replicas

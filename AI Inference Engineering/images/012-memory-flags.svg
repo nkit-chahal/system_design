@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="300" viewBox="0 0 820 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .brace{fill:none;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="20" y="24" class="b">Same GPU (≈ 79.6 GiB), same model, same value 0.90: two meanings of "memory fraction"</text>
+
+  <!-- 9 px per GiB, bars start at x=40 -->
+  <text x="40" y="58" class="b">vLLM  --gpu-memory-utilization 0.90</text>
+  <rect x="40" y="68" width="135" height="44" class="orange"/>
+  <text x="107" y="95" text-anchor="middle" class="sm">weights 15</text>
+  <rect x="175" y="68" width="41" height="44" class="gray"/>
+  <rect x="216" y="68" width="469" height="44" class="blue"/>
+  <text x="450" y="95" text-anchor="middle" class="sm">KV cache ≈ 52 GiB</text>
+  <rect x="685" y="68" width="71" height="44" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <path d="M40,120 L40,128 L685,128 L685,120" class="brace"/>
+  <text x="362" y="146" text-anchor="middle" class="sm">0.90 × 79.6 ≈ 71.6 GiB: weights + activations and graphs (≈ 4.6) + KV cache</text>
+  <text x="720" y="146" text-anchor="middle" class="sm">10% unused</text>
+
+  <text x="40" y="186" class="b">SGLang  --mem-fraction-static 0.90</text>
+  <rect x="40" y="196" width="135" height="44" class="orange"/>
+  <text x="107" y="223" text-anchor="middle" class="sm">weights 15</text>
+  <rect x="175" y="196" width="510" height="44" class="blue"/>
+  <text x="430" y="223" text-anchor="middle" class="sm">KV cache pool ≈ 56.7 GiB</text>
+  <rect x="685" y="196" width="71" height="44" class="gray"/>
+  <text x="720" y="223" text-anchor="middle" class="sm">rest ≈ 8</text>
+  <path d="M40,248 L40,256 L685,256 L685,248" class="brace"/>
+  <text x="362" y="274" text-anchor="middle" class="sm">0.90 × 79.6 ≈ 71.6 GiB of static memory: weights + KV cache pool</text>
+  <text x="720" y="274" text-anchor="middle" class="sm">activations, graphs</text>
+  <text x="20" y="296" class="sm">Approximate split. Equal flags still give SGLang about 9% more cache here; compare the KV capacity each engine logs.</text>
+</svg>

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="830" height="300" viewBox="0 0 830 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .white{fill:#fff;stroke:#666;stroke-width:1.2}
+    .reserved{fill:url(#hatch);stroke:#999;stroke-width:1}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Scale: 580 px = 13,824 blocks (0.042 px per block) -->
+  <text x="12" y="24" class="b">KV pool: 13,824 blocks of 32 tokens (54 GiB). A chat request of 2,500 tokens uses 79 blocks.</text>
+
+  <!-- Row A -->
+  <text x="12" y="58" class="sm b">GUARANTEED_NO_EVICT</text>
+  <text x="12" y="74" class="sm">client max_tokens = 500</text>
+  <rect x="230" y="44" width="580" height="36" class="white"/>
+  <rect x="230" y="44" width="577" height="36" class="green"/>
+  <text x="518" y="67" text-anchor="middle" class="sm">174 requests × 79 reserved blocks, all of them used</text>
+  <text x="230" y="98" class="sm">Reserves prompt + max_tokens at admission: <tspan class="b">174 requests</tspan>, never paused.</text>
+
+  <!-- Row B -->
+  <text x="12" y="134" class="sm b">GUARANTEED_NO_EVICT</text>
+  <text x="12" y="150" class="sm">client max_tokens = 4,096</text>
+  <rect x="230" y="120" width="580" height="36" class="white"/>
+  <rect x="230" y="120" width="239" height="36" class="orange"/>
+  <text x="349" y="143" text-anchor="middle" class="sm">72 × 79 used</text>
+  <rect x="469" y="120" width="338" height="36" class="reserved"/>
+  <rect x="560" y="131" width="156" height="16" fill="#fff"/>
+  <text x="638" y="143" text-anchor="middle" class="sm">reserved, never used</text>
+  <text x="230" y="174" class="sm">Each request reserves 191 blocks but uses about 79: only <tspan class="b">72 requests</tspan> fit.</text>
+
+  <!-- Row C -->
+  <text x="12" y="210" class="sm b">MAX_UTILIZATION</text>
+  <text x="12" y="226" class="sm">blocks taken as tokens arrive</text>
+  <rect x="230" y="196" width="580" height="36" class="white"/>
+  <rect x="230" y="196" width="577" height="36" class="orange"/>
+  <text x="518" y="219" text-anchor="middle" class="sm">about 174 requests at their actual size</text>
+  <text x="230" y="250" class="sm">Admits by current size: about <tspan class="b">174 requests</tspan>, but some are paused if many run long.</text>
+
+  <!-- Legend -->
+  <rect x="230" y="270" width="16" height="12" class="green"/><text x="252" y="281" class="sm">reserved and used</text>
+  <rect x="380" y="270" width="16" height="12" class="orange"/><text x="402" y="281" class="sm">in use</text>
+  <rect x="470" y="270" width="16" height="12" class="reserved"/><text x="492" y="281" class="sm">reserved but idle</text>
+</svg>

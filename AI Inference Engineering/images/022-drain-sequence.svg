@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="350" viewBox="0 0 860 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+    <pattern id="redhatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a8a6" stroke-width="3"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dedge{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .grid{stroke:#e3e3e3;stroke-width:1}
+    .guide{stroke:#666;stroke-width:1;stroke-dasharray:5 4;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="62" class="b">Kubernetes</text>
+  <text x="16" y="122" class="b">Load balancer</text>
+  <text x="16" y="196" class="b">vLLM pod</text>
+  <line x1="16" y1="82" x2="844" y2="82" stroke="#ddd" stroke-width="1"/>
+  <line x1="16" y1="142" x2="844" y2="142" stroke="#ddd" stroke-width="1"/>
+  <line x1="16" y1="268" x2="844" y2="268" stroke="#ddd" stroke-width="1"/>
+  <line x1="160" y1="36" x2="160" y2="280" class="guide"/>
+  <text x="160" y="28" text-anchor="middle" class="sm">t = 0: replica count lowered</text>
+  <rect x="166" y="44" width="220" height="30" rx="6" class="purple"/>
+  <text x="276.0" y="63.5" text-anchor="middle" class="sm">pod marked Terminating</text>
+  <rect x="392" y="44" width="200" height="30" rx="6" class="gray"/>
+  <text x="492.0" y="63.5" text-anchor="middle" class="sm">removed from EndpointSlices</text>
+  <rect x="130" y="104" width="34" height="28" class="green"/>
+  <rect x="170" y="104" width="670" height="28" fill="url(#hatch)" stroke="#999"/>
+  <text x="400" y="123" text-anchor="middle" class="sm">no new requests are routed to this pod</text>
+  <rect x="166" y="154" width="420" height="30" rx="6" class="orange"/>
+  <text x="376.0" y="173.5" text-anchor="middle" class="sm">preStop hook: wait until vllm:num_requests_running = 0</text>
+  <rect x="100" y="194" width="130" height="12" rx="2" class="purple"/>
+  <rect x="120" y="210" width="210" height="12" rx="2" class="purple"/>
+  <rect x="140" y="226" width="280" height="12" rx="2" class="purple"/>
+  <rect x="150" y="242" width="430" height="12" rx="2" class="purple"/>
+  <text x="356" y="216" class="sm">in-flight streams finish normally</text>
+  <rect x="590" y="154" width="120" height="30" rx="6" class="gray"/>
+  <text x="650.0" y="173.5" text-anchor="middle" class="sm">SIGTERM → exit</text>
+  <line x1="830" y1="36" x2="830" y2="280" stroke="#b85450" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="826" y="28" text-anchor="end" class="sm">grace period ends: KILL</text>
+  <path d="M162,292 L828,292" class="edge" style="marker-start:url(#arrow)"/>
+  <text x="495" y="310" text-anchor="middle" class="sm">terminationGracePeriodSeconds (for example 300 s) covers the preStop hook and the shutdown</text>
+  <text x="16" y="338" class="sm">Without the hook, SIGTERM can cut streaming answers mid-sentence. Size the grace period above the longest generation: 4,096 tokens × 25 ms ≈ 100 s.</text>
+</svg>

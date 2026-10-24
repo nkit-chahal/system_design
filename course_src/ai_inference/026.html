@@ -1,0 +1,354 @@
+<h2>Introduction</h2>
+<p>Any service shared by many customers has to decide how much each customer may send. Without limits, one customer's runaway script can slow down everyone else, and a sudden surge can push the whole fleet past the point where it serves anyone well. <strong>Rate limiting</strong> is the set of rules, enforced in front of the model servers, that caps how much work each client can submit over time.</p>
+<p>For web APIs, the usual rule is a number of requests per minute. For LLM serving that rule is not enough, because requests differ enormously in cost. A request with a 200-token prompt and a request with a 30,000-token document count the same against a requests-per-minute limit, yet the second needs 150 times more prefill and holds far more KV cache. Figure 1 shows two customers who look identical to a request counter and completely different to the GPUs.</p>
+<fig src="026-rpm-vs-tokens.svg" caption="Two tenants with the same request rate and very different token loads">Tenant A sends 60 requests per minute of 200 input and 100 output tokens. Tenant B sends 60 requests per minute of 30,000 input tokens with up to 4,096 output tokens. Both sit exactly at a 60 requests-per-minute limit. In input tokens per minute, A sends 12,000 while B sends 1.8 million, about 38% of the fleet's input capacity of about 4.8 million.</fig>
+<p>In this lesson, we look at why LLM rate limits must count tokens, compare the standard limiting algorithms, show how to charge for output tokens that do not exist yet, and design what happens when a client or the whole fleet is over its limit: the HTTP response, fairness between tenants, and load shedding. We finish with a distributed implementation in Redis and its failure modes.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Rate limiting questions usually follow an incident. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: What are we protecting?<br>
+<strong>Interviewer</strong>: A multi-tenant API serving Llama 3.1 8B Instruct with vLLM on 8 H100 replicas. About 200 customers call it with API keys, on free, standard and enterprise plans.</p>
+<p><strong>Candidate</strong>: How much can the fleet serve?<br>
+<strong>Interviewer</strong>: About 40 requests per second of our usual mix of 2,000 prompt tokens and 500 output tokens: 8 replicas at about 5 each. Traffic averages 1,000 requests per minute and reaches about 2,000 at the daily peak.</p>
+<p><strong>Candidate</strong>: What went wrong?<br>
+<strong>Interviewer</strong>: Last week a free-tier customer's script sent 30,000-token documents with <code>max_tokens</code> set to 4,096, sixty per minute. Our only limit was 60 requests per minute per key, so all of it got through, and p99 time to first token tripled for everyone.</p>
+<p><strong>Candidate</strong>: Are any limits contractual?<br>
+<strong>Interviewer</strong>: Enterprise customers have committed throughput in their contracts. Free customers get best effort.</p>
+<p><strong>Candidate</strong>: How do clients react to errors?<br>
+<strong>Interviewer</strong>: Most use SDKs that retry with backoff. Some run their own scripts.</p>
+<p><strong>Candidate</strong>: Where would the limiter run?<br>
+<strong>Interviewer</strong>: Requests pass through four stateless gateway pods behind a cloud load balancer. We already operate Redis.</p>
+<p>The fleet's capacity is 40 × 60 = 2,400 requests per minute, or about 4.8 million input and 1.2 million output tokens per minute. The question underneath is: <em>how do we limit each tenant by what its requests actually cost, keep admitted requests fast when the whole fleet is overloaded, and enforce all of it consistently across four gateway pods?</em></p>
+
+<h2>Why Requests per Minute Is Not Enough</h2>
+<h3>One request, very different costs</h3>
+<p>Take the incident's numbers. Tenant A, a typical chat customer at 60 requests per minute with 200 input and 100 output tokens each, sends 12,000 input tokens per minute. Tenant B, the document script, sends 60 × 30,000 = 1.8 million input tokens per minute, about 38% of the fleet's 4.8 million. Same request rate, 150 times the input.</p>
+<p>Memory makes it worse. If each of B's requests generates its full 4,096 tokens at about 21 ms per token (Lesson 19, GPU Utilization), each one stays in flight for about 86 seconds. At one request per second that is about 86 requests in flight, each holding up to 34,096 tokens of KV cache, about 4.2 GiB at 128 KiB per token (Lesson 3, KV Cache). In the worst case that is roughly 360 GiB, about 86% of the fleet's entire KV cache of 8 × 52 = 416 GiB. One modest-looking customer could crowd out everyone else.</p>
+
+<h3>Limit three things, not one</h3>
+<p>A limiter for LLM traffic therefore tracks several quantities per tenant:</p>
+<ul>
+<li><strong>Requests per minute</strong>: covers per-request overhead such as tokenization, scheduling and connection handling, and catches abuse with many tiny requests.</li>
+<li><strong>Tokens per minute</strong>: measures the GPU work. Input and output tokens are best limited separately, since prefill is compute-bound and decode is memory-bound, so each budget can be sized from the fleet's capacity for that kind of work.</li>
+<li><strong>Concurrent requests</strong>: caps how many streams a tenant can hold open at once, which bounds its share of KV cache memory regardless of how its tokens are spread over the minute.</li>
+</ul>
+<p>Hosted LLM APIs work this way. OpenAI limits requests and tokens per minute and per day, and for rate limiting counts a request as the maximum of its <code>max_tokens</code> and the token count estimated from its characters [1]. Anthropic limits requests, input tokens and output tokens per minute for each model class, and for most models counts only uncached input tokens toward the input limit, which rewards prompt caching [2].</p>
+<callout kind="tip" title="Interview tip">When asked to rate-limit an LLM API, say "requests, input tokens, output tokens, and concurrency, per tenant" in the first sentence. It shows you know the cost of a request is its tokens, not its count.</callout>
+
+<h2>Rate-Limiting Algorithms</h2>
+<p>Whatever we count, we need an algorithm that decides, at each request, whether the tenant has budget left. Four classic algorithms cover nearly every real system.</p>
+
+<h3>Fixed window</h3>
+<p>A <strong>fixed window</strong> limiter keeps one counter per tenant per calendar minute. Each request increments the counter; when it passes the limit, requests are rejected until the next minute starts. In Redis this is a single <code>INCR</code> on a key such as <code>rl:acme:2026-10-23T10:15</code> with an expiry. It is the cheapest possible limiter.</p>
+<p>Its flaw is the window boundary. With a limit of 100 per minute, a client can send 100 requests at 0:50 and another 100 at 1:00. Each calendar minute sees only 100, so both bursts pass, yet 200 requests arrive within 20 seconds, twice the intended rate. The top of Figure 2 shows this.</p>
+<fig src="026-fixed-vs-sliding.svg" caption="A fixed window lets through twice the limit across a boundary; a sliding window does not">Two timelines from 0:00 to 2:00 with a limit of 100 requests. In the fixed-window timeline, a burst of 100 requests just before 1:00 and another just after 1:00 fall into different windows, so both are allowed: 200 requests in 20 seconds. In the sliding-window timeline, the 60 seconds before 1:10 already hold the first burst, so the second burst is rejected with 429.</fig>
+
+<h3>Sliding window log and sliding window counter</h3>
+<p>A <strong>sliding window log</strong> stores the timestamp, and for token limits the cost, of every request in the last 60 seconds, for example in a Redis sorted set, and admits a request only if the total inside the window stays under the limit. It is exact, but its memory grows with the number of requests per window.</p>
+<p>A <strong>sliding window counter</strong> approximates the log with two numbers: the count for the current fixed window and the count for the previous one. It assumes the previous window's requests were spread evenly and weights them by how much of that window still overlaps the last 60 seconds:</p>
+<texblock>\text{rate} \approx \text{previous} \times \frac{60 - \text{elapsed}}{60} + \text{current}</texblock>
+<p>Cloudflare's example uses a limit of 50 requests per minute, 42 requests in the previous minute, and 18 in the current minute, 15 seconds in: <tex>42 \times 0.75 + 18 = 49.5</tex>, so the next request is still allowed. Across 400 million requests from 270,000 sources, Cloudflare found that only 0.003% were wrongly allowed or limited by the approximation [3].</p>
+
+<h3>Token bucket</h3>
+<p>A <strong>token bucket</strong> holds up to <tex>B</tex> tokens (the burst capacity) and refills continuously at <tex>r</tex> tokens per second. A request that costs <tex>c</tex> is admitted if the bucket holds at least <tex>c</tex>, and then <tex>c</tex> tokens are removed. If not, the client can be told exactly how long to wait:</p>
+<texblock>\text{wait} = \frac{c - \text{tokens}}{r}</texblock>
+<p>The bucket needs only two numbers per tenant, the current level and the time of the last update, because refill can be computed lazily from the elapsed time. Variable cost comes for free: a 30,000-token prompt simply takes 30,000 tokens. Figure 3 follows a standard-tier tenant whose input limit is 600,000 tokens per minute, so <tex>r</tex> = 10,000 tokens per second, with <tex>B</tex> = 600,000.</p>
+<fig src="026-token-bucket.svg" caption="A token bucket for input tokens: burst, rejection, and continuous refill">Left: a bucket of capacity 600,000 tokens refilled at 10,000 tokens per second; each request takes its cost and is admitted only if enough tokens remain. Right: the bucket level over 60 seconds. At 5 seconds a burst of 20 requests of 30,000 tokens empties the bucket. At 6 seconds a request needing 30,000 tokens finds only 10,000 and is rejected with 429 and Retry-After of 2 seconds. The level then climbs steadily back toward 600,000.</fig>
+<p>The two parameters are separate knobs. <tex>r</tex> sets the long-run rate. <tex>B</tex> sets how bursty a tenant may be: <tex>B = 60r</tex> lets a tenant spend a whole minute's budget at once, while a smaller <tex>B</tex> forces traffic to spread out. Anthropic states that its API uses the token bucket algorithm, so capacity is "continuously replenished up to your maximum limit, rather than being reset at fixed intervals" [2]. Stripe's request rate limiter is also a token bucket, stored in Redis [5].</p>
+
+<h3>Leaky bucket</h3>
+<p>The <strong>leaky bucket</strong> has two common meanings. As a <em>meter</em>, it is the mirror image of a token bucket and admits the same traffic. As a <em>queue</em>, requests enter a bucket that drains at a constant rate, so bursts are delayed and smoothed rather than rejected. NGINX's <code>limit_req</code> module works this way: excess requests wait up to a configurable <code>burst</code> size, <code>nodelay</code> turns off the delaying, and rejected requests receive 503 by default, changeable with <code>limit_req_status</code> [4]. Delaying is a poor fit for interactive LLM traffic, because every second of smoothing is added to the user's time to first token, but it suits batch traffic well.</p>
+<table>
+<thead><tr><th>Algorithm</th><th>State per tenant</th><th>Bursts</th><th>Accuracy</th><th>Variable cost (tokens)</th></tr></thead>
+<tbody>
+<tr><td>Fixed window</td><td>1 counter</td><td>Up to 2× the limit at a boundary</td><td>Exact per calendar window</td><td>Yes (increment by cost)</td></tr>
+<tr><td>Sliding window log</td><td>1 entry per request</td><td>None beyond the limit</td><td>Exact</td><td>Yes (store cost per entry)</td></tr>
+<tr><td>Sliding window counter</td><td>2 counters</td><td>Small, approximate</td><td>About 0.003% wrong decisions in Cloudflare's data</td><td>Yes</td></tr>
+<tr><td>Token bucket</td><td>Level + timestamp</td><td>Up to capacity <tex>B</tex>, then rate <tex>r</tex></td><td>Exact for its model</td><td>Yes, natively; wait time is computable</td></tr>
+<tr><td>Leaky bucket (queue)</td><td>Queue + timestamp</td><td>Delayed and smoothed</td><td>Exact</td><td>Awkward; adds latency</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Rate-limiting algorithms</p>
+
+<h4>Which algorithm fits our deployment?</h4>
+<p>We choose a <strong>token bucket per tenant per dimension</strong>: one bucket each for requests, input tokens, and output tokens. It handles variable costs natively, allows controlled bursts, has no window-boundary effect, keeps two numbers of state, and gives us an exact wait time for the Retry-After header. A sliding window counter would also work and is the better choice when a contract states limits per calendar minute and billing must match them exactly.</p>
+
+<h2>Charging for Tokens Before They Exist</h2>
+<h3>Estimating a request's cost at admission</h3>
+<p>The limiter must decide before the model runs, but only half of the cost is known then. The prompt is in hand: the gateway can count its tokens with the model's tokenizer, or approximate from characters and correct the count afterward with the <code>usage.prompt_tokens</code> value that OpenAI-style responses report. The output is unknown until generation ends. The safe upper bound is the request's <code>max_tokens</code>, or a per-tier default when the client does not set one.</p>
+
+<h3>Reserve, then refund</h3>
+<p>The standard pattern is to <strong>reserve</strong> the worst case at admission and <strong>refund</strong> the difference at completion, as Figure 4 shows for a chat request with a 2,000-token prompt and <code>max_tokens</code> of 4,096 that actually generates 500 tokens.</p>
+<fig src="026-reserve-refund.svg" caption="Reserving max_tokens at admission and refunding the unused part at completion">A request timeline with prefill followed by about 10.5 seconds of streaming 500 tokens. At admission, the input bucket drops by 2,000 because the prompt length is known, and the output bucket drops by 4,096 to reserve max_tokens. At completion, the output bucket gets back 3,596 tokens, which is 4,096 minus 500. The net charge is 2,000 input and 500 output tokens. If the gateway dies before completion, the reservation must expire on its own.</fig>
+<p>Reservation is safe, since a tenant can never exceed its budget, but it is pessimistic. Our standard tier allows 150,000 output tokens per minute. A burst of chat requests with <code>max_tokens</code> of 4,096 exhausts the bucket after 36 requests (36 × 4,096 = 147,456), though they will use only 36 × 500 = 18,000 tokens. The steady state is no better: at the tier's 300 requests per minute, about 53 requests are in flight, each holding 3,596 reserved tokens it will not use. That is about 190,000 tokens locked in reservations, more than the whole 150,000-token budget, so the tenant can never reach the rate it pays for. Three remedies exist:</p>
+<ul>
+<li><strong>Ask for honest <code>max_tokens</code></strong>: OpenAI's guidance is to set <code>max_tokens</code> close to the expected response size for exactly this reason [1].</li>
+<li><strong>Reserve an estimate, settle later</strong>: reserve, for example, the tenant's recent 90th-percentile output length (never more than <code>max_tokens</code>), then debit or refund the difference at completion. If the estimate was low, the bucket goes negative and the tenant's next requests wait until it refills, so the long-run rate is still enforced.</li>
+<li><strong>Count output as it is generated</strong>: Anthropic evaluates its output-token limit in real time as tokens are produced, so <code>max_tokens</code> does not count against it [2]. This needs the gateway to count streamed tokens, and it cannot stop a request already running, so the overshoot is bounded by the concurrency limit.</li>
+</ul>
+
+<h3>Concurrency limits per tenant</h3>
+<p>Token budgets bound work per minute but not memory at a moment in time. A tenant whose requests run for 100 seconds holds 100 times as many streams open as a tenant with 1-second requests at the same rate. A <strong>concurrency limit</strong> caps open streams per tenant; Stripe runs one beside its rate limiter for resource-intensive endpoints [5]. Little's law sizes it: in-flight requests equal the arrival rate times the duration. For the standard tier, 300 requests per minute is 5 per second, and at about 10.5 seconds each (500 tokens at about 21 ms per token) that is about 53 in flight, so a cap of 64 leaves a normal standard-tier tenant some headroom. The free-tier cap of 4 would have held the incident's document script to at most 4 × 4.2 ≈ 17 GiB of KV cache instead of about 360 GiB.</p>
+<p>A distributed concurrency counter must survive crashes. A plain counter leaks when a gateway dies before decrementing it, so store <strong>leases</strong> instead: a Redis sorted set of request IDs scored by an expiry time. Admission removes expired leases, counts the rest, and adds one; completion removes the lease; a gateway that dies simply lets its leases expire.</p>
+<table>
+<thead><tr><th>Tier</th><th>Requests/min</th><th>Input tokens/min</th><th>Output tokens/min</th><th>Concurrent</th><th>Priority under overload</th></tr></thead>
+<tbody>
+<tr><td>Free</td><td>20</td><td>40,000</td><td>10,000</td><td>4</td><td>Shed first</td></tr>
+<tr><td>Standard</td><td>300</td><td>600,000</td><td>150,000</td><td>64</td><td>Normal</td></tr>
+<tr><td>Enterprise</td><td>1,000</td><td>2,000,000</td><td>500,000</td><td>200</td><td>Highest, with reserved capacity</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Example tier limits. Token limits are the request limit times the usual 2,000 input and 500 output tokens; concurrency is the request rate times about 10.5 seconds per request, rounded up for headroom.</p>
+
+<h2>Saying No Well</h2>
+<h3>HTTP 429, Retry-After, and rate-limit headers</h3>
+<p>A limited request should fail fast, cheaply, and informatively. The status code is <strong>429 Too Many Requests</strong>, defined in RFC 6585, which says the response may include a Retry-After header indicating how long to wait [6]. <strong>Retry-After</strong> itself is defined in RFC 9110, Section 10.2.3, and holds either a number of seconds or an HTTP date [7]. A token bucket computes it exactly: in Figure 3, (30,000 − 10,000) ÷ 10,000 = 2 seconds. Adding a little random jitter keeps many rejected clients from retrying at the same instant.</p>
+<p>Rate-limit headers that report the budget let well-behaved clients slow down before they hit the wall. There is no finished standard, so providers use their own names:</p>
+<ul>
+<li>OpenAI returns <code>x-ratelimit-limit-requests</code>, <code>x-ratelimit-limit-tokens</code>, <code>x-ratelimit-remaining-requests</code>, <code>x-ratelimit-remaining-tokens</code>, <code>x-ratelimit-reset-requests</code>, and <code>x-ratelimit-reset-tokens</code> [1].</li>
+<li>Anthropic returns <code>retry-after</code> and <code>anthropic-ratelimit-*</code> headers with a limit, remaining amount and reset time for requests, tokens, input tokens, and output tokens, with reset times in RFC 3339 format [2].</li>
+<li>The IETF draft "RateLimit header fields for HTTP" (draft 11, not yet an RFC) defines <code>RateLimit-Policy</code> and <code>RateLimit</code> fields, such as <code>RateLimit-Policy: "default";q=100;w=10</code>. Its registered quota units are requests, content bytes, and concurrent requests; tokens are not among them [8].</li>
+</ul>
+<p>Two more details matter. First, distinguish the tenant's fault from the server's: <strong>429</strong> means "you are over your limit", while <strong>503 Service Unavailable</strong> with Retry-After means "we are overloaded"; Stripe's load shedders reject with 503 [5]. Dashboards and clients treat the two very differently. Second, decide whether rejected requests count against the budget. OpenAI notes that failed requests still count toward the per-minute limit [1], which makes clients that retry without backoff burn their own budget rather than the fleet's.</p>
+
+<h3>Fairness between tenants and priority tiers</h3>
+<p>Per-tenant limits stop one tenant from taking everything, but they do not guarantee capacity. Limits are deliberately <strong>oversubscribed</strong>: Google's SRE book notes that per-customer quotas can sum to more than the backend's capacity, because not every customer uses its full quota at once [9]. If we sell 3 enterprise, 40 standard and 150 free plans from Table 2, the request limits add up to 3 × 1,000 + 40 × 300 + 150 × 20 = 18,000 per minute against a capacity of 2,400. On a busy day, the fleet saturates while every tenant is within its limit.</p>
+<p>At that point the router, not the per-tenant limiter, decides who waits. Two mechanisms work together:</p>
+<ul>
+<li><strong>Fair queuing</strong>: give each tenant its own queue and serve the queues in proportion to weights, for example 4 for enterprise, 2 for standard and 1 for free, rather than in arrival order. A tenant that floods the queue then delays mostly itself.</li>
+<li><strong>Priority with reserved capacity</strong>: classify traffic by how much its failure hurts. Google uses four criticality levels, from CRITICAL_PLUS down to SHEDDABLE, and sheds the lowest first [9]. Stripe reserves a share of its capacity, 20% in its example, for critical requests and rejects non-critical requests once they have used the rest [5]. For us the order is enterprise interactive, standard interactive, free, then batch. Inside each replica, vLLM's <code>--scheduling-policy priority</code> serves lower priority values first [10]. Lesson 39, Batch and Offline Inference, covers how batch work can soak up spare capacity without hurting interactive traffic.</li>
+</ul>
+
+<h3>Load shedding versus queueing</h3>
+<p>When total demand exceeds capacity, every extra request has to wait or be refused. Queueing feels kinder, but it is usually worse. Suppose that during the daily peak of 33 requests per second, a product launch pushes traffic to 80 per second, twice our capacity of 40, for 30 seconds. With an unbounded queue, the backlog grows by 80 − 40 = 40 requests every second. After 30 seconds, 1,200 requests are waiting, and a new arrival waits 1,200 ÷ 40 = 30 seconds before its prefill even starts. Every admitted request misses its TTFT target, clients time out and retry, and the retries add more load. Even after the spike ends, the backlog drains at only 40 − 33 = 7 requests per second, so it takes almost 3 more minutes to clear. Launch spikes of up to 10× the average are the subject of Lesson 27, Lab - Surviving a 10x Traffic Spike.</p>
+<p><strong>Load shedding</strong> bounds the queue instead. If a request may wait at most 250 ms in the router's queue, half of a 500 ms TTFT budget, the queue may hold at most 0.25 × 40 = 10 requests. Everything beyond that is rejected immediately with 503 and a short Retry-After. Half of the spike's requests are refused, but they are refused in milliseconds and can retry or fall back, and the requests we do admit keep their latency. Figure 5 compares the two.</p>
+<fig src="026-shed-vs-queue.svg" caption="During a 2× overload, an unbounded queue makes everyone wait; a bounded queue protects admitted requests">A chart of queue wait for a new arrival over 60 seconds. A spike of 80 requests per second, twice the capacity of 40, runs from 10 to 40 seconds on top of a baseline of 33. With an unbounded queue, the wait rises linearly to 30 seconds at 40 seconds, with 1,200 requests waiting, and is still 26.5 seconds at 60 seconds. With a bounded queue and shedding, the wait never exceeds 0.25 seconds, and the excess 40 requests per second receive 503 with Retry-After.</fig>
+<p>Good shedding is selective. Shed by priority first: free and batch traffic go before enterprise. Drop requests that have already waited past their deadline, since finishing them wastes GPU time on answers nobody is waiting for. And trigger shedding on a direct signal of overload, such as the router's queue wait or the engines' waiting count (<code>vllm:num_requests_waiting</code>), rather than on CPU or GPU utilization; Lesson 29, Queue Depth, covers these signals.</p>
+
+<h2>Building It</h2>
+<h3>Where limits live: gateway, router, and engine</h3>
+<p>Limits are enforced at several layers, each with different knowledge, as Figure 6 shows.</p>
+<fig src="026-limit-layers.svg" caption="Each layer enforces the limits it has the knowledge to enforce">A client sends requests to an API gateway that enforces per-tenant requests per minute, input and output tokens per minute, and concurrent requests, using token buckets in Redis; over-limit requests get 429 with Retry-After. Admitted requests go to a router that runs a fleet-wide queue with priority, fair share and load shedding; when the fleet is saturated it returns 503 with Retry-After. Requests then reach the vLLM engine, which enforces max-num-seqs, KV cache admission and priority scheduling; there a request waits in the engine queue or is preempted.</fig>
+<ul>
+<li><strong>The API gateway</strong> knows the tenant, its plan and its budget, but not the state of the GPUs. It enforces per-tenant limits and answers 429.</li>
+<li><strong>The router</strong> (Lesson 25, Request Routing) knows the queue and the load on every replica. It applies priority and fair share and sheds load with 503 when the fleet is saturated.</li>
+<li><strong>The engine</strong> knows exact memory. vLLM's <code>--max-num-seqs</code> caps the sequences processed in one iteration and <code>--max-num-batched-tokens</code> the tokens per iteration [10], and the scheduler admits waiting requests only when KV cache is free. These limits protect the GPU, but anything that reaches them has already been accepted, so the engine should be the last line of defense, not the only one.</li>
+</ul>
+
+<h3>Distributed limits with Redis</h3>
+<p>Our four gateway pods must share one budget per tenant. Splitting each limit four ways, so that every pod enforces a quarter locally, breaks as soon as the load balancer sends a tenant's traffic unevenly, which it will for a client holding one long-lived HTTP/2 connection. A shared store keeps one bucket per tenant, as Figure 7 shows.</p>
+<fig src="026-redis-limiter.svg" caption="Four gateway pods sharing token buckets in Redis through an atomic Lua script">Four gateway pods each make one round trip per request to Redis, which runs a Lua script, token_bucket.lua, that refills, checks and takes tokens atomically. Redis holds the keys rl:{acme}:req, rl:{acme}:in and rl:{acme}:out. A list of failure modes sits beside it: Redis unreachable, so fail open to a local limit of a quarter of the limit; failover loses recent writes, so admission is briefly too generous; a gateway crashes mid-stream, so its reservation must expire after a lease; one very busy tenant creates a hot key, so the script must stay O(1).</fig>
+<p>The implementation needs care in four places:</p>
+<ul>
+<li><strong>Atomicity</strong>: reading a bucket, computing the refill and taking tokens in separate commands races, since two pods can both read 30,000 tokens and both take them. A Lua script fixes this: Redis guarantees a script's atomic execution and blocks other activity while it runs [11]. One script checks all three buckets and takes from all of them or none.</li>
+<li><strong>Keys and clusters</strong>: every key a script touches must be passed as a key argument [11]. In Redis Cluster, a multi-key script needs all its keys in one hash slot; a <strong>hash tag</strong> such as <code>{acme}</code> in <code>rl:{acme}:in</code> makes Redis hash only the part between the braces, which puts all of a tenant's keys in the same slot [12].</li>
+<li><strong>One clock</strong>: if each pod passes its own time, clock skew between pods corrupts the refill calculation. Calling Redis <code>TIME</code> inside the script gives every pod the same clock; since effects replication became the default in Redis 5.0, scripts that write may call <code>TIME</code> freely [11].</li>
+<li><strong>Cost</strong>: one round trip per request to a nearby Redis is negligible next to a 500 ms TTFT budget, and the script does a constant amount of work.</li>
+</ul>
+<p>Its failure modes need explicit decisions:</p>
+<ul>
+<li><strong>Redis is unreachable</strong>: fail open to a local token bucket at a quarter of each limit on every pod, rather than failing closed and rejecting every customer. The router's load shedding still protects the GPUs.</li>
+<li><strong>Failover</strong>: Redis replicates asynchronously, so a failover can lose acknowledged writes [12]. The new primary may briefly believe buckets are fuller than they were, which admits a little extra traffic for a few seconds. For rate limiting that is acceptable.</li>
+<li><strong>Lost refunds and leases</strong>: a gateway that dies mid-stream never refunds its reservation or releases its concurrency lease. Give both an expiry so they heal on their own.</li>
+<li><strong>Hot keys</strong>: one very busy tenant sends all its operations to one key on one shard. Keep the script O(1), and if one tenant still needs more, shard its bucket across several keys, each holding a fraction of the limit.</li>
+</ul>
+<p>Off-the-shelf options exist. Envoy's global rate limit service stores counters in Redis and lets each request add a variable <code>hits_addend</code>, so a gateway can charge a request by its token count, and a descriptor marked <code>is_negative_hits</code> subtracts instead, which can serve as a refund [13]. It uses fixed windows per second, minute, hour or day, so it inherits the boundary effect of Figure 2.</p>
+
+<h4>Which design fits our deployment?</h4>
+<p>We put <strong>per-tenant token buckets in Redis</strong> in the gateway pods: one bucket each for requests, input tokens and output tokens, updated by one atomic Lua script, plus a lease-based concurrency limit, all sized by tier as in Table 2. Input tokens are charged exactly at admission. Output tokens are reserved at the tenant's recent 90th-percentile output length, capped by <code>max_tokens</code>, and settled at completion, so honest customers are not starved by reservations. Rejected requests get 429 with an exact Retry-After plus jitter and <code>x-ratelimit-*</code> style headers. Behind the gateway, the router runs per-tenant fair queues with priorities and sheds with 503 once queue wait would exceed 250 ms. If Redis fails, the pods fall back to local buckets at a quarter of each limit. This would have stopped the incident twice over: the free tier's 40,000 input tokens per minute admits only about one 30,000-token document per minute, and its concurrency cap of 4 bounds its KV cache use.</p>
+
+<h2>In Practice</h2>
+<p>The first tab is an in-process limiter for one tenant: three token buckets checked all-or-nothing, a concurrency cap, and reserve-then-refund for output tokens. Its demo sends a burst of standard-tier requests with <code>max_tokens</code> of 4,096 and prints that request 36 is rejected with Retry-After of 1 second after 147,456 output tokens were reserved, the over-reservation problem from above. The second tab moves the buckets into Redis with an atomic Lua script that uses Redis time, with keys hash-tagged by tenant. The third shows what a rejected client receives; the header names follow OpenAI's convention.</p>
+<codetabs>
+<tab label="Token bucket" lang="python">
+import math
+import time
+from dataclasses import dataclass, field
+
+
+@dataclass
+class TokenBucket:
+    rate: float      # tokens added per second
+    capacity: float  # largest burst
+    tokens: float = field(init=False)
+    stamp: float = field(init=False)
+
+    def __post_init__(self):
+        self.tokens, self.stamp = self.capacity, time.monotonic()
+
+    def refill(self, now: float) -> None:
+        self.tokens = min(self.capacity, self.tokens + (now - self.stamp) * self.rate)
+        self.stamp = now
+
+    def wait_for(self, cost: float) -> float:
+        """Seconds until `cost` tokens are available (0 if they are available now)."""
+        return max(0.0, (cost - self.tokens) / self.rate)
+
+
+class TenantLimiter:
+    """Requests, input tokens and output tokens per minute, plus a concurrency cap."""
+
+    def __init__(self, rpm: int, input_tpm: int, output_tpm: int, max_concurrent: int):
+        self.buckets = {
+            "requests": TokenBucket(rpm / 60, rpm),
+            "input": TokenBucket(input_tpm / 60, input_tpm),
+            "output": TokenBucket(output_tpm / 60, output_tpm),
+        }
+        self.max_concurrent, self.in_flight = max_concurrent, 0
+
+    def admit(self, prompt_tokens: int, max_tokens: int) -> tuple[bool, float]:
+        """Reserve the worst case. Returns (admitted, retry_after_seconds)."""
+        if (prompt_tokens > self.buckets["input"].capacity
+                or max_tokens > self.buckets["output"].capacity):
+            raise ValueError("request can never fit this tier")  # answer 400, not 429
+        if self.in_flight >= self.max_concurrent:
+            return False, 1.0  # concurrency has no refill schedule; back off briefly
+        now = time.monotonic()
+        cost = {"requests": 1, "input": prompt_tokens, "output": max_tokens}
+        for bucket in self.buckets.values():
+            bucket.refill(now)
+        wait = max(b.wait_for(cost[name]) for name, b in self.buckets.items())
+        if wait > 0:
+            return False, wait  # all or nothing: take from no bucket
+        for name, bucket in self.buckets.items():
+            bucket.tokens -= cost[name]
+        self.in_flight += 1
+        return True, 0.0
+
+    def settle(self, max_tokens: int, output_tokens: int) -> None:
+        """Call when a stream ends or fails: refund the unused output reservation."""
+        out = self.buckets["output"]
+        out.tokens = min(out.capacity, out.tokens + (max_tokens - output_tokens))
+        self.in_flight -= 1
+
+
+if __name__ == "__main__":
+    standard = TenantLimiter(rpm=300, input_tpm=600_000, output_tpm=150_000, max_concurrent=64)
+    admitted = 0
+    for i in range(100):  # a burst of chat requests, each sent with max_tokens=4,096
+        ok, retry_after = standard.admit(prompt_tokens=2_000, max_tokens=4_096)
+        if not ok:
+            print(f"request {i}: 429, Retry-After: {math.ceil(retry_after)}")
+            break
+        admitted += 1
+    print(f"admitted {admitted}; reserved output {admitted * 4_096:,} of 150,000")
+    standard.settle(max_tokens=4_096, output_tokens=500)  # one stream finished
+    print(f"after one refund: {standard.buckets['output'].tokens:,.0f} output tokens left")
+</tab>
+<tab label="Redis + Lua" lang="python">
+import math
+
+import redis
+
+# KEYS: one hash per limit, all sharing the {tenant} hash tag so they sit in one slot.
+# ARGV: rate per second, capacity, and cost for each key, in the same order.
+TAKE = """
+local t = redis.call('TIME')
+local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
+local levels, wait = {}, 0
+for i = 1, #KEYS do
+  local rate, cap, cost = tonumber(ARGV[3*i-2]), tonumber(ARGV[3*i-1]), tonumber(ARGV[3*i])
+  local s = redis.call('HMGET', KEYS[i], 'tokens', 'ts')
+  local tokens = tonumber(s[1]) or cap
+  local ts = tonumber(s[2]) or now
+  levels[i] = math.min(cap, tokens + (now - ts) * rate)
+  if levels[i] < cost then wait = math.max(wait, (cost - levels[i]) / rate) end
+end
+if wait > 0 then return {0, tostring(wait)} end
+for i = 1, #KEYS do
+  local rate, cap, cost = tonumber(ARGV[3*i-2]), tonumber(ARGV[3*i-1]), tonumber(ARGV[3*i])
+  redis.call('HSET', KEYS[i], 'tokens', tostring(levels[i] - cost), 'ts', tostring(now))
+  redis.call('EXPIRE', KEYS[i], math.ceil(cap / rate) + 60)
+end
+return {1, '0'}
+"""
+
+REFUND = """
+local cap, amount = tonumber(ARGV[1]), tonumber(ARGV[2])
+local tokens = tonumber(redis.call('HGET', KEYS[1], 'tokens')) or cap
+redis.call('HSET', KEYS[1], 'tokens', tostring(math.min(cap, tokens + amount)))
+return 1
+"""
+
+TIERS = {  # per minute
+    "free": {"req": 20, "in": 40_000, "out": 10_000},
+    "standard": {"req": 300, "in": 600_000, "out": 150_000},
+    "enterprise": {"req": 1_000, "in": 2_000_000, "out": 500_000},
+}
+
+r = redis.Redis(host="localhost", port=6379, decode_responses=True)
+take, refund = r.register_script(TAKE), r.register_script(REFUND)
+
+
+def admit(tenant: str, tier: str, prompt_tokens: int, reserve_out: int) -> tuple[bool, float]:
+    limits = TIERS[tier]
+    cost = {"req": 1, "in": prompt_tokens, "out": reserve_out}
+    keys = [f"rl:{{{tenant}}}:{dim}" for dim in limits]  # rl:{acme}:req, ...
+    args = []
+    for dim, per_minute in limits.items():
+        args += [per_minute / 60, per_minute, cost[dim]]
+    allowed, wait = take(keys=keys, args=args)
+    return allowed == 1, float(wait)
+
+
+def settle(tenant: str, tier: str, reserved_out: int, output_tokens: int) -> None:
+    # A negative amount debits a reservation that turned out too small.
+    refund(keys=[f"rl:{{{tenant}}}:out"], args=[TIERS[tier]["out"], reserved_out - output_tokens])
+
+
+if __name__ == "__main__":
+    ok, wait = admit("acme", "standard", prompt_tokens=2_000, reserve_out=900)
+    print("admitted" if ok else f"429, Retry-After: {math.ceil(wait)}")
+    if ok:
+        settle("acme", "standard", reserved_out=900, output_tokens=500)
+</tab>
+<tab label="429 response" lang="text">
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+Retry-After: 2
+x-ratelimit-limit-requests: 300
+x-ratelimit-remaining-requests: 211
+x-ratelimit-limit-tokens: 600000
+x-ratelimit-remaining-tokens: 10000
+
+{"error": {"type": "rate_limit_error",
+           "message": "Input tokens per minute exceeded for this API key. Retry after 2 s."}}
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Client-side adaptive throttling: each client tracks its requests and accepted requests and starts rejecting locally once requests reach about twice the accepts, which stops doomed requests before they reach the server [9].</li>
+<li>Retry budgets: capping retries at about 10% of requests keeps a struggling service from receiving nearly three times its normal load [9].</li>
+<li>Rate limits versus quotas: per-minute limits protect latency, while monthly spend caps protect the customer's bill; hosted APIs run both [2].</li>
+<li>Separate limits for batch interfaces, such as a cap on requests waiting in a batch processing queue, so that offline work never competes with interactive limits [2].</li>
+<li>Per-model and per-adapter limits: a token on a 70B model costs far more GPU time than a token on an 8B model, so budgets should be set per model, not globally.</li>
+<li>Rate limits are not abuse protection: an attacker with many API keys stays under every per-key limit, so add per-organization, per-account and per-IP limits as well.</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="026-summary.png" caption="Rate limiting summary" optional="1">Mind map summarizing the rate limiting lesson: what to limit, the algorithms, charging for output tokens, responding to clients, fairness and shedding, and a distributed implementation.</fig>
+<ul>
+<li>Requests per minute alone cannot protect an LLM fleet: two tenants at 60 requests per minute can differ 150× in input tokens. Limit requests, input tokens, output tokens, and concurrent requests per tenant.</li>
+<li>A token bucket (capacity <tex>B</tex>, refill <tex>r</tex>) is the best general choice: two numbers of state, native variable cost, bounded bursts, and an exact wait time of (cost − tokens) ÷ <tex>r</tex>. Fixed windows allow 2× bursts at boundaries.</li>
+<li>Charge prompt tokens exactly at admission. Reserve output tokens, from <code>max_tokens</code> or an estimate, and refund the difference at completion; reserving the full <code>max_tokens</code> can lock up more than a tenant's whole budget.</li>
+<li>Reject with 429 and Retry-After when a tenant is over its limit, and with 503 when the fleet is saturated. Report the remaining budget in headers.</li>
+<li>Limits are oversubscribed, so the router needs fair queuing and priority. Under overload, shed rather than queue: bounding queue wait to 250 ms protects the latency of the requests you admit.</li>
+<li>In a distributed gateway, keep buckets in Redis behind one atomic Lua script, hash-tag a tenant's keys, use Redis time, and fail open to local limits if Redis is unreachable.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] OpenAI API documentation: Rate limits. <a href="https://developers.openai.com/api/docs/guides/rate-limits" rel="noopener noreferrer" target="_blank">https://developers.openai.com/api/docs/guides/rate-limits</a>.<br>
+[2] Claude API documentation: Rate limits. <a href="https://platform.claude.com/docs/en/api/rate-limits" rel="noopener noreferrer" target="_blank">https://platform.claude.com/docs/en/api/rate-limits</a>.<br>
+[3] Cloudflare. How we built rate limiting capable of scaling to millions of domains. <a href="https://blog.cloudflare.com/counting-things-a-lot-of-different-things/" rel="noopener noreferrer" target="_blank">https://blog.cloudflare.com/counting-things-a-lot-of-different-things/</a>.<br>
+[4] NGINX documentation: Module ngx_http_limit_req_module. <a href="https://nginx.org/en/docs/http/ngx_http_limit_req_module.html" rel="noopener noreferrer" target="_blank">https://nginx.org/en/docs/http/ngx_http_limit_req_module.html</a>.<br>
+[5] Tarjan. Scaling your API with rate limiters. <a href="https://stripe.com/blog/rate-limiters" rel="noopener noreferrer" target="_blank">https://stripe.com/blog/rate-limiters</a>.<br>
+[6] Nottingham and Fielding. RFC 6585: Additional HTTP Status Codes. <a href="https://www.rfc-editor.org/rfc/rfc6585" rel="noopener noreferrer" target="_blank">https://www.rfc-editor.org/rfc/rfc6585</a>.<br>
+[7] Fielding, Nottingham, and Reschke. RFC 9110: HTTP Semantics. <a href="https://www.rfc-editor.org/rfc/rfc9110" rel="noopener noreferrer" target="_blank">https://www.rfc-editor.org/rfc/rfc9110</a>.<br>
+[8] Polli, Martinez Ruiz, and Miller. RateLimit header fields for HTTP (Internet-Draft). <a href="https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/" rel="noopener noreferrer" target="_blank">https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/</a>.<br>
+[9] Google SRE Book: Handling Overload. <a href="https://sre.google/sre-book/handling-overload/" rel="noopener noreferrer" target="_blank">https://sre.google/sre-book/handling-overload/</a>.<br>
+[10] vLLM documentation: Engine Arguments. <a href="https://docs.vllm.ai/en/latest/configuration/engine_args.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/engine_args.html</a>.<br>
+[11] Redis documentation: Scripting with Lua. <a href="https://redis.io/docs/latest/develop/programmability/eval-intro/" rel="noopener noreferrer" target="_blank">https://redis.io/docs/latest/develop/programmability/eval-intro/</a>.<br>
+[12] Redis documentation: Redis cluster specification. <a href="https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/" rel="noopener noreferrer" target="_blank">https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/</a>.<br>
+[13] Envoy rate limit service. <a href="https://github.com/envoyproxy/ratelimit" rel="noopener noreferrer" target="_blank">https://github.com/envoyproxy/ratelimit</a>.</p>

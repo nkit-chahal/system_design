@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="272" viewBox="0 0 820 272" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .left{fill:url(#hatch);stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- 9.55 px per GiB; 79.6 GiB = 760 px -->
+  <text x="30" y="26" class="b">vLLM: --gpu-memory-utilization 0.90 (set explicitly) is a share of total memory</text>
+  <rect x="30" y="38" width="143" height="44" class="orange"/>
+  <text x="101" y="57" text-anchor="middle" class="b">Weights</text>
+  <text x="101" y="74" text-anchor="middle" class="sm">15 GiB</text>
+  <rect x="173" y="38" width="44" height="44" class="gray"/>
+  <rect x="217" y="38" width="497" height="44" class="blue"/>
+  <text x="465" y="57" text-anchor="middle" class="b">KV cache</text>
+  <text x="465" y="74" text-anchor="middle" class="sm">≈ 52 GiB</text>
+  <rect x="714" y="38" width="76" height="44" class="left"/>
+  <path d="M195,82 L195,94" stroke="#000"/>
+  <text x="195" y="107" text-anchor="middle" class="sm">activations + CUDA graphs ≈ 4.6 GiB</text>
+  <text x="752" y="100" text-anchor="middle" class="sm">8 GiB held back</text>
+
+  <text x="30" y="144" class="b">TensorRT-LLM: kv_cache_free_gpu_memory_fraction 0.9 is a share of what is still free</text>
+  <rect x="30" y="156" width="143" height="44" class="orange"/>
+  <text x="101" y="175" text-anchor="middle" class="b">Weights</text>
+  <text x="101" y="192" text-anchor="middle" class="sm">15 GiB</text>
+  <rect x="173" y="156" width="44" height="44" class="gray"/>
+  <rect x="217" y="156" width="516" height="44" class="blue"/>
+  <text x="475" y="175" text-anchor="middle" class="b">KV cache</text>
+  <text x="475" y="192" text-anchor="middle" class="sm">0.9 × 60 GiB = 54 GiB</text>
+  <rect x="733" y="156" width="57" height="44" class="left"/>
+  <path d="M195,200 L195,212" stroke="#000"/>
+  <text x="195" y="225" text-anchor="middle" class="sm">buffers ≈ 4.6 GiB (assumed)</text>
+  <text x="761" y="218" text-anchor="middle" class="sm">6 GiB left</text>
+  <path d="M217,240 L790,240" stroke="#000" stroke-width="1"/>
+  <path d="M217,235 L217,245 M790,235 L790,245" stroke="#000" stroke-width="1"/>
+  <text x="503" y="262" text-anchor="middle" class="sm">60 GiB free after weights and buffers · 54 GiB ÷ 4 MiB per block = 13,824 blocks ≈ 442,000 tokens</text>
+</svg>

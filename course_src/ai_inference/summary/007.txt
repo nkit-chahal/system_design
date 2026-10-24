@@ -1,0 +1,7 @@
+center: Continuous Batching
+branch: Why batching matters | one weight read, many tokens | 205 to 8,600 tokens/s | per-user speed falls
+branch: Static batching waste | padding | waiting for the longest | head-of-line blocking
+branch: Iteration-level scheduling | Orca, OSDI 2022 | selective batching | join and leave every step
+branch: Scheduler step | running first, then waiting | max-num-batched-tokens | max-num-seqs
+branch: Chunked prefill | spreads long prompts | balance point ≈ 640 tokens | 33 ms vs 133 ms
+branch: Our settings | budget 512 | 64 sequences | ≈ 2.3× the prototype

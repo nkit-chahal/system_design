@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="330" viewBox="0 0 840 330" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .brace{fill:none;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Brackets above -->
+  <path d="M30,40 L30,32 L810,32 L810,40" class="brace"/>
+  <text x="420" y="24" text-anchor="middle" class="sm b">Client-side TTFT: request sent → first non-empty content chunk received (what users feel)</text>
+  <path d="M230,84 L230,76 L810,76 L810,84" class="brace"/>
+  <text x="520" y="68" text-anchor="middle" class="sm">gateway TTFT, if the proxy logs time to first byte</text>
+
+  <!-- Components -->
+  <rect x="30" y="100" width="150" height="56" rx="6" class="purple"/>
+  <text x="105" y="124" text-anchor="middle" class="b">Client</text>
+  <text x="105" y="142" text-anchor="middle" class="sm">streaming request</text>
+  <path d="M180,128 L228,128" class="edge"/>
+  <rect x="230" y="100" width="150" height="56" rx="6" class="gray"/>
+  <text x="305" y="124" text-anchor="middle" class="b">Load balancer</text>
+  <text x="305" y="142" text-anchor="middle" class="sm">or API gateway</text>
+  <path d="M380,128 L428,128" class="edge"/>
+  <rect x="430" y="100" width="170" height="56" rx="6" class="orange"/>
+  <text x="515" y="124" text-anchor="middle" class="b">vLLM API server</text>
+  <text x="515" y="142" text-anchor="middle" class="sm">HTTP, template, tokens</text>
+  <path d="M600,128 L648,128" class="edge"/>
+  <rect x="650" y="100" width="160" height="56" rx="6" class="orange"/>
+  <text x="730" y="124" text-anchor="middle" class="b">Engine core</text>
+  <text x="730" y="142" text-anchor="middle" class="sm">scheduler + GPU</text>
+
+  <!-- Server metric brackets below -->
+  <path d="M500,176 L500,184 L810,184 L810,176" class="brace"/>
+  <text x="655" y="202" text-anchor="middle" class="sm b">vllm:time_to_first_token_seconds</text>
+  <text x="655" y="218" text-anchor="middle" class="sm">from arrival in the engine front end</text>
+  <rect x="560" y="232" width="122" height="30" rx="4" class="purple"/>
+  <text x="621" y="252" text-anchor="middle" class="sm">queue time</text>
+  <rect x="688" y="232" width="122" height="30" rx="4" class="orange"/>
+  <text x="749" y="252" text-anchor="middle" class="sm">prefill time</text>
+  <text x="621" y="278" text-anchor="middle" class="sm">request_queue_time</text>
+  <text x="749" y="278" text-anchor="middle" class="sm">request_prefill_time</text>
+
+  <!-- Pitfall -->
+  <rect x="30" y="196" width="440" height="66" rx="6" class="red"/>
+  <text x="250" y="218" text-anchor="middle" class="sm b">Pitfall: a buffering proxy</text>
+  <text x="250" y="236" text-anchor="middle" class="sm">nginx buffers proxied responses by default (proxy_buffering on),</text>
+  <text x="250" y="252" text-anchor="middle" class="sm">so server TTFT looks fine while users wait for the buffer to fill.</text>
+
+  <text x="30" y="312" class="sm">Client TTFT minus server TTFT = network + proxies + HTTP handling. Track both; alert on the client-side number.</text>
+</svg>

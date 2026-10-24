@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="284" viewBox="0 0 860 284" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{stroke:#000;stroke-width:1.2;fill:none}
+    .grid{stroke:#ddd;stroke-width:1;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="180" y="26" text-anchor="middle" class="b">Hard label</text>
+  <path d="M60,44 L60,200 L300,200" class="axis"/>
+  <line x1="56" y1="200" x2="60" y2="200" stroke="#000" stroke-width="1"/>
+  <text x="52" y="204" text-anchor="end" class="sm">0</text>
+  <line x1="56" y1="125" x2="60" y2="125" stroke="#000" stroke-width="1"/>
+  <text x="52" y="129" text-anchor="end" class="sm">0.5</text>
+  <line x1="56" y1="50" x2="60" y2="50" stroke="#000" stroke-width="1"/>
+  <text x="52" y="54" text-anchor="end" class="sm">1</text>
+  <rect x="66" y="50.0" width="36" height="150.0" class="gray"/>
+  <text x="84.0" y="45.0" text-anchor="middle" class="sm">1</text>
+  <text x="84.0" y="216" text-anchor="middle" class="sm">Paris</text>
+  <text x="132.0" y="195.0" text-anchor="middle" class="sm">0</text>
+  <text x="132.0" y="216" text-anchor="middle" class="sm">France</text>
+  <text x="180.0" y="195.0" text-anchor="middle" class="sm">0</text>
+  <text x="180.0" y="216" text-anchor="middle" class="sm">the</text>
+  <text x="228.0" y="195.0" text-anchor="middle" class="sm">0</text>
+  <text x="228.0" y="216" text-anchor="middle" class="sm">central</text>
+  <text x="276.0" y="195.0" text-anchor="middle" class="sm">0</text>
+  <text x="276.0" y="216" text-anchor="middle" class="sm">Lyon</text>
+  <text x="450" y="26" text-anchor="middle" class="b">Teacher, T = 1</text>
+  <path d="M330,44 L330,200 L570,200" class="axis"/>
+  <line x1="326" y1="200" x2="330" y2="200" stroke="#000" stroke-width="1"/>
+  <line x1="326" y1="125" x2="330" y2="125" stroke="#000" stroke-width="1"/>
+  <line x1="326" y1="50" x2="330" y2="50" stroke="#000" stroke-width="1"/>
+  <rect x="336" y="65.3" width="36" height="134.7" class="blue"/>
+  <text x="354.0" y="60.3" text-anchor="middle" class="sm">0.898</text>
+  <text x="354.0" y="216" text-anchor="middle" class="sm">Paris</text>
+  <rect x="384" y="188.9" width="36" height="11.1" class="blue"/>
+  <text x="402.0" y="183.9" text-anchor="middle" class="sm">0.074</text>
+  <text x="402.0" y="216" text-anchor="middle" class="sm">France</text>
+  <rect x="432" y="197.5" width="36" height="2.5" class="blue"/>
+  <text x="450.0" y="192.5" text-anchor="middle" class="sm">0.016</text>
+  <text x="450.0" y="216" text-anchor="middle" class="sm">the</text>
+  <rect x="480" y="198.5" width="36" height="1.5" class="blue"/>
+  <text x="498.0" y="193.5" text-anchor="middle" class="sm">0.010</text>
+  <text x="498.0" y="216" text-anchor="middle" class="sm">central</text>
+  <rect x="528" y="199.7" width="36" height="0.3" class="blue"/>
+  <text x="546.0" y="194.7" text-anchor="middle" class="sm">0.002</text>
+  <text x="546.0" y="216" text-anchor="middle" class="sm">Lyon</text>
+  <text x="720" y="26" text-anchor="middle" class="b">Teacher, T = 4</text>
+  <path d="M600,44 L600,200 L840,200" class="axis"/>
+  <line x1="596" y1="200" x2="600" y2="200" stroke="#000" stroke-width="1"/>
+  <line x1="596" y1="125" x2="600" y2="125" stroke="#000" stroke-width="1"/>
+  <line x1="596" y1="50" x2="600" y2="50" stroke="#000" stroke-width="1"/>
+  <rect x="606" y="138.8" width="36" height="61.2" class="orange"/>
+  <text x="624.0" y="133.8" text-anchor="middle" class="sm">0.408</text>
+  <text x="624.0" y="216" text-anchor="middle" class="sm">Paris</text>
+  <rect x="654" y="167.2" width="36" height="32.8" class="orange"/>
+  <text x="672.0" y="162.2" text-anchor="middle" class="sm">0.218</text>
+  <text x="672.0" y="216" text-anchor="middle" class="sm">France</text>
+  <rect x="702" y="177.5" width="36" height="22.5" class="orange"/>
+  <text x="720.0" y="172.5" text-anchor="middle" class="sm">0.150</text>
+  <text x="720.0" y="216" text-anchor="middle" class="sm">the</text>
+  <rect x="750" y="180.1" width="36" height="19.9" class="orange"/>
+  <text x="768.0" y="175.1" text-anchor="middle" class="sm">0.132</text>
+  <text x="768.0" y="216" text-anchor="middle" class="sm">central</text>
+  <rect x="798" y="186.3" width="36" height="13.7" class="orange"/>
+  <text x="816.0" y="181.3" text-anchor="middle" class="sm">0.091</text>
+  <text x="816.0" y="216" text-anchor="middle" class="sm">Lyon</text>
+  <text x="16" y="250">Next-token probabilities after "The Eiffel Tower is in" for teacher logits 8.0, 5.5, 4.0, 3.5 and 2.0 (five candidates shown).</text>
+  <text x="16" y="270">A higher temperature keeps the ranking but shows how plausible the teacher finds each alternative.</text>
+</svg>

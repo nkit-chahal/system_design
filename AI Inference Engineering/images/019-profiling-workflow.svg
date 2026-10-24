@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="260" viewBox="0 0 840 260" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.it{font-style:italic}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <rect x="16" y="30" width="180" height="108" rx="6" class="gray"/>
+  <text x="106" y="56" text-anchor="middle" class="b">1. Fleet view</text>
+  <text x="106" y="80" text-anchor="middle" class="sm">DCGM: GPU-Util, SM,</text>
+  <text x="106" y="96" text-anchor="middle" class="sm">tensor, DRAM activity</text>
+  <text x="106" y="122" text-anchor="middle" class="sm it">Idle, or busy?</text>
+
+  <rect x="226" y="30" width="180" height="108" rx="6" class="green"/>
+  <text x="316" y="56" text-anchor="middle" class="b">2. Model ratios</text>
+  <text x="316" y="80" text-anchor="middle" class="sm">MFU for prefill,</text>
+  <text x="316" y="96" text-anchor="middle" class="sm">MBU for decode</text>
+  <text x="316" y="122" text-anchor="middle" class="sm it">How far from the roof?</text>
+
+  <rect x="436" y="30" width="180" height="108" rx="6" class="orange"/>
+  <text x="526" y="56" text-anchor="middle" class="b">3. Timeline</text>
+  <text x="526" y="80" text-anchor="middle" class="sm">Nsight Systems:</text>
+  <text x="526" y="96" text-anchor="middle" class="sm">CPU, launch, NCCL gaps</text>
+  <text x="526" y="122" text-anchor="middle" class="sm it">Where are the holes?</text>
+
+  <rect x="646" y="30" width="180" height="108" rx="6" class="orange"/>
+  <text x="736" y="56" text-anchor="middle" class="b">4. Kernels</text>
+  <text x="736" y="80" text-anchor="middle" class="sm">PyTorch profiler,</text>
+  <text x="736" y="96" text-anchor="middle" class="sm">Nsight Compute</text>
+  <text x="736" y="122" text-anchor="middle" class="sm it">Which kernel dominates?</text>
+
+  <path d="M196,84 L224,84" class="edge"/>
+  <path d="M406,84 L434,84" class="edge"/>
+  <path d="M616,84 L644,84" class="edge"/>
+
+  <rect x="316" y="186" width="220" height="48" rx="6" class="purple"/>
+  <text x="426" y="206" text-anchor="middle" class="b">5. Fix one thing</text>
+  <text x="426" y="224" text-anchor="middle" class="sm">then re-measure from step 1</text>
+  <path d="M736,138 L736,210 L538,210" class="edge"/>
+  <path d="M316,210 L106,210 L106,140" class="edge"/>
+
+  <text x="16" y="18" class="sm">Coarse to fine: each step is more expensive to run, so only go deeper when the step before points there.</text>
+</svg>

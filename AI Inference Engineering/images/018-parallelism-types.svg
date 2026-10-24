@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="844" height="268" viewBox="0 0 844 268" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .frame{fill:none;stroke:#999;stroke-width:1;stroke-dasharray:3 3}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .a2a{fill:none;stroke:#9673a6;stroke-width:1.6;marker-start:url(#arrow);marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Tensor parallel -->
+  <rect x="10" y="10" width="200" height="248" rx="4" class="group"/>
+  <text x="110" y="34" text-anchor="middle" class="b">Tensor parallel</text>
+  <rect x="25" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="41" y="212" text-anchor="middle" class="sm">G0</text>
+  <rect x="71" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="87" y="212" text-anchor="middle" class="sm">G1</text>
+  <rect x="117" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="133" y="212" text-anchor="middle" class="sm">G2</text>
+  <rect x="163" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="179" y="212" text-anchor="middle" class="sm">G3</text>
+  <rect x="25" y="62" width="170" height="34" class="orange"/>
+  <text x="110" y="84" text-anchor="middle" class="sm">layer 1</text>
+  <rect x="25" y="106" width="170" height="34" class="orange"/>
+  <text x="110" y="128" text-anchor="middle" class="sm">layer 2</text>
+  <rect x="25" y="150" width="170" height="34" class="orange"/>
+  <text x="110" y="172" text-anchor="middle" class="sm">layer 3</text>
+  <line x1="64" y1="56" x2="64" y2="190" stroke="#d79b00" stroke-width="1" stroke-dasharray="3 3"/>
+  <line x1="110" y1="56" x2="110" y2="190" stroke="#d79b00" stroke-width="1" stroke-dasharray="3 3"/>
+  <line x1="156" y1="56" x2="156" y2="190" stroke="#d79b00" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="110" y="232" text-anchor="middle" class="sm">each layer split 4 ways</text>
+  <text x="110" y="248" text-anchor="middle" class="sm">2 all-reduces per layer</text>
+  <!-- Pipeline parallel -->
+  <rect x="218" y="10" width="200" height="248" rx="4" class="group"/>
+  <text x="318" y="34" text-anchor="middle" class="b">Pipeline parallel</text>
+  <rect x="233" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="249" y="212" text-anchor="middle" class="sm">G0</text>
+  <rect x="279" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="295" y="212" text-anchor="middle" class="sm">G1</text>
+  <rect x="325" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="341" y="212" text-anchor="middle" class="sm">G2</text>
+  <rect x="371" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="387" y="212" text-anchor="middle" class="sm">G3</text>
+  <rect x="233" y="58" width="32" height="130" class="orange"/>
+  <text x="249" y="123" text-anchor="middle" class="sm" transform="rotate(-90 249 123)" dy="4">layers 1–20</text>
+  <rect x="279" y="58" width="32" height="130" class="orange"/>
+  <text x="295" y="123" text-anchor="middle" class="sm" transform="rotate(-90 295 123)" dy="4">layers 21–40</text>
+  <rect x="325" y="58" width="32" height="130" class="orange"/>
+  <text x="341" y="123" text-anchor="middle" class="sm" transform="rotate(-90 341 123)" dy="4">layers 41–60</text>
+  <rect x="371" y="58" width="32" height="130" class="orange"/>
+  <text x="387" y="123" text-anchor="middle" class="sm" transform="rotate(-90 387 123)" dy="4">layers 61–80</text>
+  <path d="M266,123 H278" class="edge"/>
+  <path d="M312,123 H324" class="edge"/>
+  <path d="M358,123 H370" class="edge"/>
+  <text x="318" y="232" text-anchor="middle" class="sm">layers split into 4 stages</text>
+  <text x="318" y="248" text-anchor="middle" class="sm">1 hand-off per stage</text>
+  <!-- Data parallel -->
+  <rect x="426" y="10" width="200" height="248" rx="4" class="group"/>
+  <text x="526" y="34" text-anchor="middle" class="b">Data parallel</text>
+  <rect x="441" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="457" y="212" text-anchor="middle" class="sm">G0</text>
+  <rect x="487" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="503" y="212" text-anchor="middle" class="sm">G1</text>
+  <rect x="533" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="549" y="212" text-anchor="middle" class="sm">G2</text>
+  <rect x="579" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="595" y="212" text-anchor="middle" class="sm">G3</text>
+  <rect x="441" y="62" width="32" height="34" class="orange"/><text x="457" y="84" text-anchor="middle" class="sm">L1</text>
+  <rect x="441" y="106" width="32" height="34" class="orange"/><text x="457" y="128" text-anchor="middle" class="sm">L2</text>
+  <rect x="441" y="150" width="32" height="34" class="orange"/><text x="457" y="172" text-anchor="middle" class="sm">L3</text>
+  <rect x="487" y="62" width="32" height="34" class="orange"/><text x="503" y="84" text-anchor="middle" class="sm">L1</text>
+  <rect x="487" y="106" width="32" height="34" class="orange"/><text x="503" y="128" text-anchor="middle" class="sm">L2</text>
+  <rect x="487" y="150" width="32" height="34" class="orange"/><text x="503" y="172" text-anchor="middle" class="sm">L3</text>
+  <rect x="533" y="62" width="32" height="34" class="orange"/><text x="549" y="84" text-anchor="middle" class="sm">L1</text>
+  <rect x="533" y="106" width="32" height="34" class="orange"/><text x="549" y="128" text-anchor="middle" class="sm">L2</text>
+  <rect x="533" y="150" width="32" height="34" class="orange"/><text x="549" y="172" text-anchor="middle" class="sm">L3</text>
+  <rect x="579" y="62" width="32" height="34" class="orange"/><text x="595" y="84" text-anchor="middle" class="sm">L1</text>
+  <rect x="579" y="106" width="32" height="34" class="orange"/><text x="595" y="128" text-anchor="middle" class="sm">L2</text>
+  <rect x="579" y="150" width="32" height="34" class="orange"/><text x="595" y="172" text-anchor="middle" class="sm">L3</text>
+  <text x="526" y="232" text-anchor="middle" class="sm">a full copy per GPU</text>
+  <text x="526" y="248" text-anchor="middle" class="sm">no traffic between copies</text>
+  <!-- Expert parallel -->
+  <rect x="634" y="10" width="200" height="248" rx="4" class="group"/>
+  <text x="734" y="34" text-anchor="middle" class="b">Expert parallel</text>
+  <rect x="649" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="665" y="212" text-anchor="middle" class="sm">G0</text>
+  <rect x="695" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="711" y="212" text-anchor="middle" class="sm">G1</text>
+  <rect x="741" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="757" y="212" text-anchor="middle" class="sm">G2</text>
+  <rect x="787" y="50" width="32" height="146" rx="3" class="frame"/>
+  <text x="803" y="212" text-anchor="middle" class="sm">G3</text>
+  <rect x="649" y="58" width="32" height="30" class="gray"/><text x="665" y="78" text-anchor="middle" class="sm">attn</text>
+  <rect x="649" y="118" width="32" height="28" rx="3" class="orange"/><text x="665" y="137" text-anchor="middle" class="sm">E0</text>
+  <rect x="649" y="154" width="32" height="28" rx="3" class="orange"/><text x="665" y="173" text-anchor="middle" class="sm">E1</text>
+  <rect x="695" y="58" width="32" height="30" class="gray"/><text x="711" y="78" text-anchor="middle" class="sm">attn</text>
+  <rect x="695" y="118" width="32" height="28" rx="3" class="orange"/><text x="711" y="137" text-anchor="middle" class="sm">E2</text>
+  <rect x="695" y="154" width="32" height="28" rx="3" class="orange"/><text x="711" y="173" text-anchor="middle" class="sm">E3</text>
+  <rect x="741" y="58" width="32" height="30" class="gray"/><text x="757" y="78" text-anchor="middle" class="sm">attn</text>
+  <rect x="741" y="118" width="32" height="28" rx="3" class="orange"/><text x="757" y="137" text-anchor="middle" class="sm">E4</text>
+  <rect x="741" y="154" width="32" height="28" rx="3" class="orange"/><text x="757" y="173" text-anchor="middle" class="sm">E5</text>
+  <rect x="787" y="58" width="32" height="30" class="gray"/><text x="803" y="78" text-anchor="middle" class="sm">attn</text>
+  <rect x="787" y="118" width="32" height="28" rx="3" class="orange"/><text x="803" y="137" text-anchor="middle" class="sm">E6</text>
+  <rect x="787" y="154" width="32" height="28" rx="3" class="orange"/><text x="803" y="173" text-anchor="middle" class="sm">E7</text>
+  <path d="M651,103 H817" class="a2a"/>
+  <text x="734" y="232" text-anchor="middle" class="sm">experts spread across GPUs</text>
+  <text x="734" y="248" text-anchor="middle" class="sm">all-to-all per MoE layer</text>
+</svg>

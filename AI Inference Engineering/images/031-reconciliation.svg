@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="360" viewBox="0 0 820 360" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="26" class="b">Output tokens for one model, one day (millions; illustrative)</text>
+
+  <!-- Engine column: 721 -->
+  <rect x="80" y="60" width="140" height="240" class="purple"/>
+  <text x="150" y="176" text-anchor="middle" class="b">721</text>
+  <text x="150" y="196" text-anchor="middle" class="sm">engine counters</text>
+  <text x="150" y="324" text-anchor="middle" class="sm">vllm:generation_tokens_total</text>
+
+  <!-- Gateway column: 715 plus explained parts stacked to 721 -->
+  <rect x="300" y="62" width="140" height="238" class="orange"/>
+  <text x="370" y="176" text-anchor="middle" class="b">715</text>
+  <text x="370" y="196" text-anchor="middle" class="sm">gateway records</text>
+  <text x="370" y="324" text-anchor="middle" class="sm">billed in the warehouse</text>
+
+  <!-- Gap explanation -->
+  <path d="M440,62 L470,62 M440,60 L470,60" stroke="#000" stroke-width="1"/>
+  <rect x="490" y="44" width="310" height="34" rx="4" class="gray"/>
+  <text x="500" y="66" class="sm">gap: 6 million tokens (0.8%)</text>
+  <rect x="490" y="92" width="310" height="28" rx="4" class="yellow"/>
+  <text x="500" y="111" class="sm">retried requests counted twice by engines: 2.5M</text>
+  <rect x="490" y="126" width="310" height="28" rx="4" class="yellow"/>
+  <text x="500" y="145" class="sm">aborted streams without usage: 1.8M</text>
+  <rect x="490" y="160" width="310" height="28" rx="4" class="yellow"/>
+  <text x="500" y="179" class="sm">warm-up and health-check traffic: 1.0M</text>
+  <rect x="490" y="200" width="310" height="44" rx="4" class="green"/>
+  <text x="500" y="219" class="sm">unexplained: 0.7M, about 0.1%</text>
+  <text x="500" y="236" class="sm">inside the 1% tolerance: no records lost</text>
+
+  <line x1="60" y1="300" x2="460" y2="300" class="axis"/>
+  <text x="490" y="280" class="sm">Above tolerance: look for gateway pods that</text>
+  <text x="490" y="296" class="sm">died before flushing, lost event partitions,</text>
+  <text x="490" y="312" class="sm">or traffic that bypasses the gateway.</text>
+</svg>

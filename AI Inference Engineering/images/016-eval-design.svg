@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="270" viewBox="0 0 820 270" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="270" fill="#fff"/>
+
+  <rect x="20" y="30" width="220" height="70" rx="6" class="blue"/>
+  <text x="130" y="56" text-anchor="middle" class="b">GSM8K test set</text>
+  <text x="130" y="74" text-anchor="middle" class="sm">1,319 problems, 5-shot</text>
+  <text x="130" y="90" text-anchor="middle" class="sm">exact match, via lm-eval</text>
+
+  <rect x="20" y="130" width="220" height="70" rx="6" class="blue"/>
+  <text x="130" y="156" text-anchor="middle" class="b">Your task set</text>
+  <text x="130" y="174" text-anchor="middle" class="sm">100-200 real prompts</text>
+  <text x="130" y="190" text-anchor="middle" class="sm">automatic checks, own_eval.py</text>
+
+  <path d="M240,65 L270,65 L270,115 L288,115" class="edge"/>
+  <path d="M240,165 L270,165 L270,115" fill="none" stroke="#000" stroke-width="1.2"/>
+
+  <rect x="290" y="75" width="170" height="80" rx="6" class="orange"/>
+  <text x="375" y="100" text-anchor="middle" class="b">Same commands</text>
+  <text x="375" y="120" text-anchor="middle" class="sm">on the BF16 server,</text>
+  <text x="375" y="136" text-anchor="middle" class="sm">then the quantized one</text>
+  <path d="M460,115 L488,115" class="edge"/>
+
+  <path d="M490,88 L490,140 A60,10 0 0,0 610,140 L610,88" class="blue"/>
+  <ellipse cx="550" cy="88" rx="60" ry="10" class="blue"/>
+  <text x="550" y="118" text-anchor="middle" class="sm">per-item scores,</text>
+  <text x="550" y="134" text-anchor="middle" class="sm">0 or 1, both models</text>
+  <path d="M610,115 L638,115" class="edge"/>
+
+  <rect x="640" y="75" width="160" height="80" rx="6" class="gray"/>
+  <text x="720" y="100" text-anchor="middle" class="b">compare.py</text>
+  <text x="720" y="120" text-anchor="middle" class="sm">paired change, 95% CI,</text>
+  <text x="720" y="136" text-anchor="middle" class="sm">flipped answers</text>
+  <path d="M720,155 L720,183" class="edge"/>
+  <rect x="610" y="185" width="200" height="50" rx="6" class="green"/>
+  <text x="710" y="206" text-anchor="middle" class="sm">decision against a threshold</text>
+  <text x="710" y="223" text-anchor="middle" class="sm">set before quantizing: ≤ 1 point</text>
+  <text x="20" y="258" class="sm">Write the task set, the checks, and the threshold down first, so that the result cannot move the goalposts.</text>
+</svg>

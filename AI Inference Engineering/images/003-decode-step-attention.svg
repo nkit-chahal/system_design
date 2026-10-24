@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="390" viewBox="0 0 800 390" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- New token and its projections -->
+  <rect x="16" y="152" width="120" height="44" rx="6" class="white"/>
+  <text x="76" y="171" text-anchor="middle">new token</text>
+  <text x="76" y="188" text-anchor="middle" class="b">“on”</text>
+
+  <rect x="186" y="62" width="110" height="36" rx="6" class="purple"/>
+  <text x="241" y="85" text-anchor="middle">q = W<tspan font-size="10" dy="4">q</tspan><tspan dy="-4"> x</tspan></text>
+  <rect x="186" y="156" width="110" height="36" rx="6" class="orange"/>
+  <text x="241" y="179" text-anchor="middle">k = W<tspan font-size="10" dy="4">k</tspan><tspan dy="-4"> x</tspan></text>
+  <rect x="186" y="250" width="110" height="36" rx="6" class="orange"/>
+  <text x="241" y="273" text-anchor="middle">v = W<tspan font-size="10" dy="4">v</tspan><tspan dy="-4"> x</tspan></text>
+  <path d="M136,174 L160,174 L160,80 L184,80" class="edge"/>
+  <path d="M136,174 L184,174" class="edge"/>
+  <path d="M136,174 L160,174 L160,268 L184,268" class="edge"/>
+
+  <!-- K cache -->
+  <text x="350" y="44" class="b">K cache (one layer)</text>
+  <rect x="340" y="52" width="170" height="134" rx="4" class="group"/>
+  <rect x="355" y="62" width="140" height="24" rx="3" class="blue"/><text x="425" y="79" text-anchor="middle">k “The”</text>
+  <rect x="355" y="92" width="140" height="24" rx="3" class="blue"/><text x="425" y="109" text-anchor="middle">k “cat”</text>
+  <rect x="355" y="122" width="140" height="24" rx="3" class="blue"/><text x="425" y="139" text-anchor="middle">k “sat”</text>
+  <rect x="355" y="152" width="140" height="24" rx="3" class="orange"/><text x="425" y="169" text-anchor="middle">k “on” (appended)</text>
+  <path d="M296,174 L353,166" class="edge"/>
+
+  <!-- V cache -->
+  <text x="350" y="226" class="b">V cache (one layer)</text>
+  <rect x="340" y="234" width="170" height="134" rx="4" class="group"/>
+  <rect x="355" y="244" width="140" height="24" rx="3" class="blue"/><text x="425" y="261" text-anchor="middle">v “The”</text>
+  <rect x="355" y="274" width="140" height="24" rx="3" class="blue"/><text x="425" y="291" text-anchor="middle">v “cat”</text>
+  <rect x="355" y="304" width="140" height="24" rx="3" class="blue"/><text x="425" y="321" text-anchor="middle">v “sat”</text>
+  <rect x="355" y="334" width="140" height="24" rx="3" class="orange"/><text x="425" y="351" text-anchor="middle">v “on” (appended)</text>
+  <path d="M296,268 L320,268 L320,346 L353,346" class="edge"/>
+
+  <!-- Attention math -->
+  <path d="M241,62 L241,22 L660,22 L660,72" class="edge"/>
+  <rect x="570" y="74" width="180" height="40" rx="6" class="gray"/>
+  <text x="660" y="99" text-anchor="middle">scores = q·Kᵀ / √d</text>
+  <path d="M510,119 L568,100" class="edge"/>
+  <rect x="570" y="150" width="180" height="36" rx="6" class="gray"/>
+  <text x="660" y="173" text-anchor="middle">softmax → weights</text>
+  <path d="M660,114 L660,148" class="edge"/>
+  <rect x="570" y="236" width="180" height="40" rx="6" class="gray"/>
+  <text x="660" y="261" text-anchor="middle">output = weights · V</text>
+  <path d="M660,186 L660,234" class="edge"/>
+  <path d="M510,301 L568,262" class="edge"/>
+  <rect x="570" y="318" width="180" height="36" rx="6" class="white"/>
+  <text x="660" y="341" text-anchor="middle">to the next layer</text>
+  <path d="M660,276 L660,316" class="edge"/>
+
+  <!-- Legend -->
+  <rect x="16" y="320" width="20" height="14" rx="3" class="blue"/><text x="44" y="332" class="sm">read from cache</text>
+  <rect x="16" y="344" width="20" height="14" rx="3" class="orange"/><text x="44" y="356" class="sm">computed this step</text>
+</svg>

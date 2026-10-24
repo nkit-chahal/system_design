@@ -1,0 +1,7 @@
+center: GPU Metrics
+branch: Pipeline | DCGM host engine | dcgm-exporter on port 9400 | Prometheus and Grafana
+branch: Key metrics | SM activity | tensor and DRAM activity | power, clocks, temperature
+branch: Misleading numbers | GPU utilization near 100% | memory used 90%
+branch: Replica states | compute-bound | memory-bound | starved or throttled
+branch: MIG | utilization not available | per-instance activity
+branch: Alerting | page on fatal XIDs | ticket on throttling | dashboards for load

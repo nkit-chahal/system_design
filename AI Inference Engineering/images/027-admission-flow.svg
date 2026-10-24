@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="296" viewBox="0 0 860 296" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.it{font-style:italic}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .line{fill:none;stroke:#000;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e6e6e6;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:6 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="10" y="116" width="120" height="56" rx="6" class="purple"/>
+  <text x="70" y="140" text-anchor="middle">request</text>
+  <text x="70" y="158" text-anchor="middle" class="sm">x-tenant-id</text>
+  <rect x="160" y="110" width="150" height="68" rx="6" class="orange"/>
+  <text x="235" y="132" text-anchor="middle">tenant token</text>
+  <text x="235" y="149" text-anchor="middle">bucket has a</text>
+  <text x="235" y="166" text-anchor="middle">token?</text>
+  <rect x="340" y="110" width="150" height="68" rx="6" class="orange"/>
+  <text x="415" y="140" text-anchor="middle">free slot?</text>
+  <text x="415" y="158" text-anchor="middle" class="sm">56 per ready replica</text>
+  <rect x="520" y="110" width="150" height="68" rx="6" class="orange"/>
+  <text x="595" y="140" text-anchor="middle">room in the</text>
+  <text x="595" y="158" text-anchor="middle">tier's queue?</text>
+  <rect x="700" y="110" width="150" height="68" rx="6" class="orange"/>
+  <text x="775" y="132" text-anchor="middle">slot within</text>
+  <text x="775" y="149" text-anchor="middle" class="sm">premium 0.6 s</text>
+  <text x="775" y="166" text-anchor="middle" class="sm">free 0.3 s</text>
+  <path d="M130,144 L158,144" class="edge"/>
+  <path d="M310,144 L338,144" class="edge"/>
+  <text x="324" y="138" text-anchor="middle" class="sm">yes</text>
+  <path d="M490,144 L518,144" class="edge"/>
+  <text x="504" y="138" text-anchor="middle" class="sm">no</text>
+  <path d="M670,144 L698,144" class="edge"/>
+  <text x="684" y="138" text-anchor="middle" class="sm">yes</text>
+  <rect x="160" y="232" width="150" height="52" rx="6" class="red"/>
+  <text x="235" y="254" text-anchor="middle">429 rate_limited</text>
+  <text x="235" y="272" text-anchor="middle" class="sm">Retry-After: refill time</text>
+  <path d="M235,178 L235,230" class="edge"/>
+  <text x="243" y="206" class="sm">no</text>
+  <rect x="520" y="232" width="330" height="52" rx="6" class="red"/>
+  <text x="685" y="254" text-anchor="middle">429 shed</text>
+  <text x="685" y="272" text-anchor="middle" class="sm">Retry-After: 2 s; counted as offered load</text>
+  <path d="M595,178 L595,230" class="edge"/>
+  <text x="603" y="206" class="sm">no</text>
+  <path d="M775,178 L775,230" class="edge"/>
+  <text x="783" y="206" class="sm">timed out</text>
+  <rect x="340" y="14" width="330" height="52" rx="6" class="green"/>
+  <text x="505" y="36" text-anchor="middle">forward to the router with vLLM priority</text>
+  <text x="505" y="54" text-anchor="middle" class="sm">premium 0, free 1; slot released when the stream ends</text>
+  <path d="M415,110 L415,68" class="edge"/>
+  <text x="423" y="94" class="sm">yes</text>
+  <path d="M775,110 V40 H672" class="edge"/>
+  <text x="783" y="94" class="sm">got one</text>
+</svg>

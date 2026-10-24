@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="330" viewBox="0 0 840 330" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .mono{font-family:Menlo, Consolas, monospace;font-size:12px}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Left: bounded -->
+  <rect x="10" y="10" width="404" height="250" rx="4" class="group"/>
+  <text x="212" y="36" text-anchor="middle" class="lg b">Bounded labels</text>
+  <rect x="26" y="50" width="372" height="28" rx="4" class="gray"/>
+  <text x="36" y="69" class="mono">llm_gateway_tokens_total{tenant, model, kind}</text>
+  <text x="36" y="104">200 tenants × 2 models × 3 kinds</text>
+  <rect x="26" y="118" width="372" height="56" rx="6" class="green"/>
+  <text x="212" y="142" text-anchor="middle" class="b">at most 1,200 time series</text>
+  <text x="212" y="162" text-anchor="middle" class="sm">whatever the traffic</text>
+  <text x="26" y="200" class="sm">Cheap to store and fast to query; feeds real-time</text>
+  <text x="26" y="216" class="sm">dashboards and alerts per tenant.</text>
+
+  <!-- Right: request id -->
+  <rect x="426" y="10" width="404" height="250" rx="4" class="group"/>
+  <text x="628" y="36" text-anchor="middle" class="lg b">A request ID label</text>
+  <rect x="442" y="50" width="372" height="28" rx="4" class="gray"/>
+  <text x="452" y="69" class="mono">llm_gateway_tokens_total{request_id, ...}</text>
+  <text x="452" y="104">one new series per request</text>
+  <rect x="442" y="118" width="372" height="56" rx="6" class="red"/>
+  <text x="628" y="142" text-anchor="middle" class="b">1.44 million new series a day</text>
+  <text x="628" y="162" text-anchor="middle" class="sm">at 1,000 requests per minute, one sample each</text>
+  <text x="442" y="200" class="sm">Prometheus warns against unbounded label values</text>
+  <text x="442" y="216" class="sm">such as user IDs; memory and queries blow up.</text>
+
+  <!-- Bottom: warehouse -->
+  <rect x="10" y="272" width="820" height="48" rx="6" class="blue"/>
+  <text x="420" y="292" text-anchor="middle">Per-request detail goes to the warehouse instead: 1.44 million rows a day,</text>
+  <text x="420" y="310" text-anchor="middle">about 720 MB at an assumed 500 bytes per record, is an ordinary table.</text>
+</svg>

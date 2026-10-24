@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="258" viewBox="0 0 860 258" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}.it{font-style:italic}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .line{fill:none;stroke:#000;stroke-width:1.2}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e6e6e6;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:6 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="20" y="24" class="b">Prefix affinity only</text>
+  <rect x="20" y="45.5" width="36" height="104.5" class="red"/>
+  <rect x="20" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="38" y="171" text-anchor="middle" class="sm">R1</text>
+  <rect x="66" y="51" width="36" height="99" class="red"/>
+  <rect x="66" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="84" y="171" text-anchor="middle" class="sm">R2</text>
+  <rect x="112" y="40" width="36" height="110" class="red"/>
+  <rect x="112" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="130" y="171" text-anchor="middle" class="sm">R3</text>
+  <rect x="158" y="48.8" width="36" height="101.2" class="red"/>
+  <rect x="158" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="176" y="171" text-anchor="middle" class="sm">R4</text>
+  <rect x="204" y="145.6" width="36" height="4.4" class="gray"/>
+  <rect x="204" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="222" y="171" text-anchor="middle" class="sm">R5</text>
+  <rect x="250" y="146.7" width="36" height="3.3" class="gray"/>
+  <rect x="250" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="268" y="171" text-anchor="middle" class="sm">R6</text>
+  <rect x="296" y="147.8" width="36" height="2.2" class="gray"/>
+  <rect x="296" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="314" y="171" text-anchor="middle" class="sm">R7</text>
+  <rect x="342" y="147.8" width="36" height="2.2" class="gray"/>
+  <rect x="342" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="360" y="171" text-anchor="middle" class="sm">R8</text>
+  <path d="M16,150 H382" class="axis"/>
+  <text x="20" y="200" class="sm">Each system prompt sticks to the replica that saw it</text>
+  <text x="20" y="216" class="sm">first; new replicas R5–R8 stay idle.</text>
+  <line x1="420" y1="12" x2="420" y2="222" stroke="#999" stroke-dasharray="5 4"/>
+  <text x="450" y="24" class="b">Prefix-cache score + load score</text>
+  <rect x="450" y="92.8" width="36" height="57.2" class="green"/>
+  <rect x="450" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="468" y="171" text-anchor="middle" class="sm">R1</text>
+  <rect x="496" y="95" width="36" height="55" class="green"/>
+  <rect x="496" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="514" y="171" text-anchor="middle" class="sm">R2</text>
+  <rect x="542" y="90.6" width="36" height="59.4" class="green"/>
+  <rect x="542" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="560" y="171" text-anchor="middle" class="sm">R3</text>
+  <rect x="588" y="96.1" width="36" height="53.9" class="green"/>
+  <rect x="588" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="606" y="171" text-anchor="middle" class="sm">R4</text>
+  <rect x="634" y="98.3" width="36" height="51.7" class="green"/>
+  <rect x="634" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="652" y="171" text-anchor="middle" class="sm">R5</text>
+  <rect x="680" y="100.5" width="36" height="49.5" class="green"/>
+  <rect x="680" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="698" y="171" text-anchor="middle" class="sm">R6</text>
+  <rect x="726" y="99.4" width="36" height="50.6" class="green"/>
+  <rect x="726" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="744" y="171" text-anchor="middle" class="sm">R7</text>
+  <rect x="772" y="101.6" width="36" height="48.4" class="green"/>
+  <rect x="772" y="156" width="36" height="22" rx="4" class="white"/>
+  <text x="790" y="171" text-anchor="middle" class="sm">R8</text>
+  <path d="M446,150 H812" class="axis"/>
+  <text x="450" y="200" class="sm">A loaded replica loses to an idle one, which then warms</text>
+  <text x="450" y="216" class="sm">its own copy of the hot prefixes.</text>
+  <text x="20" y="246" class="sm">Bar height: requests in flight per replica just after R5–R8 become ready (illustrative).</text>
+</svg>

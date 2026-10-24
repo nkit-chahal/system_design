@@ -1,0 +1,218 @@
+<h2>Introduction</h2>
+<p>SGLang is an open-source serving engine hosted by LMSYS, a non-profit open-source organization [17]. It started in late 2023 with a research paper that looked at LLM applications as <em>programs</em>: chains of calls that share long prefixes, branch into parallel calls, and must produce structured output [1]. Its runtime was built to make those programs fast, and it is now a production engine that its maintainers report runs on more than 400,000 GPUs [2].</p>
+<p>The idea that sets SGLang apart is <strong>RadixAttention</strong>. Instead of throwing a request's KV cache away when it finishes, SGLang keeps the cache of every prompt and every generated answer in a <strong>radix tree</strong>, a prefix tree whose edges hold token sequences. The next request that starts with any of those tokens, whether it is the same system prompt, the next turn of a conversation, or the next step of an agent, walks the tree and skips the prefill for the part it shares. Figure 1 shows where the tree lives in SGLang's process layout.</p>
+<fig src="010-architecture.svg" caption="The path of one request through SGLang">A client sends a request to the main process, which runs the HTTP server and the tokenizer manager. The tokenizer manager sends token IDs over ZMQ to a scheduler process, one per GPU rank, which holds the radix cache, the scheduling policy, and the model worker that runs the forward pass on the GPU. Output token IDs go over ZMQ to a separate detokenizer process, which sends text back to the tokenizer manager to stream to the client. Numbered circles 1 to 5 mark the order.</fig>
+<p>In this lesson, we look at how RadixAttention stores and evicts shared prefixes, how SGLang's scheduler and its cache-aware router turn the tree into speed, how it constrains output to a schema, and how its frontend language expresses multi-call programs. We then deploy and monitor SGLang for our running example and decide when it is the right engine. Flags and defaults are as of late 2026 (SGLang v0.5.22). The documentation moved to <code>docs.sglang.io</code> in 2026.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>An interviewer who brings up SGLang usually has a workload with a lot of repeated context. Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: Which model and hardware are we using?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct in BF16, one H100 80 GB per replica. Traffic averages about 1,000 requests per minute (16.7 per second) and reaches about 33 per second at the daily peak. At about 5 requests per second per H100, that is four replicas on average and seven at the peak.</p>
+<p><strong>Candidate</strong>: What does the traffic look like?<br>
+<strong>Interviewer</strong>: Chat requests average about 2,000 prompt tokens and 500 output tokens, with a 1,000-token system prompt. Conversations are multi-turn: users send about five messages each.</p>
+<p><strong>Candidate</strong>: Is there anything besides chat?<br>
+<strong>Interviewer</strong>: A support agent that makes several model calls per task. All of its calls share the same tool descriptions, and some steps fan out into parallel calls whose results are merged.</p>
+<p><strong>Candidate</strong>: Do any calls need structured output?<br>
+<strong>Interviewer</strong>: The agent's tool calls must be valid JSON that matches a schema, every time.</p>
+<p><strong>Candidate</strong>: And the latency targets?<br>
+<strong>Interviewer</strong>: The same as for chat: a p95 time to first token of at most 500 ms and a p95 time per output token of at most 25 ms, with about 50 concurrent users per replica.</p>
+<p>The question underneath is: <em>how much of this work is repeated, and can the engine and the router avoid repeating it?</em> We start with the data structure that answers it.</p>
+
+<h2>RadixAttention: the KV Cache as a Tree</h2>
+<h3>Storing prefixes in a radix tree</h3>
+<p>Each node in SGLang's radix tree stands for a run of tokens and points to the KV cache entries that hold their keys and values. A path from the root spells out a token sequence, and branches appear wherever sequences diverge. When a request arrives, the scheduler matches its tokens against the tree from the root and reuses the cache for the longest matching path. Only the remaining tokens need prefill. When the request finishes, SGLang inserts its prompt <em>and</em> its generated tokens into the tree, so the next turn of the conversation finds them [1][3].</p>
+<fig src="010-radix-tree.svg" caption="A radix tree holding a shared system prompt, two conversations, and an agent's tool prompt">The root branches into a 1,000-token system prompt node and a 3,000-token agent tool prompt node. Under the system prompt, two conversations branch off: conversation A has two turns stored as successive nodes, and conversation B has one. Under the tool prompt, two agent steps branch. Nodes used by running requests carry a lock count and are protected; leaves that no running request uses are evictable.</fig>
+<p>Figure 2 shows a tree for our traffic. By default the tree works at the granularity of single tokens (<code>--page-size 1</code>) [4]. A match can therefore end anywhere, not only at a block boundary: if two prompts share 1,000 tokens, all 1,000 are reused. vLLM's hash-based cache would reuse 992 of them, because it shares only full 16-token blocks (Lesson 9, vLLM). A larger page size makes matching page-aligned in SGLang too, which some attention kernels need.</p>
+
+<h3>Locks and LRU eviction</h3>
+<p>The tree lives in the same GPU memory pool as the KV cache of running requests, so it must give memory back under pressure. Every node has a lock count of running requests that use it. A node with a non-zero lock count is never evicted. When the pool runs short, SGLang evicts <strong>leaves</strong> that no request holds, least recently used first. Removing a leaf can turn its parent into a leaf, so eviction trims a branch from its tip toward the root [5]. Figure 3 walks through one round.</p>
+<fig src="010-radix-eviction.svg" caption="Least recently used leaves are evicted first; locked nodes stay">Two trees side by side. Before eviction, the tree has the system prompt node locked by a running request, a locked conversation A node, and two unlocked leaves with last-access times of 12 s ago and 3 s ago. After the scheduler needs space, the leaf last used 12 s ago is evicted, the 3 s leaf survives, and the locked nodes are untouched.</fig>
+<p>LRU is the default and the right choice for most workloads. <code>--radix-eviction-policy</code> also offers LFU, a segmented LRU that protects frequently hit prefixes, a priority policy tied to request priorities, and a <code>tlru</code> policy aimed at multi-turn and agentic traffic [5]. When GPU memory is not enough, the hierarchical cache (<code>--enable-hierarchical-cache</code>) extends the tree to host memory and to shared storage, organized like a CPU's L1, L2, and L3 caches [6]. Lesson 36, Long-Context Serving, covers these offloading tiers.</p>
+
+<h3>Worked example: a five-turn conversation</h3>
+<p>Take one conversation from our traffic. Every prompt starts with the 1,000-token system prompt. Each turn adds a 200-token user message, and each answer is 300 tokens. Turn <tex>k</tex> therefore sends</p>
+<texblock>\text{prompt}_k = 1000 + 200k + 300(k - 1)\ \text{tokens}</texblock>
+<p>which grows from 1,200 tokens in turn 1 to 3,200 tokens in turn 5. Without a prefix cache, the engine prefills 1,200 + 1,700 + 2,200 + 2,700 + 3,200 = 11,000 tokens over the conversation. With the tree, the system prompt is already cached by other users, and every earlier turn, including the model's own answers, is cached by the conversation itself. Each turn prefills only its new 200-token message: 1,000 tokens in total, 91% less (Figure 4). This assumes the chat template re-renders the earlier turns into exactly the same tokens, which is worth checking for your model.</p>
+<fig src="010-multiturn-prefill.svg" caption="Prefill tokens per turn with and without a prefix cache">A bar chart with five pairs of bars. Without a cache, prefill grows from 1,200 tokens in turn 1 to 3,200 tokens in turn 5, 11,000 in total. With the radix cache, each turn prefills only the 200-token user message, 1,000 in total.</fig>
+<p>vLLM's automatic prefix caching recovers most of this saving too, since it also keeps finished requests' blocks. SGLang's advantages are at the edges: token-level matches, a tree that makes branching cheap, and a scheduler and router that actively steer requests toward their cached prefixes.</p>
+
+<h2>Scheduling Around the Cache</h2>
+<h3>The overlap scheduler</h3>
+<p>Each scheduler process runs a loop much like vLLM's: pick a batch, run the forward pass, process the results. Since version 0.4, SGLang overlaps the CPU work of scheduling with GPU computation. The scheduler runs one batch ahead and prepares all the metadata for the next batch while the GPU is still busy with the current one. LMSYS named it the <strong>zero-overhead batch scheduler</strong> and reported that profiles showed no idle time on the GPU between decode batches, with a 1.1× speedup over the previous version [7]. It is on by default; <code>--disable-overlap-schedule</code> turns it off for debugging [4]. vLLM's asynchronous scheduling and TensorRT-LLM's overlap scheduler apply the same idea.</p>
+
+<h3>Admission, chunked prefill, and retraction</h3>
+<p>SGLang reserves memory differently from vLLM. <code>--mem-fraction-static</code> sets the share of GPU memory for the static part: the model weights plus the KV cache pool. Activations and CUDA graph buffers must fit in the rest. When the flag is unset, SGLang estimates those buffers from the chunked prefill size and the CUDA graph batch size and picks the fraction for you [4][8]. On an 80 GB GPU, it also defaults the chunk size to 8,192 tokens and captures decode CUDA graphs up to batch size 256 when tensor parallelism is below 4.</p>
+<p>To admit a new request, the scheduler estimates how many tokens the running requests will still generate and admits only what fits. <code>--schedule-conservativeness</code> scales that estimate. If decoding still runs out of room, the scheduler <strong>retracts</strong> requests: it frees their memory and puts them back in the queue, logging "KV cache pool is full. Retract requests." The tuning guide's rule of thumb: occasional retractions (about one a minute) are fine; frequent ones mean you should raise the conservativeness, and a token usage below 0.9 with requests still queued means you can lower it [8]. Long prompts are split by <code>--chunked-prefill-size</code>, the same idea as Lesson 7's chunked prefill.</p>
+
+<h3>Cache-aware scheduling policy</h3>
+<p>The order in which waiting requests are admitted decides how many hits the tree gets. With the <strong>longest prefix match</strong> policy (<code>--schedule-policy lpm</code>), the scheduler sorts the waiting queue by how many tokens each request matches in the tree and admits the best matches first, while their prefixes are still cached. Figure 5 shows the effect on a small queue.</p>
+<fig src="010-schedule-policy.svg" caption="First-come-first-served versus longest-prefix-match admission">A waiting queue of four requests with cached prefix matches of 0, 3,000, 120, and 3,000 tokens. Under first-come-first-served, they are admitted in arrival order. Under longest prefix match, the two requests that match the 3,000-token tool prompt are admitted first, before that prefix can be evicted, and the request with no match goes last.</fig>
+<p>In current releases the default policy is first-come-first-served (as of late 2026); the tuning guide recommends <code>lpm</code> when the workload has many shared prefixes, at the cost of some scheduling overhead [4][8]. Reordering can delay a request with no match, so watch p99 time to first token when you switch.</p>
+
+<h3>Cache-aware routing across replicas</h3>
+<p>A prefix cache only helps if a request reaches the replica that holds its prefix. A plain round-robin load balancer spreads each customer's requests over every replica, so each replica computes and stores its own copy of every prefix. The <strong>SGLang Model Gateway</strong> (formerly the SGLang Router) fixes this. It keeps an <em>approximate</em> radix tree per worker, built from the requests it has routed, sends each request to the worker with the longest prefix match, and falls back to the shortest queue when load becomes unbalanced [9][10]. Figure 6 shows the idea.</p>
+<fig src="010-cache-aware-router.svg" caption="Round-robin versus cache-aware routing across four replicas">On the left, a round-robin balancer sends requests from tenants A, B, C, and D to all four replicas, so every replica caches all four prefixes. On the right, the gateway keeps an approximate radix tree per worker and sends each tenant to the replica that already holds its prefix, so each replica caches one tenant's prefix. A note says the gateway falls back to the shortest queue when load is unbalanced.</fig>
+<p>Put numbers on it for our four average-load replicas. Suppose 40 business customers each send a 4,000-token instruction prefix. One prefix costs 4,000 × 128 KiB = 500 MiB of cache. Under round robin, every replica eventually holds all 40, or about 19.5 GiB, which is 38% of each replica's 52 GiB pool. With cache-aware routing, each replica holds about 10 prefixes, or 4.9 GiB (9%), and each prefix is computed once instead of four times. The freed memory holds more running requests and makes evictions rarer. LMSYS measured up to 1.9× higher throughput and a cache hit rate that rose from 20% to 75% with cache-aware routing on a workload with long shared prefixes [7].</p>
+<p>The <code>cache_aware</code> policy is the gateway's default. Its knobs set when to trust the cache and when to rebalance: <code>--cache-threshold</code> (default 0.3, the minimum match ratio), <code>--balance-abs-threshold</code> (default 64) and <code>--balance-rel-threshold</code> (default 1.5) [9]. Lesson 25, Request Routing, compares it with other routing strategies.</p>
+
+<h2>Structured Output and Multi-Call Programs</h2>
+<h3>Fast constrained decoding</h3>
+<p>Constrained decoding guarantees that output follows a grammar. At each step, the grammar's current state decides which tokens are legal. The engine builds a <strong>token mask</strong>, sets the logits of every illegal token to minus infinity, and samples from what remains (Figure 7). Checking all 128,256 tokens of Llama 3's vocabulary against a JSON grammar at every step is expensive if done naively, and any grammar work that cannot hide behind the forward pass adds directly to inter-token latency.</p>
+<fig src="010-constrained-decoding.svg" caption="One step of grammar-constrained decoding">The output so far is {"tool": "refund", "amount": . The grammar state says a number must come next. While the GPU computes logits for the next token, the grammar engine on the CPU builds a mask that allows digit tokens and blocks everything else. The mask is applied to the logits and the sampler picks 42, after which the grammar state advances.</fig>
+<p>The SGLang paper attacked this with a compressed finite-state machine that emits several tokens at once whenever the grammar allows only one continuation, such as the fixed key names of a JSON object [1]. Today SGLang's default grammar backend is XGrammar, with Outlines and LLGuidance as alternatives (<code>--grammar-backend</code>) [11]. XGrammar prechecks the tokens whose legality does not depend on the stack state, checks the rest with a persistent stack, and overlaps the work with the GPU's forward pass [12]. LMSYS reported up to 10× faster JSON decoding than other open-source solutions when it adopted XGrammar [7]. For our agent, a tool call request with a JSON schema in <code>response_format</code> always comes back valid. Lesson 38, Structured Output and Tool Calling, covers grammars and tool calling in depth.</p>
+
+<h3>The frontend language</h3>
+<p>SGLang also ships a Python <strong>frontend language</strong> for writing multi-call programs. A function decorated with <code>@function</code> builds a prompt state <code>s</code>; <code>gen()</code> asks the model for text, optionally constrained by choices or a regular expression; and <code>s.fork(n)</code> splits the state into <tex>n</tex> parallel branches that share everything generated so far [13]. Because every branch starts from the same prefix, the runtime computes that prefix once and the branches share it in the radix tree, as Figure 8 shows.</p>
+<fig src="010-frontend-fork.svg" caption="A forked program and the radix tree it produces">On the left, a program writes a shared prompt, forks into two branches that each generate a detailed tip, and joins them into a summary call. On the right, the radix tree has one shared node for the common prompt with two child nodes, one per branch, and a summary node that extends the joined text. The shared node is computed once.</fig>
+<p>Most production clients call SGLang through its OpenAI-compatible API instead, and many teams orchestrate agents with other frameworks. The radix tree helps them either way, because it works on whatever token sequences arrive. The frontend matters most for research code and pipelines that fan out heavily, such as generating several candidate answers from one long context.</p>
+
+<h2>Deploying and Observing SGLang</h2>
+<h3>Launching the server</h3>
+<p>SGLang starts with <code>python -m sglang.launch_server --model-path &lt;model&gt;</code> or, in recent releases, the equivalent <code>sglang serve &lt;model&gt;</code> command [14]. It listens on port 30000 and serves the OpenAI-compatible <code>/v1/chat/completions</code> and <code>/v1/completions</code> endpoints, plus a native <code>/generate</code> endpoint. Table 1 lists the flags that matter most for capacity and latency.</p>
+<table>
+<thead><tr><th>Flag</th><th>Default (late 2026)</th><th>What it controls</th></tr></thead>
+<tbody>
+<tr><td><code>--mem-fraction-static</code></td><td>Estimated per GPU</td><td>Share of memory for weights plus the KV pool</td></tr>
+<tr><td><code>--max-running-requests</code></td><td>Derived from memory</td><td>Upper bound on the batch</td></tr>
+<tr><td><code>--chunked-prefill-size</code></td><td>8,192 on 80 GB GPUs</td><td>Largest prompt chunk per step; -1 disables chunking</td></tr>
+<tr><td><code>--schedule-policy</code></td><td><code>fcfs</code></td><td>Admission order; <code>lpm</code> favors cache hits</td></tr>
+<tr><td><code>--schedule-conservativeness</code></td><td>1.0</td><td>How cautiously new requests are admitted</td></tr>
+<tr><td><code>--page-size</code></td><td>1</td><td>Tokens per KV page and radix match granularity</td></tr>
+<tr><td><code>--radix-eviction-policy</code></td><td><code>lru</code></td><td>Which cached prefixes go first</td></tr>
+<tr><td><code>--disable-radix-cache</code></td><td>Off</td><td>Turns RadixAttention off</td></tr>
+<tr><td><code>--kv-cache-dtype</code></td><td><code>auto</code></td><td><code>fp8_e4m3</code> halves KV memory</td></tr>
+<tr><td><code>--tp-size</code>, <code>--dp-size</code>, <code>--pp-size</code>, <code>--ep-size</code></td><td>1</td><td>Tensor, data, pipeline, expert parallelism</td></tr>
+<tr><td><code>--grammar-backend</code></td><td>XGrammar</td><td>Constrained decoding engine</td></tr>
+<tr><td><code>--enable-metrics</code></td><td>Off</td><td>Prometheus metrics at <code>/metrics</code></td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: SGLang server flags that matter most for capacity and latency [4]</p>
+<p>The other familiar features are flags as well. <code>--quantization fp8</code> quantizes weights on load, and pre-quantized FP8, NVFP4, AWQ, and GPTQ checkpoints load directly (Lesson 13). <code>--speculative-algorithm</code> enables EAGLE, EAGLE-3, multi-token prediction (<code>NEXTN</code>), a standalone draft model, or n-gram drafting (Lesson 15). <code>--enable-lora</code> with <code>--lora-paths</code> serves adapters, at most <code>--max-loras-per-batch</code> (default 8) per batch (Lesson 37, Multi-LoRA and Multi-Tenant Serving). Multi-node deployments add <code>--nnodes</code>, <code>--node-rank</code>, and <code>--dist-init-addr</code> [4].</p>
+
+<h4>Which settings fit our deployment?</h4>
+<p>Our traffic is prefix-heavy: a shared system prompt, five-turn conversations, and an agent whose calls share a tool prompt and fan out. We keep the radix cache, the overlap scheduler, and XGrammar at their defaults and switch the admission policy to <code>--schedule-policy lpm</code> so that requests whose prefixes are cached run before those prefixes are evicted. As in Lesson 9, we cap the per-step prefill at <code>--chunked-prefill-size 2048</code>: an 8,192-token step of an 8B model needs at least 133 ms of compute, a stall that every decoding user would feel, while a 2,048-token step caps it near 33 ms. The prefix cache also keeps the total prefill load low enough for the 25 ms time-per-output-token target, as Lesson 9 calculated. We leave <code>--mem-fraction-static</code> at its estimate and read the startup log, which reports the token capacity and the remaining free memory; the tuning guide suggests 5 to 8 GB of headroom for activations [8]. Across our four to seven replicas, we put the Model Gateway with the <code>cache_aware</code> policy in front of them instead of a round-robin load balancer, which the 40-customer example shows is worth about 15 GiB of cache per replica.</p>
+
+<h3>Observing SGLang</h3>
+<p>Start the server with <code>--enable-metrics</code> and SGLang serves Prometheus metrics at <code>/metrics</code> on its HTTP port, with names prefixed <code>sglang:</code> [15]. The repository includes a Grafana dashboard for them. The ones to watch first:</p>
+<ul>
+<li>Load: <code>sglang:num_queue_reqs</code> (queue depth) and <code>sglang:num_running_reqs</code>.</li>
+<li>Memory: <code>sglang:token_usage</code>, the share of the KV pool in use, and <code>sglang:cache_hit_rate</code>.</li>
+<li>Latency histograms: <code>sglang:time_to_first_token_seconds</code>, <code>sglang:inter_token_latency_seconds</code>, and <code>sglang:e2e_request_latency_seconds</code>.</li>
+<li>Throughput: <code>sglang:gen_throughput</code>, and the counters <code>sglang:prompt_tokens_total</code> and <code>sglang:generation_tokens_total</code>.</li>
+</ul>
+<p>The same numbers appear in the server log line for every decode batch (<code>#running-req</code>, <code>token usage</code>, <code>gen throughput (token/s)</code>, <code>#queue-req</code>), which is the quickest check during a load test [8].</p>
+<p>For load tests, <code>python -m sglang.bench_serving</code> drives SGLang, vLLM, or any OpenAI-compatible server. In late-2026 releases the module has moved to <code>sglang.benchmark.serving</code> and the old name prints a deprecation warning. Its <code>generated-shared-prefix</code> dataset builds groups of requests that share a long system prompt, which is the right way to measure a prefix cache; a random dataset hides it [16].</p>
+
+<h3>Strengths and weaknesses</h3>
+<p>SGLang's strengths follow from its design. Workloads with long shared prefixes, multi-turn chat, agents, few-shot prompts, and tree search get the most out of the radix tree, especially with cache-aware routing in front of several replicas. Structured output is fast and on by default. It is strong at large scale, with data-parallel attention, expert parallelism for mixture-of-experts models (Lesson 35, Mixture-of-Experts Serving), and prefill-decode disaggregation (Lesson 34, Disaggregated Prefill and Decode), and it runs on NVIDIA and AMD GPUs, Google TPUs, Ascend NPUs, Intel hardware, and Apple Silicon [17].</p>
+<p>Its weaknesses are mostly relative to vLLM. The community and the list of supported models are smaller, so a brand-new architecture may arrive later. Defaults and names move quickly too: the default admission policy changed from <code>lpm</code> to <code>fcfs</code> during the 0.4 series, the router became the Model Gateway, and the benchmark module moved. Traffic without shared prefixes gets little from the tree, and on NVIDIA GPUs a tuned TensorRT-LLM deployment can still lead on peak throughput for some models.</p>
+
+<h3>How SGLang differs from vLLM and TensorRT-LLM</h3>
+<ul>
+<li><strong>Prefix reuse</strong>: a token-level radix tree with LRU eviction of unlocked leaves, versus vLLM's hashes of full 16-token blocks and TensorRT-LLM's radix tree of 32-token blocks with priority-based eviction.</li>
+<li><strong>Routing</strong>: SGLang ships its own cache-aware gateway. vLLM and TensorRT-LLM leave prefix-aware routing to separate projects, such as NVIDIA Dynamo's KV-aware router (both engines) or llm-d (vLLM).</li>
+<li><strong>Memory knob</strong>: <code>--mem-fraction-static</code> covers weights plus the KV pool and is estimated automatically, while vLLM's <code>--gpu-memory-utilization</code> covers everything.</li>
+<li><strong>Programs</strong>: only SGLang has a frontend language that turns forks and joins into shared-prefix batches.</li>
+</ul>
+<p>Lesson 11 compares all three engines in one table.</p>
+
+<h4>When to choose SGLang</h4>
+<p>Choose SGLang when much of your prompt volume is shared prefix: multi-turn chat with long histories, agents that call the model many times with the same tools, retrieval pipelines that ask many questions of one document, or programs that fan out from a long context. Its gateway makes it the natural fit when you scale such traffic across replicas. For broad, mixed traffic with no particular prefix structure, vLLM and SGLang tend to perform similarly, so community size, model coverage, and your team's experience should decide.</p>
+
+<h2>In Practice</h2>
+<p>The first tab launches SGLang with the settings we chose, and shows the Model Gateway in front of four replicas. The second is a frontend-language program for the agent's fan-out step. The third benchmarks the server at 50 concurrent users with a shared-prefix dataset and reads the metrics.</p>
+<codetabs>
+<tab label="Serve" lang="bash">
+# One H100: Llama 3.1 8B, cache-aware admission, 2,048-token prefill chunks, metrics on.
+python -m sglang.launch_server \
+  --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 --port 30000 \
+  --context-length 8192 \
+  --schedule-policy lpm \
+  --chunked-prefill-size 2048 \
+  --enable-metrics
+
+# Four replicas behind the Model Gateway with cache-aware routing.
+python -m sglang_router.launch_router \
+  --worker-urls http://replica-0:30000 http://replica-1:30000 \
+                http://replica-2:30000 http://replica-3:30000 \
+  --policy cache_aware \
+  --host 0.0.0.0 --port 8080
+</tab>
+<tab label="Frontend program" lang="python">
+from sglang import RuntimeEndpoint, assistant, function, gen, system, user
+from sglang.lang.api import set_default_backend
+
+set_default_backend(RuntimeEndpoint("http://localhost:30000"))
+
+@function
+def triage(s, ticket):
+    s += system("You are a support agent. Tools: refund, replace, escalate.")
+    s += user(ticket)
+    # Two parallel branches share the system prompt and ticket in the radix tree.
+    forks = s.fork(2)
+    for f, angle in zip(forks, ["what the customer wants", "what policy allows"]):
+        f += assistant("Analysis of " + angle + ": " + gen("note", max_tokens=128, stop="\n\n"))
+    s += user("Notes:\n1. " + forks[0]["note"] + "\n2. " + forks[1]["note"])
+    s += assistant("Tool: " + gen("tool", choices=["refund", "replace", "escalate"]))
+
+state = triage.run(ticket="My order arrived broken and I want my money back.")
+print(state["tool"])
+</tab>
+<tab label="Benchmark" lang="bash">
+# 50 concurrent users; 64 groups of requests that share a 1,000-token system prompt.
+python -m sglang.bench_serving \
+  --backend sglang-oai-chat \
+  --host 127.0.0.1 --port 30000 \
+  --dataset-name generated-shared-prefix \
+  --gsp-num-groups 64 --gsp-prompts-per-group 8 \
+  --gsp-system-prompt-len 1000 --gsp-question-len 1000 --gsp-output-len 500 \
+  --max-concurrency 50
+
+# Queue depth, KV pool usage and prefix hit rate while it runs.
+curl -s http://localhost:30000/metrics | grep -E \
+  '^sglang:(num_queue_reqs|num_running_reqs|token_usage|cache_hit_rate)'
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>How the hierarchical cache (HiCache) treats GPU memory, host memory, and shared storage as L1, L2, and L3 tiers of one radix tree [6].</li>
+<li>Data-parallel attention for models with multi-head latent attention, where each GPU keeps its own small KV cache while the feed-forward layers stay tensor parallel (<code>--attn-dp-size</code>; Lesson 35, Mixture-of-Experts Serving) [4].</li>
+<li>Why a random benchmark dataset understates a prefix cache, and how the <code>generated-shared-prefix</code> dataset with a Zipf group distribution models popular prompts [16].</li>
+<li>The privacy side of shared prefix caches: a tenant may infer another tenant's prompt from a fast time to first token, so isolate tenants by routing or cache keys (Lesson 37, Multi-LoRA and Multi-Tenant Serving).</li>
+<li>Why the gateway's radix trees are approximate, and what happens to cache locality when several gateway replicas route independently [9].</li>
+<li>The benchmark gotcha that <code>--random-range-ratio</code> means opposite things in SGLang (1.0 gives fixed lengths) and vLLM (0.0 gives fixed lengths).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="010-summary.png" caption="SGLang summary" optional="1">Mind map summarizing the SGLang lesson: RadixAttention, eviction, scheduling, cache-aware routing, structured output, and deployment.</fig>
+<ul>
+<li>SGLang keeps the KV cache of prompts and answers in a radix tree; any request that shares a prefix skips its prefill, at token granularity by default.</li>
+<li>Nodes used by running requests are locked; unlocked leaves are evicted least recently used first, and the hierarchical cache can spill them to host memory and storage.</li>
+<li>In a five-turn conversation with a 1,000-token system prompt, the tree cuts prefill from 11,000 tokens to 1,000.</li>
+<li>The overlap scheduler hides CPU work behind GPU work; <code>--schedule-policy lpm</code> admits cache hits first; retractions signal an overcommitted pool.</li>
+<li>The Model Gateway's cache-aware policy routes each request to the replica that holds its prefix; for 40 customers with 4,000-token prefixes on four replicas, it cuts cached prefix copies from 19.5 GiB to 4.9 GiB per replica.</li>
+<li>XGrammar makes schema-constrained output fast, and the frontend language turns forks into shared-prefix batches.</li>
+<li>Launch with <code>python -m sglang.launch_server</code> on port 30000, enable <code>--enable-metrics</code>, and watch <code>sglang:num_queue_reqs</code>, <code>sglang:token_usage</code>, and <code>sglang:cache_hit_rate</code>.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Zheng et al. SGLang: Efficient Execution of Structured Language Model Programs. <a href="https://arxiv.org/abs/2312.07104" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2312.07104</a>.<br>
+[2] SGLang documentation: Welcome to SGLang. <a href="https://docs.sglang.io/" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/</a>.<br>
+[3] LMSYS. Fast and Expressive LLM Inference with RadixAttention and SGLang. <a href="https://lmsys.org/blog/2024-01-17-sglang/" rel="noopener noreferrer" target="_blank">https://lmsys.org/blog/2024-01-17-sglang/</a>.<br>
+[4] SGLang documentation: Server Arguments. <a href="https://docs.sglang.io/docs/advanced_features/server_arguments" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/server_arguments</a>.<br>
+[5] SGLang documentation: Radix Cache Eviction Policies. <a href="https://docs.sglang.io/docs/advanced_features/radix_eviction_policy" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/radix_eviction_policy</a>.<br>
+[6] SGLang documentation: HiCache System Design and Optimization. <a href="https://docs.sglang.io/docs/advanced_features/hicache_design" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/hicache_design</a>.<br>
+[7] LMSYS. SGLang v0.4: Zero-Overhead Batch Scheduler, Cache-Aware Load Balancer, Faster Structured Outputs. <a href="https://lmsys.org/blog/2024-12-04-sglang-v0-4/" rel="noopener noreferrer" target="_blank">https://lmsys.org/blog/2024-12-04-sglang-v0-4/</a>.<br>
+[8] SGLang documentation: Hyperparameter Tuning. <a href="https://docs.sglang.io/docs/advanced_features/hyperparameter_tuning" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/hyperparameter_tuning</a>.<br>
+[9] SGLang documentation: SGLang Model Gateway. <a href="https://docs.sglang.io/docs/advanced_features/sgl_model_gateway" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/sgl_model_gateway</a>.<br>
+[10] SGLang documentation: DP, DPA and SGLang DP Router. <a href="https://docs.sglang.io/docs/advanced_features/dp_dpa_smg_guide" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/dp_dpa_smg_guide</a>.<br>
+[11] SGLang documentation: Structured Outputs. <a href="https://docs.sglang.io/docs/advanced_features/structured_outputs" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/structured_outputs</a>.<br>
+[12] Dong et al. XGrammar: Flexible and Efficient Structured Generation Engine for Large Language Models. <a href="https://arxiv.org/abs/2411.15100" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2411.15100</a>.<br>
+[13] SGLang documentation: SGLang Frontend Language. <a href="https://docs.sglang.io/docs/references/frontend/frontend_tutorial" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/references/frontend/frontend_tutorial</a>.<br>
+[14] SGLang documentation: Quickstart. <a href="https://docs.sglang.io/docs/get-started/quickstart" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/get-started/quickstart</a>.<br>
+[15] SGLang documentation: Production Metrics. <a href="https://docs.sglang.io/docs/references/production_metrics" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/references/production_metrics</a>.<br>
+[16] SGLang documentation: Bench Serving Guide. <a href="https://docs.sglang.io/docs/developer_guide/bench_serving" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/developer_guide/bench_serving</a>.<br>
+[17] SGLang GitHub repository. <a href="https://github.com/sgl-project/sglang" rel="noopener noreferrer" target="_blank">https://github.com/sgl-project/sglang</a>.</p>

@@ -1,0 +1,330 @@
+<h2>Introduction</h2>
+<p>A GPU that serves one user at a time spends most of its time waiting on memory. Every decode step streams all of the model's weights out of memory to produce a single token. If the same step serves 64 users, the weights are read once and 64 tokens come out. <strong>Batching</strong> is how a serving engine turns this memory-bound loop into a high-throughput one.</p>
+<p>LLM requests are awkward to batch, though. Their prompts have different lengths, nobody knows how long each answer will be, and they arrive at random times. A server that forms a batch, runs it until every request is done, and only then takes the next batch leaves slots empty as short answers finish and makes new arrivals wait for the slowest request. <strong>Continuous batching</strong> fixes this by rebuilding the batch at every forward pass: finished requests leave and waiting requests join between one step and the next. The same idea is called <em>iteration-level scheduling</em> in research papers and <em>in-flight batching</em> in TensorRT-LLM.</p>
+<fig src="007-static-vs-continuous.svg" caption="Static batching versus continuous batching on four batch slots">Two timelines of four batch slots over twelve decode steps. With static batching, requests A to D start together, slots of A, C and D sit idle after they finish while B runs to step 12, and requests E, F and G wait until the whole batch ends. With continuous batching, E joins at step 4 when A finishes, F joins at step 6 when C finishes, G joins at step 9, and every slot stays busy.</fig>
+<p>In this lesson, we look at why batching matters so much for decode, what static batching wastes, how iteration-level scheduling works, how a modern scheduler decides what goes into each step, and how to tune it for a latency target.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Batching questions usually start from a slow or expensive server. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: Which model and hardware are we serving on?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct in BF16 on NVIDIA H100 80 GB GPUs. The fleet averages 1,000 requests per minute, but today we are tuning a single H100 replica.</p>
+<p><strong>Candidate</strong>: What does the traffic look like?<br>
+<strong>Interviewer</strong>: Mostly chat. Prompts are about 2,000 tokens and answers average 500 tokens, but answers range from a few dozen tokens to about 1,000. Arrivals are bursty, and a few users paste 32K-token documents.</p>
+<p><strong>Candidate</strong>: What are the latency targets?<br>
+<strong>Interviewer</strong>: p95 time to first token (TTFT) of at most 500 ms, and p95 time per output token (TPOT) of at most 25 ms, so every stream gets at least 40 tokens per second.</p>
+<p><strong>Candidate</strong>: How is the current server batching requests?<br>
+<strong>Interviewer</strong>: It collects up to 64 requests, runs them to completion, then takes the next 64. Throughput is poor, and users wait several seconds before the first token appears.</p>
+<p><strong>Candidate</strong>: Can we change the serving engine and its settings, or only the hardware?<br>
+<strong>Interviewer</strong>: We can move to vLLM and tune it. Adding replicas is a separate discussion.</p>
+<p>The question underneath is: <em>how do we keep the GPU's batch full at every step without letting any single user's latency blow up?</em> To answer it, we first need to see how much a full batch is worth.</p>
+
+<h2>Why Batching Matters for Decode</h2>
+<h3>One weight read, many tokens</h3>
+<p>As Lesson 2, Prefill vs Decode, showed, a decode step does very little arithmetic per byte it reads. Llama 3.1 8B has about 16.06 GB of BF16 weights, and the H100 reads memory at 3.35 TB/s, so just streaming the weights takes about 4.8 ms. That cost is paid once per step, no matter how many sequences the step serves. Each extra sequence adds only the cost of reading its own KV cache and a small amount of compute.</p>
+<p>For a batch of <tex>B</tex> sequences with an average context of <tex>c</tex> tokens, the step time has two lower bounds, one from memory and one from compute:</p>
+<texblock>t_{\text{step}} \ge \max\left(\frac{W + B \cdot c \cdot s_{\text{kv}}}{\text{BW}},\ \frac{2 N \cdot B}{F}\right)</texblock>
+<p>Here <tex>W</tex> is the bytes of weights, <tex>s_{\text{kv}}</tex> is 128 KiB of KV cache per token (Lesson 3, KV Cache), <tex>\text{BW}</tex> is memory bandwidth, <tex>N</tex> is the number of parameters, and <tex>F</tex> is peak compute (about 989 TFLOPS dense BF16). Total throughput is <tex>B / t_{\text{step}}</tex> tokens per second, and each user receives <tex>1 / t_{\text{step}}</tex>.</p>
+<fig src="007-batch-amortization.svg" caption="Decode throughput and per-user speed versus batch size (lower bounds, Llama 3.1 8B on one H100)">A chart with batch size on the horizontal axis from 1 to 170. Total throughput rises from 205 tokens per second at batch 1 to about 6,140 at batch 64 and 8,600 at batch 170. Per-user speed falls from 205 to 96 and then 51 tokens per second. The values are lower-bound arithmetic for chat requests with 2,250 tokens of average context.</fig>
+<p>Figure 2 applies the formula to our chat traffic, where a request in the middle of its answer holds about 2,250 tokens of context, or about 295 MB of cache:</p>
+<ul>
+<li><strong>Batch 1</strong>: 16.06 GB + 0.3 GB read per step ⇒ at least 4.9 ms ⇒ about 205 tokens per second in total.</li>
+<li><strong>Batch 64</strong>: 16.06 GB + 18.9 GB ⇒ at least 10.4 ms ⇒ about 6,140 tokens per second, 96 per user.</li>
+<li><strong>Batch 170</strong> (the cache limit from Lesson 3): 16.06 GB + 50.1 GB ⇒ at least 19.8 ms ⇒ about 8,600 tokens per second, 51 per user.</li>
+</ul>
+<p>Going from 1 to 170 sequences multiplies throughput by about 42 while each user's speed drops by only about 4×. Compute stays far below its limit the whole time: at 989 TFLOPS against 3.35 TB/s, a step needs roughly 295 tokens before multiplying by the weights takes as long as reading them. This is the central trade-off of batching, and every setting in this lesson moves us along this curve.</p>
+
+<h2>Static Batching and Its Waste</h2>
+<h3>How request-level batching works</h3>
+<p>Classic model serving batches requests that look alike: an image classifier's requests share one shape and finish in one forward pass. An LLM request has a variable prompt length, an output length that is unknown until the end-of-sequence token, and hundreds of forward passes. In <strong>static batching</strong>, the server collects a group of requests, pads their prompts to a common length, runs prefill, and then runs decode steps until every request in the group has finished. Only then does it return the results and form the next group. <strong>Dynamic batching</strong>, as offered by general-purpose servers such as NVIDIA Triton, is the same scheme with a smarter trigger: it waits until either the batch is full or a short timeout expires. Both schedule at the granularity of a whole request, so we call them <strong>request-level batching</strong>.</p>
+
+<h3>Three kinds of waste</h3>
+<fig src="007-static-waste.svg" caption="The three costs of request-level batching">Three panels. Padding: prompts of 600, 1,400 and 2,000 tokens are padded to 2,000, so the shaded padding is computed for nothing. Waiting for the longest: eight requests with outputs from 120 to 1,000 tokens hold their slots until the 1,000-token request finishes, so only half of the slot-steps produce useful tokens. Head-of-line blocking: a request that arrives just after a batch starts waits the whole 10.4 seconds of that batch before its prefill begins.</fig>
+<p>Figure 3 shows the three costs of request-level batching:</p>
+<ol>
+<li><strong>Padding.</strong> A batch tensor needs one length, so a 600-token prompt is padded to the 2,000 tokens of its longest neighbor. The engine computes and stores padding that no one will read.</li>
+<li><strong>Waiting for the longest sequence.</strong> A request that finishes early keeps its slot until the longest request in the batch is done. Suppose eight requests produce 120, 250, 300, 400, 500, 600, 830, and 1,000 tokens. They need 4,000 useful token-steps, but the batch runs for 1,000 steps with 8 slots, which is 8,000 slot-steps. Half of the decode work is wasted, and the waste grows with the spread of output lengths.</li>
+<li><strong>Head-of-line blocking.</strong> A request that arrives just after a batch starts must wait for that whole batch. At 1,000 steps of about 10.4 ms, that is about 10.4 seconds before its prefill can even begin, and about 5.2 seconds on average.</li>
+</ol>
+<p>The Orca paper calls the second and third problems <em>early-finished</em> and <em>late-joining</em> requests [1]. Reserving KV cache memory for each request's maximum length adds a fourth, memory-side waste, which is the subject of Lesson 8, PagedAttention.</p>
+
+<h2>Iteration-Level Scheduling</h2>
+<h3>The Orca idea</h3>
+<p>Orca, presented at OSDI 2022, proposed scheduling at the granularity of one model iteration instead of one request [1]. Its scheduler repeats three steps: pick the requests to run next, ask the engine to run <em>one</em> forward pass on them, and collect one new token per request. Because control returns to the scheduler after every pass, a finished request leaves the batch at once and a new request can start at the next pass. On GPT-3 175B, the authors report 36.9× higher throughput than NVIDIA FasterTransformer at the same latency.</p>
+
+<h3>Selective batching</h3>
+<p>Iteration-level scheduling creates a shape problem. In a single pass, one request may be processing a 2,000-token prompt while another is generating its 300th token. Their inputs cannot be stacked into the usual <tex>[B, L, H]</tex> tensor, because <tex>L</tex> differs per request.</p>
+<p>Orca's answer is <strong>selective batching</strong>. Most of a transformer layer, such as the linear projections, the MLP, and layer normalization, treats every token independently, so Orca flattens all tokens of the step into one <tex>[\sum L, H]</tex> tensor and runs those operations on it as a single batch. Only attention needs to know which tokens belong to which request, so the tensor is split per request for attention and merged again afterwards. Figure 4 shows both halves of the idea.</p>
+<fig src="007-orca-iteration-loop.svg" caption="Orca's iteration-level loop and selective batching">On the left, a loop: a request pool feeds a scheduler, which sends one iteration's batch to the execution engine; the engine returns one token per request, finished requests leave, and new arrivals join the pool. On the right, one iteration with three requests contributing 2,000, 1 and 1 tokens: the tokens are flattened into a 2,002-row tensor for the linear layers, split per request for attention, and merged again.</fig>
+<p>This is why modern engines think in <em>tokens per step</em> rather than <em>requests per batch</em>. vLLM, SGLang, and TensorRT-LLM all build on this model; TensorRT-LLM's documentation describes its in-flight batching as packed sequences with no padding, where context-phase and generation-phase sequences run in the same step [2].</p>
+<callout kind="info" title="What Orca did not fix">Orca still reserved KV cache space for each request's maximum possible length when it admitted the request. Iteration-level scheduling filled the compute side of the batch; PagedAttention later filled the memory side. Together they give the "continuous batching" that engines ship today [3].</callout>
+
+<h2>How a Modern Scheduler Works</h2>
+<h3>Waiting and running queues</h3>
+<p>A continuous-batching scheduler keeps two queues. The <strong>waiting queue</strong> holds requests that have arrived but have no KV cache yet. The <strong>running queue</strong> holds requests that own KV cache blocks and are being prefilled or decoded. Before every forward pass, the scheduler decides how many tokens each running request gets, which waiting requests to admit, and whether anyone must be evicted to make room.</p>
+<p>vLLM's scheduler does not even keep separate prefill and decode phases. Each request simply tracks how many of its tokens have been computed so far, and each step assigns tokens so that this count catches up with the request's length [4]. A request in prefill is behind by many tokens; a request in decode is behind by one.</p>
+
+<h3>The per-step token budget and the sequence cap</h3>
+<p>Two limits shape every step:</p>
+<ul>
+<li>The <strong>token budget</strong> caps the total number of tokens in one forward pass. In vLLM it is <code>--max-num-batched-tokens</code>, documented as the "maximum number of tokens that can be processed in a single iteration" [5].</li>
+<li>The <strong>sequence cap</strong> limits how many requests may be running at once. In vLLM it is <code>--max-num-seqs</code>, the "maximum number of sequences to be processed in a single iteration" [5].</li>
+</ul>
+<p>Their defaults depend on the hardware and on how vLLM is started. In vLLM 0.32, <code>vllm serve</code> on an H100 or H200 defaults to 8,192 tokens and 1,024 sequences; on an A100 or a GPU with less than 70 GiB of memory, it uses 2,048 tokens and 256 sequences; offline use through the Python <code>LLM</code> class gets a larger token budget of 16,384 on H100-class GPUs [6]. These values have changed between releases, so check the startup log of the version you run. TensorRT-LLM's <code>trtllm-serve</code> exposes the same two limits as <code>--max_num_tokens</code> and <code>--max_batch_size</code>. SGLang's closest equivalents are <code>--chunked-prefill-size</code>, the largest prefill chunk, and <code>--max-running-requests</code>; by default SGLang runs prefill and decode in separate batches, and <code>--enable-mixed-chunk</code> lets them share one [7].</p>
+
+<h3>One scheduling step</h3>
+<p>Figure 5 shows how one step is assembled. In vLLM's current scheduler, the order is [4]:</p>
+<ol>
+<li><strong>Running requests first.</strong> Each running request gets the tokens it still needs: one token if it is decoding, or the next chunk of its prompt if it is partway through prefill, as long as budget remains. If the KV cache has no free block for a request's new tokens, the scheduler preempts the most recently admitted running request (or the lowest-priority one under the priority policy) and tries again.</li>
+<li><strong>Then waiting requests.</strong> If nobody was preempted in this step, the scheduler admits waiting requests in order while budget remains, the running count stays below the sequence cap, and the KV cache has room. A prompt longer than the remaining budget is admitted with only its first chunk.</li>
+<li><strong>One forward pass</strong> runs over all scheduled tokens, flattened as in selective batching.</li>
+<li><strong>Bookkeeping.</strong> New tokens are sampled and streamed, finished requests leave the running queue, and their KV blocks return to the free pool.</li>
+</ol>
+<fig src="007-scheduler-step.svg" caption="How one step is built from the running and waiting queues">A waiting queue of new prompts and a running queue of requests feed a scheduler with a token budget of 8,192 and a sequence cap. The resulting step is a bar: 128 decode tokens from running requests, then four complete 2,000-token prompts, then a 64-token first chunk of a fifth prompt, filling the 8,192-token budget exactly.</fig>
+<p>With the H100 default budget of 8,192 tokens and 128 requests decoding, the decodes use 128 tokens. Four new 2,000-token prompts take 8,000 of the remaining 8,064, and a fifth prompt starts with a 64-token chunk that continues in the next step. Decode and prefill share one forward pass.</p>
+
+<h3>Mixing prefill and decode: chunked prefill</h3>
+<p>Mixing has a cost: a step is only as fast as its slowest part. A decode-only step with 64 sequences takes at least 10.4 ms on our H100. Adding prefill tokens adds compute, about 16 GFLOP per token for an 8B model, and a large prefill makes the step compute-bound. A 32K-token document processed in one piece needs at least 532 ms of compute. If the engine ran it in a single step, every one of the 64 users would see their stream freeze for more than half a second.</p>
+<p><strong>Chunked prefill</strong> splits long prompts into pieces that fit the token budget and runs each piece alongside the ongoing decodes. The SARATHI paper introduced chunked prefills and <em>decode-maximal batching</em>, where each batch carries one prefill chunk and fills the rest with decodes [8]. Sarathi-Serve added <em>stall-free scheduling</em>, which admits new requests without pausing ongoing decodes, and reported 2.6× more serving capacity than vLLM for Mistral-7B on one A100 under tail-latency limits [9]. vLLM now enables chunked prefill by default and schedules all pending decodes before any prefill [10].</p>
+<fig src="007-chunked-prefill.svg" caption="A 32K-token prompt arriving while 64 users are decoding">Two timelines. Without chunking, a single 532 ms prefill step blocks every decode, so running users see a 532 ms gap. With a 2,048-token budget, the prompt is split into 17 chunks of up to 1,984 tokens, each sharing a step with the 64 decodes, so running users keep receiving a token every 33 ms or so while the document's prefill finishes after about 0.55 seconds.</fig>
+<p>Chunking does not reduce the total prefill work; the 32K document needs 532 ms of compute either way. It changes <em>who waits</em>. Figure 6 shows the difference, and Table 1 compares four budgets for our server while 64 users are decoding. The step time is a lower bound: the larger of the memory and compute bounds from earlier, ignoring attention's own arithmetic.</p>
+<table>
+<thead><tr><th>Token budget</th><th>Step time (lower bound)</th><th>Prefill tokens per step</th><th>Prefill rate</th><th>32K document prefilled in</th></tr></thead>
+<tbody>
+<tr><td>512</td><td>10.4 ms (memory-bound)</td><td>448</td><td>≈ 43K tokens/s</td><td>74 steps, ≈ 0.76 s</td></tr>
+<tr><td>1,024</td><td>17 ms</td><td>960</td><td>≈ 58K tokens/s</td><td>35 steps, ≈ 0.57 s</td></tr>
+<tr><td>2,048</td><td>33 ms</td><td>1,984</td><td>≈ 60K tokens/s</td><td>17 steps, ≈ 0.55 s</td></tr>
+<tr><td>8,192</td><td>133 ms</td><td>8,128</td><td>≈ 61K tokens/s</td><td>5 steps, ≈ 0.54 s</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: Effect of the token budget with 64 running decodes (Llama 3.1 8B, one H100, lower bounds)</p>
+<p>Two lessons come out of the table. First, above about 1,000 tokens the document's prefill time barely changes, but every other user's worst-case gap between tokens keeps growing, from 17 ms to 133 ms. Second, a small budget is not free either: at 512 tokens the step is limited by memory, compute sits partly idle, and the document's prefill stretches to 0.76 s. No budget gets that prefill under 532 ms, the compute it needs on one H100.</p>
+<p>The sweet spot sits where a step's compute time equals the memory time it spends anyway on the decodes. We can call this the <strong>balance point</strong>:</p>
+<texblock>\text{tokens}^{*} = \frac{F \cdot t_{\text{mem}}}{2N}</texblock>
+<p>With 64 decodes, <tex>t_{\text{mem}}</tex> is about 10.4 ms, so the balance point is about 640 tokens per step. Below it, prefill tokens ride along with decodes almost for free; above it, every extra prefill token lengthens the step for all users. With 128 decodes the balance point is about 990 tokens, and with 170 it is about 1,220. Real engines also pay a fixed overhead per step for scheduling and kernel launches, which this model ignores and which favors somewhat larger steps. That is why vLLM's tuning guide recommends values such as 2,048 for good inter-token latency, larger values for better time to first token, and values above 8,192 for throughput-oriented offline work [10].</p>
+<p>One more knob handles a single long prompt hogging the budget. vLLM's <code>--long-prefill-token-threshold</code> caps how many tokens one long prompt may take per step, so several prompts can prefill side by side; its default of 0 disables the cap [5]. Prompts of 128K tokens and more raise further issues, covered in Lesson 36, Long-Context Serving.</p>
+
+<h3>Admission, the KV cache, and preemption</h3>
+<p>The token budget limits compute per step; the KV cache limits how many requests can be in flight at all. Recent vLLM versions admit a waiting request only if its whole prompt fits in the free KV blocks, not just its first chunk, so a long prompt does not start and then stall halfway [4]. It does <em>not</em> reserve space for future output tokens, since that is exactly the waste PagedAttention removes, so the cache can run out while requests are generating.</p>
+<p>When a running request needs a new block and none is free, the scheduler <strong>preempts</strong> another request: it frees all of that request's blocks at once and puts it back at the front of the waiting queue. vLLM's default recovery is recomputation: when the request is readmitted, its prompt and the tokens it has already generated are prefilled again as one long prompt [10]. Lesson 3, KV Cache, introduced this mechanism, and Figure 7 places it in a request's life; here what matters is its cost. Preempting a chat request that holds 2,000 prompt tokens and 400 generated tokens throws away 2,400 tokens of cache, which costs at least 39 ms of compute to rebuild, plus however long the request waits to be readmitted.</p>
+<fig src="007-request-lifecycle.svg" caption="The life of a request inside a continuous-batching scheduler">A state diagram. A new request enters the waiting queue. It is admitted to the running queue when the budget, the sequence cap, and the KV cache allow it, and receives KV blocks. From running it either finishes, freeing its blocks, or is preempted when the cache is full, which frees its blocks and returns it to the front of the waiting queue to be recomputed later.</fig>
+<p>Occasional preemption under a burst is normal; frequent preemption means the server admits more work than its cache can hold. It shows up as a rising <code>vllm:num_preemptions</code> counter (scraped as <code>vllm:num_preemptions_total</code>), <code>vllm:kv_cache_usage_perc</code> pinned near 1, and latency spikes for the preempted users [11]. The vLLM tuning guide lists the fixes: give the cache more memory with <code>--gpu-memory-utilization</code>, lower <code>--max-num-seqs</code> or <code>--max-num-batched-tokens</code>, or spread the model over more GPUs with tensor or pipeline parallelism [10].</p>
+
+<h2>Tuning Continuous Batching</h2>
+<h3>Worked example: what continuous batching buys us</h3>
+<p>Now we compare the interviewer's prototype with continuous batching on the same H100, using the lower bounds from earlier and assuming, as in the eight-request example, that the longest answer in a batch is about twice the 500-token average.</p>
+<p><strong>The prototype (static, 64 requests).</strong> Prefilling 64 prompts of 2,000 tokens is 128,000 tokens, at least 2.08 s of compute, during which no one decodes. Decoding then runs 1,000 steps of about 10.4 ms, or 10.4 s, until the longest answer finishes. The cycle takes about 12.5 s and delivers 64 × 500 = 32,000 tokens, which is about <strong>2,560 tokens per second</strong>. A request that arrives mid-cycle waits about 6 s on average before its prefill starts.</p>
+<p><strong>Continuous batching with 64 slots, ideal case.</strong> In steady state a request finishes every 500 ÷ 64 ≈ 7.8 steps, so about 256 new prompt tokens arrive per step. If they are spread evenly, a step carries 64 decode tokens and 256 prompt tokens, which needs about 5.2 ms of compute, less than the 10.4 ms the step already spends reading memory. Prefill rides along for free, and throughput approaches <strong>6,140 tokens per second</strong>, about 2.4× the prototype. A new request waits one step, not one batch.</p>
+<p><strong>What a greedy scheduler actually gets.</strong> The scheduler does not spread prompts evenly. With a 2,048-token budget, it prefills each new 2,000-token prompt in a single compute-bound step of at least 33 ms, and the decodes in that step wait for it. The simulator in the In Practice section follows vLLM's step order with the same lower-bound costs. It gives about <strong>4,680 tokens per second</strong> for 64 slots at a 2,048-token budget (1.8× the prototype) and about 5,910 at a 512-token budget, close to the ideal because 512 is near the 640-token balance point for 64 decodes.</p>
+<p><strong>More slots, budget near the balance point.</strong> With 128 slots and a 1,024-token budget, the simulator reaches about <strong>7,490 tokens per second</strong> (2.9×), against an ideal of about 7,970. With 170 slots, the cache limit, it reaches about 8,130 (3.2×) against an ideal of about 8,600. Each step up costs per-user speed: decode-only steps give about 96 tokens per second per user at 64 slots, 62 at 128, and 51 at 170.</p>
+<fig src="007-worked-throughput.svg" caption="Prototype versus continuous batching on one H100 (lower-bound model, not measurements)">A bar chart of total throughput. Static batching with 64 slots reaches about 2,565 tokens per second. Continuous batching reaches about 4,677 with 64 slots and a 2,048-token budget, 5,906 with 64 slots and a 512-token budget, 7,494 with 128 slots and a 1,024-token budget, and 8,132 with 170 slots and a 1,024-token budget. Dashed markers show the ideal values of 6,140, 7,970 and 8,600 when every step stays memory-bound, and labels give per-user decode speeds of 96, 62 and 51 tokens per second.</fig>
+<p>Real engines reach only part of these bounds, so treat Figure 8 as the shape of the answer, not a benchmark. Published measurements show the same shape: on OPT-13B on one A100, an Anyscale study measured about 8× higher throughput from continuous batching alone over naive static batching, and up to 23× when combined with vLLM's memory management [12].</p>
+<callout kind="tip" title="Interview tip">Explain the gain in two parts. Continuous batching removes idle slots, which is worth about 2× when the longest answer is twice the average. It also lets prefill ride inside memory-bound decode steps, as long as the token budget keeps steps near the balance point. Then say what it costs: a bigger running batch means slower tokens for each user.</callout>
+
+<h3>The knobs and their trade-offs</h3>
+<p>Table 2 collects the settings that shape continuous batching and the direction of each trade-off.</p>
+<table>
+<thead><tr><th>Knob (vLLM flag)</th><th>SGLang<br>TensorRT-LLM</th><th>Raising it</th><th>Lowering it</th></tr></thead>
+<tbody>
+<tr><td>Token budget per step<br><code style="white-space:nowrap">--max-num-batched-tokens</code></td><td><code style="white-space:nowrap">--chunked-prefill-size</code><br><code style="white-space:nowrap">--max_num_tokens</code></td><td>Faster prefill and TTFT; past the balance point, longer steps and inter-token spikes</td><td>Smoother streaming; below the balance point, compute idles and TTFT grows</td></tr>
+<tr><td>Running sequence cap<br><code style="white-space:nowrap">--max-num-seqs</code></td><td><code style="white-space:nowrap">--max-running-requests</code><br><code style="white-space:nowrap">--max_batch_size</code></td><td>More total throughput; slower tokens per user, more preemption risk</td><td>Faster per-user decode; requests queue longer</td></tr>
+<tr><td>KV cache size<br><code style="white-space:nowrap">--gpu-memory-utilization</code></td><td><code style="white-space:nowrap">--mem-fraction-static</code><br><code style="white-space:nowrap">--free_gpu_memory_fraction</code></td><td>More requests fit, fewer preemptions; less headroom for other memory</td><td>Safer memory margin; lower concurrency</td></tr>
+<tr><td>Long-prompt cap<br><code style="white-space:nowrap">--long-prefill-token-threshold</code></td><td>–</td><td>One long prompt may take more of each step</td><td>Short prompts are not stuck behind a long one</td></tr>
+<tr><td>Ordering<br><code style="white-space:nowrap">--scheduling-policy</code></td><td><code style="white-space:nowrap">--schedule-policy</code> (SGLang)</td><td colspan="2"><code>fcfs</code> is fair by arrival order; <code>priority</code> lets paid or interactive traffic go first and preempts low-priority work first</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Continuous batching knobs (vLLM 0.32 flag names, with SGLang and TensorRT-LLM equivalents)</p>
+
+<h4>Which settings fit our deployment?</h4>
+<p>Our targets are p95 TTFT of at most 500 ms and p95 TPOT of at most 25 ms. The TPOT target, not memory, sets the batch size: the cache could hold about 170 chat requests, but Lesson 19, GPU Utilization, puts a real decode step at about 21 ms with 53 streams, roughly twice our lower bound, which leaves little room above that. We keep continuous batching with chunked prefill, which vLLM turns on by default, and change two settings:</p>
+<ul>
+<li><strong>Sequence cap of 64</strong> instead of 1,024. It sits a little above the 53 streams one H100 carries at about 5 requests per second, so short bursts are absorbed without pushing steps far past 25 ms. At 64 requests the cache holds at most 64 × 2,500 = 160,000 tokens, 38% of its 426,000, so preemption should almost never happen.</li>
+<li><strong>Token budget of 512</strong> instead of the H100 default of 8,192. That is just under the 640-token balance point for 64 decodes, so even a step that carries a prefill chunk stays memory-bound at about 10.4 ms in the lower-bound model, and prefill adds almost nothing to TPOT. A 2,000-token chat prompt is prefilled in 5 steps, about 52 ms, far inside the 500 ms TTFT target, and the simulator gives about 5,910 tokens per second, 2.3× the prototype. With 8,192, any step carrying a document chunk takes at least 133 ms, which would hurt the TPOT of everyone in the batch.</li>
+</ul>
+<p>The 32K documents are the exception. Their prefill needs at least 532 ms of compute, so they cannot meet a 500 ms TTFT on one H100 with any budget; at 512 tokens they take about 0.76 s. The p95 target still holds while documents stay a small share of requests. If that share grows, they need more GPUs per request or a separate pool (Lesson 36, Long-Context Serving).</p>
+<p>The model ignores per-step overheads, so these settings are a starting point: the load test (Lesson 12) compares budgets of 512, 1,024, and 2,048, keeps the largest that holds p95 TPOT under 25 ms, then tries a slightly higher cap. At about 5 requests per second per H100, the fleet's average of 16.7 requests per second needs at least four replicas, more at the daily peak; Lesson 22, Autoscaling, covers that side. If bursts push TTFT over 500 ms, the answer is more replicas, not a bigger batch.</p>
+
+<h2>In Practice</h2>
+<p>The first tab starts vLLM with the settings we chose and benchmarks it at a fixed concurrency. The second is a standard-library simulator that applies this lesson's lower-bound formulas to static and continuous batching. The third polls vLLM's Prometheus endpoint once per second so you can watch the queues, cache usage, and preemptions during a benchmark [11].</p>
+<codetabs>
+<tab label="vLLM" lang="bash">
+# Serve with a 512-token budget per step and at most 64 running requests.
+# Chunked prefill is on by default. --gpu-memory-utilization is set explicitly
+# to 0.90 to match Lesson 3 (recent vLLM releases default to 0.92).
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --max-model-len 32768 \
+  --gpu-memory-utilization 0.90 \
+  --max-num-batched-tokens 512 \
+  --max-num-seqs 64
+
+# In a second shell: 64 concurrent users, 2,000-token prompts, 500-token answers.
+# Re-run with other --max-num-batched-tokens / --max-num-seqs values and compare
+# output throughput, p95 TTFT, and p95 TPOT in the printed summary.
+vllm bench serve \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --dataset-name random \
+  --random-input-len 2000 \
+  --random-output-len 500 \
+  --num-prompts 640 \
+  --max-concurrency 64 \
+  --percentile-metrics ttft,tpot,itl \
+  --metric-percentiles 50,95
+</tab>
+<tab label="Batching simulator" lang="python">
+import random
+from dataclasses import dataclass
+
+# Lower-bound model of Llama 3.1 8B (BF16) on one H100, as in this lesson.
+WEIGHT_BYTES = 16.06e9
+KV_BYTES_PER_TOKEN = 131_072
+BANDWIDTH = 3.35e12          # bytes per second
+PEAK_FLOPS = 989e12          # dense BF16
+FLOPS_PER_TOKEN = 2 * 8.03e9
+
+
+def step_time(context_tokens: int, new_tokens: int) -> float:
+    """One forward pass: the slower of memory traffic and compute."""
+    memory = (WEIGHT_BYTES + KV_BYTES_PER_TOKEN * context_tokens) / BANDWIDTH
+    compute = FLOPS_PER_TOKEN * new_tokens / PEAK_FLOPS
+    return max(memory, compute)
+
+
+@dataclass
+class Request:
+    prompt: int
+    output: int
+    computed: int = 0    # prompt tokens already prefilled
+    generated: int = 0   # output tokens produced so far
+
+
+def make_requests(n: int, seed: int = 0) -> list[tuple[int, int]]:
+    rng = random.Random(seed)
+    return [(2000, rng.randint(50, 950)) for _ in range(n)]  # 500-token mean
+
+
+def run_static(requests, batch_size):
+    clock = 0.0
+    for i in range(0, len(requests), batch_size):
+        batch = requests[i:i + batch_size]
+        clock += step_time(0, sum(p for p, _ in batch))   # one padded prefill
+        longest = max(o for _, o in batch)
+        for step in range(1, longest):
+            # Finished requests keep their slot until the longest one is done.
+            clock += step_time(sum(p + step for p, _ in batch), len(batch))
+    return sum(o for _, o in requests) / clock
+
+
+def run_continuous(requests, max_seqs, budget):
+    waiting = [Request(p, o) for p, o in requests]
+    running, clock = [], 0.0
+    while waiting or running:
+        left, plan = budget, []
+        for r in running:                       # 1. running requests first
+            if left == 0:
+                break
+            n = 1 if r.computed == r.prompt else min(r.prompt - r.computed, left)
+            plan.append((r, n))
+            left -= n
+        while waiting and left > 0 and len(running) < max_seqs:   # 2. admit
+            r = waiting.pop(0)
+            n = min(r.prompt, left)
+            running.append(r)
+            plan.append((r, n))
+            left -= n
+        context = sum(r.computed + r.generated for r, _ in plan)
+        clock += step_time(context, sum(n for _, n in plan))
+        for r, n in plan:
+            if r.computed < r.prompt:
+                r.computed += n
+                if r.computed == r.prompt:
+                    r.generated += 1            # the last chunk samples a token
+            else:
+                r.generated += 1
+        running = [r for r in running if r.generated < r.output]
+    return sum(o for _, o in requests) / clock
+
+
+reqs = make_requests(3000)
+print(f"static, 64 slots:                {run_static(reqs, 64):6.0f} tokens/s")
+for slots, budget in [(64, 2048), (64, 512), (128, 1024), (128, 2048), (170, 1024)]:
+    tput = run_continuous(reqs, slots, budget)
+    print(f"continuous, {slots:3d} slots, {budget:4d} budget: {tput:6.0f} tokens/s")
+# Model output (lower bounds, not measurements): static 2565; continuous
+# 4677, 5906, 7494, 6056 and 8132 tokens/s for the five configurations.
+</tab>
+<tab label="Scheduler watch" lang="python">
+import re
+import time
+import urllib.request
+
+URL = "http://localhost:8000/metrics"
+WANTED = (
+    "vllm:num_requests_running",
+    "vllm:num_requests_waiting",
+    "vllm:kv_cache_usage_perc",
+    "vllm:num_preemptions_total",
+)
+
+
+def scrape() -> dict[str, float]:
+    text = urllib.request.urlopen(URL, timeout=5).read().decode()
+    values: dict[str, float] = {}
+    for line in text.splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        name = re.split(r"[{ ]", line, maxsplit=1)[0]
+        if name in WANTED:
+            values[name] = values.get(name, 0.0) + float(line.rsplit(" ", 1)[1])
+    return values
+
+
+last_preemptions = None
+while True:
+    m = scrape()
+    preemptions = m.get("vllm:num_preemptions_total", 0.0)
+    new = 0 if last_preemptions is None else preemptions - last_preemptions
+    last_preemptions = preemptions
+    print(f"running={m.get('vllm:num_requests_running', 0):4.0f}  "
+          f"waiting={m.get('vllm:num_requests_waiting', 0):4.0f}  "
+          f"kv_cache={100 * m.get('vllm:kv_cache_usage_perc', 0):5.1f}%  "
+          f"preempted_last_second={new:.0f}")
+    time.sleep(1)
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Disaggregated serving runs prefill and decode on different GPUs, so long prompts can never slow down token streaming; DistServe is one well-known design [13], and Lesson 34, Disaggregated Prefill and Decode, covers the approach.</li>
+<li>Priority scheduling: with <code>--scheduling-policy priority</code>, vLLM orders requests by a per-request priority and preempts the lowest-priority running request first, which protects interactive users during batch-job bursts [5] (Lesson 39, Batch and Offline Inference).</li>
+<li>SGLang calls preemption "retracting" a request, and its <code>--schedule-conservativeness</code> setting makes admission more cautious when retractions are frequent [7].</li>
+<li>Speculative decoding adds several draft tokens per request to each step, so it consumes token budget that would otherwise go to prefill (Lesson 15, Speculative Decoding).</li>
+<li>The <code>vllm:iteration_tokens_total</code> histogram shows how many tokens each step actually carried, which tells you whether the token budget or the sequence cap is the binding limit [11].</li>
+<li>Continuous batching raises throughput but cannot create capacity: when arrivals exceed what the GPU can process, the waiting queue grows without bound, and the fix is admission control or more replicas (Lesson 26, Rate Limiting).</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="007-summary.png" caption="Continuous batching summary" optional="1">Mind map summarizing the continuous batching lesson: why batching matters, the waste of static batching, iteration-level scheduling, the scheduler's token budget and sequence cap, chunked prefill, and tuning.</fig>
+<ul>
+<li>Decode is memory-bound, so one weight read serves many sequences: on one H100, Llama 3.1 8B goes from about 205 tokens per second at batch 1 to about 8,600 at batch 170, while each user drops from 205 to 51.</li>
+<li>Request-level batching wastes slots on padding and finished requests and makes arrivals wait for a whole batch; with the longest answer twice the average, half the decode work is wasted.</li>
+<li>Orca's iteration-level scheduling rebuilds the batch at every forward pass, and selective batching flattens all tokens of a step into one tensor so that prompts and decode tokens can share a pass.</li>
+<li>Modern schedulers run requests in decode first, then admit waiting requests, within a per-step token budget (<code>--max-num-batched-tokens</code>) and a running-sequence cap (<code>--max-num-seqs</code>); in vLLM 0.32 these default to 8,192 and 1,024 for <code>vllm serve</code> on an H100.</li>
+<li>Chunked prefill spreads long prompts across steps without reducing prefill work. With 64 decodes, a 2,048-token budget bounds steps near 33 ms and 8,192 lets them reach 133 ms; the balance point, where compute time equals memory time, is about 640 tokens.</li>
+<li>When the KV cache runs out, the scheduler preempts and later recomputes requests; frequent preemption means too much admitted work.</li>
+<li>For our 25 ms TPOT target we choose a 64-request cap and a 512-token budget, about 2.3× the throughput of the static prototype in the lower-bound model, then tune against measured p95 latency.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Yu et al. Orca: A Distributed Serving System for Transformer-Based Generative Models. OSDI 2022. <a href="https://www.usenix.org/conference/osdi22/presentation/yu" rel="noopener noreferrer" target="_blank">https://www.usenix.org/conference/osdi22/presentation/yu</a>.<br>
+[2] TensorRT-LLM documentation: Multi-Head, Multi-Query, and Group-Query Attention. <a href="https://nvidia.github.io/TensorRT-LLM/advanced/gpt-attention.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/advanced/gpt-attention.html</a>.<br>
+[3] Kwon et al. Efficient Memory Management for Large Language Model Serving with PagedAttention. <a href="https://arxiv.org/abs/2309.06180" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.06180</a>.<br>
+[4] vLLM source code: the V1 scheduler (v0.32.0). <a href="https://github.com/vllm-project/vllm/blob/v0.32.0/vllm/v1/core/sched/scheduler.py" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm/blob/v0.32.0/vllm/v1/core/sched/scheduler.py</a>.<br>
+[5] vLLM documentation: Engine Arguments. <a href="https://docs.vllm.ai/en/latest/configuration/engine_args/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/engine_args/</a>.<br>
+[6] vLLM source code: default batch limits in the engine arguments (v0.32.0). <a href="https://github.com/vllm-project/vllm/blob/v0.32.0/vllm/engine/arg_utils.py" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm/blob/v0.32.0/vllm/engine/arg_utils.py</a>.<br>
+[7] SGLang documentation: Server Arguments. <a href="https://docs.sglang.io/docs/advanced_features/server_arguments" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/server_arguments</a>.<br>
+[8] Agrawal et al. SARATHI: Efficient LLM Inference by Piggybacking Decodes with Chunked Prefills. <a href="https://arxiv.org/abs/2308.16369" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2308.16369</a>.<br>
+[9] Agrawal et al. Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve. <a href="https://arxiv.org/abs/2403.02310" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2403.02310</a>.<br>
+[10] vLLM documentation: Optimization and Tuning. <a href="https://docs.vllm.ai/en/latest/configuration/optimization/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/optimization/</a>.<br>
+[11] vLLM documentation: Production Metrics. <a href="https://docs.vllm.ai/en/latest/usage/metrics/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/usage/metrics/</a>.<br>
+[12] Daniel et al. How continuous batching enables 23x throughput in LLM inference while reducing p50 latency. Anyscale. <a href="https://www.anyscale.com/blog/continuous-batching-llm-inference" rel="noopener noreferrer" target="_blank">https://www.anyscale.com/blog/continuous-batching-llm-inference</a>.<br>
+[13] Zhong et al. DistServe: Disaggregating Prefill and Decoding for Goodput-optimized Large Language Model Serving. <a href="https://arxiv.org/abs/2401.09670" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2401.09670</a>.</p>

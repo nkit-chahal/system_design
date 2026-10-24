@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .mark{stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+    .target{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .dot{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.5}
+    .base{fill:#f5f5f5;stroke:#666;stroke-width:1.5}
+    .err{stroke:#d79b00;stroke-width:2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- x: 0-80% at 8 px per %, from x=80; y: +1 to -4 points at 44 px per point, y(0)=84 -->
+  <rect x="480" y="40" width="240" height="88" class="target"/>
+  <text x="600" y="60" text-anchor="middle" class="sm b">target: ≥ 50% smaller,</text>
+  <text x="600" y="76" text-anchor="middle" class="sm b">≤ 1 point drop</text>
+  <path d="M80,40 L80,260 L730,260" class="axis"/>
+  <path d="M480,40 L480,260" class="mark"/>
+  <path d="M80,128 L730,128" class="mark"/>
+  <path d="M80,84 L730,84" stroke="#ddd" stroke-width="1"/>
+
+  <path d="M76,40 L80,40 M76,84 L80,84 M76,128 L80,128 M76,172 L80,172 M76,216 L80,216 M76,260 L80,260" class="tick"/>
+  <text x="72" y="44" text-anchor="end" class="sm">+1</text>
+  <text x="72" y="88" text-anchor="end" class="sm">0</text>
+  <text x="72" y="132" text-anchor="end" class="sm">−1</text>
+  <text x="72" y="176" text-anchor="end" class="sm">−2</text>
+  <text x="72" y="220" text-anchor="end" class="sm">−3</text>
+  <text x="72" y="264" text-anchor="end" class="sm">−4</text>
+  <text transform="translate(30,150) rotate(-90)" text-anchor="middle" class="sm">quality change (points)</text>
+  <path d="M80,260 L80,264 M240,260 L240,264 M400,260 L400,264 M560,260 L560,264 M720,260 L720,264" class="tick"/>
+  <text x="80" y="278" text-anchor="middle" class="sm">0%</text>
+  <text x="240" y="278" text-anchor="middle" class="sm">20%</text>
+  <text x="400" y="278" text-anchor="middle" class="sm">40%</text>
+  <text x="560" y="278" text-anchor="middle" class="sm">60%</text>
+  <text x="720" y="278" text-anchor="middle" class="sm">80%</text>
+  <text x="400" y="296" text-anchor="middle" class="sm">weight memory reduction vs BF16</text>
+
+  <circle cx="80" cy="84" r="6" class="base"/>
+  <text x="92" y="76" class="sm">BF16 baseline</text>
+
+  <path d="M427.2,84 L427.2,110" class="err"/>
+  <circle cx="427.2" cy="97" r="6" class="dot"/>
+  <text x="420" y="160" text-anchor="end" class="sm">FP8 dynamic, 43%: misses the</text>
+  <text x="420" y="176" text-anchor="end" class="sm">memory goal whatever its quality</text>
+
+  <path d="M594.4,93 L594.4,155" class="err"/>
+  <circle cx="594.4" cy="124" r="6" class="dot"/>
+  <text x="604" y="176" class="sm">W4A16, 64%: the evals decide</text>
+  <text x="604" y="192" class="sm">which side of −1 it lands</text>
+
+  <text x="16" y="322" class="sm">x positions come from published checkpoint sizes; y positions and error bars are illustrative, not measurements.</text>
+</svg>

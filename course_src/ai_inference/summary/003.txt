@@ -1,0 +1,6 @@
+center: KV Cache
+branch: What is cached | keys and values | every layer and KV head
+branch: Sizing | 2 × layers × KV heads × d × bytes | 128 KiB per token
+branch: Capacity on one H100 | ~426K tokens | 170 chat requests
+branch: Shrinking it | GQA, MQA, MLA | FP8 KV cache | sliding windows
+branch: Managing it | paged blocks | preemption | prefix sharing

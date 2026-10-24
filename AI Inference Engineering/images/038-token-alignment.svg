@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="290" viewBox="0 0 820 290" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .mono{font-family:Consolas, Menlo, monospace;font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="26" class="b">The same 22 characters, split two ways (22 px per character)</text>
+
+  <!-- Row 1: grammar elements. x = 180 + 22 * index -->
+  <text x="16" y="72">Grammar elements</text>
+  <rect x="180" y="52" width="22" height="32" class="gray"/>
+  <rect x="202" y="52" width="22" height="32" class="gray"/>
+  <rect x="224" y="52" width="176" height="32" class="gray"/>
+  <rect x="400" y="52" width="22" height="32" class="gray"/>
+  <rect x="422" y="52" width="22" height="32" class="gray"/>
+  <rect x="444" y="52" width="22" height="32" class="gray"/>
+  <rect x="466" y="52" width="22" height="32" class="gray"/>
+  <rect x="488" y="52" width="154" height="32" class="gray"/>
+  <rect x="642" y="52" width="22" height="32" class="gray"/>
+  <g class="mono" text-anchor="middle">
+    <text x="191" y="74">{</text><text x="213" y="74">"</text>
+    <text x="235" y="74">c</text><text x="257" y="74">a</text><text x="279" y="74">t</text><text x="301" y="74">e</text><text x="323" y="74">g</text><text x="345" y="74">o</text><text x="367" y="74">r</text><text x="389" y="74">y</text>
+    <text x="411" y="74">"</text><text x="433" y="74">:</text><text x="455" y="74">␣</text><text x="477" y="74">"</text>
+    <text x="499" y="74">b</text><text x="521" y="74">i</text><text x="543" y="74">l</text><text x="565" y="74">l</text><text x="587" y="74">i</text><text x="609" y="74">n</text><text x="631" y="74">g</text>
+    <text x="653" y="74">"</text>
+  </g>
+  <text x="680" y="66" class="sm">brace, quote, key,</text>
+  <text x="680" y="82" class="sm">quote, colon, space, ...</text>
+
+  <!-- Row 2: Llama 3.1 tokens -->
+  <text x="16" y="142">Llama 3.1 tokens</text>
+  <rect x="180" y="122" width="44" height="32" class="orange"/>
+  <rect x="224" y="122" width="176" height="32" class="blue"/>
+  <rect x="400" y="122" width="44" height="32" class="orange"/>
+  <rect x="444" y="122" width="44" height="32" class="orange"/>
+  <rect x="488" y="122" width="154" height="32" class="blue"/>
+  <rect x="642" y="122" width="22" height="32" class="blue"/>
+  <g class="mono" text-anchor="middle">
+    <text x="191" y="144">{</text><text x="213" y="144">"</text>
+    <text x="235" y="144">c</text><text x="257" y="144">a</text><text x="279" y="144">t</text><text x="301" y="144">e</text><text x="323" y="144">g</text><text x="345" y="144">o</text><text x="367" y="144">r</text><text x="389" y="144">y</text>
+    <text x="411" y="144">"</text><text x="433" y="144">:</text><text x="455" y="144">␣</text><text x="477" y="144">"</text>
+    <text x="499" y="144">b</text><text x="521" y="144">i</text><text x="543" y="144">l</text><text x="565" y="144">l</text><text x="587" y="144">i</text><text x="609" y="144">n</text><text x="631" y="144">g</text>
+    <text x="653" y="144">"</text>
+  </g>
+  <text x="680" y="136" class="sm">6 tokens; 3 of them span</text>
+  <text x="680" y="152" class="sm">two grammar elements</text>
+
+  <!-- Labels under spanning tokens -->
+  <path d="M202,154 L202,166" stroke="#000" stroke-width="1"/>
+  <text x="202" y="180" text-anchor="middle" class="sm">brace + quote</text>
+  <path d="M422,154 L422,166" stroke="#000" stroke-width="1"/>
+  <text x="422" y="180" text-anchor="middle" class="sm">quote + colon</text>
+  <path d="M466,154 L466,188" stroke="#000" stroke-width="1"/>
+  <text x="466" y="202" text-anchor="middle" class="sm">space + quote</text>
+
+  <text x="16" y="240">The mask must test each token's whole string against the grammar, not one character.</text>
+  <text x="16" y="262">Forcing grammar boundaries (emitting { and " separately) yields token sequences the model</text>
+  <text x="16" y="282">rarely saw in training.</text>
+</svg>

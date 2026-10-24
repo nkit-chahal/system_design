@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="320" viewBox="0 0 820 320" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="30" y="30" class="b">One H100 80 GB (≈ 79.6 GiB visible), Llama 3.1 8B in BF16, vLLM --gpu-memory-utilization 0.90</text>
+
+  <!-- 9.55 px per GiB: weights 15, runtime 4.6, KV 52, headroom 8 -->
+  <rect x="30" y="48" width="143" height="52" class="orange"/>
+  <text x="101" y="70" text-anchor="middle" class="b">Weights</text>
+  <text x="101" y="88" text-anchor="middle">15 GiB</text>
+  <rect x="173" y="48" width="44" height="52" class="gray"/>
+  <rect x="217" y="48" width="497" height="52" class="blue"/>
+  <text x="465" y="70" text-anchor="middle" class="b">KV cache</text>
+  <text x="465" y="88" text-anchor="middle">≈ 52 GiB</text>
+  <rect x="714" y="48" width="76" height="52" fill="url(#hatch)" stroke="#666" stroke-width="1.2"/>
+  <text x="752" y="120" text-anchor="middle" class="sm">10% held back</text>
+  <text x="752" y="135" text-anchor="middle" class="sm">≈ 8 GiB</text>
+  <path d="M195,100 L195,114" stroke="#000" stroke-width="1"/>
+  <text x="195" y="128" text-anchor="middle" class="sm">activations + CUDA graphs</text>
+  <text x="195" y="143" text-anchor="middle" class="sm">≈ 4.6 GiB</text>
+
+  <path d="M465,100 L465,166" class="edge"/>
+  <rect x="300" y="168" width="330" height="40" rx="6" class="white"/>
+  <text x="465" y="193" text-anchor="middle">52 GiB ÷ 128 KiB per token ≈ <tspan class="b">426,000 tokens</tspan></text>
+
+  <path d="M400,208 L250,250" class="edge"/>
+  <path d="M530,208 L640,250" class="edge"/>
+  <rect x="80" y="252" width="320" height="48" rx="6" class="green"/>
+  <text x="240" y="272" text-anchor="middle">chat traffic: 2,500 tokens per request</text>
+  <text x="240" y="291" text-anchor="middle" class="b">≈ 170 concurrent requests</text>
+  <rect x="470" y="252" width="320" height="48" rx="6" class="red"/>
+  <text x="630" y="272" text-anchor="middle">long documents: 32,768 tokens each</text>
+  <text x="630" y="291" text-anchor="middle" class="b">13 concurrent requests</text>
+</svg>

@@ -1,0 +1,258 @@
+<h2>Introduction</h2>
+<p>Llama 3.1 70B does not fit on one H100. Its BF16 weights take 131.4 GiB, and even its FP8 weights leave no room for a KV cache on an 80 GB card (Lesson 17, VRAM Budgeting). And even if a GPU were big enough, it would have to read all 141 GB of weights on every decode step, which caps a single stream at about 24 tokens per second.</p>
+<p><strong>Tensor parallelism</strong> (TP) solves both problems at once. It splits every weight matrix of every layer across several GPUs, so each GPU stores and reads only its share, and all of them work on the same token at the same time. The price is communication: after each half of every layer, the GPUs must add up their partial results over the interconnect. Figure 1 shows the idea.</p>
+<fig src="018-tp-overview.svg" caption="One GPU versus tensor parallelism across four GPUs">On the left, one 80 GB H100 would need to hold all 80 layers, 141 GB of weights, and cannot. On the right, four GPUs each hold a quarter of every layer, about 35 GB each, and are joined by NVLink, over which two all-reduces per layer combine their partial results so every GPU works on the same token.</fig>
+<p>In this lesson, we see how Megatron-style tensor parallelism splits the attention and MLP blocks, count the bytes its all-reduces move, and work out why it lowers per-token latency with diminishing returns. We then cover the constraints on the TP size, compare TP with pipeline, data, and expert parallelism, and choose a layout for Llama 3.1 70B on an eight-GPU node.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Tensor parallelism comes up in interviews as a layout question. Here is a typical exchange between a candidate and an interviewer:</p>
+<p><strong>Candidate</strong>: Which model, and at what precision?<br>
+<strong>Interviewer</strong>: Llama 3.1 70B Instruct in BF16. The team is evaluating an FP8 checkpoint, but it is not approved yet.</p>
+<p><strong>Candidate</strong>: What hardware do we have?<br>
+<strong>Interviewer</strong>: One server with eight H100 SXM GPUs connected by NVLink. We may get a second server later, and procurement keeps offering cheaper servers whose GPUs talk only over PCIe.</p>
+<p><strong>Candidate</strong>: What does the traffic look like?<br>
+<strong>Interviewer</strong>: The same chat traffic as our 8B service: about 2,000 prompt tokens and 500 output tokens per request, 1,000 requests per minute on average and about 33 per second at the daily peak. We want as many concurrent users per server as possible.</p>
+<p><strong>Candidate</strong>: What latency do users need?<br>
+<strong>Interviewer</strong>: The same targets too: p95 time to first token of at most 500 ms, and p95 time per output token of at most 25 ms, which is at least 40 tokens per second per stream.</p>
+<p><strong>Candidate</strong>: Can we run several copies of the model behind a router?<br>
+<strong>Interviewer</strong>: Yes, the router can spread traffic across replicas (Lesson 25, Request Routing).</p>
+<p>The question underneath is: <em>how should we split one 70B model across eight GPUs: one replica with TP = 8, two with TP = 4, or four with TP = 2, and what does the communication cost?</em> To answer it, we need to know exactly what TP splits and what it sends.</p>
+
+<h2>Why One GPU Is Not Enough</h2>
+<p>There are two separate reasons, and they lead to different fixes.</p>
+<p><strong>Memory.</strong> The weights of Llama 3.1 70B take 141.1 GB in BF16, or 131.4 GiB, more than the 79.6 GiB an H100 offers. In FP8 they take 67.7 GiB, which fits, but weights plus runtime memory exceed the engine's budget and leave nothing for the KV cache. Any layout that spreads the weights over several GPUs fixes this, including pipeline parallelism, which gives each GPU a block of whole layers.</p>
+<p><strong>Latency.</strong> A decode step must read every weight once, so its time is bounded below by the bytes read divided by memory bandwidth (Lesson 2, Prefill vs Decode) [1]. Suppose a single GPU had enough memory: reading 141 GB at 3.35 TB/s takes 42 ms per step, at most 24 tokens per second, far above our 25 ms per-token target before a single cached token is read. Only a split <em>inside</em> each layer fixes this, because a token passes through the layers one after another. If each of <tex>N</tex> GPUs holds <tex>1/N</tex> of every layer, all of them read their shares at the same time, and a step at TP = 8 needs only 17.6 GB per GPU, about 5.3 ms. That is what tensor parallelism does.</p>
+
+<h2>How Tensor Parallelism Splits a Layer</h2>
+<h3>Column-parallel and row-parallel matrix multiplies</h3>
+<p>The scheme used by every major serving engine comes from Megatron-LM [2]. It rests on two ways of splitting a matrix multiply. If a weight matrix <tex>A</tex> is split by <strong>columns</strong> across two GPUs, each GPU computes its own columns of the output from the same input, with no communication:</p>
+<texblock>X A = X \begin{bmatrix} A_1 & A_2 \end{bmatrix} = \begin{bmatrix} X A_1 & X A_2 \end{bmatrix}</texblock>
+<p>If the next matrix <tex>B</tex> is split by <strong>rows</strong>, each GPU multiplies its slice of the input by its rows of <tex>B</tex> and gets a full-size <em>partial</em> result. The true output is the sum of the partials, so the GPUs exchange them in an <strong>all-reduce</strong>, a collective operation that leaves the sum on every GPU:</p>
+<texblock>Y B = \begin{bmatrix} Y_1 & Y_2 \end{bmatrix} \begin{bmatrix} B_1 \\ B_2 \end{bmatrix} = Y_1 B_1 + Y_2 B_2</texblock>
+<p>The trick is to pair them. A column-parallel multiply produces exactly the column slice that the following row-parallel multiply needs, so the pair costs a single all-reduce at the end. Any element-wise operation between them runs locally, because each GPU holds complete columns.</p>
+
+<h3>The MLP</h3>
+<p>Llama's MLP computes <tex>\text{down}(\text{SiLU}(x W_{\text{gate}}) \odot x W_{\text{up}})</tex>, with an intermediate width of 28,672 for the 70B model [3]. The gate and up projections are split by columns, so with TP = 2 each GPU holds 14,336 of the 28,672 columns. SiLU and the element-wise product act on each GPU's own columns. The down projection is split by rows to match, which leaves each GPU with a partial output of full width, and one all-reduce adds them up. Figure 2 shows the pattern.</p>
+<fig src="018-mlp-split.svg" caption="The MLP with TP = 2: column-parallel gate and up projections, row-parallel down projection">Two GPU lanes. Each receives the same input X. GPU 0 holds the left half of the gate and up columns and the top half of the down rows; GPU 1 holds the other halves. Each computes SiLU of gate times up on its own 14,336 columns, multiplies by its half of the down rows to get a partial result, and an all-reduce adds the two partials into Z.</fig>
+
+<h3>Attention heads across GPUs</h3>
+<p>Attention splits even more naturally, because its heads are independent. The query, key, and value projections are column-parallel <em>by head</em>: with TP = 4, each GPU gets 16 of the 64 query heads and 2 of the 8 KV heads. Because Llama groups 8 query heads around each KV head, a GPU's 16 query heads need exactly its own 2 KV heads, so each GPU computes attention for its heads without talking to the others. The output projection is row-parallel: each GPU holds the 2,048 rows that match its heads (16 × 128) and produces a partial result, and a second all-reduce sums them (Figure 3).</p>
+<fig src="018-attention-split.svg" caption="Attention with TP = 4: each GPU owns 16 query heads, 2 KV heads, and their slice of the KV cache">Four GPU lanes receive the same input x. Each multiplies it by its slice of the QKV weights to get 16 query heads and 2 KV heads, runs attention against its own slice of the KV cache (heads 0–1, 2–3, 4–5, 6–7), and multiplies the result by its 2,048 rows of the output projection to get a partial output. An all-reduce sums the four partials into y, which every GPU receives.</fig>
+<p>The KV cache is split the same way. Each GPU stores and reads only its own KV heads, which is why Lesson 17 divided the per-token cache cost by the TP size: 320 KiB per token for the whole model becomes 80 KiB per GPU at TP = 4. The embedding and output layers are split across the vocabulary and add one more collective per forward pass, which is small next to the per-layer ones.</p>
+
+<h3>Two all-reduces per layer, and what they cost</h3>
+<p>Every transformer layer therefore runs two all-reduces in the forward pass, one after attention and one after the MLP [2]. They are synchronization points: no GPU can start the MLP until every GPU has finished attention and the sum has arrived, so the slowest GPU sets the pace (Figure 4).</p>
+<fig src="018-layer-allreduce.svg" caption="One layer on four GPUs: compute, all-reduce, compute, all-reduce">A timeline with four GPU lanes. Each lane computes attention for its own heads, waits briefly for the slowest GPU, joins all-reduce 1, computes its MLP columns, waits again, joins all-reduce 2, and moves on to the next layer. A box notes that each all-reduce adds up 16 KiB per token, that a ring all-reduce makes every GPU send and receive 2(N − 1)/N of that, and that 80 layers mean 160 all-reduces per forward pass.</fig>
+<p>Each all-reduce sums a tensor of <tex>T \times h</tex> values, where <tex>T</tex> is the number of tokens in the step and <tex>h</tex> the hidden size. In the common ring algorithm, every GPU sends and receives <tex>2(N-1)/N</tex> times that tensor [4]. With <tex>L</tex> layers and <tex>b</tex> bytes per value, the traffic per GPU per forward pass is:</p>
+<texblock>\text{bytes per GPU} = 2L \times \frac{2(N-1)}{N} \times T \times h \times b</texblock>
+<p>For Llama 3.1 70B, <tex>h = 8{,}192</tex> and activations are BF16, so each all-reduce carries 16 KiB per token, and 80 layers mean 160 all-reduces per forward pass. To turn bytes into time we need the link speed and a fixed cost per operation:</p>
+<texblock>t_{\text{comm}} \approx 2L \times \left( \alpha + \frac{2(N-1)}{N} \cdot \frac{T h b}{B_{\text{link}}} \right)</texblock>
+<p>An H100 SXM has 900 GB/s of NVLink bandwidth, which counts both directions, so <tex>B_{\text{link}}</tex> is 450 GB/s each way. A PCIe Gen5 x16 slot offers 128 GB/s in total, 64 GB/s each way [5]. For the fixed cost <tex>\alpha</tex>, we assume 10 µs per all-reduce on NVLink; it depends on the GPUs, the NCCL version, and the engine's all-reduce kernels, so measure it before relying on it. Table 1 applies the formula to TP = 8.</p>
+<table>
+<thead><tr><th>Step</th><th>Tokens T</th><th>Per all-reduce</th><th>Sent per GPU per step</th><th>Transfer time on NVLink</th><th>Transfer time on PCIe Gen5</th></tr></thead>
+<tbody>
+<tr><td>Decode, one request</td><td>1</td><td>16 KiB</td><td>4.4 MiB</td><td>0.01 ms</td><td>0.07 ms</td></tr>
+<tr><td>Decode, batch of 64</td><td>64</td><td>1 MiB</td><td>280 MiB</td><td>0.65 ms</td><td>4.6 ms</td></tr>
+<tr><td>Decode, batch of 526</td><td>526</td><td>8.2 MiB</td><td>2.25 GiB</td><td>5.4 ms</td><td>37.7 ms</td></tr>
+<tr><td>Prefill, 2,000-token prompt</td><td>2,000</td><td>31.3 MiB</td><td>8.5 GiB</td><td>20.4 ms</td><td>143 ms</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: All-reduce traffic for Llama 3.1 70B at TP = 8. Every row also pays the fixed cost, 160 × 10 µs ≈ 1.6 ms (assumed).</p>
+<p>Two regimes appear. A decode step for a few requests moves very little data, so its cost is almost entirely the fixed 1.6 ms. Large batches and prefills move gigabytes, so their cost is bandwidth, and that is where NVLink and PCIe part ways.</p>
+
+<h2>Why TP Lowers Latency, With Diminishing Returns</h2>
+<h3>Decode</h3>
+<p>Putting the pieces together, the lower bound on a decode step at TP = <tex>N</tex> is the time to read this GPU's share of the weights and cache, plus the all-reduces:</p>
+<texblock>t_{\text{step}}(N) \approx \frac{W + \text{KV}}{N \times \text{HBM bandwidth}} + t_{\text{comm}}(N)</texblock>
+<p>The first term shrinks as <tex>1/N</tex>; the communication term does not. For a single request in BF16, the weight read takes 21.1 ms at TP = 2, 10.5 ms at TP = 4, and 5.3 ms at TP = 8, while communication stays near 1.6 ms. Figure 5 shows the result: 44, 82, and 145 tokens per second. Quadrupling the GPUs from two to eight buys 3.3 times the speed, and communication grows from 7% to 23% of the step.</p>
+<fig src="018-decode-vs-tp.svg" caption="Lower bound on decode step time for Llama 3.1 70B with one request, at TP = 2, 4, and 8">A stacked bar chart. At TP = 2 the step is 21.1 ms of weight reading plus 1.6 ms of all-reduces, 22.7 ms or 44 tokens per second. At TP = 4 it is 10.5 plus 1.6, 12.1 ms or 82 tokens per second. At TP = 8 it is 5.3 plus 1.6, 6.9 ms or 145 tokens per second. Communication is 7, 13, and 23 percent of the step. The values are arithmetic lower bounds.</fig>
+<p>Real scaling is worse than this bound for two more reasons. Each GPU's matrix multiplies get thinner as <tex>N</tex> grows (at TP = 8, the QKV slice is 8,192 × 1,280), and thin multiplies use the GPU less efficiently. And fixed costs per step, such as sampling, scheduling, and kernel launches, do not shrink with <tex>N</tex> at all (Lesson 19, GPU Utilization). Quantization makes the effect stronger: FP8 halves the weight bytes but not the all-reduce traffic, because activations stay in BF16, so at TP = 8 communication grows to about 37% of a single-request step.</p>
+<p>Under load, the bandwidth term grows too. With 526 requests in the batch, the all-reduces move 2.25 GiB per GPU per step (Table 1), about 5.4 ms on NVLink on top of the 1.6 ms fixed cost.</p>
+
+<h3>Prefill and the interconnect</h3>
+<p>Prefill processes the whole prompt at once, so its all-reduces carry thousands of tokens. For a 2,000-token prompt, Figure 6 compares the transfer time with the compute time at the H100's peak of 989 dense BF16 TFLOPS. The prompt needs <tex>2 \times 70.55 \times 10^9 \times 2{,}000 \approx 282</tex> TFLOP, about 36 ms per GPU at TP = 8 even at peak.</p>
+<fig src="018-prefill-comm.svg" caption="All-reduce time versus compute time for one 2,000-token prompt on Llama 3.1 70B">Grouped horizontal bars for TP = 2, 4, and 8. Compute at peak takes 143, 71, and 36 ms. The all-reduces take 11.7, 17.5, and 20.4 ms over NVLink, but 82, 123, and 143 ms over PCIe Gen5. Over PCIe, communication exceeds compute at TP = 4 and TP = 8.</fig>
+<p>Over NVLink, the all-reduces cost a fraction of the compute, and engines can hide part of them behind it. Over PCIe they take 82 to 143 ms, longer than the compute itself at TP = 4 and 8: the GPUs spend more time exchanging partial sums than doing math. This is why tensor parallelism belongs on NVLink-connected GPUs, and why vLLM's documentation suggests pipeline parallelism instead when GPUs lack NVLink [6].</p>
+
+<h3>Beyond one node</h3>
+<p>TP = 16 across two servers would halve the weight read again, from 5.3 to 2.6 ms. But each of the 160 all-reduces would then cross the network. A 400 Gb/s network adapter per GPU, common in H100 clusters, moves 50 GB/s each way, a ninth of NVLink, with a higher fixed cost per message, so communication would grow by more than the 2.6 ms saved. TP above 8 also stops shrinking the KV cache, as the next section shows. The rule is to keep the TP group inside one NVLink domain. That domain is eight GPUs in an H100 server; rack-scale systems such as the GB200 NVL72 extend it to 72 GPUs [7].</p>
+
+<h2>Constraints on the TP Size</h2>
+<p>Because TP splits heads, the head counts decide which sizes are legal. Figure 7 shows where Llama 3.1 70B's KV heads end up.</p>
+<fig src="018-kv-heads.svg" caption="Where Llama 3.1 70B's 8 KV heads live at TP = 4, 8, and 16, and why TP = 3 is rejected">At TP = 4, each GPU holds 2 KV heads, 80 KiB of cache per token per GPU. At TP = 8, each holds 1, 40 KiB per GPU. At TP = 16, spread over two nodes, each GPU still holds one KV head, so every head is copied to two GPUs and the replica stores 640 KiB per token in all. At TP = 3, the 64 query heads cannot be split evenly and vLLM refuses to start.</fig>
+<ul>
+<li><strong>Query heads must divide evenly.</strong> vLLM checks that the number of attention heads is divisible by the TP size and stops with "Total number of attention heads (64) must be divisible by tensor parallel size (3)" otherwise [8]. For Llama 3.1 70B, that allows 1, 2, 4, 8, 16, 32, or 64.</li>
+<li><strong>KV heads split up to TP = 8, then replicate.</strong> Up to the number of KV heads, each GPU gets 8 ÷ TP of them. Beyond it, vLLM gives each GPU one KV head and copies each head to TP ÷ 8 GPUs, which requires TP to be a multiple of 8 [9]; SGLang does the same [10]. Replication means the cache per GPU stops shrinking at 40 KiB per token, and at TP = 16 the replica stores every token's cache twice.</li>
+<li><strong>The other dimensions must divide too.</strong> The MLP width of 28,672 splits cleanly up to 16 ways (1,792 columns each). Engines pad the vocabulary, so it rarely matters.</li>
+<li><strong>The NVLink domain sets a practical ceiling.</strong> With eight GPUs per H100 server, TP = 8 is the largest group that stays on NVLink.</li>
+</ul>
+<callout kind="tip" title="Interview tip">When asked "why not TP = 16?", give three reasons: every all-reduce leaves NVLink, the KV heads start to replicate, and a replica now fails when either server fails. Then propose a second TP = 8 replica instead.</callout>
+
+<h2>Tensor, Pipeline, Data, and Expert Parallelism</h2>
+<p>Tensor parallelism is one of four ways to spread a model over GPUs, and production layouts often combine them. Figure 8 shows the four side by side.</p>
+<fig src="018-parallelism-types.svg" caption="Four ways to place a model on four GPUs">Four panels of four GPUs each. Tensor parallel: every layer bar spans all four GPUs, split four ways, with two all-reduces per layer. Pipeline parallel: each GPU holds a block of 20 consecutive layers and hands its output to the next. Data parallel: each GPU holds a full copy of all layers and nothing is exchanged. Expert parallel: each GPU holds its own attention and two of eight experts, and tokens travel all-to-all between GPUs.</fig>
+<ul>
+<li><strong>Pipeline parallelism</strong> (PP) splits the model into stages of consecutive layers [11]. Between stages it sends one hidden-state tensor, 16 KiB per token, instead of 160 all-reduces, so it tolerates slow links and uneven GPU counts. But a token still passes through every stage in order, so a step reads all the weights in sequence: with PP = 2 in BF16, about 42 ms, no faster than one hypothetical big GPU. Throughput comes from keeping every stage busy with a different batch [12].</li>
+<li><strong>Data parallelism</strong> runs independent replicas. There is no communication between them, so capacity and throughput scale linearly, but every replica needs the whole model and has its own KV cache, which makes routing matter for prefix-cache hits (Lesson 25, Request Routing). vLLM can run replicas behind one endpoint with <code>--data-parallel-size</code>; note that <code>--max-num-seqs</code> then applies to each replica [13].</li>
+<li><strong>Expert parallelism</strong> (EP) is for mixture-of-experts models. Each GPU holds a subset of the experts, and every MoE layer sends each token to the GPUs holding its chosen experts and back, two all-to-all exchanges per layer [14]. In vLLM, <code>--enable-expert-parallel</code> forms an expert group of size TP × DP [15]. Lesson 35, Mixture-of-Experts Serving, covers it in depth.</li>
+<li><strong>Context parallelism</strong> splits one very long sequence across GPUs and is covered in Lesson 36, Long-Context Serving.</li>
+</ul>
+<table>
+<thead><tr><th>Strategy</th><th>What is split</th><th>Communication</th><th>Per-token latency</th><th>Best for</th></tr></thead>
+<tbody>
+<tr><td>Tensor (TP)</td><td>every weight matrix and the KV heads</td><td>2 all-reduces per layer</td><td>falls with N until communication dominates</td><td>large dense models inside one NVLink domain</td></tr>
+<tr><td>Pipeline (PP)</td><td>layers, into stages</td><td>one hand-off per stage boundary</td><td>no better than one large GPU</td><td>spanning servers, slow links, uneven GPU counts</td></tr>
+<tr><td>Data (replicas)</td><td>nothing: full copies</td><td>none between replicas</td><td>that of a single replica</td><td>throughput once the model fits</td></tr>
+<tr><td>Expert (EP)</td><td>the experts of MoE layers</td><td>2 all-to-alls per MoE layer</td><td>depends on how evenly experts are used</td><td>large mixture-of-experts models</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Ways to spread a model across GPUs</p>
+
+<h2>Choosing a Layout for Llama 3.1 70B</h2>
+<h3>The options on one eight-GPU server</h3>
+<p>Eight GPUs can host one TP = 8 replica, two TP = 4 replicas, or four TP = 2 replicas. Table 3 combines Lesson 17's memory budgets with this lesson's cost model, counting every chat at its full 2,500 tokens. The step-time columns are lower bounds to compare with the 25 ms target; the last two columns give the most chats per server whose step bound stays under 25 ms, and under 12.5 ms.</p>
+<table>
+<thead><tr><th>Layout</th><th>Weights</th><th>Chats that fit in memory</th><th>Step bound, one request</th><th>Step bound, full cache</th><th>Chats with bound ≤ 25 ms</th><th>Chats with bound ≤ 12.5 ms</th></tr></thead>
+<tbody>
+<tr><td>1 × TP = 8</td><td>BF16</td><td>526</td><td>6.9 ms</td><td>28.3 ms</td><td>444</td><td>138</td></tr>
+<tr><td>2 × TP = 4</td><td>BF16</td><td>354</td><td>12.1 ms</td><td>24.5 ms</td><td>354</td><td>10</td></tr>
+<tr><td>4 × TP = 2</td><td>BF16</td><td colspan="5">does not fit: about 6,000 tokens of cache per replica</td></tr>
+<tr><td>1 × TP = 8</td><td>FP8</td><td>610</td><td>4.3 ms</td><td>29.2 ms</td><td>507</td><td>200</td></tr>
+<tr><td>2 × TP = 4</td><td>FP8</td><td>520</td><td>7.0 ms</td><td>25.2 ms</td><td>514</td><td>156</td></tr>
+<tr><td>4 × TP = 2</td><td>FP8</td><td>340</td><td>12.4 ms</td><td>23.3 ms</td><td>340</td><td>0</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Layouts for one 8 × H100 server. Lower bounds from arithmetic, with 10 µs per all-reduce assumed.</p>
+<p>The full-cache column holds a surprise: every layout lands near 21 ms per step before communication. A full GPU reads about its whole memory on every step (Lesson 17), however the model is split, so the layouts differ only in communication: about 7 ms per step for TP = 8 with 526 requests in the batch, 3 ms for TP = 4 with 177. What larger TP buys at full load is <em>capacity</em>: one TP = 8 replica stores the weights once, while two TP = 4 replicas store them twice, and those 131 GiB go to the KV cache instead.</p>
+<p>The last column matters because real steps are slower than these bounds. Lesson 19 puts an H100 serving the 8B model at about 21 ms per step with 53 concurrent streams, while the bandwidth bound for that load is about 10 ms, so real steps took roughly twice the bound. If the 70B model behaves the same way, meeting a 25 ms p95 needs a bound near 12.5 ms. That is where the layouts separate: a TP = 4 replica in BF16 spends 10.5 ms reading its weights and 1.6 ms on all-reduces before it reads any cache, so it has room for almost no users, while TP = 8 still carries about 138.</p>
+
+<h4>Which TP size fits our deployment?</h4>
+<p>Our targets are a p95 time per output token of 25 ms, a p95 time to first token of 500 ms, and as many users per server as possible, in BF16 for now. Four TP = 2 replicas are out: in BF16 they leave no room for a cache. Of the other two, <strong>TP = 8</strong> wins on every count. It holds the most chats in memory (526 against 354), keeps the most under the 25 ms bound (444 against 354), and is the only BF16 layout that still serves a useful number of users if real steps take twice the bound (138 against 10). Its first token is fast too: a 2,000-token prefill needs about 36 ms of compute at peak plus 22 ms of all-reduces, well inside 500 ms even after some queueing (Lesson 4, Time to First Token).</p>
+<p>We choose <strong>one TP = 8 replica in BF16</strong> and set <code>--max-num-seqs</code> from measurement rather than from memory: Lesson 21's lab measures inter-token latency under load, and we cap concurrency where p95 reaches 25 ms, somewhere between the 138 and 444 bounds above. When the FP8 checkpoint passes our evaluation set, we keep TP = 8, which then carries the most users under the target (200 at the 12.5 ms bound, against 156 for two TP = 4 replicas). Failure isolation comes from the fleet rather than from splitting one server: at the daily peak of 33 requests per second, each lasting about 13 s (0.5 s to the first token plus 500 tokens at 25 ms), about 430 streams run at once (Little's law), so we will run several servers anyway, and losing one costs only part of the capacity (Lesson 40, Reliability and Rollouts). Lesson 20, Cost per Million Tokens, and Lesson 21's lab turn these numbers into a fleet size. New servers become more TP = 8 replicas, never halves of a TP = 16 group.</p>
+
+<h3>Multi-node considerations</h3>
+<p>Some models do not fit in one server even with TP = 8. Llama 3.1 405B, for example, needs about 810 GB in BF16, more than eight 80 GB GPUs hold. The usual layout is then <strong>TP inside each server and PP across servers</strong>: vLLM's documentation recommends setting the TP size to the GPUs per node and the PP size to the number of nodes [6], because the stage boundary sends only one hidden-state tensor per step across the slower network. A few practical points follow:</p>
+<ul>
+<li>Every node needs an identical environment and the model at the same path; containers make that easy [6].</li>
+<li>Use a fast fabric such as InfiniBand with GPUDirect RDMA, and check that NCCL actually uses it, for example with <code>NCCL_IB_HCA</code> set as the vLLM docs describe [6].</li>
+<li>vLLM can launch across nodes with Ray, or with its own multiprocessing backend using <code>--nnodes</code>, <code>--node-rank</code>, <code>--master-addr</code>, and <code>--headless</code> on the workers [6]. SGLang uses <code>--nnodes</code>, <code>--node-rank</code>, and <code>--dist-init-addr</code> [16].</li>
+<li>A multi-node replica fails when any node fails and loads more slowly, so prefer single-node replicas whenever the model fits.</li>
+</ul>
+<p>Llama 3.1 405B's size comes from its 405 billion parameters at 2 bytes each [3]. In FP8 it is about 405 GB, which fits in one eight-GPU H100 server (640 GB) with room left for the cache, another case where quantization changes the layout rather than just the budget.</p>
+
+<h2>In Practice</h2>
+<p>The first tab starts vLLM in the layouts discussed above, including a two-node launch. The second checks how the GPUs are connected and measures the real all-reduce latency and bandwidth, the two inputs our cost model assumed. The third is the cost model itself, which reproduces Figures 5 and 6. Other engines expose the same choices: SGLang takes <code>--tp-size</code>, <code>--pp-size</code>, and <code>--dp-size</code> [16], and <code>trtllm-serve</code> takes <code>--tp_size</code> and <code>--pp_size</code> [17].</p>
+<codetabs>
+<tab label="vLLM" lang="bash">
+# One TP=8 replica on all eight GPUs (the BF16 choice).
+vllm serve meta-llama/Llama-3.1-70B-Instruct \
+  --tensor-parallel-size 8 \
+  --max-model-len 32768
+
+# Two TP=4 replicas of the FP8 checkpoint behind one endpoint.
+vllm serve RedHatAI/Meta-Llama-3.1-70B-Instruct-FP8 \
+  --tensor-parallel-size 4 \
+  --data-parallel-size 2 \
+  --max-model-len 32768
+
+# The same split as two independent servers behind your own router.
+CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve RedHatAI/Meta-Llama-3.1-70B-Instruct-FP8 -tp 4 --port 8000
+CUDA_VISIBLE_DEVICES=4,5,6,7 vllm serve RedHatAI/Meta-Llama-3.1-70B-Instruct-FP8 -tp 4 --port 8001
+
+# A model too large for one server: TP inside each node, PP across two nodes.
+MODEL=/models/my-large-model   # same path on both nodes
+HEAD_IP=10.0.0.1               # the head node's address
+# On the head node:
+vllm serve "$MODEL" --tensor-parallel-size 8 --pipeline-parallel-size 2 \
+  --nnodes 2 --node-rank 0 --master-addr "$HEAD_IP"
+# On the second node:
+vllm serve "$MODEL" --tensor-parallel-size 8 --pipeline-parallel-size 2 \
+  --nnodes 2 --node-rank 1 --master-addr "$HEAD_IP" --headless
+</tab>
+<tab label="Check the interconnect" lang="bash">
+# How are the GPUs connected? NV# means NVLink; PIX, PXB, PHB, NODE and SYS are PCIe paths.
+nvidia-smi topo -m
+
+# Measure all-reduce performance across the eight GPUs with NVIDIA's nccl-tests.
+git clone https://github.com/NVIDIA/nccl-tests.git
+cd nccl-tests && make
+./build/all_reduce_perf -b 8 -e 256M -f 2 -g 8
+# Small sizes show the fixed time per all-reduce (alpha in the cost model).
+# The busbw column at large sizes shows the bandwidth the links really deliver.
+</tab>
+<tab label="Cost model" lang="python">
+"""Lower-bound decode step time for a tensor-parallel replica of Llama 3.1 70B."""
+LAYERS, HIDDEN, ACT_BYTES = 80, 8192, 2
+HBM_BW = 3.35e12   # H100 SXM memory bandwidth, bytes/s
+LINK_BW = 450e9    # NVLink bytes/s each way (the 900 GB/s figure counts both directions)
+ALPHA = 10e-6      # fixed cost per all-reduce: an assumption, measure it with nccl-tests
+
+
+def allreduce_s(tp, tokens, link_bw=LINK_BW, alpha=ALPHA):
+    """Time for the 2 x LAYERS ring all-reduces of one forward pass."""
+    if tp == 1:
+        return 0.0
+    bytes_per_gpu = 2 * (tp - 1) / tp * tokens * HIDDEN * ACT_BYTES
+    return 2 * LAYERS * (alpha + bytes_per_gpu / link_bw)
+
+
+def decode_step_ms(weight_bytes, kv_bytes, tp, batch):
+    read_s = (weight_bytes + kv_bytes) / tp / HBM_BW
+    return 1e3 * (read_s + allreduce_s(tp, batch))
+
+
+if __name__ == "__main__":
+    for tp in (2, 4, 8):
+        ms = decode_step_ms(141.11e9, 0, tp, batch=1)
+        print(f"TP={tp}: {ms:.1f} ms per step, {1e3 / ms:.0f} tokens/s for one request")
+    # TP=2: 22.7 ms (44 tok/s), TP=4: 12.1 ms (82), TP=8: 6.9 ms (145)
+    nvlink = allreduce_s(8, 2_000, alpha=0) * 1e3
+    pcie = allreduce_s(8, 2_000, link_bw=64e9, alpha=0) * 1e3
+    print(f"2,000-token prefill at TP=8: {nvlink:.1f} ms of all-reduce on NVLink, {pcie:.0f} ms on PCIe")
+    # 20.4 ms on NVLink, 143 ms on PCIe Gen5
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Sequence parallelism replaces each all-reduce with a reduce-scatter and an all-gather and splits the layer norms along the sequence, moving the same bytes while storing less activation memory per GPU [18].</li>
+<li>Engines can hide part of the all-reduce time by splitting a batch in two and computing one half while the other half communicates.</li>
+<li>vLLM ships its own all-reduce kernel for small messages inside a node, where the fixed cost dominates; <code>--disable-custom-all-reduce</code> falls back to NCCL [19].</li>
+<li>Low-bit weights shrink the weight reads but not the BF16 activations that the all-reduces carry, so quantized models spend a larger share of each step communicating.</li>
+<li>Disaggregated serving can give prefill and decode different parallel layouts, for example a larger TP for prefill to cut time to first token (Lesson 34, Disaggregated Prefill and Decode).</li>
+<li>Rack-scale NVLink domains such as GB200 NVL72 make TP and expert parallelism beyond eight GPUs practical, which changes the "keep TP inside one server" rule [7].</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="018-summary.png" caption="Tensor parallelism summary" optional="1">Mind map summarizing the tensor parallelism lesson: why one GPU is not enough, how layers are split, the cost of the all-reduces, the constraints on TP size, and how to choose a layout.</fig>
+<ul>
+<li>Tensor parallelism splits every weight matrix across GPUs, so each GPU stores and reads only its share and per-token latency falls. It is the only split that speeds up a single stream.</li>
+<li>Megatron-style TP pairs a column-parallel multiply with a row-parallel one: QKV by heads then the output projection, and gate and up by columns then down by rows. That costs two all-reduces per layer, 160 per forward pass for Llama 3.1 70B.</li>
+<li>Each all-reduce carries 16 KiB per token for the 70B model, and a ring makes every GPU send 2(N − 1)/N of it. A 2,000-token prefill at TP = 8 moves about 8.5 GiB per GPU: 20 ms over NVLink, 143 ms over PCIe.</li>
+<li>For one request in BF16, a decode step drops from 22.7 ms at TP = 2 to 6.9 ms at TP = 8: four times the GPUs give 3.3 times the speed, because the fixed communication cost does not shrink.</li>
+<li>The TP size must divide the 64 query heads; above 8 the KV heads replicate, and beyond one server every all-reduce crosses the network. Keep TP inside the NVLink domain.</li>
+<li>Pipeline parallelism suits slow links and spanning servers, replicas add throughput once the model fits, and expert parallelism serves MoE models.</li>
+<li>For Llama 3.1 70B on eight H100s under a 25 ms per-token target, one TP = 8 replica is the best layout in BF16 and in FP8: it fits the most chats in memory and keeps the most of them under the latency target.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Pope et al. Efficiently Scaling Transformer Inference. <a href="https://arxiv.org/abs/2211.05102" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2211.05102</a>.<br>
+[2] Shoeybi et al. Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism. <a href="https://arxiv.org/abs/1909.08053" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1909.08053</a>.<br>
+[3] Grattafiori et al. The Llama 3 Herd of Models. <a href="https://arxiv.org/abs/2407.21783" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.21783</a>.<br>
+[4] NVIDIA. NCCL Tests: Performance (bus bandwidth). <a href="https://github.com/NVIDIA/nccl-tests/blob/master/doc/PERFORMANCE.md" rel="noopener noreferrer" target="_blank">https://github.com/NVIDIA/nccl-tests/blob/master/doc/PERFORMANCE.md</a>.<br>
+[5] NVIDIA. H100 Tensor Core GPU. <a href="https://www.nvidia.com/en-us/data-center/h100/" rel="noopener noreferrer" target="_blank">https://www.nvidia.com/en-us/data-center/h100/</a>.<br>
+[6] vLLM documentation: Parallelism and Scaling. <a href="https://docs.vllm.ai/en/latest/serving/parallelism_scaling.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/serving/parallelism_scaling.html</a>.<br>
+[7] NVIDIA. GB200 NVL72. <a href="https://www.nvidia.com/en-us/data-center/gb200-nvl72/" rel="noopener noreferrer" target="_blank">https://www.nvidia.com/en-us/data-center/gb200-nvl72/</a>.<br>
+[8] vLLM source code: model configuration checks (vllm/config/model.py). <a href="https://github.com/vllm-project/vllm/blob/main/vllm/config/model.py" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm/blob/main/vllm/config/model.py</a>.<br>
+[9] vLLM source code: parallel linear layers (vllm/model_executor/layers/linear.py). <a href="https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/linear.py" rel="noopener noreferrer" target="_blank">https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/linear.py</a>.<br>
+[10] SGLang source code: parallel linear layers (python/sglang/srt/layers/linear.py). <a href="https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/linear.py" rel="noopener noreferrer" target="_blank">https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/linear.py</a>.<br>
+[11] Huang et al. GPipe: Efficient Training of Giant Neural Networks using Pipeline Parallelism. <a href="https://arxiv.org/abs/1811.06965" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1811.06965</a>.<br>
+[12] Narayanan et al. Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM. <a href="https://arxiv.org/abs/2104.04473" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2104.04473</a>.<br>
+[13] vLLM documentation: Data Parallel Deployment. <a href="https://docs.vllm.ai/en/latest/serving/data_parallel_deployment.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/serving/data_parallel_deployment.html</a>.<br>
+[14] Lepikhin et al. GShard: Scaling Giant Models with Conditional Computation and Automatic Sharding. <a href="https://arxiv.org/abs/2006.16668" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2006.16668</a>.<br>
+[15] vLLM documentation: Expert Parallel Deployment. <a href="https://docs.vllm.ai/en/latest/serving/expert_parallel_deployment.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/serving/expert_parallel_deployment.html</a>.<br>
+[16] SGLang documentation: Server Arguments. <a href="https://docs.sglang.io/docs/advanced_features/server_arguments" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/docs/advanced_features/server_arguments</a>.<br>
+[17] TensorRT-LLM documentation: trtllm-serve. <a href="https://nvidia.github.io/TensorRT-LLM/latest/commands/trtllm-serve/trtllm-serve.html" rel="noopener noreferrer" target="_blank">https://nvidia.github.io/TensorRT-LLM/latest/commands/trtllm-serve/trtllm-serve.html</a>.<br>
+[18] Korthikanti et al. Reducing Activation Recomputation in Large Transformer Models. <a href="https://arxiv.org/abs/2205.05198" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2205.05198</a>.<br>
+[19] vLLM documentation: Engine Arguments. <a href="https://docs.vllm.ai/en/latest/configuration/engine_args.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/configuration/engine_args.html</a>.</p>

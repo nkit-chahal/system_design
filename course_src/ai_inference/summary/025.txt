@@ -1,0 +1,6 @@
+center: Request Routing
+branch: Why LLMs differ | requests vary 100× in cost | streams hold a replica | replicas carry cache state
+branch: Policies | round robin | least outstanding requests | cache-aware routing
+branch: Hot prefixes | bounded loads | imbalance thresholds | 1.25× the average load
+branch: Around the choice | LoRA adapters | priority classes | disaggregated prefill and decode
+branch: Failures | retry only before streaming starts | two timeouts, not one | budget retries

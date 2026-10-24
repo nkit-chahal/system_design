@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="324" viewBox="0 0 800 324" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}.lg{font-size:16px}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{stroke:#000;stroke-width:1.2;fill:none}
+    .grid{stroke:#ddd;stroke-width:1;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="24">Context so far: <tspan class="b">def add(a, b):</tspan></text>
+  <text x="16" y="66" class="b">Draft proposes</text>
+  <text x="16" y="156" class="b">Target verifies</text>
+  <text x="16" y="244" class="b">Output</text>
+  <rect x="180" y="44" width="120" height="36" rx="6" class="orange"/>
+  <text x="240" y="67" text-anchor="middle">return</text>
+  <path d="M300,62 L328,62" class="edge"/>
+  <path d="M240,80 L240,128" class="edge"/>
+  <rect x="330" y="44" width="120" height="36" rx="6" class="orange"/>
+  <text x="390" y="67" text-anchor="middle">a</text>
+  <path d="M450,62 L478,62" class="edge"/>
+  <path d="M390,80 L390,128" class="edge"/>
+  <rect x="480" y="44" width="120" height="36" rx="6" class="orange"/>
+  <text x="540" y="67" text-anchor="middle">+</text>
+  <path d="M600,62 L628,62" class="edge"/>
+  <path d="M540,80 L540,128" class="edge"/>
+  <rect x="630" y="44" width="120" height="36" rx="6" class="orange"/>
+  <text x="690" y="67" text-anchor="middle">c</text>
+  <path d="M690,80 L690,128" class="edge"/>
+  <text x="16" y="84" class="sm">(4 quick steps)</text>
+  <text x="16" y="174" class="sm">(1 slow step)</text>
+  <rect x="180" y="130" width="570" height="44" rx="6" class="gray"/>
+  <text x="465" y="157" text-anchor="middle">one forward pass of the large model over all 4 draft tokens</text>
+  <path d="M240,174 L240,220" class="edge"/>
+  <rect x="180" y="222" width="120" height="36" rx="6" class="green"/>
+  <text x="240" y="245" text-anchor="middle">return</text>
+  <text x="240" y="276" text-anchor="middle" class="sm">accepted</text>
+  <path d="M390,174 L390,220" class="edge"/>
+  <rect x="330" y="222" width="120" height="36" rx="6" class="green"/>
+  <text x="390" y="245" text-anchor="middle">a</text>
+  <text x="390" y="276" text-anchor="middle" class="sm">accepted</text>
+  <path d="M540,174 L540,220" class="edge"/>
+  <rect x="480" y="222" width="120" height="36" rx="6" class="green"/>
+  <text x="540" y="245" text-anchor="middle">+</text>
+  <text x="540" y="276" text-anchor="middle" class="sm">accepted</text>
+  <path d="M690,174 L690,220" class="edge"/>
+  <rect x="630" y="222" width="120" height="36" rx="6" class="green"/>
+  <text x="690" y="245" text-anchor="middle">b</text>
+  <text x="690" y="276" text-anchor="middle" class="sm">c rejected, b sampled</text>
+  <text x="16" y="310">Result: 4 tokens from one pass of the large model, where plain decoding would produce 1.</text>
+</svg>

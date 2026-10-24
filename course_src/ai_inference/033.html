@@ -1,0 +1,284 @@
+<h2>Introduction</h2>
+<p>Every number in this course so far has come from two properties of a GPU: how many floating-point operations it can do per second and how many bytes it can read from memory per second. Those two numbers set the ceilings. How close a server gets to them is decided by the <strong>kernels</strong>, the small GPU programs that run each operation of the model: every matrix multiply, every normalization, and above all every attention layer.</p>
+<p>A kernel is fast when it keeps data close to the arithmetic units and reuses it before going back to main memory. An H100 has a few hundred kilobytes of very fast on-chip memory next to each group of cores and 80 GB of much slower high-bandwidth memory (HBM) further away, as Figure 1 shows. The best attention kernels, starting with FlashAttention [1], are fast precisely because they rearrange the computation so that the large intermediate results never leave the chip.</p>
+<fig src="033-memory-hierarchy.svg" caption="The H100 memory hierarchy, from registers to HBM">A pyramid of four memory levels. On chip: registers, 256 KB per SM and about 33 MB in all; shared memory and L1, up to 228 KB per SM at about 31 TB/s across the GPU; L2 cache, 50 MB shared by all 132 SMs at about 12 TB/s. Off chip: 80 GB of HBM3 at 3.35 TB/s. A note says shared memory has about 9 times the bandwidth of HBM but about 1/2,700 of its capacity.</fig>
+<p>In this lesson, we look at the parts of a GPU that matter for inference, show with byte counts why naive attention is memory-bound, walk through FlashAttention's tiling and online softmax and the kernels built for decoding, and cover the overheads around the kernels: fusion, CUDA graphs, and <code>torch.compile</code>. We finish with the questions interviewers ask and a decision about which of these optimizations matter for our deployment.</p>
+
+<h2>Clarifying the Problem</h2>
+<p>Kernel questions in interviews usually start from a cost or latency complaint and test whether the candidate knows which layer of the stack to look at. Here is a typical exchange:</p>
+<p><strong>Candidate</strong>: Which model, engine, and hardware are we talking about?<br>
+<strong>Interviewer</strong>: Llama 3.1 8B Instruct in BF16 on H100 SXM GPUs, served with vLLM using its default settings.</p>
+<p><strong>Candidate</strong>: What does the traffic look like, and what are the targets?<br>
+<strong>Interviewer</strong>: Chat requests with about 2,000 prompt tokens and 500 output tokens. The targets are p95 TTFT under 500 ms and p95 time per output token under 25 ms. A few customers upload 32K-token documents.</p>
+<p><strong>Candidate</strong>: How loaded is each GPU today?<br>
+<strong>Interviewer</strong>: About 5 requests per second per GPU, which keeps roughly 53 streams decoding at once with steps of about 21 ms (Lesson 19, GPU Utilization).</p>
+<p><strong>Candidate</strong>: What is being proposed?<br>
+<strong>Interviewer</strong>: A teammate wants to write custom CUDA kernels to cut the GPU bill. Another says vLLM already uses the best kernels. Who is right, and how would you find out?</p>
+<p><strong>Candidate</strong>: Do we have profiles of the running server?<br>
+<strong>Interviewer</strong>: Not yet. Tell us what you would look for.</p>
+<p>The question underneath is: <em>where does the time inside one forward pass go, which parts are already handled by off-the-shelf kernels, and what is left to gain?</em> To answer it, we need a working picture of the hardware the kernels run on.</p>
+
+<h2>The GPU That Runs the Kernels</h2>
+<h3>Streaming multiprocessors, warps, and tensor cores</h3>
+<p>An H100 SXM has 132 <strong>streaming multiprocessors</strong> (SMs); the full GH100 die has 144, and some are disabled on the product [4]. Each SM is split into four partitions. A partition has a warp scheduler, a slice of the register file, 32 FP32 cores, and one <strong>tensor core</strong>, the unit that performs small matrix multiplies in a single instruction. Figure 2 shows the layout.</p>
+<fig src="033-h100-anatomy.svg" caption="The H100 SXM: 132 SMs, a shared L2 cache, and HBM stacks, with one SM enlarged">On the left, a grid of 132 small SM squares sits above a 50 MB L2 cache, with five HBM3 stacks below holding 80 GB at 3.35 TB/s. One SM is enlarged on the right: four partitions, each with a warp scheduler for 32 threads, a 64 KB register file, a tensor core, and 32 FP32 cores, above 256 KB of combined shared memory and L1, of which up to 228 KB can be used as shared memory.</fig>
+<p>Threads are scheduled in groups of 32 called <strong>warps</strong>, which execute the same instruction together. An SM can hold up to 64 resident warps (2,048 threads) from up to 32 <strong>thread blocks</strong> [4]. A kernel launch is a grid of thread blocks; the hardware hands blocks to SMs as they free up. Two consequences matter for inference. A kernel with fewer blocks than SMs leaves part of the chip idle for its whole duration. And a warp waiting on memory costs nothing if other resident warps have work, which is how GPUs hide memory latency.</p>
+<p>Almost all of the H100's 989 dense BF16 TFLOPS live in its 528 tensor cores [4][5]. The FP32 cores and special-function units handle everything else: additions, normalizations, and the exponentials in softmax. The gap is large: the FlashAttention-3 paper notes that an H100 SXM5 offers 989 TFLOPS of FP16 matrix math but only 3.9 TFLOPS of special functions such as the exponential [3]. A kernel that spends too long on softmax leaves the tensor cores idle.</p>
+<p>Hopper added hardware that the newest kernels rely on: the <strong>Tensor Memory Accelerator</strong> (TMA), which copies whole tiles between HBM and shared memory asynchronously; <strong>thread block clusters</strong> with distributed shared memory, which let SMs read each other's shared memory; and asynchronous warpgroup matrix-multiply instructions (WGMMA) [3][4].</p>
+
+<h3>The memory hierarchy</h3>
+<p>Table 1 lists the levels a kernel can use. NVIDIA publishes capacities; the on-chip bandwidths come from the FlashAttention-3 paper's description of the H100 [3].</p>
+<table>
+<thead><tr><th>Level</th><th>Capacity (H100 SXM)</th><th>Bandwidth</th><th>Who manages it</th></tr></thead>
+<tbody>
+<tr><td>Registers</td><td>256 KB per SM (65,536 32-bit registers), ≈ 33 MB in all</td><td>Highest; feeds the tensor cores directly</td><td>Compiler, per thread</td></tr>
+<tr><td>Shared memory / L1</td><td>256 KB per SM combined, up to 228 KB as shared memory</td><td>≈ 31 TB/s across the GPU</td><td>The kernel author, per thread block</td></tr>
+<tr><td>L2 cache</td><td>50 MB, shared by all SMs</td><td>≈ 12 TB/s</td><td>Hardware</td></tr>
+<tr><td>HBM3</td><td>80 GB</td><td>3.35 TB/s</td><td>The kernel, through loads and stores</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 1: The H100 SXM memory hierarchy [3][4][5]</p>
+<p>Shared memory and registers together are often called <strong>SRAM</strong> in the kernel literature. The trade-off is stark: shared memory has about 9 times the bandwidth of HBM, but all of it together is about 30 MB, against 80 GB of HBM. Any intermediate tensor larger than a few hundred kilobytes per SM must be written to HBM, and that write, plus the read that follows, is what slows naive kernels down.</p>
+
+<h3>Kernels and launch overhead</h3>
+<p>The CPU starts each kernel with a <strong>launch</strong>: it sets up arguments and pushes a command to the GPU. A launch costs a few microseconds of CPU time even before any Python framework overhead. NVIDIA's CUDA Graphs article measured a 2.9 µs kernel costing 9.6 µs per kernel when each launch was followed by a synchronization, 3.8 µs when launches were overlapped in a stream, and 3.4 µs when the kernels were captured into a graph [10]. When kernels are long, this does not matter. When they are short, as in decoding at small batch, the CPU becomes the bottleneck. We return to this when we discuss CUDA graphs.</p>
+
+<h2>Attention Kernels</h2>
+<h3>Why naive attention is memory-bound</h3>
+<p>Written directly, attention is three operations: compute the scores <tex>S = QK^\top / \sqrt{d}</tex>, apply softmax to get <tex>P</tex>, and multiply <tex>O = PV</tex>. A straightforward implementation runs each as its own kernel and stores <tex>S</tex> and <tex>P</tex>, each an <tex>N \times N</tex> matrix per head, in HBM between them, as Figure 3 shows.</p>
+<fig src="033-naive-attention.svg" caption="Naive attention writes and reads two N × N matrices in HBM">Three kernels run on the SMs: S equals Q times K transposed over root d, P equals softmax of S, and O equals P times V. Between them, S and P, each N by N and 128 MiB per head at N equals 8,192, are written to HBM and read back. Notes give 512 MiB of traffic per head and layer against 8 MiB for Q, K, V and O; 512 GiB for all 32 heads and 32 layers of Llama 3.1 8B, at least 164 ms at 3.35 TB/s for math that needs about 36 ms at peak; and an arithmetic intensity of 64 FLOPs per byte.</fig>
+<p>Count the bytes for one 8,192-token prompt of Llama 3.1 8B in BF16. Per head and layer:</p>
+<ul>
+<li><strong>Score matrix</strong>: <tex>8{,}192^2 \times 2</tex> bytes = 128 MiB. The same holds for <tex>P</tex>.</li>
+<li><strong>Traffic</strong>: write <tex>S</tex>, read it for softmax, write <tex>P</tex>, read it for the product: 4 × 128 MiB = 512 MiB. By comparison, <tex>Q</tex>, <tex>K</tex>, <tex>V</tex>, and <tex>O</tex> for one head are 2 MiB each, 8 MiB in total.</li>
+<li><strong>Math</strong>: <tex>QK^\top</tex> and <tex>PV</tex> each cost <tex>2N^2 d</tex> FLOPs, so <tex>4N^2 d \approx 34.4</tex> GFLOPs per head and layer if the full matrix is computed.</li>
+</ul>
+<p>The arithmetic intensity is about 34.4 GFLOPs ÷ 537 MB ≈ 64 FLOPs per byte, far below the H100's ridge point of 295 FLOPs per byte (Lesson 2, Prefill vs Decode). Across 32 heads and 32 layers, the score and probability matrices move 512 GiB, which takes at least 164 ms at 3.35 TB/s, while the attention math itself needs about 36 ms at peak. The rest of the 8,192-token prefill, the linear layers, takes about 266 ms at 50% MFU, so naive attention would add more than half again to the prompt's prefill time. Capacity fails too: at 32K tokens, one head's score matrix is 2 GiB and one layer's is 64 GiB, which cannot coexist with the model and its KV cache on an 80 GB GPU.</p>
+<texblock>\text{naive HBM traffic} \approx 4 \times N^2 \times 2 \text{ bytes per head per layer} \quad\Rightarrow\quad I \approx \frac{4N^2 d}{8N^2} = \frac{d}{2} = 64 \text{ FLOPs/byte}</texblock>
+<p>The FlashAttention paper states the general result: standard attention needs <tex>\Theta(Nd + N^2)</tex> HBM accesses [1]. The <tex>N^2</tex> term is the problem.</p>
+
+<h3>FlashAttention: tiling and online softmax</h3>
+<p><strong>FlashAttention</strong> computes exactly the same result without ever writing <tex>S</tex> or <tex>P</tex> to HBM [1]. It splits <tex>Q</tex> into tiles of rows (for example 128) and gives each tile to one thread block. The block loads its query tile into SRAM once, then streams tiles of <tex>K</tex> and <tex>V</tex> through shared memory. For each pair it computes a 128 × 128 block of scores in registers, turns it into probabilities, and adds their weighted values into an output accumulator. Only the finished output tile goes back to HBM. Figure 4 shows the loop.</p>
+<fig src="033-flash-tiling.svg" caption="FlashAttention keeps one query tile on chip and streams K and V tiles past it">In HBM, Q, K and V are split into tiles of 128 rows. Inside one SM, the query tile i stays in shared memory while K and V tile j are loaded in a loop over j. The kernel computes a 128 by 128 score tile, updates a running maximum and sum, and rescales and adds into the output tile. When the loop ends, output tile i is written to HBM once. A note says S and P never leave the chip; HBM sees Q, K, V and O, plus K and V re-read once per query tile, often from the 50 MB L2.</fig>
+<p>The difficulty is softmax: each probability needs the maximum and the sum over the <em>whole</em> row of scores, but the kernel only ever sees one tile at a time. The fix is <strong>online softmax</strong> [6]: keep a running maximum <tex>m</tex>, a running sum <tex>l</tex>, and an unnormalized output <tex>O</tex>, and correct them whenever a new tile raises the maximum. For a new tile of scores <tex>s_j</tex>:</p>
+<texblock>m' = \max\left(m, \max_j s_j\right), \quad l' = e^{m - m'}\, l + \sum_j e^{s_j - m'}, \quad O' = e^{m - m'}\, O + \sum_j e^{s_j - m'}\, v_j</texblock>
+<p>After the last tile, the output is <tex>O / l</tex>. Figure 5 works a tiny example: four scores in two tiles give exactly the same result as one softmax over all four.</p>
+<fig src="033-online-softmax.svg" caption="Online softmax over two tiles gives the exact softmax">Tile 1 holds scores 2 and 1, so the running maximum is 2, the sum is exp(0) plus exp(minus 1), or 1.368, and the output is v1 plus 0.368 v2. Tile 2 holds scores 3 and 0, which raises the maximum to 3, so the old sum and output are scaled by exp(minus 1), or 0.368. The new sum is 1.368 times 0.368 plus exp(0) plus exp(minus 3), which is 1.553, and the output is 0.368 times the old output plus v3 plus 0.050 v4. Dividing by l gives exactly the softmax over 2, 1, 3, 0 applied to V.</fig>
+<p>FlashAttention does slightly <em>more</em> arithmetic than the naive version, because of the rescaling and, in training, recomputation in the backward pass. It is still much faster because it moves far fewer bytes. Its HBM traffic falls to <tex>\Theta(N^2 d^2 / M)</tex>, where <tex>M</tex> is the SRAM size; with <tex>d</tex> of 64 to 128 and <tex>M</tex> around 100 KB, that is many times less than the naive count [1]. The paper's measurement on GPT-2 medium (sequence length 1,024, forward plus backward on an A100) makes it concrete: 75.2 GFLOPs instead of 66.6, but 4.4 GB of HBM reads and writes instead of 40.3 GB, and 7.3 ms instead of 41.7 ms [1].</p>
+<p>For our 8,192-token prompt, the minimum traffic is just <tex>Q</tex>, <tex>K</tex>, <tex>V</tex>, and <tex>O</tex>: 160 MiB per layer, or 5 GiB across 32 layers, about 1.6 ms at 3.35 TB/s, roughly 100 times less than the naive 512 GiB. Real kernels re-read <tex>K</tex> and <tex>V</tex> once per query tile, but query tiles running at the same time read the same key tiles, so many of those reads hit the L2 cache. With the traffic gone, attention becomes compute-bound, and causal masking lets the kernel skip tiles above the diagonal: about 17.6 TFLOPs, or 36 ms at 50% MFU, on top of the 266 ms for the linear layers.</p>
+<callout kind="tip" title="Interview tip">If asked why FlashAttention is faster even though it does more FLOPs, answer in bytes: "Naive attention writes and reads the N × N score matrix in HBM, about 64 FLOPs per byte, so it is memory-bound. FlashAttention keeps each score tile in SRAM and uses online softmax, so HBM only sees Q, K, V and O. It is exact, not an approximation."</callout>
+
+<h3>FlashAttention-2 and FlashAttention-3</h3>
+<p><strong>FlashAttention-2</strong> kept the algorithm and reorganized the work [2]. It reduced the non-matrix-multiply FLOPs, parallelized a single head across several thread blocks to raise occupancy, and split work between warps to cut communication through shared memory. The result was about 2 times the speed of the first version, reaching 50–73% of the A100's peak instead of 25–40% [2].</p>
+<p>On Hopper, FlashAttention-2 reached only about 35% utilization, because it did not use the new asynchronous hardware [3]. <strong>FlashAttention-3</strong> adds three things [3]:</p>
+<ul>
+<li><strong>Warp specialization</strong>: within a thread block, producer warps issue TMA copies of the next <tex>K</tex> and <tex>V</tex> tiles while consumer warpgroups run WGMMA matrix multiplies, so data movement overlaps with math.</li>
+<li><strong>Overlapping softmax with matrix multiplies</strong>: "ping-pong" scheduling runs one warpgroup's softmax while another's GEMMs occupy the tensor cores, and even within a warpgroup some softmax instructions overlap with GEMM instructions. This matters because the exponential unit is about 256 times slower than the tensor cores.</li>
+<li><strong>FP8 attention</strong>: block quantization (one scale per block) and incoherent processing, which multiplies <tex>Q</tex> and <tex>K</tex> by a random orthogonal Hadamard-based matrix to spread out outliers before quantizing.</li>
+</ul>
+<p>The paper reports 1.5–2.0 times the speed of FlashAttention-2 on H100, up to 740 TFLOPS in FP16 (about 75% utilization) and close to 1.2 PFLOPS in FP8, with 2.6 times lower numerical error than a baseline FP8 attention [3]. vLLM's <code>FLASH_ATTN</code> backend uses FlashAttention-3 by default on Hopper (FA2 on older GPUs, FA4 on Blackwell) [17].</p>
+
+<h3>Decode attention is a different problem</h3>
+<p>During decode, each sequence contributes a single query token. There is no <tex>N \times N</tex> matrix to avoid: the work is one query row against a long cached <tex>K</tex> and <tex>V</tex>. Each cached token of Llama 3.1 8B costs 4,096 bytes per layer to read and, with four query heads sharing each KV head, 16,384 FLOPs to process, an intensity of 4 FLOPs per byte (Lesson 2). No kernel can make decode attention compute-bound; the goal is to read the KV cache at as close to 3.35 TB/s as possible. Decode attention kernels are judged by achieved bandwidth (MBU), prefill kernels by achieved FLOPS (MFU) (Lesson 19, GPU Utilization).</p>
+<p>The share of time at stake is large. At our 53 streams with an average context of 2,250 tokens, one decode step reads 16 GB of weights and 53 × 2,250 × 128 KiB ≈ 15.6 GB of KV cache: attention is about half of every step's bytes, and a slow attention kernel slows every stream.</p>
+<h4>Split-KV and Flash-Decoding</h4>
+<p>A kernel that parallelizes only over requests and heads has too few blocks at small batch. One request with a 32K-token context and 8 KV heads gives 8 thread blocks (one per KV head, with each group's four query heads packed together), so 124 of 132 SMs sit idle while 8 SMs each stream 32,768 tokens of cache. The Flash-Decoding authors measured that at batch 1, FlashAttention used less than 1% of an A100 [7].</p>
+<p><strong>Flash-Decoding</strong>, also called <strong>split-KV</strong>, adds the KV sequence as a parallel dimension [7]. It splits the cache into chunks, computes attention for each chunk in parallel along with the log-sum-exp of its scores, and runs a small reduction kernel that rescales and combines the partial outputs, the same online-softmax algebra applied across chunks. Figure 6 shows the effect: 32 chunks of 1,024 tokens give 256 blocks and keep every SM pulling from HBM. On CodeLlama-34B at batch 1, the authors measured attention up to 50 times faster than FlashAttention-2 and up to 8 times faster generation for very long sequences; at 64K tokens their attention micro-benchmark took 64.4 µs instead of 2,300.6 µs [7].</p>
+<fig src="033-split-kv.svg" caption="Split-KV parallelizes one long decode across all SMs">Left: one block per request and KV head gives 8 thread blocks, so 8 of 132 SMs are busy and each streams all 32,768 tokens; 94% of the GPU is idle. Right: splitting the cache into 32 chunks of 1,024 tokens gives 256 blocks that occupy all 132 SMs, followed by a reduce kernel that merges the 32 partial outputs using their log-sum-exp.</fig>
+<h4>Paged attention kernels and FlashInfer</h4>
+<p>Serving engines store the KV cache in fixed-size blocks rather than one contiguous tensor (Lesson 8, PagedAttention), so decode kernels must follow a block table to find each sequence's keys and values [8]. The original vLLM kernel paid 20–26% extra latency for this indirection; current kernels handle paged and ragged layouts natively. <strong>FlashInfer</strong> represents every KV layout as a block-sparse matrix, generates specialized kernels from a customizable template with just-in-time compilation, and uses a load-balanced scheduler that stays compatible with CUDA graphs [9]. Its paper reports 29–69% lower inter-token latency than compiler backends and 28–30% lower latency for long-context inference; it is integrated into vLLM, SGLang, and MLC-Engine [9]. FlashAttention-3 also supports paged caches and is the default in both vLLM and SGLang on H100 [17][18].</p>
+<table>
+<thead><tr><th>Kernel</th><th>Phase</th><th>Key idea</th><th>Bound by</th></tr></thead>
+<tbody>
+<tr><td>Naive (three kernels)</td><td>Prefill</td><td>Materializes N × N scores in HBM</td><td>HBM bandwidth (≈ 64 FLOPs/byte)</td></tr>
+<tr><td>FlashAttention / FA2</td><td>Prefill, training</td><td>Tiling and online softmax in SRAM</td><td>Compute</td></tr>
+<tr><td>FlashAttention-3</td><td>Prefill (and decode) on Hopper</td><td>TMA, warp specialization, softmax overlap, FP8</td><td>Compute, ≈ 75% of peak in FP16</td></tr>
+<tr><td>Flash-Decoding (split-KV)</td><td>Decode, long context, small batch</td><td>Parallelize over the KV sequence, then reduce</td><td>HBM bandwidth (≈ 4 FLOPs/byte with GQA)</td></tr>
+<tr><td>Paged kernels, FlashInfer</td><td>Decode and mixed batches</td><td>Block tables, block-sparse layouts, load balancing</td><td>HBM bandwidth</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 2: Attention kernels and what limits them</p>
+
+<h2>Removing Overhead Around the Kernels</h2>
+<h3>Kernel fusion</h3>
+<p>Attention is one fused kernel, but a transformer layer has many smaller operations: residual adds, RMSNorm, rotary embeddings, the SiLU-and-multiply of the MLP, quantization of activations, and writing new keys and values into the cache. Run separately, each one reads its input from HBM and writes its output back. <strong>Kernel fusion</strong> merges a chain of them into one kernel that keeps intermediates in registers, as Figure 7 shows for the residual add and RMSNorm before the QKV projection.</p>
+<fig src="033-fusion.svg" caption="Fusing the residual add and RMSNorm removes round trips and launches">Unfused, three kernels compute h equals x plus the residual, the mean of h squared, and the normalized output times the weight, writing h and the variance to HBM between them before the QKV projection reads y. Fused, one kernel produces y directly, so h and the variance never touch HBM and there is one launch instead of three. Notes: in a 2,000-token prefill each tensor is 16 MiB, so fusion saves memory traffic; in decode with 53 streams each tensor is 0.4 MiB, so fusion mostly saves kernel launches.</fig>
+<p>The benefit depends on the phase. In a 2,000-token prefill, each activation tensor is 2,000 × 4,096 × 2 bytes = 16 MiB, so every avoided round trip saves real bandwidth. In decode with 53 streams, the same tensor is about 0.4 MiB, and the saving is mostly the fixed cost of each launch. Common fusions in serving engines include:</p>
+<ul>
+<li><strong>Fused norms and activations</strong>: residual add plus RMSNorm, and SiLU-and-multiply, often with FP8 or FP4 quantization of the output folded in. vLLM applies these as <code>torch.compile</code> passes (<code>fuse_norm_quant</code>, <code>fuse_act_quant</code>) and can fuse the tensor-parallel all-reduce with the following RMSNorm (<code>fuse_allreduce_rms</code>, on Hopper and Blackwell) [12].</li>
+<li><strong>Fused attention epilogues</strong>: quantizing the attention output inside the attention kernel, or applying rotary embeddings and writing the KV cache in the same kernel, so the full-precision tensors are never written separately [12].</li>
+<li><strong>Fused MoE</strong>: a mixture-of-experts layer routes each token to a few experts. A fused MoE kernel permutes tokens by expert, runs the grouped matrix multiplies, the activation and quantization, and the inverse permutation together instead of launching one small GEMM per expert [13] (Lesson 35, Mixture-of-Experts Serving).</li>
+<li><strong>GEMM epilogues</strong>: adding a bias, an activation, or a scale as the last step of a matrix multiply, while the result is still in registers.</li>
+</ul>
+
+<h3>CUDA graphs and torch.compile</h3>
+<p>A decode step of Llama 3.1 8B at batch 1 needs at least 16 GB ÷ 3.35 TB/s ≈ 4.8 ms of GPU time (2.4 ms in FP8), spread over hundreds of kernels across 32 layers. Many of those kernels run for only a few microseconds, about as long as it takes the CPU to launch them, and a Python framework adds its own overhead per operation on top. In eager mode the GPU then idles between kernels, as the top of Figure 8 shows. The smaller the model and the batch, the larger the idle share: a 0.5B model at batch 1 can spend most of each step waiting for the CPU.</p>
+<fig src="033-cuda-graphs.svg" caption="Eager launches versus CUDA graph replay (illustrative)">Top: in eager mode the CPU launches eight kernels one after another; each short GPU kernel starts only after its launch, so the GPU row shows idle gaps and the eighth kernel finishes late. Bottom: with a CUDA graph the CPU issues one replay, and the same eight kernels run back to back on the GPU, finishing much earlier while the CPU is free.</fig>
+<p>A <strong>CUDA graph</strong> records the whole sequence of kernels once, with fixed shapes and memory addresses, and replays it with a single launch [10]. Because shapes must be fixed, engines capture one graph per batch size and pad each step up to the nearest captured size. vLLM captures graphs at startup; its default mode, <code>FULL_AND_PIECEWISE</code>, captures full graphs for pure decode batches and piecewise graphs, with attention left outside, for mixed prefill and decode batches [11]. Whether a full graph can include attention depends on the backend: vLLM lists FlashAttention-3 and the Triton attention backend as supporting full graphs for any batch, and FlashInfer for single-token decode batches [11]. <code>--enforce-eager</code> turns graphs off, which is useful for debugging and expensive in production (Lesson 9, vLLM).</p>
+<p><strong><code>torch.compile</code></strong> attacks the same overhead from the other side. It captures the model as a graph and its default backend, Inductor, generates fused kernels, mostly in Triton; the <code>"reduce-overhead"</code> mode also wraps the result in CUDA graphs, which the PyTorch documentation describes as useful for small batches [14]. vLLM runs <code>torch.compile</code> at startup by default, applies its own fusion passes, and caches the compiled result under <code>~/.cache/vllm/torch_compile_cache</code> [12][22].</p>
+
+<h3>Triton and CUTLASS: how kernels are written</h3>
+<p>Few teams write raw CUDA for these kernels. <strong>Triton</strong> is a tile-based language and compiler, now written from Python, in which the programmer describes operations on blocks of data and the compiler handles thread mapping, shared memory, and many low-level details [15]. It is the language of Inductor's generated kernels, vLLM's Triton attention and MoE kernels, and many research kernels, because a competent kernel takes days rather than weeks. <strong>CUTLASS</strong> is NVIDIA's C++ template library, with its CuTe layout abstractions, for building GEMMs and attention at the level of individual hardware instructions [16]. FlashAttention-3 is written with CUTLASS, which is what lets it use TMA and WGMMA directly [3]. The rule of thumb: Triton for fusions and new operators where 80–90% of peak is enough, CUTLASS or hand-written CUDA when the last 20% matters and the kernel will run billions of times.</p>
+
+<h2>What Interviewers Probe</h2>
+<p>Kernel questions rarely ask you to write CUDA. They check whether you can connect a symptom to the right layer and reason in bytes and FLOPs. Table 3 lists common probes and the shape of a strong answer.</p>
+<table>
+<thead><tr><th>Question</th><th>What a strong answer covers</th></tr></thead>
+<tbody>
+<tr><td>Why is FlashAttention faster?</td><td>Naive attention materializes N × N scores in HBM (≈ 64 FLOPs/byte); tiling and online softmax keep them in SRAM. Exact, slightly more FLOPs, far fewer bytes.</td></tr>
+<tr><td>Does FlashAttention help decode?</td><td>Decode attention is bandwidth-bound at ≈ 4 FLOPs/byte with GQA. What helps is reading the cache at full bandwidth: split-KV for long contexts and small batches, paged-aware kernels.</td></tr>
+<tr><td>What does FlashAttention-3 add?</td><td>Hopper-specific asynchrony: TMA and warp specialization, softmax overlapped with GEMMs, FP8 with block quantization. About 75% of H100 peak in FP16.</td></tr>
+<tr><td>The GPU shows gaps between kernels. Why?</td><td>CPU launch and framework overhead with short kernels. Check CUDA graphs are on, then fusion; confirm with an Nsight Systems timeline.</td></tr>
+<tr><td>Why does a small model gain more from CUDA graphs?</td><td>Its kernels are shorter, so fixed launch cost is a larger share of each step; batch 1 decode is the extreme case.</td></tr>
+<tr><td>When would you write a custom kernel?</td><td>Only after a profile shows a specific hotspot that libraries do not cover: a new attention variant, an unusual quantization format, an unfused chain on the critical path.</td></tr>
+</tbody>
+</table>
+<p style="text-align:center">Table 3: Common kernel questions and the shape of a good answer</p>
+
+<h4>Which optimizations matter for our deployment?</h4>
+<p>Start from the step budget. At 53 streams, one decode step must read about 16 GB of weights and 15.6 GB of KV cache, at least 9.5 ms at 3.35 TB/s. Lesson 19's model puts pure decode at about 14.5 ms per step, about 65% of peak bandwidth, stretched to about 21 ms once prompt chunks are mixed in. The remaining gap to the bandwidth roof is real but bounded: perfect kernels could not make the step shorter than 9.5 ms.</p>
+<p>vLLM's defaults already cover the big kernel wins on an H100: FlashAttention-3 for prefill and decode, paged KV access, CUDA graphs for decode batches, and <code>torch.compile</code> fusions. So the teammate who says the engine already uses the best kernels is mostly right for this model. Our plan:</p>
+<ul>
+<li><strong>Verify, do not assume</strong>: confirm from the startup log that the server is not running with <code>--enforce-eager</code>, that CUDA graphs were captured up to our batch sizes, and which attention backend was selected.</li>
+<li><strong>Profile one step</strong>: an Nsight Systems trace of a few decode steps shows whether there are gaps between kernels (a CPU problem) or whether attention and GEMMs dominate (a bandwidth problem).</li>
+<li><strong>A/B the attention backend</strong>: try FlashInfer against FlashAttention-3 under our real traffic, especially for the 32K-token documents, where split-KV decode kernels matter most.</li>
+<li><strong>Spend effort on bytes, not kernels</strong>: FP8 weights and an FP8 KV cache roughly halve the bytes every step reads (Lesson 13, Quantization - FP8, INT8 and 4-bit), a far larger win than any kernel tuning can deliver at 65% MBU.</li>
+</ul>
+<p>We do not write custom kernels for a standard Llama model. That changes if we adopt a model with a new attention variant that the libraries do not support well, or if a profile shows a specific unfused hotspot on the critical path.</p>
+
+<h2>In Practice</h2>
+<p>The first tab times naive attention against PyTorch's FlashAttention backend [19] on one GPU and prints the kernels each one launches; on a laptop GPU, lower <code>N</code> or <code>H</code> until it fits. The second traces the same script with Nsight Systems and summarizes GPU time per kernel [20][21]. The third shows how vLLM and SGLang expose the choice of attention backend and CUDA graph mode [11][17][18].</p>
+<codetabs>
+<tab label="Naive vs Flash" lang="python">
+import torch
+import torch.nn.functional as F
+from torch.nn.attention import SDPBackend, sdpa_kernel
+from torch.profiler import ProfilerActivity, profile
+
+torch.manual_seed(0)
+B, H, N, D = 1, 32, 4096, 128   # one sequence with Llama 3.1 8B's query heads and head size
+q, k, v = (torch.randn(B, H, N, D, device="cuda", dtype=torch.bfloat16) for _ in range(3))
+
+
+def naive(q, k, v):
+    s = (q @ k.transpose(-2, -1)) / D**0.5                          # N x N scores in HBM
+    mask = torch.ones(N, N, device=q.device, dtype=torch.bool).triu(1)
+    p = torch.softmax(s.masked_fill(mask, float("-inf")), dim=-1)   # another N x N tensor
+    return p @ v
+
+
+def flash(q, k, v):
+    with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+        return F.scaled_dot_product_attention(q, k, v, is_causal=True)
+
+
+def time_ms(fn, iters=20):
+    fn(q, k, v)
+    torch.cuda.synchronize()
+    start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    start.record()
+    for _ in range(iters):
+        fn(q, k, v)
+    end.record()
+    torch.cuda.synchronize()
+    return start.elapsed_time(end) / iters
+
+
+useful_flops = 4 * B * H * N * N * D / 2   # causal: half of the score matrix is real work
+for name, fn in (("naive", naive), ("flash", flash)):
+    ms = time_ms(fn)
+    torch.cuda.reset_peak_memory_stats()
+    fn(q, k, v)
+    torch.cuda.synchronize()
+    peak_gib = torch.cuda.max_memory_allocated() / 2**30
+    print(f"{name:>5}: {ms:6.2f} ms, {useful_flops / ms / 1e9:6.1f} TFLOPS, peak {peak_gib:.2f} GiB")
+print("max abs difference:", (naive(q, k, v) - flash(q, k, v)).abs().max().item())
+
+with profile(activities=[ProfilerActivity.CUDA]) as prof:
+    naive(q, k, v)
+    flash(q, k, v)
+    torch.cuda.synchronize()
+print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=8))
+# Expect the naive path to use several GiB for the score matrices and to run as
+# separate GEMM, masking and softmax kernels; the flash path is one kernel.
+</tab>
+<tab label="Nsight Systems" lang="bash">
+# Save the first tab as attn_bench.py, then record a timeline of CUDA kernels.
+# --cuda-graph-trace=node shows kernels inside CUDA graphs individually.
+nsys profile --trace=cuda,nvtx --cuda-graph-trace=node \
+  --output=attn_bench --force-overwrite=true \
+  python attn_bench.py
+
+# Summarize GPU time per kernel name, largest first.
+nsys stats --report cuda_gpu_kern_sum attn_bench.nsys-rep
+
+# Open attn_bench.nsys-rep in the Nsight Systems GUI to see gaps between kernels.
+# For a running vLLM server, use the flags in Lesson 19, GPU Utilization.
+</tab>
+<tab label="Engine backends" lang="bash">
+# vLLM chooses a backend automatically: FLASH_ATTN (FlashAttention-3) first on Hopper.
+# Force a different one to compare under the same load:
+vllm serve meta-llama/Llama-3.1-8B-Instruct --attention-backend FLASHINFER
+
+# Pin the FlashAttention version used by the FLASH_ATTN backend (2, 3 or 4):
+vllm serve meta-llama/Llama-3.1-8B-Instruct --attention-backend FLASH_ATTN \
+  --attention-config.flash_attn_version=3
+
+# CUDA graph mode (default FULL_AND_PIECEWISE). --enforce-eager disables graphs entirely.
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY"}'
+
+# SGLang: one backend for the model, or a different one per phase.
+python -m sglang.launch_server --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --attention-backend fa3
+python -m sglang.launch_server --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --prefill-attention-backend fa3 --decode-attention-backend flashinfer
+</tab>
+</codetabs>
+
+<h2>Other Talking Points</h2>
+<p>If there is extra time at the end of the interview, here are some additional talking points:</p>
+<ul>
+<li>Why FlashAttention's backward pass recomputes the scores instead of storing them, trading FLOPs for memory, and why inference only needs the forward pass [1].</li>
+<li>FP8 attention on Hopper: block quantization and the Hadamard-based incoherent processing in FlashAttention-3, and why outliers make naive FP8 attention inaccurate [3].</li>
+<li>How GQA changes decode kernels: packing the query heads of a group into one block raises intensity from 1 to 4 FLOPs per byte for Llama 3.1 8B's 4:1 grouping (Lesson 3, KV Cache).</li>
+<li>Why attention for very long prompts across several GPUs reuses the same online-softmax algebra, now merging partial results from different devices (Lesson 36, Long-Context Serving).</li>
+<li>Why the FP32 and special-function units can become the bottleneck once matrix multiplies are fast: 989 TFLOPS of matrix math against 3.9 TFLOPS of exponentials on an H100 [3].</li>
+<li>How fusing the tensor-parallel all-reduce with RMSNorm hides communication behind computation (Lesson 18, Tensor Parallelism) [12].</li>
+<li>Why a kernel that is fastest in isolation can lose inside a server: CUDA graph compatibility, paged-cache support, and behavior on mixed prefill and decode batches all matter [9][11].</li>
+</ul>
+
+<h2>Summary</h2>
+<fig src="033-summary.png" caption="GPU architecture and attention kernels summary" optional="1">Mind map summarizing the lesson: GPU building blocks, the memory hierarchy, naive versus FlashAttention, decode kernels, fusion and CUDA graphs, and the deployment decision.</fig>
+<ul>
+<li>An H100 SXM has 132 SMs with four tensor cores each, 256 KB of registers and up to 228 KB of shared memory per SM, a 50 MB L2, and 80 GB of HBM at 3.35 TB/s. Kernels are fast when they reuse data on chip.</li>
+<li>Naive attention writes and reads N × N matrices in HBM: 512 GiB of traffic for an 8,192-token prompt of Llama 3.1 8B, at about 64 FLOPs per byte. It is memory-bound and, at long contexts, does not even fit.</li>
+<li>FlashAttention tiles Q, K and V and uses online softmax so scores never leave SRAM. It is exact; FlashAttention-2 reorganized the work, and FlashAttention-3 uses TMA, warp specialization, and FP8 to reach about 75% of H100 peak.</li>
+<li>Decode attention is bandwidth-bound at about 4 FLOPs per byte. Split-KV (Flash-Decoding) fills the GPU for long contexts at small batch; paged kernels and FlashInfer read block-structured caches efficiently.</li>
+<li>Fusion removes HBM round trips in prefill and launches in decode; CUDA graphs and <code>torch.compile</code> remove CPU launch overhead, which matters most at small batch.</li>
+<li>For a standard model on vLLM or SGLang, the default kernels are already strong. Verify graphs and backends, profile, and reduce bytes with FP8 before writing custom kernels.</li>
+</ul>
+
+<h2>Reference Material</h2>
+<p>[1] Dao et al. FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. <a href="https://arxiv.org/abs/2205.14135" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2205.14135</a>.<br>
+[2] Dao. FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. <a href="https://arxiv.org/abs/2307.08691" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2307.08691</a>.<br>
+[3] Shah et al. FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. <a href="https://arxiv.org/abs/2407.08608" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2407.08608</a>.<br>
+[4] NVIDIA. NVIDIA Hopper Architecture In-Depth. <a href="https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/" rel="noopener noreferrer" target="_blank">https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/</a>.<br>
+[5] NVIDIA. H100 Tensor Core GPU. <a href="https://www.nvidia.com/en-us/data-center/h100/" rel="noopener noreferrer" target="_blank">https://www.nvidia.com/en-us/data-center/h100/</a>.<br>
+[6] Milakov and Gimelshein. Online normalizer calculation for softmax. <a href="https://arxiv.org/abs/1805.02867" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/1805.02867</a>.<br>
+[7] Dao, Haziza, Massa, and Sizov. Flash-Decoding for long-context inference. PyTorch blog. <a href="https://pytorch.org/blog/flash-decoding/" rel="noopener noreferrer" target="_blank">https://pytorch.org/blog/flash-decoding/</a>.<br>
+[8] Kwon et al. Efficient Memory Management for Large Language Model Serving with PagedAttention. <a href="https://arxiv.org/abs/2309.06180" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2309.06180</a>.<br>
+[9] Ye et al. FlashInfer: Efficient and Customizable Attention Engine for LLM Inference Serving. <a href="https://arxiv.org/abs/2501.01005" rel="noopener noreferrer" target="_blank">https://arxiv.org/abs/2501.01005</a>.<br>
+[10] Gray. Getting Started with CUDA Graphs. NVIDIA Technical Blog. <a href="https://developer.nvidia.com/blog/cuda-graphs/" rel="noopener noreferrer" target="_blank">https://developer.nvidia.com/blog/cuda-graphs/</a>.<br>
+[11] vLLM documentation: CUDA Graphs. <a href="https://docs.vllm.ai/en/latest/design/cuda_graphs.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/cuda_graphs.html</a>.<br>
+[12] vLLM documentation: Fusion torch.compile passes. <a href="https://docs.vllm.ai/en/latest/design/fusions/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/fusions/</a>.<br>
+[13] vLLM documentation: Fused MoE Modular Kernel. <a href="https://docs.vllm.ai/en/latest/design/fused_moe_modular_kernel.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/fused_moe_modular_kernel.html</a>.<br>
+[14] PyTorch documentation: torch.compile. <a href="https://docs.pytorch.org/docs/stable/generated/torch.compile.html" rel="noopener noreferrer" target="_blank">https://docs.pytorch.org/docs/stable/generated/torch.compile.html</a>.<br>
+[15] Tillet, Kung, and Cox. Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations. MAPL 2019. <a href="https://www.eecs.harvard.edu/~htk/publication/2019-mapl-tillet-kung-cox.pdf" rel="noopener noreferrer" target="_blank">https://www.eecs.harvard.edu/~htk/publication/2019-mapl-tillet-kung-cox.pdf</a>.<br>
+[16] NVIDIA. CUTLASS: CUDA Templates for Linear Algebra Subroutines. <a href="https://github.com/NVIDIA/cutlass" rel="noopener noreferrer" target="_blank">https://github.com/NVIDIA/cutlass</a>.<br>
+[17] vLLM documentation: Attention Backend Feature Support. <a href="https://docs.vllm.ai/en/latest/design/attention_backends/" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/attention_backends/</a>.<br>
+[18] SGLang documentation: Attention Backend. <a href="https://docs.sglang.io/advanced_features/attention_backend.html" rel="noopener noreferrer" target="_blank">https://docs.sglang.io/advanced_features/attention_backend.html</a>.<br>
+[19] PyTorch documentation: torch.nn.attention.sdpa_kernel. <a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.attention.sdpa_kernel.html" rel="noopener noreferrer" target="_blank">https://docs.pytorch.org/docs/stable/generated/torch.nn.attention.sdpa_kernel.html</a>.<br>
+[20] NVIDIA. Nsight Systems User Guide. <a href="https://docs.nvidia.com/nsight-systems/UserGuide/index.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/nsight-systems/UserGuide/index.html</a>.<br>
+[21] NVIDIA. Nsight Systems Post-Collection Analysis Guide. <a href="https://docs.nvidia.com/nsight-systems/AnalysisGuide/index.html" rel="noopener noreferrer" target="_blank">https://docs.nvidia.com/nsight-systems/AnalysisGuide/index.html</a>.<br>
+[22] vLLM documentation: torch.compile integration. <a href="https://docs.vllm.ai/en/latest/design/torch_compile.html" rel="noopener noreferrer" target="_blank">https://docs.vllm.ai/en/latest/design/torch_compile.html</a>.</p>

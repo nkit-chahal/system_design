@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="345" viewBox="0 0 820 345" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="24" class="b">Adapter tiers, fastest at the top: time for one 80 MiB adapter to reach the GPU</text>
+
+  <!-- Tier 1 -->
+  <rect x="50" y="44" width="320" height="50" rx="6" class="blue"/>
+  <text x="210" y="65" text-anchor="middle" class="b">GPU adapter slots</text>
+  <text x="210" y="83" text-anchor="middle" class="sm">vLLM --max-loras, SGLang --max-loras-per-batch</text>
+  <rect x="416" y="44" width="388" height="50" rx="6" class="green"/>
+  <text x="430" y="65" class="b">ready for this batch: no delay</text>
+  <text x="430" y="83" class="sm">our plan: 64 slots × 80 MiB = 5 GiB of HBM</text>
+
+  <!-- Tier 2 -->
+  <rect x="50" y="120" width="320" height="50" rx="6" class="blue"/>
+  <text x="210" y="141" text-anchor="middle" class="b">CPU memory cache</text>
+  <text x="210" y="159" text-anchor="middle" class="sm">vLLM --max-cpu-loras, SGLang --max-loaded-loras</text>
+  <rect x="416" y="120" width="388" height="50" rx="6" class="green"/>
+  <text x="430" y="141" class="b">PCIe copy ≈ 3.4 ms</text>
+  <text x="430" y="159" class="sm">assumed 25 GB/s effective (Gen5 x16 peaks near 64 GB/s)</text>
+
+  <!-- Tier 3: cylinder -->
+  <path d="M50,204 a160,8 0 0,1 320,0 v34 a160,8 0 0,1 -320,0 z" class="gray"/>
+  <path d="M50,204 a160,8 0 0,0 320,0" fill="none" stroke="#666" stroke-width="1.2"/>
+  <text x="210" y="230" text-anchor="middle" class="b">Local NVMe disk</text>
+  <rect x="416" y="196" width="388" height="50" rx="6" class="gray"/>
+  <text x="430" y="217" class="b">read and parse ≈ 42 ms</text>
+  <text x="430" y="235" class="sm">assumed 2 GB/s; felt in the request's TTFT</text>
+
+  <!-- Tier 4: cylinder -->
+  <path d="M50,280 a160,8 0 0,1 320,0 v34 a160,8 0 0,1 -320,0 z" class="gray"/>
+  <path d="M50,280 a160,8 0 0,0 320,0" fill="none" stroke="#666" stroke-width="1.2"/>
+  <text x="210" y="306" text-anchor="middle" class="b">Object store or model hub</text>
+  <rect x="416" y="272" width="388" height="50" rx="6" class="red"/>
+  <text x="430" y="293" class="b">≈ 0.4 s or more</text>
+  <text x="430" y="311" class="sm">assumed 200 MB/s plus connection setup</text>
+
+  <!-- promote / evict arrows -->
+  <path d="M28,316 L28,48" class="edge"/>
+  <text x="20" y="190" class="sm" transform="rotate(-90 20 190)" text-anchor="middle">promote on demand</text>
+  <path d="M386,48 L386,316" class="edge"/>
+  <text x="398" y="190" class="sm" transform="rotate(90 398 190)" text-anchor="middle">evict least recently used</text>
+
+  <text x="16" y="340" class="sm">Times are rough estimates from the assumed bandwidths shown, not measurements.</text>
+</svg>

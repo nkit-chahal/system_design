@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="610" viewBox="0 0 860 610" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .mono{font-family:"Courier New",Courier,monospace;font-size:12px}
+    .note{font-size:12px;fill:#666}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="16" y="24" class="b">Startup step</text>
+  <text x="256" y="24" class="b">Log line to look for (INFO)</text>
+  <text x="566" y="24" class="b">Error if this step fails</text>
+
+  <!-- Step column -->
+  <rect x="16" y="40" width="220" height="58" rx="6" class="gray"/>
+  <text x="126" y="64" text-anchor="middle" class="b">1. Start CUDA and NCCL</text>
+  <text x="126" y="83" text-anchor="middle" class="sm">then snapshot free memory</text>
+  <rect x="16" y="116" width="220" height="58" rx="6" class="orange"/>
+  <text x="126" y="140" text-anchor="middle" class="b">2. Load the weights</text>
+  <text x="126" y="159" text-anchor="middle" class="sm">weights per GPU = W</text>
+  <rect x="16" y="192" width="220" height="58" rx="6" class="gray"/>
+  <text x="126" y="216" text-anchor="middle" class="b">3. Profile one step</text>
+  <text x="126" y="235" text-anchor="middle" class="sm">max_num_batched_tokens tokens</text>
+  <rect x="16" y="268" width="220" height="58" rx="6" class="gray"/>
+  <text x="126" y="292" text-anchor="middle" class="b">4. Estimate CUDA graphs</text>
+  <text x="126" y="311" text-anchor="middle" class="sm">one graph per batch size</text>
+  <rect x="16" y="344" width="220" height="58" rx="6" class="blue"/>
+  <text x="126" y="368" text-anchor="middle" class="b">5. Size the KV cache</text>
+  <text x="126" y="387" text-anchor="middle" class="sm">U × M − W − peak − graphs</text>
+  <rect x="16" y="420" width="220" height="78" rx="6" class="blue"/>
+  <text x="126" y="454" text-anchor="middle" class="b">6. Check max_model_len</text>
+  <text x="126" y="473" text-anchor="middle" class="sm">one full-length request must fit</text>
+  <rect x="16" y="516" width="220" height="58" rx="6" class="gray"/>
+  <text x="126" y="540" text-anchor="middle" class="b">7. Allocate and capture</text>
+  <text x="126" y="559" text-anchor="middle" class="sm">KV blocks, then CUDA graphs</text>
+
+  <path d="M126,98 V114" class="edge"/>
+  <path d="M126,174 V190" class="edge"/>
+  <path d="M126,250 V266" class="edge"/>
+  <path d="M126,326 V342" class="edge"/>
+  <path d="M126,402 V418" class="edge"/>
+  <path d="M126,498 V514" class="edge"/>
+
+  <!-- Log column -->
+  <text x="266" y="74" class="note">(nothing to read at this step)</text>
+  <rect x="256" y="116" width="290" height="58" rx="4" class="white"/>
+  <text x="266" y="140" class="mono">Model loading took &lt;W&gt; GiB</text>
+  <text x="266" y="156" class="mono">memory and &lt;t&gt; seconds</text>
+  <text x="266" y="217" class="note">(peak activation memory is</text>
+  <text x="266" y="233" class="note">logged only at DEBUG level)</text>
+  <rect x="256" y="268" width="290" height="58" rx="4" class="white"/>
+  <text x="266" y="292" class="mono">Estimated CUDA graph memory:</text>
+  <text x="266" y="308" class="mono">&lt;G&gt; GiB total</text>
+  <rect x="256" y="344" width="290" height="58" rx="4" class="white"/>
+  <text x="266" y="368" class="mono">Available KV cache memory:</text>
+  <text x="266" y="384" class="mono">&lt;K&gt; GiB</text>
+  <rect x="256" y="420" width="290" height="78" rx="4" class="white"/>
+  <text x="266" y="444" class="mono">GPU KV cache size: &lt;N&gt; tokens,</text>
+  <text x="266" y="460" class="mono">Maximum concurrency for &lt;L&gt;</text>
+  <text x="266" y="476" class="mono">tokens per request: &lt;X&gt;x</text>
+  <rect x="256" y="516" width="290" height="58" rx="4" class="white"/>
+  <text x="266" y="540" class="mono">Graph capturing finished in</text>
+  <text x="266" y="556" class="mono">&lt;s&gt; secs, took &lt;G&gt; GiB</text>
+
+  <!-- Error column -->
+  <rect x="566" y="40" width="278" height="58" rx="4" class="red"/>
+  <text x="576" y="58" class="mono">Free memory on device (…) on</text>
+  <text x="576" y="73" class="mono">startup is less than desired</text>
+  <text x="576" y="88" class="mono">GPU memory utilization (…).</text>
+  <rect x="566" y="116" width="278" height="58" rx="4" class="red"/>
+  <text x="576" y="140" class="mono">Failed to load model - not</text>
+  <text x="576" y="156" class="mono">enough GPU memory.</text>
+  <text x="576" y="226" class="note">—</text>
+  <text x="576" y="302" class="note">—</text>
+  <rect x="566" y="344" width="278" height="58" rx="4" class="red"/>
+  <text x="576" y="368" class="mono">No available memory for the</text>
+  <text x="576" y="384" class="mono">cache blocks.</text>
+  <rect x="566" y="420" width="278" height="78" rx="4" class="red"/>
+  <text x="576" y="438" class="mono">To serve at least one request</text>
+  <text x="576" y="453" class="mono">with the model's max seq len</text>
+  <text x="576" y="468" class="mono">(&lt;L&gt;), … the estimated maximum</text>
+  <text x="576" y="483" class="mono">model length is &lt;L'&gt;.</text>
+  <rect x="566" y="516" width="278" height="58" rx="4" class="red"/>
+  <text x="576" y="540" class="mono">torch.OutOfMemoryError: CUDA</text>
+  <text x="576" y="556" class="mono">out of memory.</text>
+
+  <text x="16" y="598" class="note">Messages as printed by vLLM v0.32; placeholders in angle brackets, long errors shortened with "…".</text>
+</svg>

@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="350" viewBox="0 0 840 350" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#ddd;stroke-width:1}
+    .dash{fill:none;stroke:#666;stroke-width:1.2;stroke-dasharray:5 4}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="26" class="b">Bytes read per decode step and what they cost (Llama 3.1 8B, 2,500-token contexts, ideal 3.35 TB/s)</text>
+  <text x="640" y="58" text-anchor="end" class="sm b">step</text>
+  <text x="730" y="58" text-anchor="end" class="sm b">per user</text>
+  <text x="826" y="58" text-anchor="end" class="sm b">total</text>
+  <text x="16" y="89">batch 1</text>
+  <rect x="110" y="70" width="102.8" height="28" class="orange"/>
+  <rect x="212.8" y="70" width="2.1" height="28" class="blue"/>
+  <text x="220.9" y="89" class="sm">KV 0.3 GB</text>
+  <text x="161.4" y="89" text-anchor="middle" class="sm">weights 16 GB</text>
+  <text x="640" y="89" text-anchor="end" class="sm">4.9 ms</text>
+  <text x="730" y="89" text-anchor="end" class="sm">204 tok/s</text>
+  <text x="826" y="89" text-anchor="end" class="sm">204 tok/s</text>
+  <text x="16" y="133">batch 32</text>
+  <rect x="110" y="114" width="102.8" height="28" class="orange"/>
+  <rect x="212.8" y="114" width="67.1" height="28" class="blue"/>
+  <text x="285.9" y="133" class="sm">KV 10.5 GB</text>
+  <text x="161.4" y="133" text-anchor="middle" class="sm">weights 16 GB</text>
+  <text x="640" y="133" text-anchor="end" class="sm">7.9 ms</text>
+  <text x="730" y="133" text-anchor="end" class="sm">126 tok/s</text>
+  <text x="826" y="133" text-anchor="end" class="sm">4,038 tok/s</text>
+  <text x="16" y="177">batch 64</text>
+  <rect x="110" y="158" width="102.8" height="28" class="orange"/>
+  <rect x="212.8" y="158" width="134.2" height="28" class="blue"/>
+  <text x="279.9" y="177" text-anchor="middle" class="sm">KV 21.0 GB</text>
+  <text x="161.4" y="177" text-anchor="middle" class="sm">weights 16 GB</text>
+  <text x="640" y="177" text-anchor="end" class="sm">11.1 ms</text>
+  <text x="730" y="177" text-anchor="end" class="sm">90 tok/s</text>
+  <text x="826" y="177" text-anchor="end" class="sm">5,790 tok/s</text>
+  <text x="16" y="221">batch 128</text>
+  <rect x="110" y="202" width="102.8" height="28" class="orange"/>
+  <rect x="212.8" y="202" width="268.4" height="28" class="blue"/>
+  <text x="347.0" y="221" text-anchor="middle" class="sm">KV 41.9 GB</text>
+  <text x="161.4" y="221" text-anchor="middle" class="sm">weights 16 GB</text>
+  <text x="640" y="221" text-anchor="end" class="sm">17.3 ms</text>
+  <text x="730" y="221" text-anchor="end" class="sm">58 tok/s</text>
+  <text x="826" y="221" text-anchor="end" class="sm">7,393 tok/s</text>
+  <text x="16" y="265">batch 170</text>
+  <rect x="110" y="246" width="102.8" height="28" class="orange"/>
+  <rect x="212.8" y="246" width="356.5" height="28" class="blue"/>
+  <text x="391.0" y="265" text-anchor="middle" class="sm">KV 55.7 GB</text>
+  <text x="161.4" y="265" text-anchor="middle" class="sm">weights 16 GB</text>
+  <text x="640" y="265" text-anchor="end" class="sm">21.4 ms</text>
+  <text x="730" y="265" text-anchor="end" class="sm">47 tok/s</text>
+  <text x="826" y="265" text-anchor="end" class="sm">7,936 tok/s</text>
+  <path d="M110,290 L570.8,290" class="axis"/>
+  <line x1="110.0" y1="290" x2="110.0" y2="295" class="axis"/><text x="110.0" y="309" text-anchor="middle" class="sm">0</text>
+  <line x1="186.8" y1="290" x2="186.8" y2="295" class="axis"/><text x="186.8" y="309" text-anchor="middle" class="sm">12</text>
+  <line x1="263.6" y1="290" x2="263.6" y2="295" class="axis"/><text x="263.6" y="309" text-anchor="middle" class="sm">24</text>
+  <line x1="340.4" y1="290" x2="340.4" y2="295" class="axis"/><text x="340.4" y="309" text-anchor="middle" class="sm">36</text>
+  <line x1="417.2" y1="290" x2="417.2" y2="295" class="axis"/><text x="417.2" y="309" text-anchor="middle" class="sm">48</text>
+  <line x1="494.0" y1="290" x2="494.0" y2="295" class="axis"/><text x="494.0" y="309" text-anchor="middle" class="sm">60</text>
+  <line x1="570.8" y1="290" x2="570.8" y2="295" class="axis"/><text x="570.8" y="309" text-anchor="middle" class="sm">72</text>
+  <text x="584.8" y="309" class="sm">GB</text>
+  <text x="16" y="334" class="sm">The weight read is shared by the whole batch; every sequence adds its own 0.33 GB of KV cache to every step.</text>
+</svg>

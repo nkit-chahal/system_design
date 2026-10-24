@@ -1,0 +1,7 @@
+center: Speculative Decoding
+branch: Idle compute in decode | 4.79 ms reading weights | 0.016 ms of arithmetic
+branch: Draft, then verify | k draft tokens | one target pass | lossless rejection sampling
+branch: Tokens per pass | (1 − α^(k+1)) / (1 − α) | 3.36 at α 0.8, k 4
+branch: Speedup | E / (kc + 1) | about 2.1× with 1B draft
+branch: Draft sources | n-gram lookup | Medusa heads | EAGLE-3 and MTP
+branch: When it helps | low batch, low temperature | hurts once verify is compute-bound

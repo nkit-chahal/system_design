@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="300" viewBox="0 0 860 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+    <pattern id="redhatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a8a6" stroke-width="3"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dedge{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .grid{stroke:#e3e3e3;stroke-width:1}
+    .guide{stroke:#666;stroke-width:1;stroke-dasharray:5 4;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="16" y="51" class="b">Turn 1</text>
+  <rect x="120.0" y="30" width="255.0" height="32" class="blue"/>
+  <text x="247.5" y="50.5" text-anchor="middle" class="sm">system</text>
+  <rect x="375.0" y="30" width="85.0" height="32" class="orange"/>
+  <text x="417.5" y="50.5" text-anchor="middle" class="sm">user 1</text>
+  <text x="470.0" y="51" class="sm">computes 512 of 2,000</text>
+  <text x="16" y="111" class="b">Turn 2</text>
+  <rect x="120.0" y="90" width="255.0" height="32" class="blue"/>
+  <text x="247.5" y="110.5" text-anchor="middle" class="sm">system</text>
+  <rect x="375.0" y="90" width="85.0" height="32" class="blue"/>
+  <text x="417.5" y="110.5" text-anchor="middle" class="sm">user 1</text>
+  <rect x="460.0" y="90" width="85.0" height="32" class="blue"/>
+  <text x="502.5" y="110.5" text-anchor="middle" class="sm">answer 1</text>
+  <rect x="545.0" y="90" width="20.4" height="32" class="orange"/>
+  <text x="575.4" y="111" class="sm">computes ≈ 120 of 2,620</text>
+  <text x="16" y="171" class="b">Turn 3</text>
+  <rect x="120.0" y="150" width="255.0" height="32" class="blue"/>
+  <text x="247.5" y="170.5" text-anchor="middle" class="sm">system</text>
+  <rect x="375.0" y="150" width="85.0" height="32" class="blue"/>
+  <text x="417.5" y="170.5" text-anchor="middle" class="sm">user 1</text>
+  <rect x="460.0" y="150" width="85.0" height="32" class="blue"/>
+  <text x="502.5" y="170.5" text-anchor="middle" class="sm">answer 1</text>
+  <rect x="545.0" y="150" width="20.4" height="32" class="blue"/>
+  <rect x="565.4" y="150" width="85.0" height="32" class="blue"/>
+  <text x="607.9" y="170.5" text-anchor="middle" class="sm">answer 2</text>
+  <rect x="650.4" y="150" width="20.4" height="32" class="orange"/>
+  <text x="680.8" y="171" class="sm">computes ≈ 120 of 3,240</text>
+  <text x="559.4" y="84" class="sm" text-anchor="end">user 2</text>
+  <text x="664.8" y="144" class="sm" text-anchor="end">user 3</text>
+  <text x="16" y="218" class="sm b">Two conditions for these hits:</text>
+  <text x="16" y="238" class="sm">1. The next turn reaches the replica that holds the history. With round-robin over 5 replicas, that happens 20% of the time (Lesson 25).</text>
+  <text x="16" y="258" class="sm">2. The history has not been evicted while the user was typing: about 1.8 minutes on a busy replica, longer with a CPU tier.</text>
+  <rect x="16" y="274" width="16" height="12" class="blue"/><text x="38" y="285" class="sm">reused from cache</text>
+  <rect x="170" y="274" width="16" height="12" class="orange"/><text x="192" y="285" class="sm">computed</text>
+  <text x="300" y="285" class="sm">Answers are cached as they are generated, so turn 2 reuses answer 1 without recomputing it.</text>
+</svg>

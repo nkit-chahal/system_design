@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="380" viewBox="0 0 840 380" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Online lane -->
+  <rect x="10" y="10" width="820" height="160" rx="4" class="group"/>
+  <text x="24" y="34" class="lg b">Online serving: a user is waiting</text>
+
+  <rect x="24" y="76" width="96" height="50" rx="6" class="white"/>
+  <text x="72" y="106" text-anchor="middle">User</text>
+  <path d="M120,101 L158,101" class="edge"/>
+  <rect x="160" y="76" width="110" height="50" rx="6" class="purple"/>
+  <text x="215" y="98" text-anchor="middle" class="b">Router</text>
+  <text x="215" y="115" text-anchor="middle" class="sm">one request</text>
+  <path d="M270,101 L308,101" class="edge"/>
+  <rect x="310" y="66" width="230" height="70" rx="6" class="orange"/>
+  <text x="425" y="88" text-anchor="middle" class="b">vLLM replica (1 H100)</text>
+  <text x="425" y="106" text-anchor="middle" class="sm">≈ 53 streams per GPU</text>
+  <text x="425" y="123" text-anchor="middle" class="sm">batch capped by latency targets</text>
+  <path d="M425,136 L425,156 L72,156 L72,128" class="edge"/>
+  <text x="250" y="151" text-anchor="middle" class="sm">tokens stream back</text>
+  <rect x="580" y="58" width="236" height="86" rx="6" class="green"/>
+  <text x="698" y="82" text-anchor="middle" class="b">Judged by latency</text>
+  <text x="698" y="102" text-anchor="middle" class="sm">p95 TTFT ≤ 500 ms</text>
+  <text x="698" y="120" text-anchor="middle" class="sm">p95 TPOT ≤ 25 ms</text>
+  <text x="698" y="136" text-anchor="middle" class="sm">capacity sized for the peak</text>
+
+  <!-- Offline lane -->
+  <rect x="10" y="190" width="820" height="180" rx="4" class="group"/>
+  <text x="24" y="214" class="lg b">Offline batch: nobody is waiting</text>
+
+  <!-- input store cylinder -->
+  <path d="M24,252 a52,10 0 0,0 104,0 a52,10 0 0,0 -104,0 v60 a52,10 0 0,0 104,0 v-60" class="blue"/>
+  <text x="76" y="286" text-anchor="middle" class="b">50M docs</text>
+  <text x="76" y="303" text-anchor="middle" class="sm">object storage</text>
+  <path d="M128,282 L158,282" class="edge"/>
+
+  <rect x="160" y="257" width="100" height="50" rx="6" class="gray"/>
+  <text x="210" y="279" text-anchor="middle" class="b">Shards</text>
+  <text x="210" y="296" text-anchor="middle" class="sm">5,000 docs each</text>
+  <path d="M260,282 L298,282" class="edge"/>
+
+  <rect x="300" y="228" width="250" height="122" rx="4" class="group"/>
+  <text x="425" y="246" text-anchor="middle" class="sm">many GPUs, no latency target</text>
+  <rect x="314" y="256" width="222" height="26" rx="4" class="orange"/>
+  <text x="425" y="274" text-anchor="middle" class="sm">vLLM replica: KV-cache-full batch</text>
+  <rect x="314" y="288" width="222" height="26" rx="4" class="orange"/>
+  <text x="425" y="306" text-anchor="middle" class="sm">vLLM replica: KV-cache-full batch</text>
+  <rect x="314" y="320" width="222" height="26" rx="4" class="orange"/>
+  <text x="425" y="338" text-anchor="middle" class="sm">vLLM replica: KV-cache-full batch</text>
+  <path d="M550,282 L588,282" class="edge"/>
+
+  <path d="M590,252 a52,10 0 0,0 104,0 a52,10 0 0,0 -104,0 v60 a52,10 0 0,0 104,0 v-60" class="blue"/>
+  <text x="642" y="286" text-anchor="middle" class="b">Summaries</text>
+  <text x="642" y="303" text-anchor="middle" class="sm">+ checkpoint</text>
+
+  <rect x="710" y="238" width="106" height="96" rx="6" class="green"/>
+  <text x="763" y="262" text-anchor="middle" class="b">Judged by</text>
+  <text x="763" y="282" text-anchor="middle" class="sm">$ per 1M tokens</text>
+  <text x="763" y="300" text-anchor="middle" class="sm">job finish time</text>
+  <text x="763" y="318" text-anchor="middle" class="sm">idle or spot GPUs</text>
+</svg>

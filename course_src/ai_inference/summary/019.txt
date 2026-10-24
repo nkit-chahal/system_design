@@ -1,0 +1,7 @@
+center: GPU Utilization
+branch: GPU-Util misleads | any kernel running | time, not chip capacity
+branch: DCGM counters | SM activity and occupancy | tensor and DRAM activity
+branch: MFU and MBU | prefill MFU 52% | decode MBU 65–68% | decode MFU 0.23–6.5%
+branch: Lost utilization | small batches | CPU and launch gaps | padding and preemption
+branch: Levers | CUDA graphs, async scheduling | bigger batches cost TPOT | FP8 halves bytes
+branch: Profiling | DCGM, then ratios | Nsight Systems timeline | PyTorch profiler

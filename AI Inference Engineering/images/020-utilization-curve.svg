@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="420" viewBox="0 0 820 420" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .gridl{stroke:#e3e3e3;stroke-width:1}
+    .cost{fill:none;stroke:#d79b00;stroke-width:2.4}
+    .api{stroke:#9673a6;stroke-width:2;stroke-dasharray:8 4}
+    .zone{fill:#f8cecc;opacity:0.55}
+    .pt{fill:#d5e8d4;stroke:#82b366;stroke-width:1.5}
+    .ptr{fill:#f8cecc;stroke:#b85450;stroke-width:1.5}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <rect x="90" y="60" width="152.4" height="270" class="zone"/>
+  <text x="166.2" y="318" text-anchor="middle" class="sm">API cheaper</text>
+  <path d="M90,286.7H730M90,243.3H730M90,200.0H730M90,156.7H730M90,113.3H730M90,70.0H730" class="gridl"/>
+  <path d="M90,56 L90,330 L730,330" class="axis"/>
+  <path d="M90.0,330V336M218.0,330V336M346.0,330V336M474.0,330V336M602.0,330V336M730.0,330V336" stroke="#000"/>
+  <text x="90.0" y="352" text-anchor="middle" class="sm">0%</text><text x="218.0" y="352" text-anchor="middle" class="sm">20%</text><text x="346.0" y="352" text-anchor="middle" class="sm">40%</text><text x="474.0" y="352" text-anchor="middle" class="sm">60%</text><text x="602.0" y="352" text-anchor="middle" class="sm">80%</text><text x="730.0" y="352" text-anchor="middle" class="sm">100%</text>
+  <text x="82" y="334.0" text-anchor="end" class="sm">$0.00</text><text x="82" y="290.7" text-anchor="end" class="sm">$0.20</text><text x="82" y="247.3" text-anchor="end" class="sm">$0.40</text><text x="82" y="204.0" text-anchor="end" class="sm">$0.60</text><text x="82" y="160.7" text-anchor="end" class="sm">$0.80</text><text x="82" y="117.3" text-anchor="end" class="sm">$1.00</text><text x="82" y="74.0" text-anchor="end" class="sm">$1.20</text>
+  <text x="410" y="376" text-anchor="middle">average utilization of the self-hosted fleet</text>
+  <text x="26" y="195" text-anchor="middle" transform="rotate(-90 26 195)">GPU cost per 1,000 requests</text>
+
+  <line x1="90" y1="178.3" x2="730" y2="178.3" class="api"/>
+  <text x="726" y="170.3" text-anchor="end" class="sm">per-token API at assumed prices: $0.70 per 1,000 requests</text>
+  <polyline points="179.6,72.1 186.0,89.3 192.4,104.3 198.8,117.6 205.2,129.4 211.6,139.9 218.0,149.4 224.4,158.0 230.8,165.9 237.2,173.0 243.6,179.5 250.0,185.6 256.4,191.1 262.8,196.3 269.2,201.0 275.6,205.5 282.0,209.6 288.4,213.5 294.8,217.2 301.2,220.6 307.6,223.8 314.0,226.8 320.4,229.7 326.8,232.4 333.2,235.0 339.6,237.4 346.0,239.7 352.4,241.9 358.8,244.0 365.2,246.0 371.6,247.9 378.0,249.8 384.4,251.5 390.8,253.2 397.2,254.8 403.6,256.3 410.0,257.8 416.4,259.2 422.8,260.6 429.2,261.9 435.6,263.1 442.0,264.3 448.4,265.5 454.8,266.6 461.2,267.7 467.6,268.8 474.0,269.8 480.4,270.8 486.8,271.8 493.2,272.7 499.6,273.6 506.0,274.4 512.4,275.3 518.8,276.1 525.2,276.9 531.6,277.7 538.0,278.4 544.4,279.1 550.8,279.8 557.2,280.5 563.6,281.2 570.0,281.9 576.4,282.5 582.8,283.1 589.2,283.7 595.6,284.3 602.0,284.9 608.4,285.4 614.8,286.0 621.2,286.5 627.6,287.0 634.0,287.5 640.4,288.0 646.8,288.5 653.2,289.0 659.6,289.4 666.0,289.9 672.4,290.3 678.8,290.7 685.2,291.2 691.6,291.6 698.0,292.0 704.4,292.4 710.8,292.8 717.2,293.2 723.6,293.5 730.0,293.9" class="cost"/>
+  <text x="256" y="138" class="sm">self-hosted: $0.167 ÷ utilization</text>
+
+  <line x1="242.4" y1="178.3" x2="242.4" y2="330" stroke="#000" stroke-dasharray="3 3"/>
+  <circle cx="242.4" cy="178.3" r="5" class="ptr"/>
+  <text x="234" y="236" text-anchor="end" class="sm">break-even ≈ 24%</text>
+
+  <circle cx="356.7" cy="243.3" r="5" class="pt"/>
+  <text x="366.7" y="233.3" class="sm">static, 42%: $0.40</text>
+  <circle cx="547.1" cy="279.4" r="5" class="pt"/>
+  <text x="547.1" y="267.4" text-anchor="middle" class="sm">autoscaled, 71%: $0.23</text>
+  <circle cx="730.0" cy="293.9" r="5" class="pt"/>
+  <text x="722.0" y="315.9" text-anchor="end" class="sm">full load: $0.17</text>
+
+  <text x="90" y="404" class="sm">Assumptions: $3.00 per H100-hour, 5 requests/s per GPU at full load; API at $0.20 per 1M input and $0.60 per 1M output tokens.</text>
+</svg>

@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="380" viewBox="0 0 820 380" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:0.8}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .grid{fill:none;stroke:#e5e5e5;stroke-width:1}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <text x="20" y="24" class="b">One 128K-token prompt prefilled in chunks while other users decode (lower bound, 50% MFU)</text>
+
+  <!-- x 90..770 for prompt position 0..131,072; y 300..40 for 0..400 ms -->
+  <path d="M90,235 L770,235 M90,170 L770,170 M90,105 L770,105 M90,40 L770,40" class="grid"/>
+  <rect x="90.5" y="255.3" width="9.6" height="44.7" class="orange"/>
+  <rect x="101.1" y="252.4" width="9.6" height="47.6" class="orange"/>
+  <rect x="111.8" y="249.5" width="9.6" height="50.5" class="orange"/>
+  <rect x="122.4" y="246.6" width="9.6" height="53.4" class="orange"/>
+  <rect x="133.0" y="243.8" width="9.6" height="56.2" class="orange"/>
+  <rect x="143.6" y="240.9" width="9.6" height="59.1" class="orange"/>
+  <rect x="154.2" y="238.0" width="9.6" height="62.0" class="orange"/>
+  <rect x="164.9" y="235.1" width="9.6" height="64.9" class="orange"/>
+  <rect x="175.5" y="232.2" width="9.6" height="67.8" class="orange"/>
+  <rect x="186.1" y="229.3" width="9.6" height="70.7" class="orange"/>
+  <rect x="196.8" y="226.4" width="9.6" height="73.6" class="orange"/>
+  <rect x="207.4" y="223.5" width="9.6" height="76.5" class="orange"/>
+  <rect x="218.0" y="220.6" width="9.6" height="79.4" class="orange"/>
+  <rect x="228.6" y="217.7" width="9.6" height="82.3" class="orange"/>
+  <rect x="239.2" y="214.9" width="9.6" height="85.1" class="orange"/>
+  <rect x="249.9" y="212.0" width="9.6" height="88.0" class="orange"/>
+  <rect x="260.5" y="209.1" width="9.6" height="90.9" class="orange"/>
+  <rect x="271.1" y="206.2" width="9.6" height="93.8" class="orange"/>
+  <rect x="281.8" y="203.3" width="9.6" height="96.7" class="orange"/>
+  <rect x="292.4" y="200.4" width="9.6" height="99.6" class="orange"/>
+  <rect x="303.0" y="197.5" width="9.6" height="102.5" class="orange"/>
+  <rect x="313.6" y="194.6" width="9.6" height="105.4" class="orange"/>
+  <rect x="324.2" y="191.7" width="9.6" height="108.3" class="orange"/>
+  <rect x="334.9" y="188.8" width="9.6" height="111.2" class="orange"/>
+  <rect x="345.5" y="185.9" width="9.6" height="114.1" class="orange"/>
+  <rect x="356.1" y="183.1" width="9.6" height="116.9" class="orange"/>
+  <rect x="366.8" y="180.2" width="9.6" height="119.8" class="orange"/>
+  <rect x="377.4" y="177.3" width="9.6" height="122.7" class="orange"/>
+  <rect x="388.0" y="174.4" width="9.6" height="125.6" class="orange"/>
+  <rect x="398.6" y="171.5" width="9.6" height="128.5" class="orange"/>
+  <rect x="409.2" y="168.6" width="9.6" height="131.4" class="orange"/>
+  <rect x="419.9" y="165.7" width="9.6" height="134.3" class="orange"/>
+  <rect x="430.5" y="162.8" width="9.6" height="137.2" class="orange"/>
+  <rect x="441.1" y="159.9" width="9.6" height="140.1" class="orange"/>
+  <rect x="451.8" y="157.0" width="9.6" height="143.0" class="orange"/>
+  <rect x="462.4" y="154.2" width="9.6" height="145.8" class="orange"/>
+  <rect x="473.0" y="151.3" width="9.6" height="148.7" class="orange"/>
+  <rect x="483.6" y="148.4" width="9.6" height="151.6" class="orange"/>
+  <rect x="494.2" y="145.5" width="9.6" height="154.5" class="orange"/>
+  <rect x="504.9" y="142.6" width="9.6" height="157.4" class="orange"/>
+  <rect x="515.5" y="139.7" width="9.6" height="160.3" class="orange"/>
+  <rect x="526.1" y="136.8" width="9.6" height="163.2" class="orange"/>
+  <rect x="536.8" y="133.9" width="9.6" height="166.1" class="orange"/>
+  <rect x="547.4" y="131.0" width="9.6" height="169.0" class="orange"/>
+  <rect x="558.0" y="128.1" width="9.6" height="171.9" class="orange"/>
+  <rect x="568.6" y="125.2" width="9.6" height="174.8" class="orange"/>
+  <rect x="579.2" y="122.4" width="9.6" height="177.6" class="orange"/>
+  <rect x="589.9" y="119.5" width="9.6" height="180.5" class="orange"/>
+  <rect x="600.5" y="116.6" width="9.6" height="183.4" class="orange"/>
+  <rect x="611.1" y="113.7" width="9.6" height="186.3" class="orange"/>
+  <rect x="621.8" y="110.8" width="9.6" height="189.2" class="orange"/>
+  <rect x="632.4" y="107.9" width="9.6" height="192.1" class="orange"/>
+  <rect x="643.0" y="105.0" width="9.6" height="195.0" class="orange"/>
+  <rect x="653.6" y="102.1" width="9.6" height="197.9" class="orange"/>
+  <rect x="664.2" y="99.2" width="9.6" height="200.8" class="orange"/>
+  <rect x="674.9" y="96.3" width="9.6" height="203.7" class="orange"/>
+  <rect x="685.5" y="93.5" width="9.6" height="206.5" class="orange"/>
+  <rect x="696.1" y="90.6" width="9.6" height="209.4" class="orange"/>
+  <rect x="706.8" y="87.7" width="9.6" height="212.3" class="orange"/>
+  <rect x="717.4" y="84.8" width="9.6" height="215.2" class="orange"/>
+  <rect x="728.0" y="81.9" width="9.6" height="218.1" class="orange"/>
+  <rect x="738.6" y="79.0" width="9.6" height="221.0" class="orange"/>
+  <rect x="749.2" y="76.1" width="9.6" height="223.9" class="orange"/>
+  <rect x="759.9" y="73.2" width="9.6" height="226.8" class="orange"/>
+  <path d="M90.0,289.1 L767.3,243.0" fill="none" stroke="#82b366" stroke-width="2.5"/>
+  <path d="M90,283.75 L770,283.75" fill="none" stroke="#b85450" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <path d="M90,36 L90,300 L774,300" class="axis"/>
+  <text x="82" y="304" text-anchor="end" class="sm">0</text>
+  <text x="82" y="239" text-anchor="end" class="sm">100</text>
+  <text x="82" y="174" text-anchor="end" class="sm">200</text>
+  <text x="82" y="109" text-anchor="end" class="sm">300</text>
+  <text x="82" y="44" text-anchor="end" class="sm">400</text>
+  <text x="30" y="170" class="sm" transform="rotate(-90 30 170)" text-anchor="middle">step time (ms)</text>
+  <path d="M260,300 L260,305 M430,300 L430,305 M600,300 L600,305 M770,300 L770,305" class="axis"/>
+  <text x="90" y="320" text-anchor="middle" class="sm">0</text>
+  <text x="260" y="320" text-anchor="middle" class="sm">32K</text>
+  <text x="430" y="320" text-anchor="middle" class="sm">64K</text>
+  <text x="600" y="320" text-anchor="middle" class="sm">96K</text>
+  <text x="770" y="320" text-anchor="middle" class="sm">128K</text>
+  <text x="430" y="342" text-anchor="middle" class="sm">position of the chunk inside the prompt (tokens already prefilled)</text>
+
+  <rect x="104" y="48" width="300" height="72" rx="4" fill="#fff" stroke="#666" stroke-width="1.2"/>
+  <rect x="116" y="58" width="24" height="12" class="orange"/><text x="150" y="69" class="sm">2,048-token chunks: 69 → 349 ms</text>
+  <path d="M116,86 L140,86" stroke="#82b366" stroke-width="2.5"/><text x="150" y="90" class="sm">512-token chunks: 17 → 88 ms</text>
+  <path d="M116,106 L140,106" stroke="#b85450" stroke-width="1.5" stroke-dasharray="6 4"/><text x="150" y="110" class="sm">25 ms TPOT target for decoding users</text>
+
+  <rect x="20" y="352" width="780" height="22" rx="4" class="gray"/>
+  <text x="410" y="368" text-anchor="middle" class="sm">Each step is as long as its prompt chunk, and every decoding user waits for it. Later chunks attend to more history, so they cost more.</text>
+</svg>

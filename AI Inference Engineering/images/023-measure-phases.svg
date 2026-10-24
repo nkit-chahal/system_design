@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="360" viewBox="0 0 860 360" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+    <pattern id="redhatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#e0a8a6" stroke-width="3"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.lg{font-size:16px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .yellow{fill:#fff2cc;stroke:#d6b656;stroke-width:1.2}
+    .red{fill:#f8cecc;stroke:#b85450;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .white{fill:#fff;stroke:#000;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .dedge{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    .axis{fill:none;stroke:#000;stroke-width:1.2}
+    .tick{stroke:#000;stroke-width:1}
+    .grid{stroke:#e3e3e3;stroke-width:1}
+    .guide{stroke:#666;stroke-width:1;stroke-dasharray:5 4;fill:none}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <path d="M40,180 L830,180" class="edge"/>
+  <text x="830" y="200" text-anchor="end" class="sm">time</text>
+  <text x="16" y="26" class="b">Kubernetes: pod conditions and events</text>
+  <line x1="40.0" y1="156" x2="40.0" y2="180" stroke="#9673a6" stroke-width="1.6"/>
+  <circle cx="40.0" cy="180" r="5" fill="#e1d5e7" stroke="#9673a6" stroke-width="1.4"/>
+  <text x="44.0" y="150" class="sm" text-anchor="start">pod created</text>
+  <line x1="430.0" y1="116" x2="430.0" y2="180" stroke="#9673a6" stroke-width="1.6"/>
+  <circle cx="430.0" cy="180" r="5" fill="#e1d5e7" stroke="#9673a6" stroke-width="1.4"/>
+  <text x="434.0" y="110" class="sm" text-anchor="start">PodScheduled, Pulling</text>
+  <line x1="560.0" y1="156" x2="560.0" y2="180" stroke="#9673a6" stroke-width="1.6"/>
+  <circle cx="560.0" cy="180" r="5" fill="#e1d5e7" stroke="#9673a6" stroke-width="1.4"/>
+  <text x="564.0" y="150" class="sm" text-anchor="start">Pulled, Started</text>
+  <line x1="768.0" y1="116" x2="768.0" y2="180" stroke="#9673a6" stroke-width="1.6"/>
+  <circle cx="768.0" cy="180" r="5" fill="#e1d5e7" stroke="#9673a6" stroke-width="1.4"/>
+  <text x="764.0" y="110" class="sm" text-anchor="end">Ready</text>
+  <path d="M43.0,72 L43.0,64 L427.0,64 L427.0,72" fill="none" stroke="#000" stroke-width="1"/>
+  <text x="235.0" y="58" text-anchor="middle" class="sm">wait for a GPU node</text>
+  <path d="M433.0,72 L433.0,64 L557.0,64 L557.0,72" fill="none" stroke="#000" stroke-width="1"/>
+  <text x="495.0" y="58" text-anchor="middle" class="sm">image pull</text>
+  <path d="M563.0,72 L563.0,64 L765.0,64 L765.0,72" fill="none" stroke="#000" stroke-width="1"/>
+  <text x="664.0" y="58" text-anchor="middle" class="sm">weights + engine + warmup</text>
+  <text x="16" y="226" class="b">vLLM log lines</text>
+  <line x1="664.0" y1="180" x2="664.0" y2="246" stroke="#d79b00" stroke-width="1.6"/>
+  <circle cx="664.0" cy="180" r="4" fill="#ffe6cc" stroke="#d79b00" stroke-width="1.4"/>
+  <text x="658.0" y="250" class="sm" text-anchor="end">"Model loading took … seconds"</text>
+  <line x1="707.3" y1="180" x2="707.3" y2="268" stroke="#d79b00" stroke-width="1.6"/>
+  <circle cx="707.3" cy="180" r="4" fill="#ffe6cc" stroke="#d79b00" stroke-width="1.4"/>
+  <text x="701.3" y="272" class="sm" text-anchor="end">"torch.compile took … s in total"</text>
+  <line x1="733.3" y1="180" x2="733.3" y2="290" stroke="#d79b00" stroke-width="1.6"/>
+  <circle cx="733.3" cy="180" r="4" fill="#ffe6cc" stroke="#d79b00" stroke-width="1.4"/>
+  <text x="727.3" y="294" class="sm" text-anchor="end">"Graph capturing finished in … secs"</text>
+  <line x1="750.7" y1="180" x2="750.7" y2="312" stroke="#d79b00" stroke-width="1.6"/>
+  <circle cx="750.7" cy="180" r="4" fill="#ffe6cc" stroke="#d79b00" stroke-width="1.4"/>
+  <text x="744.7" y="316" class="sm" text-anchor="end">"init engine (profile, create kv cache, warmup model) took … s"</text>
+  <text x="16" y="346" class="sm">Positions follow the 8.4-minute cold path of Figure 1. Node creation time and readiness come from the Node object.</text>
+</svg>

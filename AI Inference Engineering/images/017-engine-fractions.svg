@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="400" viewBox="0 0 820 400" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#bbb" stroke-width="2"/></pattern>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .note{font-size:12px;fill:#666}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .held{fill:url(#hatch);stroke:#666;stroke-width:1.2}
+    .brk{fill:none;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- vLLM -->
+  <text x="20" y="88" class="b">vLLM</text>
+  <text x="438" y="48" text-anchor="middle" class="sm">--gpu-memory-utilization × total memory: weights, activations, graphs and KV</text>
+  <path d="M150,62 V55 H726 V62" class="brk"/>
+  <rect x="150" y="66" width="120" height="34" class="orange"/>
+  <text x="210" y="88" text-anchor="middle">weights</text>
+  <rect x="270" y="66" width="50" height="34" class="gray"/>
+  <rect x="320" y="66" width="406" height="34" class="blue"/>
+  <text x="523" y="88" text-anchor="middle">KV cache</text>
+  <rect x="726" y="66" width="64" height="34" class="held"/>
+
+  <!-- SGLang -->
+  <text x="20" y="188" class="b">SGLang</text>
+  <text x="422" y="148" text-anchor="middle" class="sm">--mem-fraction-static × total memory: weights and the KV pool</text>
+  <path d="M150,162 V155 H694 V162" class="brk"/>
+  <rect x="150" y="166" width="120" height="34" class="orange"/>
+  <text x="210" y="188" text-anchor="middle">weights</text>
+  <rect x="270" y="166" width="424" height="34" class="blue"/>
+  <text x="482" y="188" text-anchor="middle">KV pool</text>
+  <rect x="694" y="166" width="56" height="34" class="gray"/>
+  <rect x="750" y="166" width="40" height="34" class="held"/>
+  <text x="790" y="218" text-anchor="end" class="sm">the rest: activations and CUDA graphs</text>
+
+  <!-- TensorRT-LLM -->
+  <text x="20" y="288" class="b">TensorRT-LLM</text>
+  <text x="531" y="248" text-anchor="middle" class="sm">free_gpu_memory_fraction × free memory: the KV cache</text>
+  <path d="M320,262 V255 H743 V262" class="brk"/>
+  <rect x="150" y="266" width="120" height="34" class="orange"/>
+  <text x="210" y="288" text-anchor="middle">weights</text>
+  <rect x="270" y="266" width="50" height="34" class="gray"/>
+  <rect x="320" y="266" width="423" height="34" class="blue"/>
+  <text x="531" y="288" text-anchor="middle">KV cache</text>
+  <rect x="743" y="266" width="47" height="34" class="held"/>
+  <path d="M320,306 V313 H790 V306" class="brk"/>
+  <text x="555" y="330" text-anchor="middle" class="sm">memory still free after the model and runtime load</text>
+
+  <text x="20" y="358" class="note">Same idea, three different denominators: 0.9 in one engine is not 0.9 in another. Proportions are illustrative.</text>
+
+  <!-- Legend -->
+  <rect x="20" y="374" width="16" height="12" class="orange"/><text x="42" y="385" class="sm">weights</text>
+  <rect x="110" y="374" width="16" height="12" class="gray"/><text x="132" y="385" class="sm">activations, CUDA graphs</text>
+  <rect x="300" y="374" width="16" height="12" class="blue"/><text x="322" y="385" class="sm">KV cache</text>
+  <rect x="400" y="374" width="16" height="12" class="held"/><text x="422" y="385" class="sm">left unused by the engine</text>
+</svg>

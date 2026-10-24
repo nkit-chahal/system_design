@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="440" viewBox="0 0 820 440" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
+  </defs>
+  <style>
+    text{font-size:14px;fill:#000}
+    .sm{font-size:12px}.b{font-weight:bold}
+    .orange{fill:#ffe6cc;stroke:#d79b00;stroke-width:1.2}
+    .blue{fill:#dae8fc;stroke:#6c8ebf;stroke-width:1.2}
+    .green{fill:#d5e8d4;stroke:#82b366;stroke-width:1.2}
+    .purple{fill:#e1d5e7;stroke:#9673a6;stroke-width:1.2}
+    .gray{fill:#f5f5f5;stroke:#666;stroke-width:1.2}
+    .group{fill:none;stroke:#000;stroke-width:1.2;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#000;stroke-width:1.2;marker-end:url(#arrow)}
+    .line{fill:none;stroke:#000;stroke-width:1.2}
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- Load generators -->
+  <rect x="20" y="70" width="210" height="56" rx="6" class="purple"/>
+  <text x="125" y="93" text-anchor="middle" class="b">vllm bench serve</text>
+  <text x="125" y="112" text-anchor="middle" class="sm">primary load generator</text>
+  <rect x="20" y="150" width="210" height="56" rx="6" class="purple"/>
+  <text x="125" y="173" text-anchor="middle" class="b">sglang.bench_serving</text>
+  <text x="125" y="192" text-anchor="middle" class="sm">cross-check</text>
+
+  <!-- Bus to engines -->
+  <path d="M230,98 L290,98 M230,178 L290,178 M290,98 L290,210" class="line"/>
+  <path d="M290,135 L376,135" class="edge"/>
+  <path d="M290,210 L376,210" class="edge"/>
+  <text x="275" y="238" text-anchor="middle" class="sm">50 requests</text>
+  <text x="275" y="254" text-anchor="middle" class="sm">in flight,</text>
+  <text x="275" y="270" text-anchor="middle" class="sm">localhost</text>
+
+  <!-- Machine -->
+  <rect x="320" y="20" width="480" height="320" rx="4" class="group"/>
+  <text x="332" y="40" class="sm">one H100 machine: one engine runs at a time</text>
+
+  <rect x="378" y="105" width="250" height="60" rx="6" class="orange"/>
+  <text x="503" y="130" text-anchor="middle" class="b">vLLM on port 8000</text>
+  <text x="503" y="150" text-anchor="middle" class="sm">venv A, prefix caching off</text>
+  <rect x="378" y="180" width="250" height="60" rx="6" class="orange"/>
+  <text x="503" y="205" text-anchor="middle" class="b">SGLang on port 30000</text>
+  <text x="503" y="225" text-anchor="middle" class="sm">venv B, radix cache off</text>
+
+  <!-- Shared weights store -->
+  <path d="M650,110 L650,222 A70,10 0 0,0 790,222 L790,110" class="blue"/>
+  <ellipse cx="720" cy="110" rx="70" ry="10" class="blue"/>
+  <text x="720" y="148" text-anchor="middle" class="sm">/models/</text>
+  <text x="720" y="164" text-anchor="middle" class="sm">llama31-8b</text>
+  <text x="720" y="186" text-anchor="middle" class="sm">same weights,</text>
+  <text x="720" y="202" text-anchor="middle" class="sm">tokenizer, template</text>
+  <path d="M650,135 L630,135" class="edge"/>
+  <path d="M650,210 L630,210" class="edge"/>
+
+  <rect x="378" y="268" width="412" height="52" rx="6" class="gray"/>
+  <text x="584" y="290" text-anchor="middle" class="b">GPU: H100 80 GB</text>
+  <text x="584" y="308" text-anchor="middle" class="sm">stop one engine before starting the other</text>
+
+  <!-- Results -->
+  <path d="M125,206 L125,272" class="edge"/>
+  <path d="M40,284 L40,330 A85,10 0 0,0 210,330 L210,284" class="blue"/>
+  <ellipse cx="125" cy="284" rx="85" ry="10" class="blue"/>
+  <text x="125" y="312" text-anchor="middle" class="sm">results/</text>
+  <text x="125" y="328" text-anchor="middle" class="sm">JSON from both tools</text>
+
+  <path d="M125,340 L125,368" class="edge"/>
+  <rect x="45" y="370" width="160" height="44" rx="6" class="gray"/>
+  <text x="125" y="397" text-anchor="middle">summarize.py</text>
+  <path d="M205,392 L258,392" class="edge"/>
+  <rect x="260" y="370" width="260" height="44" rx="6" class="green"/>
+  <text x="390" y="390" text-anchor="middle" class="sm">results table: median [min-max]</text>
+  <text x="390" y="406" text-anchor="middle" class="sm">of 3 runs per engine</text>
+</svg>

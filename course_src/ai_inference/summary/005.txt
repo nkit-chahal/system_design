@@ -1,0 +1,7 @@
+center: Tokens per Second
+branch: Two numbers | per-user speed: 1 ÷ step | throughput: batch ÷ step
+branch: Latency | TTFT + TPOT × (N − 1) | ≈ 10.9 s per answer
+branch: Batch trade-off | weights + KV read | 204 → 7,900 tok/s total | 204 → 47 per user
+branch: Planning point | 53 streams, ≈ 21 ms | ≈ 2,500 output tok/s | ≈ 5 req/s per H100
+branch: Goodput | requests meeting targets | peaks before saturation
+branch: Reading claims | input + output = 5× | 5–6 tokens/s reading speed
