@@ -318,7 +318,7 @@ gradient_accumulation_steps = 32      # Micro-batches per step (m = 32)
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the pipeline parallelism lesson: stage partitioning, bubble arithmetic, GPipe vs 1F1B scheduling, zero-bubble execution, and network trade-offs." loading="lazy" decoding="async" src="images/013-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Pipeline parallelism summary</figcaption></div></figure>
 <ul>
 <li>Pipeline parallelism partitions a model vertically by layers across sequential stages, communicating activations forward and gradients backward only at stage boundaries.</li>
 <li>Naive execution leaves <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mo stretchy="false">&#x00028;</mo><mi>p</mi><mo>&#x02212;</mo><mn>1</mn><mo stretchy="false">&#x00029;</mo><mo>&#x0002F;</mo><mi>p</mi></mrow></math> of GPU time idle (75% for 4 stages). Micro-batching streams smaller chunks to overlap computation across stages.</li>

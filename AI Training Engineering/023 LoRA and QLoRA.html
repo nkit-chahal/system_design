@@ -391,7 +391,7 @@ tokenizer.save_pretrained(export_dir)
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the LoRA and QLoRA lesson: low-rank matrix decomposition, 16-byte memory reduction, QLoRA 4-bit innovations, learning dynamics, variants, and deployment trade-offs." loading="lazy" decoding="async" src="images/023-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 5: LoRA and QLoRA summary</figcaption></div></figure>
 <ul>
 <li>LoRA parameterizes weight updates as <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>&#x00394;</mi><mi>W</mi><mo>&#x0003D;</mo><mfrac><mrow><mi>&#x003B1;</mi></mrow><mrow><mi>r</mi></mrow></mfrac><mi>B</mi><mi>A</mi></mrow></math>. Initializing <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>B</mi><mo>&#x0003D;</mo><mn>0</mn></mrow></math> and <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>A</mi><mi>&#x0007E;</mi><mi>&#x1D4A9;</mi><mo stretchy="false">&#x00028;</mo><mn>0</mn><mo>&#x0002C;</mo><mn>1</mn><mo>&#x0002F;</mo><mi>r</mi><mo stretchy="false">&#x00029;</mo></mrow></math> ensures <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>&#x00394;</mi><mi>W</mi><mo>&#x0003D;</mo><mn>0</mn></mrow></math> at initialization, preserving base model outputs.</li>
 <li>Adapting all seven linear projections (Q, K, V, O, Gate, Up, Down) at <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>r</mi><mo>&#x0003D;</mo><mn>16</mn></mrow></math> on Llama 3.1 8B adds <strong>41.94M trainable parameters (0.52% of the model)</strong>, requiring <strong>80.0 MiB in BF16</strong>.</li>

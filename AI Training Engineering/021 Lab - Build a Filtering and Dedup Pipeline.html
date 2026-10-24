@@ -732,7 +732,7 @@ dedup_filter_stage = LocalPipelineExecutor(
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the lab: raw web ingestion, heuristic filtering rules, exact and MinHash LSH deduplication, precision auditing, and 1T-token cluster sizing." loading="lazy" decoding="async" src="images/021-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Filtering and deduplication pipeline summary</figcaption></div></figure>
 <ul>
 <li>Raw web dumps from Common Crawl require rigorous 5-stage curation: ingestion, language identification, heuristic quality filtering, exact deduplication, and MinHash LSH near-deduplication.</li>
 <li>Heuristic quality checks evaluate word count bounds, mean word lengths (3–10 chars), symbol-to-word ratios (< 15%), terminal punctuation (> 25%), and repetitive line ratios (< 30%).</li>

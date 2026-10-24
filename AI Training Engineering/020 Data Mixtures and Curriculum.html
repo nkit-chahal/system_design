@@ -470,7 +470,7 @@ controller = AnnealingCurriculumController(
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing data mixtures and curriculum: domain trade-offs, automated mixture selection via DoReMi and RegMix, repetition scaling limits, late-stage annealing, and our 1T-token pretraining budget." loading="lazy" decoding="async" src="images/020-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Data mixtures and curriculum summary</figcaption></div></figure>
 <ul>
 <li>Pretraining mixtures combine diverse sources (curated web, source code, mathematics, multilingual, and books) to impart world knowledge, algorithmic logic, deduction, and fluency simultaneously.</li>
 <li>Automated methods replace expensive manual tuning: <strong>DoReMi</strong> optimizes worst-case domain regret via Group DRO on a proxy model (2.6× faster convergence), while <strong>RegMix</strong> fits regression surfaces across micro-proxies at < 3% compute overhead.</li>

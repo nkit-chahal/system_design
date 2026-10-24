@@ -442,7 +442,7 @@ accelerate launch \
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing Supervised Fine-Tuning: base model alignment, assistant-only loss masking, Tülu 3 hyperparameters, 8×H100 FSDP compute and memory accounting, and forgetting mitigation." loading="lazy" decoding="async" src="images/022-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Supervised fine-tuning summary</figcaption></div></figure>
 <ul>
 <li>Supervised Fine-Tuning (SFT) transforms raw base continuators into compliant, role-bounded assistants by training on conversational dialogues using <strong>assistant-only loss masking</strong> (setting prompt labels to -100).</li>
 <li>Per the Superficial Alignment Hypothesis (LIMA), pretraining acquires world knowledge while SFT learns interaction style, format, and schemas; however, SFT cannot inject deep foundational skills without hallucination.</li>
