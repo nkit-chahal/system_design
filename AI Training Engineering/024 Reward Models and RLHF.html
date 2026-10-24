@@ -375,7 +375,7 @@ score_b = score_candidate(prompt, resp_bad)
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the reward models and RLHF lesson: preference learning motivation, Bradley-Terry formulation, the four-model PPO ecosystem, reward hacking, RLAIF, and the evolution toward DPO and GRPO." loading="lazy" decoding="async" src="images/024-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 8: Reward models and RLHF summary</figcaption></div></figure>
 <ul>
 <li>Supervised fine-tuning suffers from exposure bias, cannot penalize bad tokens, and struggles with multi-objective trade-offs. Pairwise preference learning aligns model completions with human criteria (Helpful, Honest, Harmless).</li>
 <li>The Bradley-Terry model frames pairwise preference as <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>P</mi><mo stretchy="false">&#x00028;</mo><msub><mi>y</mi><mi>w</mi></msub><mo>&#x0227B;</mo><msub><mi>y</mi><mi>l</mi></msub><mo>&#x02223;</mo><mi>x</mi><mo stretchy="false">&#x00029;</mo><mo>&#x0003D;</mo><mi>&#x003C3;</mi><mo stretchy="false">&#x00028;</mo><mi>r</mi><mo stretchy="false">&#x00028;</mo><mi>x</mi><mo>&#x0002C;</mo><msub><mi>y</mi><mi>w</mi></msub><mo stretchy="false">&#x00029;</mo><mo>&#x02212;</mo><mi>r</mi><mo stretchy="false">&#x00028;</mo><mi>x</mi><mo>&#x0002C;</mo><msub><mi>y</mi><mi>l</mi></msub><mo stretchy="false">&#x00029;</mo><mo stretchy="false">&#x00029;</mo></mrow></math>. The reward model optimizes negative log-sigmoid loss, scoring only relative differences.</li>
