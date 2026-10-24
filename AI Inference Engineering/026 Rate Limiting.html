@@ -388,7 +388,7 @@ x-ratelimit-remaining-tokens: 10000
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the rate limiting lesson: what to limit, the algorithms, charging for output tokens, responding to clients, fairness and shedding, and a distributed implementation." loading="lazy" decoding="async" src="images/026-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 8: Rate limiting summary</figcaption></div></figure>
 <ul>
 <li>Requests per minute alone cannot protect an LLM fleet: two tenants at 60 requests per minute can differ 150× in input tokens. Limit requests, input tokens, output tokens, and concurrent requests per tenant.</li>
 <li>A token bucket (capacity <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>B</mi></mrow></math>, refill <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>r</mi></mrow></math>) is the best general choice: two numbers of state, native variable cost, bounded bursts, and an exact wait time of (cost − tokens) ÷ <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>r</mi></mrow></math>. Fixed windows allow 2× bursts at boundaries.</li>

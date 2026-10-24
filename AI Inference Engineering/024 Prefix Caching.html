@@ -268,7 +268,7 @@ ask(<span class="hljs-string">"What is your refund policy?"</span>)   <span clas
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the prefix caching lesson: sources of shared prefixes, how vLLM and SGLang cache them, the savings math, prompt design, fleet effects, and metrics." loading="lazy" decoding="async" src="images/024-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 9: Prefix caching summary</figcaption></div></figure>
 <ul>
 <li>Requests that start with the same tokens have identical KV cache for those tokens; system prompts, few-shot examples, documents, chat history, and agent loops all create such prefixes.</li>
 <li>vLLM hashes full 16-token blocks with their parent's hash, shares blocks through reference counts, and evicts free blocks least recently used first; SGLang keeps a radix tree with token-level matching and evicts leaves first.</li>

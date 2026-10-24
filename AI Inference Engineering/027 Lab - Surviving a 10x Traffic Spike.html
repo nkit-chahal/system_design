@@ -680,7 +680,7 @@ python spike.py --url http://GATEWAY_HOST:<span class="hljs-number">8080</span> 
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the lab: the spike and pass criteria, warm capacity and cold starts, admission control, autoscaling signals, cache-aware routing, and failure modes." loading="lazy" decoding="async" src="images/027-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 8: Surviving a 10× spike summary</figcaption></div></figure>
 <ul>
 <li>A 10× spike of the running example is 167 requests per second, about 34 H100 replicas at about 5 requests per second each. New capacity takes minutes, so the first minutes are an admission problem.</li>
 <li>Keep warm replicas for what must never be shed (12 replicas cover 10× premium traffic), and standby nodes held by placeholder pods to cut cold starts.</li>
