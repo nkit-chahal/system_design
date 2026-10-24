@@ -329,7 +329,7 @@ srun --nodes=<span class="hljs-number">32</span> --ntasks-per-node=<span class="
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing cluster networking and collectives: physical interconnects, core NCCL primitives, bandwidth equations, latency sizing, straggler impacts, and hybrid sharding decisions." loading="lazy" decoding="async" src="images/030-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 8: Cluster networking summary</figcaption></div></figure>
 <ul>
 <li>AI clusters feature a steep bandwidth disparity: 8-GPU H100 nodes provide 900 GB/s bidirectional NVLink per GPU, whereas inter-node 400 Gb/s InfiniBand provides 50 GB/s per GPU—an 18× difference.</li>
 <li>Rail-optimized fat-tree networks map GPU <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>k</mi></mrow></math> on every node to an independent Rail <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mrow><mi>k</mi></mrow></math> leaf switch, allowing data parallel traffic to avoid crossing spine switches.</li>

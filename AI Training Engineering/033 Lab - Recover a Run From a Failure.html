@@ -496,7 +496,7 @@ mean_diff = np.mean(diffs)
 </ol>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing the lab: two execution tracks, the five mandatory checkpoint states, recovery timeline accounting, numerical verification criteria, and common operational pitfalls." loading="lazy" decoding="async" src="images/033-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 6: Failure recovery lab summary</figcaption></div></figure>
 <ul>
 <li>Hardware failures are normal operating conditions at scale; training pipelines must support automated crash detection and deterministic state recovery.</li>
 <li>A valid resumable checkpoint requires five distinct components: Model Weights, Optimizer States (Adam master weights and moments), LR Scheduler state, Dataloader offset, and RNG states.</li>

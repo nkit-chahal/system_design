@@ -293,7 +293,7 @@ accelerate launch -m lm_eval \
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing training evaluation: the four-tier evaluation pyramid, statistical noise mechanics, base versus instruct evaluation protocols, automated judge biases, and checkpoint soup averaging." loading="lazy" decoding="async" src="images/034-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Training evaluation summary</figcaption></div></figure>
 <ul>
 <li>Continuous evaluation during training prevents silent regressions and guides checkpoint selection. Never halt the main training cluster; offload heavy evaluations to an asynchronous evaluation pool.</li>
 <li>Held-out validation loss and downstream reasoning benchmarks frequently diverge: validation loss reflects average syntax prediction, while reasoning benchmarks test critical decision tokens and exhibit delayed emergence.</li>

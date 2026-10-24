@@ -340,7 +340,7 @@ srun --cpu-bind=none torchrun \
 </ul>
 
 <h2 id="summary">Summary</h2>
-
+<figure class="py-1"><div style="display:flex;justify-content:center"><img alt="Mind map summarizing job scheduling: gang scheduling semantics, Slurm multi-node launch mechanics, the Kubernetes training stack with Kueue and PyTorchJob, graceful preemption workflows, and scheduler trade-offs." loading="lazy" decoding="async" src="images/031-summary.png"></div><div style="display:flex;justify-content:center"><figcaption class="py-1">Figure 7: Job scheduling summary</figcaption></div></figure>
 <ul>
 <li>Distributed LLM training requires gang scheduling: all 256 GPUs must be bound simultaneously. Partial allocations trigger distributed deadlocks where GPUs idle indefinitely at the rendezvous barrier.</li>
 <li>Topology-aware placement schedules nodes under identical leaf switches, minimizing collective latency and eliminating cross-spine InfiniBand contention. Multi-GPU nodes must be allocated exclusively.</li>
